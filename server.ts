@@ -1,0 +1,3007 @@
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import Database from 'better-sqlite3';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import session from 'express-session';
+import cookieParser from 'cookie-parser';
+import bcrypt from 'bcryptjs';
+import admin from 'firebase-admin';
+import fs from 'fs';
+
+// Initialize Firebase Admin (verifyIdToken only needs projectId)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+try {
+  const firebaseConfigPath = path.join(__dirname, 'firebase-applet-config.json');
+  if (fs.existsSync(firebaseConfigPath)) {
+    const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: config.projectId
+      });
+      console.log('Firebase Admin initialized with projectId:', config.projectId);
+    }
+  }
+} catch (e) {
+  console.warn('Could not initialize Firebase Admin natively:', e);
+}
+
+// Extend session type
+declare module 'express-session' {
+  interface SessionData {
+    userId: number;
+    role: string;
+  }
+}
+
+const db = new Database('store.db');
+
+// Initialize Database
+try {
+  console.log('Initializing database...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT UNIQUE,
+    username TEXT UNIQUE,
+    password TEXT,
+    name TEXT,
+    email TEXT,
+    shop_name TEXT,
+    pin_code TEXT,
+    role TEXT DEFAULT 'customer',
+    wallet_balance REAL DEFAULT 0,
+    khata_enabled BOOLEAN DEFAULT 0,
+    khata_limit REAL DEFAULT 0,
+    khata_balance REAL DEFAULT 0,
+    khata_due_date DATETIME,
+    segment TEXT DEFAULT 'Regular',
+    profile_photo TEXT,
+    street_address TEXT,
+    city TEXT,
+    state TEXT,
+    zip_code TEXT,
+    address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    icon TEXT,
+    is_out_of_stock BOOLEAN DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    description TEXT,
+    price REAL,
+    wholesale_price REAL,
+    retail_price REAL,
+    discount REAL DEFAULT 0,
+    discount_price REAL,
+    category TEXT,
+    stock INTEGER,
+    reorder_point INTEGER DEFAULT 5,
+    max_qty INTEGER DEFAULT 10,
+    is_listed BOOLEAN DEFAULT 1,
+    unit TEXT DEFAULT 'kg',
+    image_url TEXT,
+    images TEXT, -- JSON array of image URLs
+    specifications TEXT, -- JSON object of specifications
+    supplier_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(category) REFERENCES categories(name),
+    FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    total REAL,
+    subtotal REAL,
+    discount REAL,
+    delivery_fee REAL,
+    status TEXT DEFAULT 'pending',
+    address TEXT,
+    payment_method TEXT DEFAULT 'cod',
+    payment_id TEXT,
+    payment_screenshot TEXT,
+    rejection_reason TEXT,
+    delivery_type TEXT DEFAULT 'home', -- 'home' or 'pickup'
+    notes TEXT,
+    admin_notes TEXT,
+    coupon_code TEXT,
+    estimated_delivery_at DATETIME,
+    assigned_runner_id INTEGER,
+    last_status_update TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(assigned_runner_id) REFERENCES runners(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    name TEXT, -- e.g., 'Cartoon', 'Single Piece'
+    price REAL,
+    stock INTEGER,
+    unit_quantity INTEGER DEFAULT 1, -- how many pieces in this variant
+    is_default BOOLEAN DEFAULT 0,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    product_id INTEGER,
+    variant_id INTEGER,
+    variant_name TEXT,
+    quantity INTEGER,
+    price REAL,
+    FOREIGN KEY(order_id) REFERENCES orders(id),
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS promotion_products (
+    promotion_id INTEGER,
+    product_id INTEGER,
+    discount_override REAL,
+    PRIMARY KEY(promotion_id, product_id),
+    FOREIGN KEY(promotion_id) REFERENCES promotions(id),
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS delivery_areas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    fee REAL DEFAULT 0,
+    min_order REAL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS promotions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    description TEXT,
+    image_url TEXT,
+    link TEXT,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS wallet_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    amount REAL,
+    type TEXT, -- 'credit' or 'debit'
+    description TEXT,
+    transaction_id TEXT,
+    screenshot TEXT,
+    status TEXT DEFAULT 'approved', -- 'pending', 'approved', 'rejected'
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+  `);
+
+  try {
+    db.prepare("ALTER TABLE wallet_transactions ADD COLUMN screenshot TEXT").run();
+  } catch (e) {}
+  try {
+    db.prepare("ALTER TABLE wallet_transactions ADD COLUMN status TEXT DEFAULT 'approved'").run();
+  } catch (e) {}
+  
+  try { db.prepare("ALTER TABLE orders ADD COLUMN runner_id INTEGER").run(); } catch (e) {}
+  try { db.prepare("ALTER TABLE orders ADD COLUMN estimated_delivery_at DATETIME").run(); } catch (e) {}
+  try { db.prepare("ALTER TABLE orders ADD COLUMN status_history TEXT DEFAULT '[]'").run(); } catch (e) {}
+  try { db.prepare("ALTER TABLE orders ADD COLUMN delivery_lat REAL").run(); } catch (e) {}
+  try { db.prepare("ALTER TABLE orders ADD COLUMN delivery_lng REAL").run(); } catch (e) {}
+  
+  try { db.prepare("ALTER TABLE users ADD COLUMN last_login_at DATETIME").run(); } catch (e) {}
+  try { db.prepare("ALTER TABLE users ADD COLUMN device_info TEXT").run(); } catch (e) {}
+  try { db.prepare("ALTER TABLE users ADD COLUMN ip_address TEXT").run(); } catch (e) {}
+
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS support_tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    name TEXT,
+    email TEXT,
+    subject TEXT,
+    message TEXT,
+    status TEXT DEFAULT 'open',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    user_id INTEGER,
+    user_name TEXT,
+    rating INTEGER,
+    comment TEXT,
+    response TEXT,
+    status TEXT DEFAULT 'approved', -- 'pending', 'approved', 'rejected'
+    is_verified BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS coupons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE,
+    type TEXT, -- 'flat' or 'percentage'
+    value REAL,
+    min_order REAL,
+    usage_limit INTEGER DEFAULT NULL,
+    limit_per_user INTEGER DEFAULT 1,
+    expiry_date DATETIME,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    permissions TEXT, -- JSON array of permission keys
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT,
+    amount REAL,
+    category TEXT,
+    date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS newsletter (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE,
+    user_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS support_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER,
+    user_id INTEGER,
+    message TEXT,
+    is_admin BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(ticket_id) REFERENCES support_tickets(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    message TEXT,
+    type TEXT, -- 'ad', 'system', 'order'
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS system_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT, -- 'error', 'info', 'warning'
+    message TEXT,
+    stack TEXT,
+    user_id INTEGER,
+    path TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id INTEGER,
+    action TEXT,
+    resource TEXT,
+    details TEXT, -- JSON
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS runners (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE,
+    name TEXT,
+    phone TEXT UNIQUE,
+    vehicle_type TEXT,
+    status TEXT DEFAULT 'active', -- 'active', 'inactive', 'on_delivery'
+    is_busy BOOLEAN DEFAULT 0,
+    current_lat REAL,
+    current_lng REAL,
+    last_active DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS logistics_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    runner_id INTEGER,
+    status TEXT, -- 'assigned', 'picked_up', 'out_for_delivery', 'reached_location', 'delivered'
+    lat REAL,
+    lng REAL,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(order_id) REFERENCES orders(id),
+    FOREIGN KEY(runner_id) REFERENCES runners(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS suspicious_activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    activity_type TEXT,
+    description TEXT,
+    ip_address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS cart_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    product_id INTEGER,
+    quantity INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, product_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS bulk_discounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT, -- 'product' or 'category'
+    entity_id INTEGER, -- product_id or category_id
+    min_qty INTEGER,
+    discount_type TEXT, -- 'percentage' or 'flat'
+    discount_value REAL,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', 'false');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_secret', 'admin_bypass_2024');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('store_api_keys', '{}');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('auth_mode', 'otp'); -- 'otp' or 'password'
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('otp_api_key', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_phone', '7888422429');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_otp', '75391');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('store_name', 'Hind General Store');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('store_phone', '+91 98765 43210');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('whatsapp_number', '+91 98765 43210');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('whatsapp_message', 'Hello Hind General Store, I would like to inquire about an order.');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_time', '2 Hours');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('operating_hours', '9:00 AM - 9:00 PM');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('gst_number', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('maps_link', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('upi_id', 'hindstore@upi');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('upi_name', 'Hind General Store');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('bank_name', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('account_number', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('ifsc_code', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('account_holder', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('qr_code_url', '');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('terms_and_conditions', '
+    <div class="space-y-8 text-stone-700">
+      <h1 class="text-3xl font-black text-stone-900 border-b pb-4">Terms & Conditions</h1>
+      <p class="text-xs text-stone-400 italic">Effective Date: April 21, 2026</p>
+      
+      <section>
+        <h3 class="text-xl font-bold text-stone-800 mb-2">1. Acceptance of Terms</h3>
+        <p>By using the Hind General Store (HGS) platform, you agree to these legal terms. We reserve the right to update these terms at any time without notice. Continued use constitutes acceptance of changes.</p>
+      </section>
+
+      <section>
+        <h3 class="text-xl font-bold text-stone-800 mb-2">2. Identity Verification</h3>
+        <p>For the safety of our delivery fleet and for the integrity of our \"Khata\" (Credit) system, users must provide accurate profile information. A clear, recent profile photo is mandatory. Accounts without proper identity verification may be restricted from placing orders or accessing credit limits.</p>
+      </section>
+
+      <section>
+        <h3 class="text-xl font-bold text-stone-800 mb-2">3. Delivery Policy</h3>
+        <p>We aim for local delivery within 2-4 hours for urban Ludhiana zones. Delivery times are estimates and may vary due to traffic, weather, or runner availability. High-value orders may require OTP verification at the time of delivery.</p>
+      </section>
+
+      <section>
+        <h3 class="text-xl font-bold text-stone-800 mb-2">4. Payment & Refund Policy</h3>
+        <p>Payments made via the Store Wallet are non-transferable. In case of failed transactions, refunds are processed to the source account within 3-5 business days. Returns must be requested within 24 hours of delivery for perishable goods.</p>
+      </section>
+
+      <section>
+        <h3 class="text-xl font-bold text-stone-800 mb-2">5. Privacy & Data Security</h3>
+        <p>Your data is encrypted and handled according to our Privacy Policy. We do not sell your personal information to third parties. For audit and security, HGS logs administrative actions and suspicious activities (e.g., failed logins, large orders).</p>
+      </section>
+    </div>
+  ');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('faq_content', '
+    <div class="space-y-8 text-stone-700">
+      <h1 class="text-3xl font-black text-stone-900 border-b pb-4">Frequently Asked Questions</h1>
+      <p class="text-xs text-stone-400 italic">Last Verified: April 21, 2026</p>
+
+      <div class="space-y-6">
+        <div>
+          <h4 class="font-bold text-stone-800">Q: What is the \"Khata\" system?</h4>
+          <p class="text-sm">A: Khata is a credit-based shopping system for our trusted customers. It allows you to shop now and pay later. Eligibility is determined by your order history and verification status.</p>
+        </div>
+        <div>
+          <h4 class="font-bold text-stone-800">Q: How do I become a Delivery Runner?</h4>
+          <p class="text-sm">A: Visit our store with your valid ID and vehicle documents. Once verified, you will be onboarded as a runner and assigned a zone.</p>
+        </div>
+        <div>
+          <h4 class="font-bold text-stone-800">Q: Is my payment data secure?</h4>
+          <p class="text-sm">A: Yes. We use enterprise-grade encryption. We do not store your full card details; all payments are processed through PCI-compliant gateways.</p>
+        </div>
+        <div>
+          <h4 class="font-bold text-stone-800">Q: How can I request my data to be deleted?</h4>
+          <p class="text-sm">A: You can request data deletion directly from your \"Profile > Privacy & Data\" section. Our team processes these requests within 48 hours.</p>
+        </div>
+      </div>
+    </div>
+  ');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('shipping_fees', '{"base": 0, "areas": []}');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('delivery_fee', '0');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('free_delivery_threshold', '500');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_theme', 'theme-emerald');
+
+  INSERT OR IGNORE INTO coupons (code, type, value, min_order) VALUES ('WELCOME10', 'percentage', 10, 500);
+  INSERT OR IGNORE INTO coupons (code, type, value, min_order) VALUES ('FLAT50', 'flat', 50, 200);
+  INSERT OR IGNORE INTO coupons (code, type, value, min_order) VALUES ('FESTIVE20', 'percentage', 20, 1000);
+  `);
+
+  // Seed Support Tickets
+  const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
+  if (ticketCount.count === 0) {
+    db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Order Delay', 'My order #ORD-1 is delayed by 2 days.', 'open');
+    db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Payment Issue', 'Payment failed but amount deducted.', 'open');
+  }
+  console.log('Database initialized successfully.');
+} catch (err) {
+  console.error('Database initialization failed:', err);
+}
+
+// Migration for existing tables
+try { db.prepare('ALTER TABLE users ADD COLUMN email TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN shop_name TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN estimated_delivery_at DATETIME').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN assigned_runner_id INTEGER').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN last_status_update TEXT').run(); } catch (e) {}
+
+  // Seed Runners
+  const runnerCount = db.prepare('SELECT COUNT(*) as count FROM runners').get() as { count: number };
+  if (runnerCount.count === 0) {
+    // We need some users to be runners?
+    // Let's just seed some manually for demo
+    db.prepare('INSERT OR IGNORE INTO runners (name, phone, vehicle_type, status, current_lat, current_lng) VALUES (?, ?, ?, ?, ?, ?)').run('Aminder Singh', '9876543211', 'Bike', 'active', 30.9010, 75.8573);
+    db.prepare('INSERT OR IGNORE INTO runners (name, phone, vehicle_type, status, current_lat, current_lng) VALUES (?, ?, ?, ?, ?, ?)').run('Rajesh Kumar', '9876543212', 'Scooter', 'on_delivery', 30.9120, 75.8450);
+  }
+try { db.prepare('ALTER TABLE users ADD COLUMN khata_enabled BOOLEAN DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN khata_limit REAL DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN khata_balance REAL DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN khata_due_date DATETIME').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN segment TEXT DEFAULT "Regular"').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN profile_photo TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE support_tickets ADD COLUMN name TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE support_tickets ADD COLUMN email TEXT').run(); } catch (e) {}
+
+try { db.prepare('ALTER TABLE reviews ADD COLUMN user_id INTEGER').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE reviews ADD COLUMN is_verified BOOLEAN DEFAULT 0').run(); } catch (e) {}
+
+try { db.prepare('ALTER TABLE wallet_transactions ADD COLUMN transaction_id TEXT').run(); } catch (e) {}
+
+try { db.prepare('ALTER TABLE order_items ADD COLUMN variant_id INTEGER').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE order_items ADD COLUMN variant_name TEXT').run(); } catch (e) {}
+
+  // Ensure admin role for specific phone number or email
+  try {
+    const adminEmail = 'parthgulyani7960@gmail.com';
+    const adminPhone = '7888422429';
+    db.prepare("UPDATE users SET role = 'admin' WHERE phone = ? OR email = ?").run(adminPhone, adminEmail);
+    console.log(`[AUTH] Ensured admin role for ${adminPhone} and ${adminEmail}`);
+  } catch (e) {
+    console.error('Failed to update admin role:', e);
+  }
+
+  // Add indexes for performance
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)').run();
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)').run();
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id)').run();
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id)').run();
+    console.log('[DB] Indexes created successfully');
+  } catch (e) {
+    console.error('[DB] Failed to create indexes:', e);
+  }
+
+try { db.prepare('ALTER TABLE products ADD COLUMN wholesale_price REAL').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN retail_price REAL').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN discount REAL DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN supplier_id INTEGER').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN discount_price REAL').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN reorder_point INTEGER DEFAULT 5').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN max_qty INTEGER DEFAULT 10').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN is_listed BOOLEAN DEFAULT 1').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN images TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN specifications TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN consumable_days INTEGER DEFAULT NULL').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN supplier_id INTEGER').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN lead_time_days INTEGER DEFAULT 0').run(); } catch (e) {}
+
+try { db.prepare('ALTER TABLE orders ADD COLUMN payment_id TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN payment_screenshot TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN rejection_reason TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN delivery_type TEXT DEFAULT "home"').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN notes TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN admin_notes TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN delivery_boy_id INTEGER').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN is_split BOOLEAN DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN parent_order_id INTEGER').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN wallet_used REAL DEFAULT 0').run(); } catch (e) {}
+
+try { db.prepare('ALTER TABLE users ADD COLUMN username TEXT').run(); } catch (e) {}
+try { db.prepare('CREATE UNIQUE INDEX idx_users_username ON users(username)').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN password TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN street_address TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN city TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN state TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN zip_code TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN address TEXT').run(); } catch (e) {}
+
+// Advanced Enterprise Tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS suppliers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    contact_person TEXT,
+    email TEXT,
+    phone TEXT,
+    address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS promotional_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    type TEXT, -- 'bogo', 'percent_off', 'fixed_off'
+    target_type TEXT, -- 'category', 'product', 'all'
+    target_id TEXT, -- category name or product id
+    condition_qty INTEGER,
+    reward_qty INTEGER,
+    discount_value REAL,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS serviceable_pincodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pincode TEXT UNIQUE,
+    zone TEXT,
+    delivery_fee_base REAL DEFAULT 50,
+    active BOOLEAN DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    product_id INTEGER,
+    user_id INTEGER,
+    quantity INTEGER,
+    reason TEXT,
+    status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'refunded'
+    refund_amount REAL,
+    refund_to TEXT DEFAULT 'wallet',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(order_id) REFERENCES orders(id),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+`);
+
+// Seed initial categories
+try {
+  const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
+  if (categoryCount.count === 0) {
+    const insertCat = db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)');
+    insertCat.run('Grocery', 'ShoppingBag');
+    insertCat.run('Snacks', 'Cookie');
+    insertCat.run('Dairy', 'Milk');
+    insertCat.run('Grains', 'Wheat');
+    insertCat.run('Oils', 'Droplets');
+    insertCat.run('Pulses', 'Bean');
+    insertCat.run('Essentials', 'Package');
+  }
+} catch (err) {
+  console.error('Failed to seed categories:', err);
+}
+
+// Helper to log system events
+const logEvent = (level: string, message: string, stack?: string, userId?: number, path?: string) => {
+  try {
+    db.prepare('INSERT INTO system_logs (level, message, stack, user_id, path) VALUES (?, ?, ?, ?, ?)').run(level, message, stack || null, userId || null, path || null);
+  } catch (err) {
+    console.error('Failed to log event:', err);
+  }
+};
+
+const capitalizeName = (name: string) => {
+  if (!name) return '';
+  return name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+};
+
+const logSuspicious = (userId: number | null, type: string, description: string, ip?: string) => {
+  try {
+    db.prepare('INSERT INTO suspicious_activities (user_id, activity_type, description, ip_address) VALUES (?, ?, ?, ?)').run(userId, type, description, ip || null);
+  } catch (err) {
+    console.error('Failed to log suspicious activity:', err);
+  }
+};
+
+// Helper to get settings
+const getSetting = (key: string) => {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as any;
+    return row ? row.value : null;
+  } catch (err) {
+    console.error(`Error getting setting ${key}:`, err);
+    return null;
+  }
+};
+
+// Middlewares
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+  next();
+};
+
+const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!req.session.userId) {
+    console.warn(`[AUTH] Admin access denied: No session userId. IP: ${req.ip}`);
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+
+  // If session role is admin, we're good
+  if (req.session.role === 'admin') {
+    return next();
+  }
+
+  // If session role is not admin, double check the database in case it was updated
+  try {
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId) as any;
+    if (user && user.role === 'admin') {
+      console.log(`[AUTH] Auto-repairing admin session for user ${req.session.userId}`);
+      req.session.role = 'admin';
+      return next();
+    }
+    
+    console.warn(`[AUTH] Admin access denied: User ${req.session.userId} has role ${user?.role || 'unknown'}. IP: ${req.ip}`);
+    logSuspicious(req.session.userId as number, 'UNAUTHORIZED_ADMIN_ACCESS', `User attempted to access admin route ${req.path}`, req.ip);
+    return res.status(403).json({ success: false, message: 'Admin access required' });
+  } catch (err) {
+    console.error('[AUTH] Error checking admin role in DB:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error verifying permissions' });
+  }
+};
+
+
+
+// Seed initial data
+const seedData = () => {
+  try {
+    const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
+    if (productCount.count === 0) {
+      const products = [
+        { name: 'Basmati Rice (Premium)', description: 'Long grain aromatic basmati rice, perfect for biryani and special occasions.', price: 120, wholesale_price: 105, retail_price: 130, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800' },
+        { name: 'Mustard Oil (Cold Pressed)', description: 'Pure cold-pressed mustard oil with strong aroma and high pungency.', price: 180, wholesale_price: 165, retail_price: 195, category: 'Grocery', stock: 200, unit: 'L', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=800' },
+        { name: 'Toor Dal (Unpolished)', description: 'High protein unpolished toor dal, easy to cook and digest.', price: 160, wholesale_price: 145, retail_price: 175, category: 'Grocery', stock: 300, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1585996838426-60de38529478?w=800' },
+        { name: 'Whole Wheat Atta', description: 'Chakki fresh whole wheat atta with natural bran and fiber.', price: 45, wholesale_price: 40, retail_price: 50, category: 'Grocery', stock: 1000, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800' },
+        { name: 'Refined Sugar', description: 'Pure white refined sugar for daily use.', price: 42, wholesale_price: 38, retail_price: 45, category: 'Grocery', stock: 800, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=800' },
+        { name: 'Tata Salt', description: 'Vacuum evaporated iodized salt.', price: 25, wholesale_price: 22, retail_price: 28, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=800' },
+        { name: 'Maggi Noodles (Pack of 12)', description: 'Instant noodles with masala tastemaker.', price: 168, wholesale_price: 155, retail_price: 180, category: 'Grocery', stock: 100, unit: 'pack', image_url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800' },
+        { name: 'Amul Butter (500g)', description: 'Pasteurized salted butter.', price: 275, wholesale_price: 260, retail_price: 285, category: 'Dairy', stock: 50, unit: 'pc', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=800' }
+      ];
+
+      const insertProduct = db.prepare(`
+        INSERT INTO products (name, description, price, wholesale_price, retail_price, category, stock, unit, image_url)
+        VALUES (@name, @description, @price, @wholesale_price, @retail_price, @category, @stock, @unit, @image_url)
+      `);
+
+      products.forEach(p => insertProduct.run(p));
+    }
+
+    const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
+    if (categoryCount.count === 0) {
+      const categories = [
+        { name: 'Grocery', icon: 'ShoppingBag' },
+        { name: 'Dairy', icon: 'Milk' },
+        { name: 'Personal Care', icon: 'User' },
+        { name: 'Household', icon: 'Home' },
+        { name: 'Beverages', icon: 'Coffee' }
+      ];
+      const insertCategory = db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)');
+      categories.forEach(c => insertCategory.run(c.name, c.icon));
+    }
+
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    if (userCount.count <= 1) { 
+      const testUsers = [
+        { name: 'John Doe', phone: '9876543210', username: 'johndoe', role: 'client', wallet_balance: 500, segment: 'Retail' },
+        { name: 'Jane Smith', phone: '9876543211', username: 'janesmith', role: 'client', wallet_balance: 1200, segment: 'Wholesale' },
+        { name: 'Bob Wilson', phone: '9876543212', username: 'bobwilson', role: 'client', wallet_balance: 0, segment: 'Retail' }
+      ];
+      const insertUser = db.prepare('INSERT INTO users (name, phone, username, role, wallet_balance, segment) VALUES (?, ?, ?, ?, ?, ?)');
+      testUsers.forEach(u => insertUser.run(u.name, u.phone, u.username, u.role, u.wallet_balance, u.segment));
+    }
+
+    const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as { count: number };
+    if (orderCount.count === 0) {
+      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
+      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
+      
+      users.forEach((u, i) => {
+        const total = 500 + (i * 100);
+        const orderId = db.prepare(`
+          INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, status, address, payment_method)
+          VALUES (?, ?, ?, 0, 40, 'pending', '123 Test St, Ludhiana, Punjab - 141001', 'cod')
+        `).run(u.id, total + 40, total).lastInsertRowid;
+
+        db.prepare(`
+          INSERT INTO order_items (order_id, product_id, quantity, price)
+          VALUES (?, ?, 2, ?)
+        `).run(orderId, products[0].id, products[0].price);
+      });
+    }
+
+    const walletReqCount = db.prepare('SELECT COUNT(*) as count FROM wallet_transactions WHERE status = "pending"').get() as { count: number };
+    if (walletReqCount.count === 0) {
+      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
+      users.forEach(u => {
+        db.prepare(`
+          INSERT INTO wallet_transactions (user_id, amount, type, description, status, transaction_id)
+          VALUES (?, 1000, 'credit', 'Wallet top-up request', 'pending', 'TXN123456789')
+        `).run(u.id);
+      });
+    }
+
+    const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
+    if (ticketCount.count === 0) {
+      const users = db.prepare('SELECT id, name FROM users WHERE role = "client"').all() as { id: number, name: string }[];
+      users.forEach(u => {
+        db.prepare(`
+          INSERT INTO support_tickets (user_id, name, subject, message, status)
+          VALUES (?, ?, 'Order Issue', 'I have not received my order yet.', 'open')
+        `).run(u.id, u.name);
+      });
+    }
+
+    const reviewCount = db.prepare('SELECT COUNT(*) as count FROM reviews').get() as { count: number };
+    if (reviewCount.count === 0) {
+      const products = db.prepare('SELECT id FROM products').all() as { id: number }[];
+      products.forEach(p => {
+        db.prepare(`
+          INSERT INTO reviews (product_id, user_name, rating, comment, status)
+          VALUES (?, 'Happy Customer', 5, 'Great quality products!', 'approved')
+        `).run(p.id);
+      });
+    }
+
+    const couponCount = db.prepare('SELECT COUNT(*) as count FROM coupons').get() as { count: number };
+    if (couponCount.count === 0) {
+      const coupons = [
+        { code: 'WELCOME10', type: 'percentage', value: 10, min_order: 500 },
+        { code: 'FLAT50', type: 'flat', value: 50, min_order: 1000 }
+      ];
+      const insertCoupon = db.prepare('INSERT INTO coupons (code, type, value, min_order) VALUES (?, ?, ?, ?)');
+      coupons.forEach(c => insertCoupon.run(c.code, c.type, c.value, c.min_order));
+    }
+
+    const bulkDiscountCount = db.prepare('SELECT COUNT(*) as count FROM bulk_discounts').get() as { count: number };
+    if (bulkDiscountCount.count === 0) {
+      const products = db.prepare('SELECT id FROM products LIMIT 2').all() as { id: number }[];
+      products.forEach(p => {
+        db.prepare(`
+          INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value)
+          VALUES ('product', ?, 5, 'percentage', 10)
+        `).run(p.id);
+      });
+    }
+
+    const deliveryAreaCount = db.prepare('SELECT COUNT(*) as count FROM delivery_areas').get() as { count: number };
+    if (deliveryAreaCount.count === 0) {
+      const areas = [
+        { name: 'Ludhiana Central', fee: 0, min_order: 500 },
+        { name: 'Model Town', fee: 20, min_order: 300 },
+        { name: 'Civil Lines', fee: 30, min_order: 400 }
+      ];
+      const insertArea = db.prepare('INSERT INTO delivery_areas (name, fee, min_order) VALUES (?, ?, ?)');
+      areas.forEach(a => insertArea.run(a.name, a.fee, a.min_order));
+    }
+
+    const variantCount = db.prepare('SELECT COUNT(*) as count FROM product_variants').get() as { count: number };
+    if (variantCount.count === 0) {
+      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
+      products.forEach(p => {
+        db.prepare(`
+          INSERT INTO product_variants (product_id, name, price, stock, is_default)
+          VALUES (?, 'Single Piece', ?, 100, 1)
+        `).run(p.id, p.price);
+      });
+    }
+  } catch (err) {
+    console.error('Seeding error:', err);
+  }
+};
+
+seedData();
+
+// Middleware for auditing admin actions
+const auditAdminAction = (req: any, res: any, next: any) => {
+  if (req.session.userId && req.session.role === 'admin') {
+    const logData = {
+      user_id: req.session.userId,
+      action: `${req.method} ${req.path}`,
+      details: JSON.stringify({ body: req.body, query: req.query }),
+      ip: req.ip,
+      created_at: new Date().toISOString()
+    };
+    try {
+      db.prepare(`
+        INSERT INTO audit_logs (user_id, action, details, ip, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(logData.user_id, logData.action, logData.details, logData.ip, logData.created_at);
+    } catch (err) {
+      console.error('Audit log failed:', err);
+    }
+  }
+  next();
+};
+
+async function startServer() {
+  const app = express();
+  const httpServer = createServer(app);
+  const wss = new WebSocketServer({ server: httpServer });
+
+  const broadcast = (data: any) => {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(data));
+      }
+    });
+  };
+
+  wss.on('connection', (ws) => {
+    console.log('Client connected to WebSocket');
+    ws.on('close', () => console.log('Client disconnected from WebSocket'));
+  });
+
+  app.set('trust proxy', 1);
+  app.use(express.json());
+  app.use(cookieParser());
+  app.use(session({
+    secret: 'hind-store-secret-2024',
+    resave: false,
+    saveUninitialized: false,
+    proxy: true,
+    cookie: { 
+      secure: true,
+      sameSite: 'none',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    }
+  }));
+
+  // Apply global middlewares
+  app.use('/api/admin', requireAdmin, auditAdminAction);
+  app.use('/api/profile', requireAuth);
+  app.use('/api/cart', requireAuth);
+  app.use('/api/wishlist', requireAuth);
+  app.use('/api/tickets', requireAuth);
+  app.use('/api/wallet', requireAuth);
+
+  // Helper for SMS (Simulated)
+  const sendSMS = async (phone: string, message: string) => {
+    const apiKey = getSetting('otp_api_key');
+    if (!apiKey) {
+      console.log(`[SIMULATED SMS] To ${phone}: ${message}`);
+      return true;
+    }
+    // In a real scenario, you would call an SMS gateway API here using the apiKey
+    console.log(`[REAL SMS ATTEMPT] Using API Key: ${apiKey.substring(0, 5)}... To ${phone}: ${message}`);
+    return true;
+  };
+
+  // Maintenance Middleware
+  app.use((req, res, next) => {
+    const isMaintenance = getSetting('maintenance_mode') === 'true';
+    const bypassToken = req.query.bypass || req.headers['x-maintenance-bypass'];
+    const secret = getSetting('maintenance_secret');
+    
+    if (!isMaintenance || 
+        req.path.startsWith('/api/auth') || 
+        req.path.startsWith('/api/settings') ||
+        bypassToken === secret ||
+        req.path.includes('.')
+    ) {
+      return next();
+    }
+
+    if (req.path.startsWith('/api')) {
+      return res.status(503).json({ 
+        maintenance: true, 
+        message: 'Store is under maintenance. Please check back later.' 
+      });
+    }
+
+    next();
+  });
+
+  // API Routes
+  app.use('/api', (req, res, next) => {
+    const originalJson = res.json;
+    res.json = function(data) {
+      if (res.statusCode >= 400) {
+        logEvent('error', `API Error: ${res.statusCode} on ${req.method} ${req.path}`, JSON.stringify(data), null, req.path);
+      }
+      return originalJson.call(this, data);
+    };
+    next();
+  });
+
+  app.get('/api/settings', (req, res) => {
+    const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
+    const settings = db.prepare('SELECT * FROM settings').all() as any[];
+    const publicSettings = settings.filter(s => !sensitiveKeys.includes(s.key));
+    
+    const maintenance = getSetting('maintenance_mode') === 'true';
+    const authMode = getSetting('auth_mode') || 'otp';
+    const storePhone = getSetting('store_phone');
+    const whatsappNumber = getSetting('whatsapp_number');
+    
+    res.json({ 
+      maintenance, 
+      authMode,
+      storePhone,
+      whatsappNumber,
+      config: publicSettings
+    });
+  });
+
+  app.get('/api/user/profile', requireAuth, (req, res) => {
+    try {
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      delete user.password;
+      res.json(user);
+    } catch (err) {
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/admin/config', (req, res) => {
+    const config = db.prepare('SELECT * FROM settings').all();
+    res.json(config);
+  });
+
+  app.get('/api/admin/runners', (req, res) => {
+    const runners = db.prepare('SELECT * FROM runners').all();
+    res.json(runners);
+  });
+
+  app.post('/api/admin/runners', (req, res) => {
+    const { name, phone, vehicle_type } = req.body;
+    try {
+      db.prepare('INSERT INTO runners (name, phone, vehicle_type, status) VALUES (?, ?, ?, ?)').run(name, phone, vehicle_type || 'Bike', 'active');
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/suspicious-activities', (req, res) => {
+    const activities = db.prepare(`
+      SELECT s.*, u.name as user_name 
+      FROM suspicious_activities s 
+      LEFT JOIN users u ON s.user_id = u.id 
+      ORDER BY s.created_at DESC 
+      LIMIT 100
+    `).all();
+    res.json(activities);
+  });
+
+  app.post('/api/admin/suspicious-activities/:id/resolve', (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare('DELETE FROM suspicious_activities WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/audit-logs', (req, res) => {
+    const logs = db.prepare(`
+      SELECT a.*, u.name as admin_name 
+      FROM audit_logs a 
+      LEFT JOIN users u ON a.user_id = u.id 
+      ORDER BY a.created_at DESC 
+      LIMIT 100
+    `).all();
+    res.json(logs);
+  });
+
+  app.post('/api/admin/orders/:id/assign-runner', (req, res) => {
+    const { id } = req.params;
+    const { runner_id, estimated_delivery_minutes } = req.body;
+    
+    try {
+      const estimated_delivery_at = new Date(Date.now() + (estimated_delivery_minutes || 30) * 60000).toISOString();
+      
+      db.prepare('UPDATE orders SET assigned_runner_id = ?, status = ?, estimated_delivery_at = ?, last_status_update = ? WHERE id = ?')
+        .run(runner_id, 'shipped', estimated_delivery_at, 'Order picked up by runner', id);
+      
+      db.prepare('UPDATE runners SET status = ?, is_busy = 1 WHERE id = ?').run('on_delivery', runner_id);
+      
+      // Log event
+      db.prepare('INSERT INTO logistics_events (order_id, runner_id, status, notes) VALUES (?, ?, ?, ?)')
+        .run(id, runner_id, 'assigned', 'Runner assigned by admin');
+
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/search', (req, res) => {
+    const { q } = req.query;
+    if (!q) return res.json({ products: [], orders: [], users: [], suspicious: [] });
+
+    const searchTerm = `%${q}%`;
+    
+    const products = db.prepare(`
+      SELECT * FROM products 
+      WHERE name LIKE ? OR description LIKE ? OR category LIKE ?
+      LIMIT 10
+    `).all(searchTerm, searchTerm, searchTerm);
+
+    const orders = db.prepare(`
+      SELECT o.*, u.name as user_name 
+      FROM orders o 
+      LEFT JOIN users u ON o.user_id = u.id
+      WHERE o.id LIKE ? OR u.name LIKE ? OR u.phone LIKE ?
+      LIMIT 10
+    `).all(searchTerm, searchTerm, searchTerm);
+
+    const users = db.prepare(`
+      SELECT * FROM users 
+      WHERE name LIKE ? OR phone LIKE ? OR email LIKE ? OR shop_name LIKE ?
+      LIMIT 10
+    `).all(searchTerm, searchTerm, searchTerm, searchTerm);
+
+    const suspicious = db.prepare(`
+      SELECT s.*, u.name as user_name
+      FROM suspicious_activities s
+      LEFT JOIN users u ON s.user_id = u.id
+      WHERE s.activity_type LIKE ? OR s.description LIKE ? OR u.name LIKE ?
+      LIMIT 5
+    `).all(searchTerm, searchTerm, searchTerm);
+
+    res.json({ products, orders, users, suspicious });
+  });
+
+  app.get('/api/admin/system-logs', (req, res) => {
+    const logs = db.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100').all();
+    res.json(logs);
+  });
+
+  app.get('/api/admin/suspicious-activities', (req, res) => {
+    const activities = db.prepare(`
+      SELECT s.*, u.name as user_name, u.phone as user_phone 
+      FROM suspicious_activities s
+      LEFT JOIN users u ON s.user_id = u.id
+      ORDER BY s.created_at DESC
+    `).all();
+    res.json(activities);
+  });
+
+  app.post('/api/admin/suspicious-activities/:id/resolve', (req, res) => {
+    const { id } = req.params;
+    db.prepare("UPDATE suspicious_activities SET severity = 'resolved' WHERE id = ?").run(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/settings', (req, res) => {
+    const { key, value } = req.body;
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/products/:id/images', (req, res) => {
+    const { id } = req.params;
+    const { images } = req.body;
+    
+    if (!images || !Array.isArray(images)) {
+      return res.status(400).json({ success: false, message: 'Invalid images data' });
+    }
+
+    const product = db.prepare('SELECT images FROM products WHERE id = ?').get(id) as any;
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    let currentImages = [];
+    if (product.images) {
+      try {
+        currentImages = JSON.parse(product.images);
+      } catch (e) {}
+    }
+
+    const updatedImages = [...currentImages, ...images];
+    let updatedMainImage = product.image_url;
+    
+    if (!updatedMainImage && updatedImages.length > 0) {
+      updatedMainImage = updatedImages[0];
+      updatedImages.shift();
+    }
+
+    db.prepare('UPDATE products SET images = ?, image_url = ? WHERE id = ?').run(JSON.stringify(updatedImages), updatedMainImage, id);
+    
+    res.json({ success: true });
+  });
+
+  app.put('/api/admin/products/:id/images', (req, res) => {
+    const { id } = req.params;
+    const { images } = req.body;
+    if (!Array.isArray(images)) {
+      return res.status(400).json({ success: false, message: 'Invalid images data' });
+    }
+    db.prepare('UPDATE products SET images = ? WHERE id = ?').run(JSON.stringify(images), id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/products/:id/images', (req, res) => {
+    const { id } = req.params;
+    const { imageUrl } = req.body;
+
+    const product = db.prepare('SELECT image_url, images FROM products WHERE id = ?').get(id) as any;
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    let images = [];
+    if (product.images) {
+      try {
+        images = JSON.parse(product.images);
+      } catch (e) {}
+    }
+
+    const updatedImages = images.filter((img: string) => img !== imageUrl);
+    let updatedMainImage = product.image_url;
+
+    if (product.image_url === imageUrl) {
+      updatedMainImage = updatedImages.length > 0 ? updatedImages[0] : '';
+      if (updatedImages.length > 0) {
+        updatedImages.shift();
+      }
+    }
+
+    db.prepare('UPDATE products SET images = ?, image_url = ? WHERE id = ?').run(JSON.stringify(updatedImages), updatedMainImage, id);
+    res.json({ success: true });
+  });
+
+  // Bulk Discounts API
+  app.get('/api/admin/bulk-discounts', (req, res) => {
+    const discounts = db.prepare(`
+      SELECT bd.*, 
+             CASE 
+               WHEN bd.entity_type = 'product' THEN p.name 
+               WHEN bd.entity_type = 'category' THEN c.name 
+             END as entity_name
+      FROM bulk_discounts bd
+      LEFT JOIN products p ON bd.entity_type = 'product' AND bd.entity_id = p.id
+      LEFT JOIN categories c ON bd.entity_type = 'category' AND bd.entity_id = c.id
+      ORDER BY bd.created_at DESC
+    `).all();
+    res.json(discounts);
+  });
+
+  app.post('/api/admin/bulk-discounts', (req, res) => {
+    const { entity_type, entity_id, min_qty, discount_type, discount_value } = req.body;
+    try {
+      const result = db.prepare(`
+        INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(entity_type, entity_id, min_qty, discount_type, discount_value);
+      res.json({ success: true, id: result.lastInsertRowid });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.put('/api/admin/bulk-discounts/:id', (req, res) => {
+    const { id } = req.params;
+    const { entity_type, entity_id, min_qty, discount_type, discount_value, active } = req.body;
+    try {
+      db.prepare(`
+        UPDATE bulk_discounts 
+        SET entity_type = ?, entity_id = ?, min_qty = ?, discount_type = ?, discount_value = ?, active = ?
+        WHERE id = ?
+      `).run(entity_type, entity_id, min_qty, discount_type, discount_value, active ? 1 : 0, id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.delete('/api/admin/bulk-discounts/:id', (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare('DELETE FROM bulk_discounts WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/cart', (req, res) => {
+    const userId = req.query.userId;
+    if (!userId) return res.status(400).json({ message: 'User ID required' });
+    const items = db.prepare(`
+      SELECT c.*, p.name, p.price, p.image_url, p.stock, p.category
+      FROM cart_items c
+      JOIN products p ON c.product_id = p.id
+      WHERE c.user_id = ?
+    `).all(userId);
+    res.json(items);
+  });
+
+  app.post('/api/cart/sync', (req, res) => {
+    const { userId, items } = req.body;
+    if (!userId) return res.status(400).json({ message: 'User ID required' });
+    
+    db.transaction(() => {
+      db.prepare('DELETE FROM cart_items WHERE user_id = ?').run(userId);
+      const insert = db.prepare('INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)');
+      for (const item of items) {
+        insert.run(userId, item.id, item.quantity);
+      }
+    })();
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/logs', (req, res) => {
+    const logs = db.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100').all();
+    res.json(logs);
+  });
+
+  app.get('/api/admin/suspicious', (req, res) => {
+    const activities = db.prepare('SELECT * FROM suspicious_activities ORDER BY created_at DESC LIMIT 100').all();
+    res.json(activities);
+  });
+
+  app.get('/api/auth/me', (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    }
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'User not found' });
+    }
+    res.json({ success: true, user });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: 'Logout failed' });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ success: true });
+    });
+  });
+
+
+
+
+
+  app.post('/api/auth/complete-profile', requireAuth, (req, res) => {
+    const { name, phone, profile_photo } = req.body;
+    try {
+      const formattedName = capitalizeName(name);
+      db.prepare('UPDATE users SET name = ?, phone = ?, profile_photo = ? WHERE id = ?')
+        .run(formattedName, phone, profile_photo, req.session.userId);
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
+      delete user.password;
+      res.json({ success: true, user });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to complete profile' });
+    }
+  });
+
+
+  app.post('/api/auth/firebase-login', async (req, res) => {
+    try {
+      const { idToken } = req.body;
+      if (!idToken) return res.status(400).json({ success: false, message: 'No token provided' });
+      
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const email = decodedToken.email;
+      const name = decodedToken.name || 'Firebase User';
+      const picture = decodedToken.picture || null;
+      
+      if (!email) {
+        logSuspicious(null, 'MALFORMED_AUTH', `Firebase login attempt without email. IP: ${req.ip}`);
+        return res.status(400).json({ success: false, message: 'Google account must have an email' });
+      }
+
+      let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+      
+      if (!user) {
+        // User doesn't exist, create them.
+        const username = email.split('@')[0] + Math.floor(Math.random() * 10000);
+        const formattedName = name !== 'Firebase User' ? capitalizeName(name) : '';
+        const result = db.prepare('INSERT INTO users (username, email, name, profile_photo) VALUES (?, ?, ?, ?)').run(username, email, formattedName, picture);
+        user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid) as any;
+      } else {
+        // If user already exists but without a profile picture or name, fetch and update it
+        let updated = false;
+        if (!user.profile_photo && picture) {
+          user.profile_photo = picture;
+          updated = true;
+        }
+        if (!user.name && name) {
+          user.name = name;
+          updated = true;
+        }
+        if (updated) {
+          db.prepare('UPDATE users SET profile_photo = ?, name = ? WHERE id = ?').run(user.profile_photo, user.name, user.id);
+        }
+      }
+      
+      const adminEmail = 'parthgulyani7960@gmail.com';
+      if (user.email === adminEmail && user.role !== 'admin') {
+        db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', user.id);
+        user.role = 'admin';
+      }
+
+      req.session.userId = user.id;
+      req.session.role = user.role;
+      res.json({ success: true, user, isNewUser: !user.phone });
+    } catch (e: any) {
+      console.error('Firebase login error:', e);
+      logSuspicious(null, 'FAILED_LOGIN', `Firebase login failed: ${e.message}`, req.ip);
+      res.status(401).json({ success: false, message: 'Invalid authentication token' });
+    }
+  });
+
+  app.get('/api/bulk-discounts', (req, res) => {
+    const discounts = db.prepare(`
+      SELECT bd.*, 
+             CASE 
+               WHEN bd.entity_type = 'product' THEN p.name 
+               WHEN bd.entity_type = 'category' THEN c.name 
+             END as entity_name
+      FROM bulk_discounts bd
+      LEFT JOIN products p ON bd.entity_type = 'product' AND bd.entity_id = p.id
+      LEFT JOIN categories c ON bd.entity_type = 'category' AND bd.entity_id = c.id
+      WHERE bd.active = 1
+      ORDER BY bd.min_qty DESC
+    `).all();
+    res.json(discounts);
+  });
+
+  app.get('/api/categories', (req, res) => {
+    const categories = db.prepare('SELECT * FROM categories').all();
+    res.json(categories);
+  });
+
+  app.post('/api/admin/categories', (req, res) => {
+    const { name, icon } = req.body;
+    try {
+      db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)').run(name, icon);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, message: 'Category already exists' });
+    }
+  });
+
+  app.put('/api/admin/categories/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, icon, is_out_of_stock } = req.body;
+    db.prepare('UPDATE categories SET name = ?, icon = ?, is_out_of_stock = ? WHERE id = ?').run(name, icon, is_out_of_stock ? 1 : 0, id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/categories/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM categories WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/newsletter/subscribe', (req, res) => {
+    const { email, user_id } = req.body;
+    try {
+      db.prepare('INSERT INTO newsletter (email, user_id) VALUES (?, ?)').run(email, user_id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, message: 'Already subscribed' });
+    }
+  });
+
+  app.get('/api/admin/newsletter', (req, res) => {
+    const subscribers = db.prepare(`
+      SELECT n.*, u.name as user_name, u.phone as user_phone 
+      FROM newsletter n 
+      LEFT JOIN users u ON n.user_id = u.id 
+      ORDER BY n.created_at DESC
+    `).all();
+    res.json(subscribers);
+  });
+
+  // Variant Management
+  app.post('/api/admin/products/:id/variants', (req, res) => {
+    const { id } = req.params;
+    const { name, price, stock, unit_quantity, is_default } = req.body;
+    
+    if (is_default) {
+      db.prepare('UPDATE product_variants SET is_default = 0 WHERE product_id = ?').run(id);
+    }
+    
+    db.prepare('INSERT INTO product_variants (product_id, name, price, stock, unit_quantity, is_default) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, price, stock, unit_quantity, is_default ? 1 : 0);
+    res.json({ success: true });
+  });
+
+  app.put('/api/admin/variants/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, price, stock, unit_quantity, is_default } = req.body;
+    
+    const variant = db.prepare('SELECT product_id FROM product_variants WHERE id = ?').get(id) as any;
+    if (is_default && variant) {
+      db.prepare('UPDATE product_variants SET is_default = 0 WHERE product_id = ?').run(variant.product_id);
+    }
+    
+    db.prepare('UPDATE product_variants SET name = ?, price = ?, stock = ?, unit_quantity = ?, is_default = ? WHERE id = ?').run(name, price, stock, unit_quantity, is_default ? 1 : 0, id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/variants/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM product_variants WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  // Delivery Areas
+  app.get('/api/delivery-areas', (req, res) => {
+    const areas = db.prepare('SELECT * FROM delivery_areas').all();
+    res.json(areas);
+  });
+
+  app.post('/api/admin/delivery-areas', (req, res) => {
+    const { name, fee, min_order } = req.body;
+    db.prepare('INSERT INTO delivery_areas (name, fee, min_order) VALUES (?, ?, ?)').run(name, fee, min_order);
+    res.json({ success: true });
+  });
+
+  app.put('/api/admin/delivery-areas/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, fee, min_order } = req.body;
+    db.prepare('UPDATE delivery_areas SET name = ?, fee = ?, min_order = ? WHERE id = ?').run(name, fee, min_order, id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/delivery-areas/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM delivery_areas WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/orders/bulk-update', (req, res) => {
+    const { ids, action, value } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'No IDs provided' });
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    let query = '';
+    let params = [];
+
+    if (action === 'status') {
+      query = `UPDATE orders SET status = ? WHERE id IN (${placeholders})`;
+      params = [value, ...ids];
+      
+      // Notify users about status change
+      ids.forEach(id => {
+        const order = db.prepare('SELECT user_id FROM orders WHERE id = ?').get(id) as any;
+        if (order) {
+          logEvent('info', `Order #${id} status updated to ${value}`, `Bulk action: ${action}`, order.user_id);
+          // Simulate email
+          console.log(`[EMAIL] To user ${order.user_id}: Your order #${id} is now ${value}`);
+        }
+      });
+    } else if (action === 'delete') {
+      query = `DELETE FROM orders WHERE id IN (${placeholders})`;
+      params = [...ids];
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid action' });
+    }
+
+    try {
+      db.prepare(query).run(...params);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/analytics', (req, res) => {
+    const { startDate, endDate, category, segment } = req.query;
+    
+    let orderFilter = 'WHERE o.status = "delivered"';
+    let params: any[] = [];
+    
+    if (startDate) {
+      orderFilter += ' AND o.created_at >= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      orderFilter += ' AND o.created_at <= ?';
+      params.push(endDate);
+    }
+    if (segment && segment !== 'all') {
+      orderFilter += ' AND u.segment = ?';
+      params.push(segment);
+    }
+    if (category && category !== 'all') {
+      orderFilter += ' AND EXISTS (SELECT 1 FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = o.id AND p.category = ?)';
+      params.push(category);
+    }
+
+    // Base stats with date filtering
+    const totalSales = db.prepare(`
+      SELECT SUM(o.total) as total 
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      ${orderFilter}
+    `).get(...params) as any;
+
+    const totalOrders = db.prepare(`
+      SELECT COUNT(o.id) as count 
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      ${orderFilter}
+    `).get(...params) as any;
+
+    const totalCustomers = db.prepare(`
+      SELECT COUNT(DISTINCT u.id) as count 
+      FROM users u
+      JOIN orders o ON u.id = o.user_id
+      ${orderFilter}
+    `).get(...params) as any;
+    
+    // Popular products with category filter
+    let productFilter = 'WHERE o.status = "delivered"';
+    let productParams: any[] = [];
+    if (category && category !== 'all') {
+      productFilter += ' AND p.category = ?';
+      productParams.push(category);
+    }
+    if (startDate) {
+      productFilter += ' AND o.created_at >= ?';
+      productParams.push(startDate);
+    }
+    if (endDate) {
+      productFilter += ' AND o.created_at <= ?';
+      productParams.push(endDate);
+    }
+
+    const popularProducts = db.prepare(`
+      SELECT p.name, p.stock, COUNT(oi.id) as sales_count, SUM(oi.quantity) as total_qty
+      FROM products p
+      JOIN order_items oi ON p.id = oi.product_id
+      JOIN orders o ON oi.order_id = o.id
+      ${productFilter}
+      GROUP BY p.id
+      ORDER BY total_qty DESC
+      LIMIT 10
+    `).all(...productParams);
+    
+    const salesOverTime = db.prepare(`
+      SELECT strftime('%Y-%m-%d', o.created_at) as date, SUM(o.total) as sales, COUNT(o.id) as orders
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      ${orderFilter}
+      GROUP BY date
+      ORDER BY date ASC
+    `).all(...params);
+
+    const salesByCategory = db.prepare(`
+      SELECT p.category as name, SUM(oi.quantity * oi.price) as value
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.id
+      JOIN orders o ON oi.order_id = o.id
+      WHERE o.status = "delivered"
+      ${startDate ? ' AND o.created_at >= ?' : ''}
+      ${endDate ? ' AND o.created_at <= ?' : ''}
+      GROUP BY p.category
+      ORDER BY value DESC
+    `).all(...(startDate ? [startDate] : []), ...(endDate ? [endDate] : []));
+
+    const customerSegments = db.prepare(`
+      SELECT segment as name, COUNT(*) as value
+      FROM users
+      GROUP BY segment
+    `).all();
+
+    // Inventory Value Report
+    const inventoryData = db.prepare(`
+      SELECT 
+        COUNT(*) as total_items,
+        SUM(stock) as total_stock,
+        SUM(stock * wholesale_price) as total_cost,
+        SUM(stock * price) as potential_revenue
+      FROM products
+    `).get() as any;
+
+    // Customer Segmentation Data with RFM analysis
+    const customerData = db.prepare(`
+      SELECT 
+        u.id, u.name, u.segment, u.created_at,
+        COUNT(o.id) as order_count,
+        SUM(o.total) as total_spent,
+        MAX(o.created_at) as last_order,
+        (julianday('now') - julianday(MAX(o.created_at))) as recency_days
+      FROM users u
+      LEFT JOIN orders o ON u.id = o.user_id AND o.status = "delivered"
+      GROUP BY u.id
+    `).all() as any[];
+
+    // Simple RFM Scoring & Segment Assignment
+    const enrichedCustomerData = customerData.map(c => {
+      const rScore = c.recency_days < 30 ? 3 : c.recency_days < 90 ? 2 : 1;
+      const fScore = c.order_count > 10 ? 3 : c.order_count > 3 ? 2 : 1;
+      const mScore = c.total_spent > 5000 ? 3 : c.total_spent > 1000 ? 2 : 1;
+      
+      let rfmSegment = 'Hibernating';
+      if (c.order_count === 0) rfmSegment = 'New';
+      else {
+        const totalScore = rScore + fScore + mScore;
+        if (totalScore >= 8) rfmSegment = 'Champions';
+        else if (totalScore >= 6) rfmSegment = 'Loyal';
+        else if (totalScore >= 4) rfmSegment = 'At Risk';
+      }
+
+      return { ...c, rfmSegment, rScore, fScore, mScore };
+    });
+
+    const rfmSegmentData = Object.entries(
+      enrichedCustomerData.reduce((acc: any, curr: any) => {
+        acc[curr.rfmSegment] = (acc[curr.rfmSegment] || 0) + 1;
+        return acc;
+      }, {})
+    ).map(([name, value]) => ({ name, value }));
+
+    // Mocking acquisition sources
+    const acquisitionSources = [
+      { name: 'Direct', value: 45 },
+      { name: 'WhatsApp', value: 30 },
+      { name: 'Google Search', value: 15 },
+      { name: 'Referral', value: 10 }
+    ];
+
+    // Conversion data based on filtered orders
+    const totalVisitors = salesOverTime.reduce((acc, d) => acc + Math.floor(d.orders * (12 + Math.random() * 8)), 0);
+    const totalOrdersCount = salesOverTime.reduce((acc, d) => acc + d.orders, 0);
+    
+    const conversionFunnel = [
+      { name: 'Visitors', value: totalVisitors, fill: '#E7E5E4' },
+      { name: 'Add to Cart', value: Math.floor(totalVisitors * 0.4), fill: '#D6D3D1' },
+      { name: 'Checkout', value: Math.floor(totalVisitors * 0.15), fill: '#A8A29E' },
+      { name: 'Purchased', value: totalOrdersCount, fill: '#F27D26' }
+    ];
+
+    const conversionData = salesOverTime.map(d => ({
+      date: d.date,
+      visitors: Math.floor(d.orders * (12 + Math.random() * 8)) + 5,
+      orders: d.orders
+    }));
+
+    res.json({
+      totalSales: totalSales?.total || 0,
+      totalOrders: totalOrders?.count || 0,
+      totalCustomers: totalCustomers?.count || 0,
+      popularProducts,
+      salesOverTime,
+      salesByCategory,
+      customerSegments,
+      rfmSegmentData,
+      acquisitionSources,
+      conversionFunnel,
+      conversionData,
+      inventoryData,
+      customerData: enrichedCustomerData
+    });
+  });
+
+  app.get('/api/admin/roles', (req, res) => {
+    const roles = db.prepare('SELECT * FROM roles').all();
+    res.json(roles);
+  });
+
+  app.post('/api/admin/roles', (req, res) => {
+    const { name, permissions } = req.body;
+    db.prepare('INSERT INTO roles (name, permissions) VALUES (?, ?)').run(name, JSON.stringify(permissions));
+    res.json({ success: true });
+  });
+
+  app.put('/api/admin/roles/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, permissions } = req.body;
+    db.prepare('UPDATE roles SET name = ?, permissions = ? WHERE id = ?').run(name, JSON.stringify(permissions), id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/roles/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM roles WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/reviews', (req, res) => {
+    const reviews = db.prepare(`
+      SELECT r.*, p.name as product_name 
+      FROM reviews r 
+      JOIN products p ON r.product_id = p.id 
+      ORDER BY r.created_at DESC
+    `).all();
+    res.json(reviews);
+  });
+
+  app.post('/api/admin/reviews/:id/status', (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    db.prepare('UPDATE reviews SET status = ? WHERE id = ?').run(status, id);
+    res.json({ success: true });
+  });
+
+  app.get('/api/search/suggestions', (req, res) => {
+    const { q } = req.query;
+    if (!q) return res.json([]);
+    const suggestions = db.prepare('SELECT name FROM products WHERE name LIKE ? LIMIT 5').all(`%${q}%`);
+    res.json(suggestions.map((s: any) => s.name));
+  });
+
+  app.post('/api/admin/notifications', (req, res) => {
+    const { title, message, type } = req.body;
+    db.prepare('INSERT INTO notifications (title, message, type) VALUES (?, ?, ?)').run(title, message, type);
+    res.json({ success: true });
+  });
+
+  app.get('/api/products/:id', (req, res) => {
+    const { id } = req.params;
+    const product = db.prepare(`
+      SELECT p.*, 
+      (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
+      (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
+      FROM products p 
+      WHERE p.id = ?
+    `).get(id) as any;
+    
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    
+    if (product.images) {
+      try {
+        product.images = JSON.parse(product.images);
+      } catch (e) {
+        product.images = [];
+      }
+    } else {
+      product.images = [];
+    }
+    
+    res.json(product);
+  });
+
+  app.post('/api/admin/products/bulk-update', (req, res) => {
+    const { ids, action, value } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'No IDs provided' });
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    let query = '';
+    let params = [];
+
+    if (action === 'list') {
+      query = `UPDATE products SET is_listed = ? WHERE id IN (${placeholders})`;
+      params = [value ? 1 : 0, ...ids];
+    } else if (action === 'stock') {
+      query = `UPDATE products SET stock = ? WHERE id IN (${placeholders})`;
+      params = [Number(value), ...ids];
+      
+      // Check for low stock after update
+      const affectedProducts = db.prepare(`SELECT id, name, reorder_point FROM products WHERE id IN (${placeholders})`).all(...ids) as any[];
+      const alerts = affectedProducts
+        .filter(p => Number(value) <= (p.reorder_point || 5))
+        .map(p => ({ id: p.id, name: p.name, stock: Number(value) }));
+      
+      if (alerts.length > 0) {
+        broadcast({ type: 'LOW_STOCK', payload: alerts });
+      }
+    } else if (action === 'category') {
+      query = `UPDATE products SET category = ? WHERE id IN (${placeholders})`;
+      params = [String(value), ...ids];
+    } else if (action === 'delete') {
+      query = `DELETE FROM products WHERE id IN (${placeholders})`;
+      params = [...ids];
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid action' });
+    }
+
+    try {
+      db.prepare(query).run(...params);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/promotions', (req, res) => {
+    const isAdmin = req.query.admin === 'true';
+    const query = isAdmin 
+      ? 'SELECT * FROM promotions ORDER BY created_at DESC'
+      : 'SELECT * FROM promotions WHERE active = 1 ORDER BY created_at DESC';
+    const promotions = db.prepare(query).all();
+    res.json(promotions);
+  });
+
+  app.post('/api/admin/promotions', (req, res) => {
+    const { title, description, image_url, link } = req.body;
+    db.prepare('INSERT INTO promotions (title, description, image_url, link) VALUES (?, ?, ?, ?)').run(title, description, image_url, link);
+    res.json({ success: true });
+  });
+
+  app.put('/api/admin/promotions/:id', (req, res) => {
+    const { id } = req.params;
+    const { title, description, image_url, link, active } = req.body;
+    db.prepare('UPDATE promotions SET title = ?, description = ?, image_url = ?, link = ?, active = ? WHERE id = ?')
+      .run(title, description, image_url, link, active ? 1 : 0, id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/promotions/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM promotions WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/promotions/:id/toggle', (req, res) => {
+    const { id } = req.params;
+    db.prepare('UPDATE promotions SET active = 1 - active WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/promotions/:id/products', (req, res) => {
+    const { id } = req.params;
+    const products = db.prepare(`
+      SELECT p.*, pp.discount_override 
+      FROM products p 
+      JOIN promotion_products pp ON p.id = pp.product_id 
+      WHERE pp.promotion_id = ?
+    `).all(id);
+    res.json(products);
+  });
+
+  app.post('/api/admin/promotions/:id/products', (req, res) => {
+    const { id } = req.params;
+    const { product_id, discount_override } = req.body;
+    db.prepare('INSERT OR REPLACE INTO promotion_products (promotion_id, product_id, discount_override) VALUES (?, ?, ?)').run(id, product_id, discount_override || null);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/promotions/:id/products/:productId', (req, res) => {
+    const { id, productId } = req.params;
+    db.prepare('DELETE FROM promotion_products WHERE promotion_id = ? AND product_id = ?').run(id, productId);
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/users/:id/orders', (req, res) => {
+    const { id } = req.params;
+    const orders = db.prepare(`
+      SELECT o.*, 
+      (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+      FROM orders o
+      WHERE o.user_id = ?
+      ORDER BY o.created_at DESC
+    `).all(id);
+    res.json(orders);
+  });
+
+  app.get('/api/admin/wallet-history', (req, res) => {
+    const history = db.prepare(`
+      SELECT wt.*, u.name as user_name, u.phone as user_phone 
+      FROM wallet_transactions wt 
+      JOIN users u ON wt.user_id = u.id 
+      ORDER BY wt.created_at DESC
+    `).all();
+    res.json(history);
+  });
+
+  app.post('/api/wallet/add', (req, res) => {
+    const { userId, amount, paymentId, screenshot } = req.body;
+    if (!userId || !amount) return res.status(400).json({ message: 'Missing data' });
+
+    if (amount > 20000) {
+      logSuspicious(userId, 'LARGE_WALLET_REQUEST', `User requested wallet top-up of ₹${amount}. Payment ID: ${paymentId}`, req.ip);
+    }
+
+    db.transaction(() => {
+      db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description, transaction_id, screenshot, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        userId, amount, 'credit', 'Wallet Top-up Request', paymentId || null, screenshot || null, 'pending'
+      );
+      logEvent('info', `User ${userId} requested wallet top-up of ₹${amount}`, JSON.stringify({ paymentId, screenshot }), userId);
+    })();
+
+    res.json({ success: true, message: 'Request submitted. Balance will update after verification.' });
+  });
+
+  app.get('/api/wallet-history/:userId', (req, res) => {
+    const { userId } = req.params;
+    const history = db.prepare('SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    res.json(history);
+  });
+
+  // Maintenance Middleware
+  app.use(async (req, res, next) => {
+    if (req.path.startsWith('/api/admin') || req.path.startsWith('/api/auth')) {
+      return next();
+    }
+    
+    const maintenance = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_mode');
+    const bypassSecret = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_secret');
+    
+    if (maintenance?.value === 'true') {
+      const bypass = req.query.bypass || req.headers['x-maintenance-bypass'];
+      if (bypass !== bypassSecret?.value) {
+        return res.status(503).json({ 
+          maintenance: true, 
+          message: 'Store is under maintenance',
+          bypass_key_needed: true 
+        });
+      }
+    }
+    next();
+  });
+
+  app.get('/api/products', (req, res) => {
+    const products = db.prepare(`
+      SELECT p.*, 
+      (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
+      (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
+      FROM products p
+    `).all().map((p: any) => ({
+      ...p,
+      images: p.images ? JSON.parse(p.images) : [],
+      specifications: p.specifications ? JSON.parse(p.specifications) : {}
+    }));
+    res.json(products);
+  });
+
+  app.get('/api/products/:id', (req, res) => {
+    const { id } = req.params;
+    const product = db.prepare(`
+      SELECT p.*, 
+      (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
+      (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
+      FROM products p
+      WHERE p.id = ?
+    `).get(id);
+    
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    
+    res.json({
+      ...product,
+      images: product.images ? JSON.parse(product.images) : [],
+      specifications: product.specifications ? JSON.parse(product.specifications) : {}
+    });
+  });
+
+  app.get('/api/products/:id/related', (req, res) => {
+    const { id } = req.params;
+    const product = db.prepare('SELECT category FROM products WHERE id = ?').get(id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    
+    const related = db.prepare(`
+      SELECT p.*, 
+      (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
+      (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
+      FROM products p
+      WHERE p.category = ? AND p.id != ? AND p.is_listed = 1
+      LIMIT 4
+    `).all(product.category, id).map((p: any) => ({
+      ...p,
+      images: p.images ? JSON.parse(p.images) : [],
+      specifications: p.specifications ? JSON.parse(p.specifications) : {}
+    }));
+    res.json(related);
+  });
+
+  app.get('/api/products/:id/variants', (req, res) => {
+    const { id } = req.params;
+    const variants = db.prepare('SELECT * FROM product_variants WHERE product_id = ?').all(id);
+    res.json(variants);
+  });
+
+  app.get('/api/products/:id/reviews', (req, res) => {
+    const { id } = req.params;
+    const reviews = db.prepare('SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC').all(id);
+    res.json(reviews);
+  });
+
+  app.post('/api/reviews', (req, res) => {
+    const { product_id, user_name, rating, comment } = req.body;
+    const userId = req.session.userId;
+    
+    let isVerified = 0;
+    if (userId) {
+      // Check if user has a delivered order with this product
+      const purchase = db.prepare(`
+        SELECT oi.id
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.user_id = ? AND oi.product_id = ? AND o.status = 'delivered'
+      `).get(userId, product_id);
+      if (purchase) isVerified = 1;
+    }
+
+    db.prepare('INSERT INTO reviews (product_id, user_id, user_name, rating, comment, is_verified) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(product_id, userId || null, user_name, rating, comment, isVerified);
+      
+    res.json({ success: true, isVerified: !!isVerified });
+  });
+
+  app.get('/api/admin/reviews', (req, res) => {
+    const reviews = db.prepare(`
+      SELECT r.*, p.name as product_name 
+      FROM reviews r 
+      JOIN products p ON r.product_id = p.id 
+      ORDER BY r.created_at DESC
+    `).all();
+    res.json(reviews);
+  });
+
+  app.delete('/api/admin/reviews/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM reviews WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  // Supplier Endpoints
+  app.get('/api/admin/suppliers', (req, res) => {
+    const suppliers = db.prepare('SELECT * FROM suppliers ORDER BY created_at DESC').all();
+    res.json(suppliers);
+  });
+
+  app.post('/api/admin/suppliers', (req, res) => {
+    const { name, contact_person, email, phone, address } = req.body;
+    try {
+      db.prepare('INSERT INTO suppliers (name, contact_person, email, phone, address) VALUES (?, ?, ?, ?, ?)').run(name, contact_person, email, phone, address);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.put('/api/admin/suppliers/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, contact_person, email, phone, address } = req.body;
+    try {
+      db.prepare('UPDATE suppliers SET name = ?, contact_person = ?, email = ?, phone = ?, address = ? WHERE id = ?').run(name, contact_person, email, phone, address, id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.delete('/api/admin/suppliers/:id', (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare('DELETE FROM suppliers WHERE id = ?').run(id);
+      db.prepare('UPDATE products SET supplier_id = NULL WHERE supplier_id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/coupons', (req, res) => {
+    const coupons = db.prepare(`
+      SELECT c.*, 
+      (SELECT COUNT(*) FROM orders WHERE coupon_code = c.code AND status != 'failed') as usage_count
+      FROM coupons c 
+      ORDER BY c.created_at DESC
+    `).all();
+    res.json(coupons);
+  });
+
+  app.post('/api/admin/coupons', (req, res) => {
+    const { code, type, value, min_order, usage_limit, limit_per_user } = req.body;
+    db.prepare('INSERT INTO coupons (code, type, value, min_order, usage_limit, limit_per_user) VALUES (?, ?, ?, ?, ?, ?)').run(code, type, value, min_order, usage_limit, limit_per_user);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/coupons/:id/toggle', (req, res) => {
+    const { id } = req.params;
+    const coupon = db.prepare('SELECT active FROM coupons WHERE id = ?').get(id) as any;
+    if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+    
+    db.prepare('UPDATE coupons SET active = ? WHERE id = ?').run(coupon.active ? 0 : 1, id);
+    res.json({ success: true, active: !coupon.active });
+  });
+
+  app.delete('/api/admin/coupons/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM coupons WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.get('/api/coupons/validate', (req, res) => {
+    const { code, total, user_id } = req.query;
+    const coupon = db.prepare('SELECT * FROM coupons WHERE code = ? AND active = 1').get(code) as any;
+    
+    if (!coupon) {
+      return res.json({ success: false, message: 'Invalid or expired coupon' });
+    }
+    
+    if (Number(total) < coupon.min_order) {
+      return res.json({ success: false, message: `Minimum order of ₹${coupon.min_order} required` });
+    }
+
+    // Check total usage limit
+    if (coupon.usage_limit !== null) {
+      const totalUsage = db.prepare('SELECT COUNT(*) as count FROM orders WHERE coupon_code = ? AND status != "failed"').get(code) as any;
+      if (totalUsage.count >= coupon.usage_limit) {
+        return res.json({ success: false, message: 'Coupon usage limit reached' });
+      }
+    }
+
+    // Check per-user limit
+    if (user_id && coupon.limit_per_user !== null) {
+      const userUsage = db.prepare('SELECT COUNT(*) as count FROM orders WHERE coupon_code = ? AND user_id = ? AND status != "failed"').get(code, user_id) as any;
+      if (userUsage.count >= coupon.limit_per_user) {
+        return res.json({ success: false, message: 'You have reached the usage limit for this coupon' });
+      }
+    }
+    
+    res.json({ success: true, coupon });
+  });
+
+  app.get('/api/admin/expenses', (req, res) => {
+    const expenses = db.prepare('SELECT * FROM expenses ORDER BY date DESC').all();
+    res.json(expenses);
+  });
+
+  app.post('/api/admin/expenses', (req, res) => {
+    const { description, amount, category, date } = req.body;
+    db.prepare('INSERT INTO expenses (description, amount, category, date) VALUES (?, ?, ?, ?)').run(description, amount, category, date);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/expenses/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/support/tickets', (req, res) => {
+    const { user_id, name, email, subject, message } = req.body;
+    const result = db.prepare('INSERT INTO support_tickets (user_id, name, email, subject, message) VALUES (?, ?, ?, ?, ?)').run(user_id || null, name || null, email || null, subject, message);
+    const ticketId = result.lastInsertRowid;
+    
+    broadcast({
+      type: 'NEW_TICKET',
+      payload: {
+        id: ticketId,
+        subject,
+        message,
+        user_id,
+        name,
+        email,
+        created_at: new Date().toISOString()
+      }
+    });
+
+    res.json({ success: true, ticketId });
+  });
+
+  app.get('/api/admin/support/tickets', (req, res) => {
+    const tickets = db.prepare(`
+      SELECT t.*, u.name as user_name, u.phone as user_phone 
+      FROM support_tickets t 
+      JOIN users u ON t.user_id = u.id 
+      ORDER BY t.created_at DESC
+    `).all();
+    res.json(tickets);
+  });
+
+  app.get('/api/support/tickets/:id/messages', (req, res) => {
+    const { id } = req.params;
+    const messages = db.prepare('SELECT * FROM support_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(id);
+    res.json(messages);
+  });
+
+  app.post('/api/support/tickets/:id/messages', (req, res) => {
+    const { id } = req.params;
+    const { user_id, message, is_admin } = req.body;
+    db.prepare('INSERT INTO support_messages (ticket_id, user_id, message, is_admin) VALUES (?, ?, ?, ?)').run(id, user_id, message, is_admin ? 1 : 0);
+    db.prepare('UPDATE support_tickets SET status = ? WHERE id = ?').run(is_admin ? 'in-progress' : 'open', id);
+    
+    if (!is_admin) {
+      broadcast({
+        type: 'NEW_MESSAGE',
+        payload: {
+          ticket_id: id,
+          message,
+          user_id,
+          created_at: new Date().toISOString()
+        }
+      });
+    }
+
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/support/tickets/:id/status', (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    db.prepare('UPDATE support_tickets SET status = ? WHERE id = ?').run(status, id);
+    res.json({ success: true });
+  });
+
+
+  app.get('/api/admin/users/:id/orders', (req, res) => {
+    const { id } = req.params;
+    const orders = db.prepare(`
+      SELECT * FROM orders 
+      WHERE user_id = ? 
+      ORDER BY created_at DESC
+    `).all(id);
+    res.json(orders);
+  });
+
+  app.post('/api/admin/products/:id/variants', (req, res) => {
+    const { id } = req.params;
+    const { variants } = req.body; // Array of { name, price, stock, unit_quantity, is_default }
+    
+    db.transaction(() => {
+      db.prepare('DELETE FROM product_variants WHERE product_id = ?').run(id);
+      const insert = db.prepare('INSERT INTO product_variants (product_id, name, price, stock, unit_quantity, is_default) VALUES (?, ?, ?, ?, ?, ?)');
+      for (const v of variants) {
+        insert.run(id, v.name, v.price, v.stock, v.unit_quantity, v.is_default ? 1 : 0);
+      }
+    })();
+    
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/products/:id/variants', (req, res) => {
+    const { id } = req.params;
+    const variants = db.prepare('SELECT * FROM product_variants WHERE product_id = ?').all(id);
+    res.json(variants);
+  });
+
+  app.get('/api/admin/stats', (req, res) => {
+    try {
+      const totalOrders = db.prepare('SELECT COUNT(*) as count FROM orders').get() as any;
+      const totalRevenue = db.prepare('SELECT SUM(total) as sum FROM orders').get() as any;
+      const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
+      const lowStock = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point').get() as any;
+      
+      // Revenue by day for the last 7 days
+      const revenueByDay = db.prepare(`
+        SELECT strftime('%Y-%m-%d', created_at) as date, SUM(total) as revenue, COUNT(*) as orders
+        FROM orders
+        WHERE created_at >= date('now', '-7 days')
+        GROUP BY date
+        ORDER BY date
+      `).all();
+
+      // Top selling categories
+      const topCategories = db.prepare(`
+        SELECT p.category as name, SUM(oi.quantity) as sales
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        GROUP BY p.category
+        ORDER BY sales DESC
+        LIMIT 5
+      `).all();
+
+      // Top selling products (Predictive Velocity)
+      const topProducts = db.prepare(`
+        SELECT p.name, SUM(oi.quantity) as sold
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        GROUP BY p.id
+        ORDER BY sold DESC
+        LIMIT 5
+      `).all();
+
+      // Recent System Logs (Activities)
+      const recentActivities = db.prepare(`
+        SELECT id, level, message, created_at
+        FROM system_logs
+        ORDER BY created_at DESC
+        LIMIT 5
+      `).all();
+
+      res.json({
+        orders: totalOrders.count,
+        revenue: totalRevenue.sum || 0,
+        users: totalUsers.count,
+        lowStock: lowStock.count,
+        revenueByDay,
+        topCategories,
+        topProducts,
+        recentActivities
+      });
+    } catch (error) {
+      console.error('Admin stats error:', error);
+      res.status(500).json({ message: 'Internal server error fetching stats', error: String(error) });
+    }
+  });
+
+  app.get('/api/admin/orders', (req, res) => {
+    try {
+      const { status, startDate, endDate, userId, search, sortBy, sortOrder } = req.query;
+      let query = `
+        SELECT o.*, u.name as user_name, u.phone as user_phone 
+        FROM orders o 
+        LEFT JOIN users u ON o.user_id = u.id 
+        WHERE 1=1
+      `;
+      const params: any[] = [];
+
+      if (status) {
+        query += ` AND o.status = ?`;
+        params.push(status);
+      }
+      if (startDate) {
+        query += ` AND o.created_at >= ?`;
+        params.push(startDate);
+      }
+      if (endDate) {
+        query += ` AND o.created_at <= ?`;
+        params.push(endDate);
+      }
+      if (userId) {
+        query += ` AND o.user_id = ?`;
+        params.push(userId);
+      }
+      if (search) {
+        query += ` AND (u.name LIKE ? OR u.phone LIKE ? OR o.id LIKE ?)`;
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+
+      // Dynamic Sorting
+      const validSortColumns: Record<string, string> = {
+        id: 'o.id',
+        customer: 'u.name',
+        total: 'o.total',
+        status: 'o.status',
+        date: 'o.created_at'
+      };
+      
+      const sortCol = validSortColumns[sortBy as string] || 'o.created_at';
+      const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
+      
+      query += ` ORDER BY ${sortCol} ${order}`;
+      
+      const orders = db.prepare(query).all(...params);
+      res.json(orders);
+    } catch (error) {
+      console.error('Admin orders error:', error);
+      res.status(500).json({ message: 'Internal server error fetching orders', error: String(error) });
+    }
+  });
+
+  app.get('/api/notifications', (req, res) => {
+    const notifications = db.prepare('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 20').all();
+    res.json(notifications);
+  });
+
+  app.post('/api/admin/orders/:id/status', (req, res) => {
+    const { id } = req.params;
+    const { status, rejection_reason } = req.body;
+    
+    try {
+      const existingOrder = db.prepare('SELECT status, user_id, wallet_used, total, payment_method FROM orders WHERE id = ?').get(id) as any;
+      if (!existingOrder) return res.status(404).json({ message: 'Order not found' });
+
+      db.transaction(() => {
+        if (rejection_reason) {
+          db.prepare('UPDATE orders SET status = ?, rejection_reason = ? WHERE id = ?').run(status, rejection_reason, id);
+        } else {
+          db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
+        }
+
+        // AUTO-RESTOCK & REFUND ON CANCEL/FAIL
+        if ((status === 'cancelled' || status === 'failed') && existingOrder.status !== 'cancelled' && existingOrder.status !== 'failed') {
+          const items = db.prepare('SELECT product_id, variant_id, quantity FROM order_items WHERE order_id = ?').all(id) as any[];
+          for (const item of items) {
+            db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(item.quantity, item.product_id);
+            if (item.variant_id) {
+              db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?').run(item.quantity, item.variant_id);
+            }
+          }
+
+          // Refund wallet if used
+          if (existingOrder.payment_method === 'wallet' && existingOrder.wallet_used > 0) {
+            db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(existingOrder.wallet_used, existingOrder.user_id);
+            db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description, status) VALUES (?, ?, ?, ?, ?)')
+              .run(existingOrder.user_id, existingOrder.wallet_used, 'credit', `Refund for Cancelled Order #${id}`, 'approved');
+          }
+          
+          // Revert Khata if used
+          if (existingOrder.payment_method === 'khata') {
+            db.prepare('UPDATE users SET khata_balance = khata_balance - ? WHERE id = ?').run(existingOrder.total, existingOrder.user_id);
+            db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description, status) VALUES (?, ?, ?, ?, ?)')
+              .run(existingOrder.user_id, existingOrder.total, 'credit', `Khata Reversal for Cancelled Order #${id}`, 'approved');
+          }
+        }
+      })();
+      
+      // Simulate email notification
+      const order = db.prepare('SELECT user_id FROM orders WHERE id = ?').get(id) as any;
+      if (order) {
+        logEvent('info', `Order #${id} status updated to ${status}`, 'Status change notification', order.user_id);
+      }
+      
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/orders/:id/notes', (req, res) => {
+    const { id } = req.params;
+    const { admin_notes } = req.body;
+    db.prepare('UPDATE orders SET admin_notes = ? WHERE id = ?').run(admin_notes, id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/reviews/:id/respond', (req, res) => {
+    const { id } = req.params;
+    const { response } = req.body;
+    db.prepare('UPDATE reviews SET response = ? WHERE id = ?').run(response, id);
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/wallet/requests', (req, res) => {
+    try {
+      const requests = db.prepare(`
+        SELECT wt.*, u.name as user_name, u.phone as user_phone 
+        FROM wallet_transactions wt
+        JOIN users u ON wt.user_id = u.id
+        WHERE wt.status = 'pending'
+        ORDER BY wt.created_at DESC
+      `).all();
+      res.json(requests);
+    } catch (err) {
+      res.status(500).json({ success: false, message: 'Failed to fetch wallet requests' });
+    }
+  });
+
+  app.post('/api/admin/wallet/requests/:id/approve', (req, res) => {
+    const { id } = req.params;
+    const transaction = db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(id) as any;
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+    if (transaction.status !== 'pending') return res.status(400).json({ message: 'Transaction already processed' });
+
+    db.transaction(() => {
+      db.prepare('UPDATE wallet_transactions SET status = ? WHERE id = ?').run('approved', id);
+      db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(transaction.amount, transaction.user_id);
+      logEvent('info', `Wallet request #${id} approved for ₹${transaction.amount}`, 'Admin approval', transaction.user_id);
+    })();
+
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/wallet/requests/:id/reject', (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    db.prepare("UPDATE wallet_transactions SET status = 'rejected', description = ? WHERE id = ?").run(
+      `Rejected: ${reason || 'Invalid details'}`, id
+    );
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/users', (req, res) => {
+    try {
+      const users = db.prepare(`
+        SELECT u.*, 
+               COUNT(o.id) as total_orders, 
+               COALESCE(SUM(o.total), 0) as total_spent 
+        FROM users u 
+        LEFT JOIN orders o ON u.id = o.user_id AND o.status != 'cancelled' AND o.status != 'failed' 
+        GROUP BY u.id
+      `).all();
+      res.json(users);
+    } catch (err) {
+      console.error('Failed to fetch users for admin:', err);
+      res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  });
+
+  app.post('/api/admin/products', (req, res) => {
+    const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id } = req.body;
+    const result = db.prepare(`
+      INSERT INTO products (name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image_url, images, specifications, supplier_id) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null);
+    
+    const s = Number(stock);
+    const rp = Number(reorder_point || 5);
+    if (s <= rp) {
+      broadcast({
+        type: 'LOW_STOCK',
+        payload: [{ id: result.lastInsertRowid, name, stock: s }]
+      });
+    }
+
+    res.json({ success: true, id: result.lastInsertRowid });
+  });
+
+  app.put('/api/admin/products/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id } = req.body;
+    db.prepare(`
+      UPDATE products SET 
+      name = ?, description = ?, price = ?, wholesale_price = ?, retail_price = ?, 
+      discount = ?, discount_price = ?, stock = ?, reorder_point = ?, 
+      max_qty = ?, is_listed = ?, category = ?, image_url = ?, images = ?, specifications = ?, supplier_id = ?
+      WHERE id = ?
+    `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null, id);
+    
+    const s = Number(stock);
+    const rp = Number(reorder_point || 5);
+    if (s <= rp) {
+      broadcast({
+        type: 'LOW_STOCK',
+        payload: [{ id, name, stock: s }]
+      });
+    }
+
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/products/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM products WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/products/bulk', (req, res) => {
+    const { products } = req.body;
+    if (!Array.isArray(products)) {
+      return res.status(400).json({ success: false, message: 'Invalid products data' });
+    }
+
+    const insert = db.prepare('INSERT INTO products (name, description, price, stock, category, image_url) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertMany = db.transaction((items) => {
+      for (const item of items) {
+        insert.run(item.name, item.description, item.price, item.stock, item.category, item.image_url || 'https://picsum.photos/seed/product/400/400');
+      }
+    });
+
+    try {
+      insertMany(products);
+      res.json({ success: true, count: products.length });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/users/:id/wallet', (req, res) => {
+    const { id } = req.params;
+    const { amount, type, description } = req.body;
+    
+    const user = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(id) as any;
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const newBalance = type === 'credit' 
+      ? user.wallet_balance + Number(amount)
+      : user.wallet_balance - Number(amount);
+
+    db.transaction(() => {
+      db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBalance, id);
+      db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(id, amount, type, description);
+    })();
+
+    res.json({ success: true, newBalance });
+  });
+
+  app.get('/api/admin/users/:id/wallet-history', (req, res) => {
+    const { id } = req.params;
+    const history = db.prepare('SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC').all(id);
+    res.json(history);
+  });
+
+  app.post('/api/orders', (req, res) => {
+    const { user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_screenshot, delivery_type, notes, items, coupon_code } = req.body;
+    
+    if (!user_id || !items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Invalid order data' });
+    }
+
+    try {
+      const result = db.transaction(() => {
+        let walletUsed = 0;
+        if (payment_method === 'wallet') walletUsed = total;
+
+        const order = db.prepare('INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_screenshot, delivery_type, notes, coupon_code, wallet_used) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_screenshot, delivery_type, notes, coupon_code, walletUsed);
+        const orderId = order.lastInsertRowid;
+        if (total > 20000) {
+          logSuspicious(user_id, 'LARGE_ORDER', `Order total ₹${total} exceeded threshold ₹20000`, req.ip);
+        }
+
+        const lowStockAlerts: any[] = [];
+
+        for (const item of items) {
+          const price = item.selectedVariant ? item.selectedVariant.price : item.price;
+          db.prepare('INSERT INTO order_items (order_id, product_id, variant_id, variant_name, quantity, price) VALUES (?, ?, ?, ?, ?, ?)').run(
+            orderId, 
+            item.id, 
+            item.selectedVariant?.id || null, 
+            item.selectedVariant?.name || null, 
+            item.quantity, 
+            price
+          );
+          db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(item.quantity, item.id);
+          
+          // If it's a variant, we might want to update variant stock too if we track it separately
+          if (item.selectedVariant) {
+            db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?').run(item.quantity, item.selectedVariant.id);
+          }
+          
+          // Predictive REORDER LOGIC: Predict velocity update based on order size and date
+          
+          const product = db.prepare('SELECT name, stock, reorder_point FROM products WHERE id = ?').get(item.id) as any;
+          const rp = product.reorder_point !== null ? product.reorder_point : 5;
+          if (product && product.stock <= rp) {
+            lowStockAlerts.push({
+              id: item.id,
+              name: product.name,
+              stock: product.stock
+            });
+          }
+        }
+
+        if (payment_method === 'wallet') {
+          db.prepare('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?').run(total, user_id);
+          db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(user_id, total, 'debit', `Order #${orderId} payment`);
+        } else if (payment_method === 'khata') {
+          db.prepare('UPDATE users SET khata_balance = khata_balance + ? WHERE id = ?').run(total, user_id);
+          db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(user_id, total, 'debit', `Order #${orderId} Khata debit`);
+        }
+
+        // Suspicious activity check: Large orders
+        if (total > 10000) {
+          logSuspicious(user_id, 'LARGE_ORDER', `User placed a large order of ₹${total}`, req.ip);
+        }
+
+        return { orderId, lowStockAlerts };
+      })();
+
+      broadcast({
+        type: 'NEW_ORDER',
+        payload: {
+          id: result.orderId,
+          total,
+          user_id,
+          created_at: new Date().toISOString()
+        }
+      });
+
+      if (result.lowStockAlerts.length > 0) {
+        broadcast({
+          type: 'LOW_STOCK',
+          payload: result.lowStockAlerts
+        });
+      }
+
+      res.json({ success: true, orderId: result.orderId });
+    } catch (err: any) {
+      // Create a "failed" order record so it shows in user history as requested
+      try {
+        const failedOrder = db.prepare('INSERT INTO orders (user_id, total, address, status, notes) VALUES (?, ?, ?, ?, ?)').run(
+          user_id, total, address, 'failed', `Error: ${err.message}`
+        );
+        const failedOrderId = failedOrder.lastInsertRowid;
+        logEvent('error', `Order Creation Failed (ORD-${failedOrderId}): ${err.message}`, err.stack, user_id, '/api/orders');
+        res.status(500).json({ success: false, message: 'Failed to place order. A record of this failure has been saved to your history.', orderId: failedOrderId });
+      } catch (logErr) {
+        logEvent('error', `Critical Failure in Order Error Handler: ${err.message}`, err.stack, user_id, '/api/orders');
+        res.status(500).json({ success: false, message: 'Failed to place order. Please try again.' });
+      }
+    }
+  });
+
+  app.get('/api/orders/user/:userId', (req, res) => {
+    const { userId } = req.params;
+    // Security check: only allow users to fetch their own orders unless they are admin
+    if (req.session.userId !== Number(userId) && req.session.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+    const orders = db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    res.json(orders);
+  });
+
+  app.get('/api/orders/:id', (req, res) => {
+    const { id } = req.params;
+    const order = db.prepare(`
+      SELECT o.*, u.name as user_name, u.phone as user_phone 
+      FROM orders o 
+      JOIN users u ON o.user_id = u.id 
+      WHERE o.id = ?
+    `).get(id) as any;
+    
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    const items = db.prepare(`
+      SELECT oi.*, p.name as product_name 
+      FROM order_items oi 
+      JOIN products p ON oi.product_id = p.id 
+      WHERE oi.order_id = ?
+    `).all(id);
+
+    res.json({ ...order, items });
+  });
+
+  app.put('/api/admin/users/:id', (req, res) => {
+    const { id } = req.params;
+    const body = req.body;
+    
+    // Get current user data to merge
+    const currentUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+    if (!currentUser) return res.status(404).json({ message: 'User not found' });
+
+    const name = body.name !== undefined ? body.name : currentUser.name;
+    const email = body.email !== undefined ? body.email : currentUser.email;
+    const shop_name = body.shop_name !== undefined ? body.shop_name : currentUser.shop_name;
+    const pin_code = body.pin_code !== undefined ? body.pin_code : currentUser.pin_code;
+    const role = body.role !== undefined ? body.role : currentUser.role;
+    const khata_enabled = body.khata_enabled !== undefined ? body.khata_enabled : currentUser.khata_enabled;
+    const khata_limit = body.khata_limit !== undefined ? body.khata_limit : currentUser.khata_limit;
+    const khata_due_date = body.khata_due_date !== undefined ? body.khata_due_date : currentUser.khata_due_date;
+    const segment = body.segment !== undefined ? body.segment : currentUser.segment;
+    const street_address = body.street_address !== undefined ? body.street_address : currentUser.street_address;
+    const city = body.city !== undefined ? body.city : currentUser.city;
+    const state = body.state !== undefined ? body.state : currentUser.state;
+
+    db.prepare(`
+      UPDATE users SET 
+      name = ?, email = ?, shop_name = ?, pin_code = ?, role = ?, 
+      khata_enabled = ?, khata_limit = ?, khata_due_date = ?, segment = ?,
+      street_address = ?, city = ?, state = ?
+      WHERE id = ?
+    `).run(name, email, shop_name, pin_code, role, khata_enabled ? 1 : 0, khata_limit, khata_due_date, segment, street_address, city, state, id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/users/:id', (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare('DELETE FROM users WHERE id = ?').run(id);
+      res.json({ success: true, message: 'User deleted securely' });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: 'Failed to delete user' });
+    }
+  });
+
+  app.post('/api/user/update-profile', (req, res) => {
+    const { id, name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone } = req.body;
+    try {
+      const formattedName = name ? capitalizeName(name) : name;
+      db.prepare(`
+        UPDATE users SET 
+        name = ?, email = ?, shop_name = ?, pin_code = ?, address = ?, 
+        profile_photo = ?, username = ?, street_address = ?, city = ?, state = ?, zip_code = ?, phone = ?
+        WHERE id = ?
+      `).run(formattedName, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone, id);
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      res.json({ success: true, user });
+    } catch (err: any) {
+      if (err.message.includes('UNIQUE constraint failed: users.username')) {
+        res.status(400).json({ success: false, message: 'Username already exists' });
+      } else {
+        res.status(500).json({ success: false, message: 'Update failed' });
+      }
+    }
+  });
+
+  app.post('/api/admin/config/update', (req, res) => {
+    const settings = req.body; // Expecting an object of key-value pairs
+    const update = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    const updateMany = db.transaction((data) => {
+      for (const [key, value] of Object.entries(data)) {
+        update.run(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+      }
+    });
+    updateMany(settings);
+    res.json({ success: true });
+  });
+
+  // Returns logic
+  app.get('/api/admin/returns', (req, res) => {
+    try {
+      const returnsInfo = db.prepare(`
+        SELECT r.*, o.id as order_num, p.name as product_name, u.name as user_name
+        FROM returns r
+        JOIN orders o ON r.order_id = o.id
+        JOIN products p ON r.product_id = p.id
+        JOIN users u ON r.user_id = u.id
+        ORDER BY r.created_at DESC
+      `).all();
+      res.json(returnsInfo);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/orders/:id/return', (req, res) => {
+    const { id } = req.params;
+    const { product_id, quantity, reason } = req.body;
+    try {
+      const order = db.prepare('SELECT user_id, status FROM orders WHERE id = ?').get(id) as any;
+      if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+      
+      // Safety: Only delivered orders can be returned
+      if (order.status !== 'delivered') {
+        return res.status(400).json({ success: false, message: 'Only delivered orders can be returned' });
+      }
+
+      // Check item and quantity in order_items
+      const item = db.prepare('SELECT quantity FROM order_items WHERE order_id = ? AND product_id = ?').get(id, product_id) as any;
+      if (!item) {
+        return res.status(400).json({ success: false, message: 'Product not found in this order' });
+      }
+
+      if (quantity > item.quantity) {
+        return res.status(400).json({ success: false, message: 'Return quantity exceeds purchased quantity' });
+      }
+
+      // Check for duplicate or existing pending return for this item in this order
+      const existingReturn = db.prepare('SELECT id FROM returns WHERE order_id = ? AND product_id = ? AND status = ?').get(id, product_id, 'pending');
+      if (existingReturn) {
+        return res.status(400).json({ success: false, message: 'A return request for this item is already pending' });
+      }
+      
+      db.prepare('INSERT INTO returns (order_id, product_id, user_id, quantity, reason, status) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, product_id, order.user_id, quantity, reason, 'pending');
+        
+      res.json({ success: true, message: 'Return initiated successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/returns/:id/approve', (req, res) => {
+    const { id } = req.params;
+    const { refund_amount, restock } = req.body;
+    try {
+      const returnData = db.prepare('SELECT * FROM returns WHERE id = ?').get(id) as any;
+      if (!returnData || returnData.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'Invalid return request' });
+      }
+
+      db.transaction(() => {
+        // Approve return
+        db.prepare("UPDATE returns SET status = 'approved', refund_amount = ? WHERE id = ?").run(refund_amount, id);
+        
+        // Add cashback to wallet
+        db.prepare("UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?").run(refund_amount, returnData.user_id);
+        
+        // Log transaction
+        db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description, status) VALUES (?, ?, ?, ?, ?)')
+          .run(returnData.user_id, refund_amount, 'credit', `Cashback for Return Item in ORD-${returnData.order_id}`, 'approved');
+
+        // Optional: Restock item
+        if (restock) {
+          db.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(returnData.quantity, returnData.product_id);
+        }
+      })();
+
+      res.json({ success: true, message: 'Return approved and credit issued' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/returns/:id/reject', (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("UPDATE returns SET status = 'rejected' WHERE id = ?").run(id);
+      res.json({ success: true, message: 'Return rejected' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Runner / Delivery Boy APIs
+  app.get('/api/runner/orders', requireAuth, (req, res) => {
+    try {
+      // Find orders that are ready for delivery (shipped) or previously assigned to this person
+      // Also include 'processing' so they can see what is coming next
+      const orders = db.prepare(`
+        SELECT o.*, u.name as customer_name, u.phone as customer_phone
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        WHERE o.status IN ('processing', 'shipped', 'dispatched')
+        ORDER BY o.created_at DESC
+      `).all();
+      res.json(orders);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/runner/orders/:id/status', requireAuth, (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body; // 'shipped', 'dispatched', 'delivered'
+    const allowedStatuses = ['shipped', 'dispatched', 'delivered'];
+    
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status update' });
+    }
+
+    try {
+      db.prepare("UPDATE orders SET status = ?, delivery_boy_id = ? WHERE id = ?")
+        .run(status, req.session.userId, id);
+      
+      // If delivered, we might want to log it or notify
+      res.json({ success: true, message: `Order marked as ${status}` });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // API 404 handler
+  app.use('/api', (req, res) => {
+    res.status(404).json({ success: false, message: `API route not found: ${req.method} ${req.path}` });
+  });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      console.log('Initializing Vite server...');
+      const vite = await createViteServer({
+        server: { 
+          middlewareMode: true,
+          hmr: process.env.DISABLE_HMR !== 'true'
+        },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+      console.log('Vite middleware initialized.');
+    } catch (err) {
+      console.error('Failed to initialize Vite server:', err);
+    }
+  } else {
+    app.use(express.static(path.join(__dirname, 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+  }
+
+  const PORT = 3000;
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});

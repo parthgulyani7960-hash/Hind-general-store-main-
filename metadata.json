@@ -1,0 +1,8 @@
+{
+  "name": "Hind General Store",
+  "description": "A comprehensive e-commerce and management platform for Hind General Store, featuring a customer storefront and a powerful admin dashboard.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
