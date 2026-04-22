@@ -1,4 +1,4 @@
-import { Home, ShoppingBag, ShoppingCart, User } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, User, Truck } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { cn } from '../types';
@@ -10,6 +10,7 @@ export default function MobileBottomNav() {
   const navItems = [
     { to: '/', icon: Home, label: 'Home' },
     { to: '/products', icon: ShoppingBag, label: 'Shop' },
+    { to: '/track-order', icon: Truck, label: 'Track' },
     { to: '/cart', icon: ShoppingCart, label: 'Cart', count: cartCount },
     { to: '/profile', icon: User, label: 'Profile' },
   ];

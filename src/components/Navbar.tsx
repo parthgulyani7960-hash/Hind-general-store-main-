@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -8,7 +8,7 @@ import { cn } from '../types';
 import UserAvatar from './UserAvatar';
 
 export default function Navbar() {
-  const { user, cart, logout, wishlist } = useStore();
+  const { user, cart, logout, wishlist, simulatedRole, setSimulatedRole, language, setLanguage, t } = useStore();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,9 +46,9 @@ export default function Navbar() {
   const wishlistCount = wishlist.length;
 
   const navLinks = [
-    { to: '/', label: 'Home' },
-    { to: '/products', label: 'Products' },
-    { to: '/support', label: 'Help & Support' },
+    { to: '/', label: t('home') },
+    { to: '/products', label: t('products') },
+    { to: '/support', label: t('support') },
   ];
 
   return (
@@ -73,7 +73,7 @@ export default function Navbar() {
               <Search className="absolute left-3 top-2.5 text-stone-400" size={18} />
               <input
                 type="text"
-                placeholder="Search products..."
+                placeholder={t('search_placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setShowSuggestions(true)}
@@ -131,6 +131,49 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center space-x-4">
+            <div className="hidden lg:flex items-center bg-stone-100 rounded-xl p-1">
+              {[
+                { id: 'en', label: 'EN' },
+                { id: 'hi', label: 'हि' },
+                { id: 'pa', label: 'ਪੰਜਾਬੀ' }
+              ].map((lang) => (
+                <button
+                  key={lang.id}
+                  onClick={() => setLanguage(lang.id as any)}
+                  className={cn(
+                    "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
+                    language === lang.id ? "bg-white text-primary shadow-sm" : "text-stone-400 hover:text-stone-600"
+                  )}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+
+            {user?.role === 'admin' && (
+              <div className="hidden xl:flex items-center bg-stone-100 rounded-xl p-1 space-x-1">
+                {[
+                  { id: null, label: 'Default', icon: User },
+                  { id: 'retailer', label: 'Retail', icon: ShoppingCart },
+                  { id: 'wholesaler', label: 'Wholesale', icon: ShoppingBag }
+                ].map((r) => (
+                  <button
+                    key={r.label}
+                    onClick={() => setSimulatedRole(r.id as any)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center space-x-1.5 transition-all",
+                      (simulatedRole === r.id || (simulatedRole === null && r.id === null))
+                        ? "bg-primary text-white shadow-sm" 
+                        : "text-stone-400 hover:text-stone-600 hover:bg-stone-200"
+                    )}
+                  >
+                    <r.icon size={12} />
+                    <span>{r.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {user && (
               <div className="hidden lg:flex flex-col items-end mr-2">
                 <span className="text-[10px] font-bold text-stone-400 uppercase">Wallet</span>

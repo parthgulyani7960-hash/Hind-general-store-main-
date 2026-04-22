@@ -15,7 +15,8 @@ export default function Products() {
   const [minPrice, setMinPrice] = useState('0');
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
-  const { addToCart, cart, updateQuantity, wishlist, toggleWishlist } = useStore();
+  const { addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
+  const activeRole = simulatedRole || user?.role;
 
   useEffect(() => {
     fetch('/api/products')
@@ -23,24 +24,27 @@ export default function Products() {
       .then(data => {
         setProducts(data);
         setLoading(false);
-        const maxP = Math.max(...data.map((p: Product) => p.price));
+        const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
         setMaxPrice(maxP.toString());
       });
-  }, []);
+  }, [user?.role]);
 
   const filteredProducts = products
     .filter(p => {
+      const activePrice = getProductPrice(p, user?.role);
       const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            p.description.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
-      const matchesMinPrice = p.price >= Number(minPrice);
-      const matchesMaxPrice = maxPrice === '' || p.price <= Number(maxPrice);
+      const matchesMinPrice = activePrice >= Number(minPrice);
+      const matchesMaxPrice = maxPrice === '' || activePrice <= Number(maxPrice);
       return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && p.is_listed;
     })
     .sort((a, b) => {
-      if (sortBy === 'price-low') return a.price - b.price;
-      if (sortBy === 'price-high') return b.price - a.price;
+      const priceA = getProductPrice(a, user?.role);
+      const priceB = getProductPrice(b, user?.role);
+      if (sortBy === 'price-low') return priceA - priceB;
+      if (sortBy === 'price-high') return priceB - priceA;
       if (sortBy === 'rating') return (b.avg_rating || 0) - (a.avg_rating || 0);
       if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       return 0; // Relevance (default order from API)
@@ -132,10 +136,18 @@ export default function Products() {
                     </div>
                   </div>
                   
-                  <div className="flex items-baseline space-x-3">
-                    <span className="text-4xl font-black text-primary">₹{quickViewProduct.price}</span>
-                    {quickViewProduct.retail_price && quickViewProduct.discount > 0 && (
-                      <span className="text-xl text-stone-300 line-through font-bold">₹{quickViewProduct.retail_price}</span>
+                  <div className="flex flex-col">
+                    <div className="flex items-baseline space-x-3">
+                      <span className="text-4xl font-black text-primary">₹{getProductPrice(quickViewProduct, user?.role)}</span>
+                      {getProductPrice(quickViewProduct, user?.role) < quickViewProduct.price && (
+                        <span className="text-xl text-stone-300 line-through font-bold">₹{quickViewProduct.price}</span>
+                      )}
+                    </div>
+                    {user?.role === 'wholesaler' && quickViewProduct.wholesale_price && (
+                       <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">Wholesale Account Price</span>
+                    )}
+                    {user?.role === 'retailer' && quickViewProduct.retail_price && (
+                       <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Retailer Account Price</span>
                     )}
                   </div>
                   
@@ -165,6 +177,21 @@ export default function Products() {
           </div>
         )}
       </AnimatePresence>
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-stone-900">
+            {activeRole === 'wholesaler' ? 'Wholesale Distribution Catalog' : 
+             activeRole === 'retailer' ? 'Retail Partner Inventory' : 
+             'Our Products'}
+          </h1>
+          <p className="text-stone-500">
+            {activeRole === 'wholesaler' ? 'Exclusive bulk supply for your wholesale operations.' : 
+             activeRole === 'retailer' ? 'Curated inventory with partner margins.' : 
+             'Fresh items delivered to your home.'}
+          </p>
+        </div>
+      </div>
 
       <div className="flex flex-col md:flex-row gap-8">
         {/* Sidebar */}
@@ -284,13 +311,21 @@ export default function Products() {
                 <div className="absolute top-2 right-2 flex flex-col space-y-2">
                   <div className={cn(
                     "bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-xs font-bold shadow-sm flex flex-col items-end",
-                    product.discount > 0 ? "text-emerald-600" : "text-primary"
+                    getProductPrice(product, user?.role) < product.price ? "text-emerald-600" : "text-primary"
                   )}>
-                    <div className="flex items-center space-x-1">
-                      {product.discount > 0 && product.retail_price && (
-                        <span className="text-[10px] text-stone-400 line-through font-medium">₹{product.retail_price}</span>
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-center space-x-1">
+                        {getProductPrice(product, user?.role) < product.price && (
+                          <span className="text-[10px] text-stone-400 line-through font-medium">₹{product.price}</span>
+                        )}
+                        <span>₹{getProductPrice(product, user?.role)}</span>
+                      </div>
+                      {user?.role === 'wholesaler' && product.wholesale_price && (
+                        <span className="text-[8px] font-black uppercase tracking-tighter">Wholesale</span>
                       )}
-                      <span>₹{product.price}</span>
+                      {user?.role === 'retailer' && product.retail_price && (
+                        <span className="text-[8px] font-black uppercase tracking-tighter">Retail</span>
+                      )}
                     </div>
                   </div>
                   <button 

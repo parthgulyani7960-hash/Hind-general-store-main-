@@ -115,12 +115,19 @@ export interface WaitlistEntry {
   notified_at?: string;
 }
 
-export interface SavedAddress {
+export interface UserAddress {
   id: number;
   user_id: number;
-  label: string;
+  name: string;
+  phone: string;
   address: string;
+  city: string;
+  state: string;
+  zip_code: string;
   pin_code: string;
+  delivery_area: string;
+  is_default: boolean;
+  created_at?: string;
 }
 
 export interface Coupon {

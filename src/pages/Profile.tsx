@@ -11,6 +11,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn, Product } from '../types';
 import { useEffect } from 'react';
+import WholesaleInsights from '../components/WholesaleInsights';
 
 export default function Profile() {
   const { 
@@ -22,11 +23,26 @@ export default function Profile() {
     config, 
     wishlist, 
     toggleWishlist, 
-    subscribeNewsletter 
+    subscribeNewsletter,
+    addresses, deleteAddress, setDefaultAddress, saveAddress,
+    simulatedRole, t
   } = useStore();
   const navigate = useNavigate();
+  const activeRole = simulatedRole || user?.role;
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'wallet' | 'insights' | 'addresses'>('history');
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [editingAddress, setEditingAddress] = useState<any>(null);
+  const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/delivery-areas')
+      .then(res => res.json())
+      .then(setDeliveryAreas)
+      .catch(console.error);
+  }, []);
 
   const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
   const upiName = config.find(c => c.key === 'upi_name')?.value || 'Hind General Store';
@@ -190,7 +206,6 @@ export default function Profile() {
       toast.error('Subscription failed');
     }
   };
-  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'wallet'>('history');
   const [wishlistProducts, setWishlistProducts] = useState<Product[]>([]);
   const [loadingWishlist, setLoadingWishlist] = useState(false);
 
@@ -529,6 +544,8 @@ export default function Profile() {
             {[
               { id: 'history', label: 'Orders', icon: ShoppingBag },
               { id: 'wishlist', label: 'Wishlist', icon: Heart },
+              { id: 'addresses', label: 'Addresses', icon: Home },
+              ...(activeRole === 'wholesaler' || activeRole === 'retailer' ? [{ id: 'insights', label: 'Insights', icon: Activity }] : []),
               { id: 'wallet', label: 'Wallet', icon: Wallet },
             ].map((tab) => (
               <button
@@ -549,6 +566,105 @@ export default function Profile() {
 
           {/* Tab Content */}
           <AnimatePresence mode="wait">
+            {activeProfileTab === 'insights' && (activeRole === 'wholesaler' || activeRole === 'retailer') && (
+              <WholesaleInsights key="insights" />
+            )}
+            {activeProfileTab === 'addresses' && (
+              <motion.div 
+                key="addresses"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
+                  <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+                    <div>
+                      <h3 className="font-bold text-lg">{t('manage_addresses')}</h3>
+                      <p className="text-xs text-stone-400">Save your multiple delivery locations</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setEditingAddress(null);
+                        setShowAddressModal(true);
+                      }}
+                      className="btn-primary py-2 px-4 text-xs flex items-center space-x-2"
+                    >
+                      <Plus size={14} />
+                      <span>{t('add_new_address')}</span>
+                    </button>
+                  </div>
+                  
+                  <div className="p-6">
+                    {addresses.length === 0 ? (
+                      <div className="py-12 text-center space-y-4">
+                        <div className="w-16 h-16 bg-stone-50 text-stone-300 rounded-full flex items-center justify-center mx-auto">
+                          <Home size={32} />
+                        </div>
+                        <p className="text-stone-400 italic">{t('no_addresses_found')}</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4">
+                        {addresses.map((addr) => (
+                          <div 
+                            key={addr.id} 
+                            className={cn(
+                              "relative p-6 rounded-2xl border-2 transition-all",
+                              addr.is_default ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                            )}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-black text-stone-900">{addr.name}</span>
+                                  {addr.is_default && (
+                                    <span className="bg-primary text-white text-[8px] font-bold uppercase px-2 py-0.5 rounded-full">Default</span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-stone-600">{addr.phone}</p>
+                                <p className="text-sm text-stone-500 mt-2 leading-relaxed">
+                                  {addr.address}, {addr.city}, {addr.state} - {addr.pin_code}
+                                </p>
+                                <div className="mt-2 text-[10px] font-bold text-primary uppercase tracking-widest bg-white px-3 py-1 rounded-full border border-primary/20 inline-block">
+                                  Zone: {addr.delivery_area}
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button 
+                                  onClick={() => {
+                                    setEditingAddress(addr);
+                                    setShowAddressModal(true);
+                                  }}
+                                  className="p-2 text-stone-400 hover:text-primary transition-colors hover:bg-white rounded-lg border border-transparent hover:border-stone-100"
+                                >
+                                  <Settings size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    if(window.confirm('Delete this address?')) deleteAddress(addr.id);
+                                  }}
+                                  className="p-2 text-stone-400 hover:text-red-500 transition-colors hover:bg-white rounded-lg border border-transparent hover:border-stone-100"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </div>
+                            {!addr.is_default && (
+                              <button 
+                                onClick={() => setDefaultAddress(addr.id)}
+                                className="mt-4 text-[10px] font-bold text-stone-400 hover:text-primary uppercase tracking-widest transition-colors"
+                              >
+                                {t('set_as_default')}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
             {activeProfileTab === 'history' && (
               <motion.div 
                 key="history"
@@ -1235,6 +1351,122 @@ export default function Profile() {
                   <p className="text-[10px] text-stone-400 mt-2 text-center">Approved returns will be automatically credited to your store wallet.</p>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+        {showAddressModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+                <h3 className="font-black text-xl text-stone-800">
+                  {editingAddress ? t('edit_address') : t('add_new_address')}
+                </h3>
+                <button onClick={() => setShowAddressModal(false)} className="p-2 hover:bg-white rounded-xl transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const data = Object.fromEntries(formData);
+                  await saveAddress({
+                    ...data,
+                    id: editingAddress?.id,
+                    is_default: editingAddress?.is_default || false
+                  } as any);
+                  setShowAddressModal(false);
+                }}
+                className="p-6 space-y-4 max-h-[70vh] overflow-y-auto"
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Name</label>
+                    <input 
+                      name="name"
+                      required
+                      defaultValue={editingAddress?.name}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Phone Number</label>
+                    <input 
+                      name="phone"
+                      required
+                      defaultValue={editingAddress?.phone}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Code</label>
+                    <input 
+                      name="pin_code"
+                      required
+                      defaultValue={editingAddress?.pin_code}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Address</label>
+                  <textarea 
+                    name="address"
+                    required
+                    defaultValue={editingAddress?.address}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors min-h-[80px] font-bold text-stone-700"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
+                    <input 
+                      name="city"
+                      required
+                      defaultValue={editingAddress?.city || 'Samana'}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
+                    <input 
+                      name="state"
+                      required
+                      defaultValue={editingAddress?.state || 'Punjab'}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Zone</label>
+                  <select 
+                    name="delivery_area"
+                    required
+                    defaultValue={editingAddress?.delivery_area}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                  >
+                    <option value="">Select a zone</option>
+                    {deliveryAreas.map(area => (
+                      <option key={area.id} value={area.name}>{area.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button 
+                  type="submit"
+                  className="w-full bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all mt-4"
+                >
+                  Save Address
+                </button>
+              </form>
             </motion.div>
           </div>
         )}

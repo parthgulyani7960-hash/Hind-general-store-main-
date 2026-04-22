@@ -3,9 +3,11 @@ import { ArrowRight, ShieldCheck, Truck, Clock, PhoneCall, ShoppingBag } from 'l
 import { Link } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
+import { cn } from '../lib/utils';
 
 export default function Home() {
-  const { user } = useStore();
+  const { user, simulatedRole, t } = useStore();
+  const activeRole = simulatedRole || user?.role;
 
   return (
     <div className="space-y-20 pb-20">
@@ -30,25 +32,45 @@ export default function Home() {
             className="max-w-2xl space-y-6"
           >
             {user && (
-              <motion.p 
+              <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="text-primary font-bold uppercase tracking-widest text-sm"
+                className="flex items-center space-x-3"
               >
-                Welcome back, {user.name}! 👋
-              </motion.p>
+                <div className={cn(
+                  "px-3 py-1 rounded-lg text-white font-black uppercase text-[10px] tracking-widest",
+                  activeRole === 'wholesaler' ? "bg-emerald-600" : 
+                  activeRole === 'retailer' ? "bg-blue-600" : 
+                  activeRole === 'admin' ? "bg-primary" : "bg-stone-400"
+                )}>
+                  {activeRole === 'wholesaler' ? t('wholesale_portal') : activeRole === 'retailer' ? t('retail_portal') : 'Account'}
+                </div>
+                <p className="text-primary font-bold uppercase tracking-widest text-sm">
+                  {t('welcome')}, {user.name}! 👋
+                </p>
+              </motion.div>
             )}
             <h1 className="text-6xl font-bold text-primary leading-tight">
-              Fresh Groceries <br />
-              <span className="text-accent">Delivered to Your Door</span>
+              {activeRole === 'wholesaler' ? (
+                <>{t('wholesale_portal')} <br /> <span className="text-emerald-600">{t('bulk_supply')}</span></>
+              ) : activeRole === 'retailer' ? (
+                <>{t('retail_portal')} <br /> <span className="text-blue-600">{t('grow_business')}</span></>
+              ) : (
+                <>Fresh Groceries <br /> <span className="text-accent">Delivered to Your Door</span></>
+              )}
             </h1>
             <p className="text-xl text-stone-600">
-              Hind General Store brings you the finest quality karyana items, grains, spices, and daily essentials at the best prices.
+              {activeRole === 'wholesaler' 
+                ? "Exclusive B2B access to bulk inventory at distributor rates. Direct supply for your warehouse."
+                : activeRole === 'retailer'
+                ? "Preferred pricing for retail stores. Restock your shelves with quality karyana at partner rates."
+                : "Hind General Store brings you the finest quality karyana items, grains, spices, and daily essentials at the best prices."
+              }
             </p>
             <div className="flex flex-wrap gap-4">
               <Link to="/products" className="btn-primary text-lg px-8 py-4 flex items-center space-x-2">
-                <span>Shop Now</span>
+                <span>{t('all_products')}</span>
                 <ArrowRight size={20} />
               </Link>
               <Link to="/support" className="bg-white text-stone-800 border border-stone-200 px-8 py-4 rounded-xl font-medium hover:bg-stone-50 transition-all flex items-center space-x-2">
@@ -59,6 +81,59 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
+
+      {/* Role-Specific Isolation Sections */}
+      {activeRole === 'wholesaler' && (
+        <section className="bg-emerald-900 py-20 relative overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col md:flex-row items-center justify-between gap-12">
+            <div className="max-w-2xl space-y-6">
+              <span className="text-emerald-400 font-black uppercase tracking-widest text-xs">Wholesale Distribution Only</span>
+              <h2 className="text-4xl font-bold text-white leading-tight">Bulk Inventory Management & Distributor Pricing</h2>
+              <p className="text-emerald-100/70 text-lg">
+                As a Wholesaler, you have isolated access to our bulk logistics. View case-lot pricing and manage large-scale replenishment directly.
+              </p>
+              <div className="flex space-x-4">
+                <Link to="/products" className="bg-emerald-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-emerald-500 shadow-xl transition-all">
+                  Request Case-Lot Quote
+                </Link>
+              </div>
+            </div>
+            <div className="bg-white/5 backdrop-blur-xl p-8 rounded-[2rem] border border-white/10 w-full md:w-80">
+              <p className="text-emerald-400 font-bold text-sm mb-4">Your Average Savings</p>
+              <p className="text-white text-5xl font-black mb-2">32%</p>
+              <p className="text-emerald-200/60 text-xs uppercase tracking-widest font-black">Below Retail MRP</p>
+            </div>
+          </div>
+          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/20 rounded-full blur-[100px]" />
+        </section>
+      )}
+
+      {activeRole === 'retailer' && (
+        <section className="bg-blue-900 py-20 relative overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col md:flex-row items-center justify-between gap-12">
+            <div className="max-w-2xl space-y-6">
+              <span className="text-blue-400 font-black uppercase tracking-widest text-xs">Retail Partner Dashboard</span>
+              <h2 className="text-4xl font-bold text-white leading-tight">Enhance Your Store's Margin with Partner Pricing</h2>
+              <p className="text-blue-100/70 text-lg">
+                Dedicated support for retail shop owners. Access exclusive partner discounts and priority restocking schedules.
+              </p>
+              <div className="flex space-x-4">
+                <Link to="/products" className="bg-blue-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-blue-500 shadow-xl transition-all">
+                  Browse Partner Deals
+                </Link>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 w-full md:w-auto">
+              {['Priority Delivery', 'Net-30 Billing', 'Inventory Sync', 'Returns Policy'].map((perk, i) => (
+                <div key={i} className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 text-center">
+                  <p className="text-blue-200 font-bold text-xs">{perk}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="absolute bottom-0 left-0 w-96 h-96 bg-blue-500/20 rounded-full blur-[100px]" />
+        </section>
+      )}
 
       {/* Features */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

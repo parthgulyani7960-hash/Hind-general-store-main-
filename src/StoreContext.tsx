@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, CartItem, Product } from './types';
+import { User, CartItem, Product, UserAddress } from './types';
 import toast from 'react-hot-toast';
+import { translations, Language } from './translations';
 
 interface StoreContextType {
   user: User | null;
@@ -34,6 +35,17 @@ interface StoreContextType {
   setAppliedCoupon: (coupon: any) => void;
   bulkDiscounts: any[];
   fetchBulkDiscounts: () => Promise<void>;
+  getProductPrice: (product: Product, userRole?: string) => number;
+  simulatedRole: string | null;
+  setSimulatedRole: (role: string | null) => void;
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  t: (key: keyof typeof translations.en) => string;
+  addresses: UserAddress[];
+  fetchAddresses: () => Promise<void>;
+  saveAddress: (address: Partial<UserAddress>) => Promise<void>;
+  deleteAddress: (id: number) => Promise<void>;
+  setDefaultAddress: (id: number) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -185,6 +197,90 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
+  const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = localStorage.getItem('hgs_lang');
+    return (saved as Language) || 'en';
+  });
+  const [addresses, setAddresses] = useState<UserAddress[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(false);
+
+  const fetchAddresses = async () => {
+    if (!user) return;
+    setLoadingAddresses(true);
+    try {
+      const res = await fetch('/api/user/addresses');
+      if (res.ok) {
+        const data = await res.json();
+        setAddresses(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch addresses');
+    } finally {
+      setLoadingAddresses(false);
+    }
+  };
+
+  const saveAddress = async (address: Partial<UserAddress>) => {
+    try {
+      const res = await fetch('/api/user/addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(address)
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message);
+        fetchAddresses();
+      } else {
+        toast.error(data.message);
+      }
+    } catch (err) {
+      toast.error('Failed to save address');
+    }
+  };
+
+  const deleteAddress = async (id: number) => {
+    try {
+      const res = await fetch(`/api/user/addresses/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message);
+        fetchAddresses();
+      }
+    } catch (err) {
+      toast.error('Failed to delete address');
+    }
+  };
+
+  const setDefaultAddress = async (id: number) => {
+    try {
+      const res = await fetch(`/api/user/addresses/${id}/default`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message);
+        fetchAddresses();
+      }
+    } catch (err) {
+      toast.error('Failed to set default address');
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchAddresses();
+    } else {
+      setAddresses([]);
+    }
+  }, [user?.id]);
+
+  const t = (key: keyof typeof translations.en) => {
+    return translations[language][key] || translations.en[key] || key;
+  };
+
+  useEffect(() => {
+    localStorage.setItem('hgs_lang', language);
+  }, [language]);
 
   const fetchBulkDiscounts = async () => {
     try {
@@ -325,7 +421,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
+  const getProductPrice = (product: Product, userRole?: string) => {
+    const activeRole = simulatedRole || userRole;
+    if (activeRole === 'wholesaler' && product.wholesale_price) return product.wholesale_price;
+    if (activeRole === 'retailer' && product.retail_price) return product.retail_price;
+    return product.price;
+  };
+
   const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
+    const activePrice = getProductPrice(product, user?.role);
+    
     setCart(prev => {
       const existing = prev.find(item => 
         item.id === product.id && 
@@ -334,11 +439,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (existing) {
         return prev.map(item => 
           (item.id === product.id && (variant ? item.selectedVariant?.id === variant.id : !item.selectedVariant))
-            ? { ...item, quantity: item.quantity + quantity } 
+            ? { ...item, quantity: item.quantity + quantity, price: activePrice } 
             : item
         );
       }
-      return [...prev, { ...product, quantity, selectedVariant: variant }];
+      return [...prev, { ...product, quantity, selectedVariant: variant, price: activePrice }];
     });
     toast.success(`${product.name}${variant ? ` (${variant.name})` : ''} added to cart`);
   };
@@ -361,7 +466,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return prev.map(item => {
         if (item.id === productId && (variantId ? item.selectedVariant?.id === variantId : !item.selectedVariant)) {
-          return { ...item, quantity: item.quantity + delta };
+          const activePrice = getProductPrice(item as any, user?.role);
+          return { ...item, quantity: item.quantity + delta, price: activePrice };
         }
         return item;
       });
@@ -407,7 +513,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sound, setSound,
       adminTheme, setAdminTheme,
       appliedCoupon, setAppliedCoupon,
-      bulkDiscounts, fetchBulkDiscounts
+      bulkDiscounts, fetchBulkDiscounts,
+      getProductPrice,
+      simulatedRole, setSimulatedRole,
+      language, setLanguage, t,
+      addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress
     }}>
       {children}
     </StoreContext.Provider>

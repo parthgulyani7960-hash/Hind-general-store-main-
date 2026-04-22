@@ -29,8 +29,18 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addToCart, user, cart, updateQuantity, bulkDiscounts } = useStore();
+  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole } = useStore();
   const navigate = useNavigate();
+  const activeRole = simulatedRole || user?.role;
+
+  const getActivePrice = (p: any) => {
+    if (!p) return 0;
+    const basePrice = getProductPrice(p, activeRole);
+    if (p.discount > 0) {
+      return Math.round(basePrice * (1 - p.discount / 100));
+    }
+    return basePrice;
+  };
 
   useEffect(() => {
     if (user) {
@@ -395,29 +405,29 @@ export default function ProductDetail() {
               <span className="text-sm text-stone-400 font-bold">({product.review_count || 0} reviews)</span>
             </div>
             
-            <div className="flex items-baseline space-x-3 mt-2">
-              <p className={cn(
-                "text-3xl font-bold",
-                product.discount > 0 ? "text-emerald-600" : "text-primary"
-              )}>
-                ₹{selectedVariant 
-                  ? (product.discount > 0 ? Math.round(selectedVariant.price * (1 - product.discount / 100)) : selectedVariant.price)
-                  : product.price}
-              </p>
-              {product.discount > 0 && product.retail_price && (
-                <p className="text-lg text-stone-400 line-through font-medium">
-                  ₹{selectedVariant ? selectedVariant.price : product.retail_price}
+            <div className="flex flex-col space-y-1">
+              <div className="flex items-baseline space-x-3 mt-2">
+                <p className={cn(
+                  "text-4xl font-black",
+                  getActivePrice(product) < product.price ? "text-emerald-600" : "text-primary"
+                )}>
+                  ₹{selectedVariant 
+                    ? (product.discount > 0 ? Math.round(selectedVariant.price * (1 - product.discount / 100)) : selectedVariant.price)
+                    : getActivePrice(product)}
                 </p>
+                {(product.discount > 0 || getProductPrice(product, user?.role) < product.price) && (
+                  <p className="text-xl text-stone-400 line-through font-medium">
+                    ₹{selectedVariant ? selectedVariant.price : product.price}
+                  </p>
+                )}
+                <span className="text-sm text-stone-400 font-normal">per {selectedVariant ? selectedVariant.name : product.unit}</span>
+              </div>
+              {user?.role === 'wholesaler' && product.wholesale_price && (
+                <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Wholesale Account Pricing Applied</span>
               )}
-              <span className="text-sm text-stone-400 font-normal">per {selectedVariant ? selectedVariant.name : product.unit}</span>
-              {(() => {
-                const discountPercent = product.discount || (product.retail_price > product.price ? Math.round(((product.retail_price - product.price) / product.retail_price) * 100) : 0);
-                return discountPercent > 0 && !selectedVariant ? (
-                  <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider animate-bounce">
-                    {discountPercent}% OFF
-                  </span>
-                ) : null;
-              })()}
+              {user?.role === 'retailer' && product.retail_price && (
+                <span className="text-xs font-black text-blue-600 uppercase tracking-widest">Retailer Account Pricing Applied</span>
+              )}
             </div>
           </div>
 

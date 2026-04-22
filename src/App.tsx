@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } f
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import MobileBottomNav from './components/MobileBottomNav';
+import BackToTop from './components/BackToTop';
 import { useStore } from './StoreContext';
 import React, { useState, Suspense, lazy } from 'react';
 import toast from 'react-hot-toast';
@@ -28,6 +29,7 @@ const LegalPage = lazy(() => import('./pages/LegalPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const DeliveryDashboard = lazy(() => import('./pages/DeliveryDashboard'));
 const MaintenancePage = lazy(() => import('./pages/MaintenancePage'));
+const TrackOrder = lazy(() => import('./pages/TrackOrder'));
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
   const { user } = useStore();
@@ -83,6 +85,7 @@ function AnimatedRoutes() {
           <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
           <Route path="/admin" element={<ProtectedRoute adminOnly><PageWrapper><AdminDashboard /></PageWrapper></ProtectedRoute>} />
           <Route path="/runner" element={<ProtectedRoute runnerOnly><PageWrapper><DeliveryDashboard /></PageWrapper></ProtectedRoute>} />
+          <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
         </Routes>
       </AnimatePresence>
     </Suspense>
@@ -125,6 +128,7 @@ export default function App() {
           </ErrorBoundary>
         </main>
         <MobileBottomNav />
+        <BackToTop />
         <footer className="bg-stone-900 text-stone-400 py-12 pb-20 md:pb-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="space-y-4">
@@ -135,6 +139,7 @@ export default function App() {
               <h3 className="text-white font-bold text-lg">Quick Links</h3>
               <ul className="space-y-2 text-sm">
                 <li><Link to="/products" className="hover:text-white transition-colors">All Products</Link></li>
+                <li><Link to="/track-order" className="hover:text-white transition-colors">Track Order</Link></li>
                 <li><Link to="/support" className="hover:text-white transition-colors">Help & Support</Link></li>
                 <li><Link to="/login" className="hover:text-white transition-colors">My Account</Link></li>
               </ul>

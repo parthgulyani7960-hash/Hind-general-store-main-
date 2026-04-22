@@ -12,7 +12,7 @@ import {
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
   MapPin, Phone, Globe, Shield, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink,
-  StickyNote, Truck, Home
+  StickyNote, Truck, Home, Navigation
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -25,7 +25,7 @@ import 'react-quill-new/dist/quill.snow.css';
 type Tab = 'Overview' | 'Analytics' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs';
 
 export default function AdminDashboard() {
-  const { user, adminTheme, setAdminTheme } = useStore();
+  const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1893,6 +1893,21 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center space-x-6">
+            {user?.role === 'admin' && (
+              <div className="flex items-center space-x-2 bg-stone-50 px-3 py-1.5 rounded-xl border border-stone-100">
+                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Preview Mode</span>
+                <select 
+                  value={simulatedRole || 'admin'} 
+                  onChange={(e) => setSimulatedRole(e.target.value === 'admin' ? null : e.target.value)}
+                  className="bg-transparent text-xs font-bold text-stone-700 outline-none border-none focus:ring-0 cursor-pointer"
+                >
+                  <option value="admin">Default (Admin)</option>
+                  <option value="customer">Customer View</option>
+                  <option value="retailer">Retailer View</option>
+                  <option value="wholesaler">Wholesaler View</option>
+                </select>
+              </div>
+            )}
             <div className="relative group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
               <input 
@@ -2410,6 +2425,36 @@ export default function AdminDashboard() {
                       <p className="text-[10px] font-bold text-amber-600/70 uppercase">Engaged</p>
                     </div>
                   </div>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const activeRunners = runners.filter(r => r.status === 'on_delivery' || r.status === 'active');
+                        if (activeRunners.length === 0) {
+                          toast.error('No runners to simulate');
+                          return;
+                        }
+                        const r = activeRunners[Math.floor(Math.random() * activeRunners.length)];
+                        const newLat = (r.current_lat || 30.9010) + (Math.random() - 0.5) * 0.005;
+                        const newLng = (r.current_lng || 75.8573) + (Math.random() - 0.5) * 0.005;
+                        
+                        const res = await fetch('/api/runners/location', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ runner_id: r.id, lat: newLat, lng: newLng })
+                        });
+                        if (res.ok) {
+                          toast.success(`Simulation: ${r.name} moved!`);
+                          fetchRunners();
+                        }
+                      } catch (err) {
+                        toast.error('Simulation failed');
+                      }
+                    }}
+                    className="w-full mt-4 py-2 bg-stone-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-800 transition-all flex items-center justify-center space-x-2"
+                  >
+                    <Navigation size={12} />
+                    <span>Simulate Random Movement</span>
+                  </button>
                 </div>
 
                 <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm max-h-[600px] overflow-y-auto custom-scrollbar">
@@ -7502,6 +7547,47 @@ export default function AdminDashboard() {
                         <span className="text-primary">₹{orderModal.order.total}</span>
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                <div className="bg-stone-50 p-6 rounded-2xl">
+                  <h4 className="font-bold text-stone-900 mb-4">Payment & Verification</h4>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-stone-500 font-medium">Method</span>
+                      <span className="font-bold uppercase tracking-wider text-primary">{orderModal.order.payment_method}</span>
+                    </div>
+                    {orderModal.order.payment_utr && (
+                      <div className="p-3 bg-white border border-stone-100 rounded-xl">
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">UPI Transaction ID (UTR)</p>
+                        <p className="text-sm font-mono font-bold text-stone-800 break-all">{orderModal.order.payment_utr}</p>
+                      </div>
+                    )}
+                    {orderModal.order.payment_ref && (
+                      <div className="p-3 bg-white border border-stone-100 rounded-xl">
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">System Payment Ref</p>
+                        <p className="text-sm font-mono font-bold text-stone-800 break-all">{orderModal.order.payment_ref}</p>
+                      </div>
+                    )}
+                    {orderModal.order.payment_screenshot && (
+                      <div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Payment Proof</p>
+                        <div className="relative group rounded-xl overflow-hidden bg-white border border-stone-100 aspect-video flex items-center justify-center">
+                          <img src={orderModal.order.payment_screenshot} alt="Payment Proof" className="max-w-full max-h-full object-contain" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-4">
+                             <a href={orderModal.order.payment_screenshot} target="_blank" rel="noreferrer" className="p-2 bg-white rounded-full text-stone-900 hover:scale-110 transition-transform">
+                               <ExternalLink size={20} />
+                             </a>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {(orderModal.order.payment_method === 'wallet' || orderModal.order.wallet_used > 0) && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-stone-500 font-medium">Wallet Used</span>
+                        <span className="font-bold text-emerald-600">₹{orderModal.order.wallet_used}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

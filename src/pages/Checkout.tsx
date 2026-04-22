@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingBag, MapPin, CreditCard, CheckCircle2, 
   ArrowRight, ArrowLeft, Truck, ShieldCheck, 
-  Wallet, Camera, X, AlertCircle, Download
+  Wallet, Camera, X, AlertCircle, Download, Clock
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -14,11 +14,16 @@ import { QRCodeCanvas } from 'qrcode.react';
 type Step = 'address' | 'payment' | 'confirmation';
 
 export default function Checkout() {
-  const { cart, user, appliedCoupon, clearCart, fetchUser, bulkDiscounts, config } = useStore();
+  const { 
+    cart, user, appliedCoupon, clearCart, 
+    fetchUser, bulkDiscounts, config,
+    addresses, fetchAddresses
+  } = useStore();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('address');
   const [isProcessing, setIsProcessing] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
+  const [showSavedAddresses, setShowSavedAddresses] = useState(false);
 
   const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
   const upiName = config.find(c => c.key === 'upi_name')?.value || 'Hind General Store';
@@ -74,11 +79,11 @@ export default function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'wallet' | 'upi'>('cod');
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [utr, setUtr] = useState('');
+  const [paymentRef] = useState(`HGS-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`);
 
   const cartWithDiscounts = cart.map(item => {
-    const basePrice = item.selectedVariant 
-      ? (item.discount && item.discount > 0 ? Math.round(item.selectedVariant.price * (1 - item.discount / 100)) : item.selectedVariant.price)
-      : item.price;
+    // The 'price' field in the cart item is already adjusted for the user role in StoreContext
+    const basePrice = item.price;
     const bulkDiscountAmount = calculateBulkDiscount(item, item.quantity, bulkDiscounts);
     return {
       ...item,
@@ -191,6 +196,7 @@ export default function Checkout() {
           payment_method: paymentMethod,
           payment_screenshot: screenshot,
           payment_utr: utr,
+          payment_ref: paymentRef,
           address: JSON.stringify(addressData), 
           coupon_code: appliedCoupon?.code
         })
@@ -264,7 +270,54 @@ export default function Checkout() {
                   exit={{ opacity: 0, x: 20 }}
                   className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6"
                 >
-                  <h2 className="text-2xl font-bold">Shipping Address</h2>
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold">Shipping Address</h2>
+                    {addresses.length > 0 && (
+                      <button 
+                        onClick={() => setShowSavedAddresses(!showSavedAddresses)}
+                        className="text-xs font-bold text-primary flex items-center space-x-1 hover:underline"
+                      >
+                        <MapPin size={14} />
+                        <span>{showSavedAddresses ? 'Enter Custom Address' : 'Use Saved Address'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {showSavedAddresses && addresses.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-6 border-b border-stone-100">
+                      {addresses.map((addr) => (
+                        <button
+                          key={addr.id}
+                          onClick={() => {
+                            setAddressData({
+                              name: addr.name,
+                              phone: addr.phone,
+                              address: addr.address,
+                              city: addr.city,
+                              state: addr.state,
+                              zip_code: addr.zip_code,
+                              pin_code: addr.pin_code,
+                              delivery_area: addr.delivery_area
+                            });
+                            setShowSavedAddresses(false);
+                            toast.success('Address applied!');
+                          }}
+                          className={cn(
+                            "text-left p-4 rounded-2xl border-2 transition-all group",
+                            addressData.address === addr.address ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                          )}
+                        >
+                          <div className="flex justify-between items-start">
+                            <p className="font-bold text-stone-800">{addr.name}</p>
+                            {addr.is_default && <span className="text-[8px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
+                          </div>
+                          <p className="text-xs text-stone-500 mt-1 line-clamp-2">{addr.address}</p>
+                          <p className="text-[10px] text-stone-400 mt-2 font-bold uppercase tracking-wider">{addr.delivery_area}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Full Name</label>
@@ -415,7 +468,7 @@ export default function Checkout() {
                             <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-8">
                               <div ref={qrRef} className="bg-white p-4 rounded-2xl shadow-sm border border-stone-200 flex flex-col items-center">
                                 <QRCodeCanvas 
-                                  value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR`}
+                                  value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tr=${paymentRef}`}
                                   size={150}
                                   level="H"
                                   includeMargin={true}
@@ -477,6 +530,34 @@ export default function Checkout() {
                           </motion.div>
                         )}
                       </div>
+
+                      {/* Khata Option (B2B Credit) */}
+                      {user.khata_enabled && (
+                        <button 
+                          onClick={() => setPaymentMethod('khata' as any)}
+                          className={cn(
+                            "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
+                            paymentMethod === 'khata' ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                          )}
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className={cn("p-3 rounded-xl", paymentMethod === 'khata' ? "bg-primary text-white" : "bg-stone-100 text-stone-400")}>
+                              <Clock size={24} />
+                            </div>
+                            <div className="text-left">
+                              <p className="font-bold">Khata (Credit Line)</p>
+                              <p className="text-xs text-stone-500">Buy now, pay later within {user.khata_limit || 0} limit</p>
+                              <div className="mt-1 w-full bg-stone-200 h-1 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-primary" 
+                                  style={{ width: `${Math.min(100, ((user.khata_balance || 0) / (user.credit_limit || 10000)) * 100)}%` }} 
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          {paymentMethod === 'khata' && <CheckCircle2 className="text-primary" />}
+                        </button>
+                      )}
 
                       {/* COD Option */}
                       <button 

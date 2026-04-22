@@ -12,9 +12,8 @@ export default function Cart() {
   const [isValidating, setIsValidating] = useState(false);
 
   const cartWithDiscounts = cart.map(item => {
-    const basePrice = item.selectedVariant 
-      ? (item.discount && item.discount > 0 ? Math.round(item.selectedVariant.price * (1 - item.discount / 100)) : item.selectedVariant.price)
-      : item.price;
+    // The 'price' field in the cart item is already adjusted for the user role in StoreContext
+    const basePrice = item.price;
     const bulkDiscountAmount = calculateBulkDiscount(item, item.quantity, bulkDiscounts);
     return {
       ...item,
@@ -115,12 +114,22 @@ export default function Cart() {
               <div className="flex-1">
                 <h3 className="font-bold text-lg">{item.name}</h3>
                 {item.selectedVariant ? (
-                  <div className="flex items-center space-x-2">
-                    <p className="text-primary text-sm font-bold">{item.selectedVariant.name}</p>
-                    <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.selectedVariant.price}</p>
+                  <div className="flex flex-col">
+                    <div className="flex items-center space-x-2">
+                      <p className="text-primary text-sm font-bold">{item.selectedVariant.name}</p>
+                      <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price}</p>
+                    </div>
                   </div>
                 ) : (
-                  <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price} per unit</p>
+                  <div className="flex flex-col">
+                    <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price} per unit</p>
+                    {user?.role === 'wholesaler' && (
+                      <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter">Wholesale Price</span>
+                    )}
+                    {user?.role === 'retailer' && (
+                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">Retailer Price</span>
+                    )}
+                  </div>
                 )}
                 {item.bulkDiscountAmount > 0 && (
                   <p className="text-emerald-600 text-xs font-bold">Bulk Discount Applied: ₹{item.finalPrice} per unit</p>
