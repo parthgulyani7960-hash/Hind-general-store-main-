@@ -30,6 +30,9 @@ export default function Checkout() {
   const upiQr = config.find(c => c.key === 'upi_qr')?.value;
   
   // Address State
+  const [useCustomAddress, setUseCustomAddress] = useState(false);
+  const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
+
   const [addressData, setAddressData] = useState({
     name: user?.name || '',
     phone: user?.phone || '',
@@ -40,6 +43,28 @@ export default function Checkout() {
     pin_code: user?.pin_code || '',
     delivery_area: ''
   });
+
+  useEffect(() => {
+    if (addresses && addresses.length > 0) {
+      const defaultAddr = addresses.find(a => a.is_default) || addresses[0];
+      // Only auto-select if we haven't manually chosen to use custom or selected something else
+      if (!useCustomAddress && !selectedAddressId) {
+        setSelectedAddressId(defaultAddr.id);
+        setAddressData({
+          name: defaultAddr.name,
+          phone: defaultAddr.phone,
+          address: defaultAddr.address,
+          city: defaultAddr.city,
+          state: defaultAddr.state,
+          zip_code: defaultAddr.zip_code,
+          pin_code: defaultAddr.pin_code,
+          delivery_area: defaultAddr.delivery_area
+        });
+      }
+    } else {
+      setUseCustomAddress(true);
+    }
+  }, [addresses]);
   
   const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
   const [dynamicDeliveryFee, setDynamicDeliveryFee] = useState(40);
@@ -274,21 +299,22 @@ export default function Checkout() {
                     <h2 className="text-2xl font-bold">Shipping Address</h2>
                     {addresses.length > 0 && (
                       <button 
-                        onClick={() => setShowSavedAddresses(!showSavedAddresses)}
+                        onClick={() => setUseCustomAddress(!useCustomAddress)}
                         className="text-xs font-bold text-primary flex items-center space-x-1 hover:underline"
                       >
                         <MapPin size={14} />
-                        <span>{showSavedAddresses ? 'Enter Custom Address' : 'Use Saved Address'}</span>
+                        <span>{useCustomAddress ? 'Select Saved Address' : 'Enter Custom Address'}</span>
                       </button>
                     )}
                   </div>
 
-                  {showSavedAddresses && addresses.length > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-6 border-b border-stone-100">
+                  {!useCustomAddress && addresses.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4">
                       {addresses.map((addr) => (
                         <button
                           key={addr.id}
                           onClick={() => {
+                            setSelectedAddressId(addr.id);
                             setAddressData({
                               name: addr.name,
                               phone: addr.phone,
@@ -299,26 +325,33 @@ export default function Checkout() {
                               pin_code: addr.pin_code,
                               delivery_area: addr.delivery_area
                             });
-                            setShowSavedAddresses(false);
-                            toast.success('Address applied!');
                           }}
                           className={cn(
-                            "text-left p-4 rounded-2xl border-2 transition-all group",
-                            addressData.address === addr.address ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                            "text-left p-6 rounded-2xl border-2 transition-all relative",
+                            selectedAddressId === addr.id ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
                           )}
                         >
                           <div className="flex justify-between items-start">
-                            <p className="font-bold text-stone-800">{addr.name}</p>
-                            {addr.is_default && <span className="text-[8px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
+                            <div className="space-y-1">
+                               <div className="flex items-center space-x-2">
+                                  <p className="font-bold text-stone-800 text-lg">{addr.name}</p>
+                                  {addr.is_default && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
+                               </div>
+                               <p className="text-sm text-stone-600 font-medium">{addr.phone}</p>
+                               <p className="text-sm text-stone-500 max-w-[80%] leading-relaxed">{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}</p>
+                               <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
+                            </div>
+                            {selectedAddressId === addr.id && (
+                              <div className="text-primary bg-white rounded-full p-1 shadow-sm">
+                                <CheckCircle2 size={24} />
+                              </div>
+                            )}
                           </div>
-                          <p className="text-xs text-stone-500 mt-1 line-clamp-2">{addr.address}</p>
-                          <p className="text-[10px] text-stone-400 mt-2 font-bold uppercase tracking-wider">{addr.delivery_area}</p>
                         </button>
                       ))}
                     </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Full Name</label>
                       <input 
@@ -380,6 +413,7 @@ export default function Checkout() {
                       <p className="text-[10px] text-stone-400">Selecting a zone will calculate any applicable delivery fees or minimum order requirements.</p>
                     </div>
                   </div>
+                  )}
                   
                   <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
                     <input 

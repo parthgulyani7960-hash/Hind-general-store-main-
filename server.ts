@@ -13,21 +13,30 @@ import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import fs from 'fs';
 
-// Initialize Firebase Admin (verifyIdToken only needs projectId)
+// Initialize Firebase Admin
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 try {
-  const firebaseConfigPath = path.join(__dirname, 'firebase-applet-config.json');
-  if (fs.existsSync(firebaseConfigPath)) {
-    const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
+  // Use a dynamic import to force standard bundlers (including Vercel's) to include it
+  import('./firebase-applet-config.json', { with: { type: 'json' } }).then(mod => {
+    const config = mod.default;
     if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: config.projectId
-      });
+      admin.initializeApp({ projectId: config.projectId });
       console.log('Firebase Admin initialized with projectId:', config.projectId);
     }
-  }
+  }).catch(e => {
+    // Fallback block if dynamic import fails, try fs mapping
+    const firebaseConfigPath = path.join(__dirname, 'firebase-applet-config.json');
+    if (fs.existsSync(firebaseConfigPath)) {
+      const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
+      if (!admin.apps.length) {
+        admin.initializeApp({
+          projectId: config.projectId
+        });
+      }
+    }
+  });
 } catch (e) {
   console.warn('Could not initialize Firebase Admin natively:', e);
 }
@@ -40,7 +49,9 @@ declare module 'express-session' {
   }
 }
 
-const db = new Database('store.db');
+// Determine database path. Vercel's Serverless environment is read-only except for /tmp.
+const dbPath = process.env.VERCEL ? '/tmp/store.db' : 'store.db';
+const db = new Database(dbPath);
 
 // Initialize Database
 try {
@@ -3318,13 +3329,28 @@ async function startServer() {
     });
   }
 
-  const PORT = 3000;
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  
+  if (!process.env.VERCEL) {
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+
+  return app;
 }
 
-startServer().catch(err => {
+// Start server exactly once
+const appPromise = startServer().catch(err => {
   console.error('Failed to start server:', err);
-  process.exit(1);
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
+  throw err;
 });
+
+// Export a handler for Vercel Serverless Functions
+export default async function handler(req: express.Request, res: express.Response) {
+  const app = await appPromise;
+  if (app) app(req, res);
+}
