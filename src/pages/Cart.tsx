@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -96,66 +96,96 @@ export default function Cart() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="lg:col-span-2 space-y-4">
-          {cartWithDiscounts.map((item) => (
-            <motion.div 
-              key={item.id}
-              layout
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex items-center space-x-4"
-            >
-              <img 
-                src={item.image_url} 
-                className="w-24 h-24 object-cover rounded-xl" 
-                alt={item.name} 
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-              <div className="flex-1">
-                <h3 className="font-bold text-lg">{item.name}</h3>
-                {item.selectedVariant ? (
-                  <div className="flex flex-col">
-                    <div className="flex items-center space-x-2">
-                      <p className="text-primary text-sm font-bold">{item.selectedVariant.name}</p>
-                      <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price}</p>
+          <AnimatePresence mode="popLayout">
+            {cartWithDiscounts.map((item) => (
+              <motion.div 
+                key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
+                layout
+                initial={{ opacity: 0, x: -20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9, filter: "blur(4px)" }}
+                transition={{ duration: 0.2 }}
+                className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex items-center space-x-4"
+              >
+                <img 
+                  src={item.image_url} 
+                  className="w-24 h-24 object-cover rounded-xl shadow-sm" 
+                  alt={item.name} 
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg text-stone-900 line-clamp-1">{item.name}</h3>
+                  {item.selectedVariant ? (
+                    <div className="flex flex-col">
+                      <div className="flex items-center space-x-2">
+                        <p className="text-primary text-sm font-bold">{item.selectedVariant.name}</p>
+                        <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price}</p>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price} per unit</p>
+                      {user?.role === 'wholesaler' && (
+                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter">Wholesale Price</span>
+                      )}
+                      {user?.role === 'retailer' && (
+                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">Retailer Price</span>
+                      )}
+                    </div>
+                  )}
+                  {item.bulkDiscountAmount > 0 && (
+                    <p className="text-emerald-600 text-xs font-bold mt-0.5">Bulk Discount Applied: ₹{item.finalPrice} per unit</p>
+                  )}
+                  <div className="flex items-center space-x-4 mt-3">
+                    <div className="flex items-center space-x-2 bg-stone-50 rounded-xl p-1.5 border border-stone-200/60 shadow-inner">
+                      <motion.button 
+                        whileTap={{ scale: 0.8 }}
+                        onClick={() => updateQuantity(item.id, -1, item.selectedVariant?.id)} 
+                        className="p-1.5 hover:bg-white hover:text-primary rounded-lg transition-colors shadow-sm"
+                      >
+                        <Minus size={14} strokeWidth={3} />
+                      </motion.button>
+                      <motion.span 
+                        key={item.quantity}
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="font-bold text-sm w-6 text-center text-stone-800"
+                      >
+                        {item.quantity}
+                      </motion.span>
+                      <motion.button 
+                        whileTap={{ scale: 0.8 }}
+                        onClick={() => updateQuantity(item.id, 1, item.selectedVariant?.id)} 
+                        className="p-1.5 bg-white text-stone-700 hover:text-primary rounded-lg transition-colors shadow-sm"
+                      >
+                        <Plus size={14} strokeWidth={3} />
+                      </motion.button>
+                    </div>
+                    <motion.button 
+                      whileTap={{ scale: 0.8 }}
+                      onClick={() => removeFromCart(item.id, item.selectedVariant?.id)}
+                      className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2.5 rounded-xl transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </motion.button>
                   </div>
-                ) : (
-                  <div className="flex flex-col">
-                    <p className={cn("text-sm", item.bulkDiscountAmount > 0 ? "text-stone-400 line-through" : "text-stone-500")}>₹{item.price} per unit</p>
-                    {user?.role === 'wholesaler' && (
-                      <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter">Wholesale Price</span>
-                    )}
-                    {user?.role === 'retailer' && (
-                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">Retailer Price</span>
-                    )}
-                  </div>
-                )}
-                {item.bulkDiscountAmount > 0 && (
-                  <p className="text-emerald-600 text-xs font-bold">Bulk Discount Applied: ₹{item.finalPrice} per unit</p>
-                )}
-                <div className="flex items-center space-x-4 mt-2">
-                  <div className="flex items-center space-x-2 bg-stone-50 rounded-lg p-1 border border-stone-200">
-                    <button onClick={() => updateQuantity(item.id, -1, item.selectedVariant?.id)} className="p-1 hover:bg-white rounded transition-colors"><Minus size={14} /></button>
-                    <span className="font-bold text-sm w-4 text-center">{item.quantity}</span>
-                    <button onClick={() => updateQuantity(item.id, 1, item.selectedVariant?.id)} className="p-1 hover:bg-white rounded transition-colors"><Plus size={14} /></button>
-                  </div>
-                  <button 
-                    onClick={() => removeFromCart(item.id, item.selectedVariant?.id)}
-                    className="text-red-500 hover:text-red-600 p-2"
-                  >
-                    <Trash2 size={18} />
-                  </button>
                 </div>
-              </div>
-              <div className="text-right">
-                <p className="font-bold text-lg">₹{item.finalPrice * item.quantity}</p>
-                {item.bulkDiscountAmount > 0 && (
-                  <p className="text-[10px] text-emerald-600 font-bold">Saved ₹{item.bulkDiscountAmount * item.quantity}</p>
-                )}
-              </div>
-            </motion.div>
-          ))}
+                <div className="text-right flex flex-col items-end pb-2">
+                  <p className="font-black text-xl text-stone-900 tracking-tight">₹{item.finalPrice * item.quantity}</p>
+                  {item.bulkDiscountAmount > 0 && (
+                    <motion.div 
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="mt-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] items-center font-bold inline-flex"
+                    >
+                      Saved ₹{item.bulkDiscountAmount * item.quantity}
+                    </motion.div>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
 
         <div className="space-y-6">

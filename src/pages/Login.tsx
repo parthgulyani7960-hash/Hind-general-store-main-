@@ -14,14 +14,28 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     setLoading(true);
+    let token = null;
     try {
-      const { token } = await signInWithGoogle();
+      console.log('Initiating Firebase Google Sign In...');
+      const { token: idToken } = await signInWithGoogle();
+      token = idToken;
+      console.log('Firebase Sign In successful, token obtained. Calling API...');
+    } catch (err: any) {
+      console.error("Auth popup error:", err);
+      toast.error(err.message || 'Firebase Auth failed');
+      setLoading(false);
+      return;
+    }
+
+    try {
       const res = await fetch('/api/auth/firebase-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken: token })
       });
       const data = await res.json();
+      console.log('Backend response:', data);
+
       if (data.success) {
         setUser(data.user);
         toast.success('Welcome!');
@@ -31,12 +45,11 @@ export default function Login() {
           navigate('/');
         }
       } else {
-        toast.error(data.message || 'Google Login failed');
+        toast.error(data.message || 'Login API failed');
       }
     } catch (err: any) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        toast.error('Google Sign In failed');
-      }
+      console.error("API call error:", err);
+      toast.error('Backend connection failed: ' + err.message);
     } finally {
       setLoading(false);
     }

@@ -936,8 +936,8 @@ async function startServer() {
     saveUninitialized: false,
     proxy: true,
     cookie: { 
-      secure: true,
-      sameSite: 'none',
+      secure: process.env.NODE_ENV === 'production' || !!process.env.VERCEL, // Needs true only on HTTPS
+      sameSite: process.env.NODE_ENV === 'production' || !!process.env.VERCEL ? 'none' : 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     }
   }));

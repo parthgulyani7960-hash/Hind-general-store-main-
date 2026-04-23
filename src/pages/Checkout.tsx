@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingBag, MapPin, CreditCard, CheckCircle2, 
   ArrowRight, ArrowLeft, Truck, ShieldCheck, 
-  Wallet, Camera, X, AlertCircle, Download, Clock
+  Wallet, Camera, X, AlertCircle, Download, Clock,
+  Plus, Minus
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -17,7 +18,8 @@ export default function Checkout() {
   const { 
     cart, user, appliedCoupon, clearCart, 
     fetchUser, bulkDiscounts, config,
-    addresses, fetchAddresses
+    addresses, fetchAddresses,
+    updateQuantity, removeFromCart
   } = useStore();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('address');
@@ -704,21 +706,53 @@ export default function Checkout() {
               <h3 className="text-xl font-bold">Order Summary</h3>
               
               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                {cartWithDiscounts.map((item) => (
-                  <div key={item.id} className="flex items-center space-x-4">
-                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100">
-                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs font-bold line-clamp-1">{item.name}</p>
-                      <p className="text-[10px] text-stone-400">Qty: {item.quantity}</p>
-                      {item.bulkDiscountAmount > 0 && (
-                        <p className="text-[8px] text-emerald-600 font-bold uppercase">Bulk Discount Applied</p>
-                      )}
-                    </div>
-                    <p className="text-xs font-bold">₹{item.finalPrice * item.quantity}</p>
-                  </div>
-                ))}
+                <AnimatePresence mode="popLayout">
+                  {cartWithDiscounts.map((item) => (
+                    <motion.div 
+                      key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
+                      layout
+                      initial={{ opacity: 0, x: -10, scale: 0.95 }}
+                      animate={{ opacity: 1, x: 0, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9, filter: "blur(4px)" }}
+                      className="flex items-center space-x-4 border-b border-stone-50 pb-4 last:border-0 last:pb-0"
+                    >
+                      <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100 shrink-0">
+                        <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold line-clamp-1">{item.name}</p>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <div className="flex items-center space-x-1.5 bg-stone-50 rounded border border-stone-200">
+                            <motion.button 
+                              whileTap={{ scale: 0.8 }}
+                              onClick={() => updateQuantity(item.id, -1, item.selectedVariant?.id)} 
+                              className="p-1 hover:bg-white text-stone-500 hover:text-primary rounded transition-colors"
+                            >
+                              <Minus size={10} strokeWidth={3} />
+                            </motion.button>
+                            <span className="font-bold text-[10px] w-3 text-center leading-none">{item.quantity}</span>
+                            <motion.button 
+                              whileTap={{ scale: 0.8 }}
+                              onClick={() => updateQuantity(item.id, 1, item.selectedVariant?.id)} 
+                              className="p-1 hover:bg-white text-stone-500 hover:text-primary rounded transition-colors"
+                            >
+                              <Plus size={10} strokeWidth={3} />
+                            </motion.button>
+                          </div>
+                        </div>
+                        {item.bulkDiscountAmount > 0 && (
+                          <p className="text-[8px] text-emerald-600 font-bold uppercase mt-1">Bulk Discount Applied</p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-bold">₹{item.finalPrice * item.quantity}</p>
+                        {item.bulkDiscountAmount > 0 && (
+                          <p className="text-[8px] text-emerald-600 font-medium">Saved ₹{item.bulkDiscountAmount * item.quantity}</p>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
 
               <div className="space-y-3 pt-6 border-t border-stone-100">
