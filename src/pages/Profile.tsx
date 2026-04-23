@@ -695,6 +695,7 @@ export default function Profile() {
                             <p className="text-xs text-stone-400">{new Date(order.created_at).toLocaleDateString()}</p>
                           </div>
                           <div className="flex flex-col items-end space-y-1">
+                            <p className="font-bold text-primary">₹{order.total}</p>
                             <span className={cn(
                               "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
                               order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600' : 

@@ -33,6 +33,19 @@ export default function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken: token })
       });
+
+      if (!res.ok) {
+        let errorMessage = 'Login failed';
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          // If response was not JSON (e.g. HTML error page), keep generic
+          console.error("Login server returned non-JSON error");
+        }
+        throw new Error(errorMessage);
+      }
+
       const data = await res.json();
       console.log('Backend response:', data);
 

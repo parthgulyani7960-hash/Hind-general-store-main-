@@ -13,32 +13,22 @@ import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import fs from 'fs';
 
-// Initialize Firebase Admin
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+// Initialize Firebase Admin synchronously
 try {
-  // Use a dynamic import to force standard bundlers (including Vercel's) to include it
-  import('./firebase-applet-config.json', { with: { type: 'json' } }).then(mod => {
-    const config = mod.default;
+  const firebaseConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(firebaseConfigPath)) {
+    const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
     if (!admin.apps.length) {
-      admin.initializeApp({ projectId: config.projectId });
-      console.log('Firebase Admin initialized with projectId:', config.projectId);
+      admin.initializeApp({
+        projectId: config.projectId
+      });
+      console.log('Firebase Admin initialized synchronously with projectId:', config.projectId);
     }
-  }).catch(e => {
-    // Fallback block if dynamic import fails, try fs mapping
-    const firebaseConfigPath = path.join(__dirname, 'firebase-applet-config.json');
-    if (fs.existsSync(firebaseConfigPath)) {
-      const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
-      if (!admin.apps.length) {
-        admin.initializeApp({
-          projectId: config.projectId
-        });
-      }
-    }
-  });
+  } else {
+    console.warn('firebase-applet-config.json not found, skipping Firebase Admin initialization');
+  }
 } catch (e) {
-  console.warn('Could not initialize Firebase Admin natively:', e);
+  console.error('Failed to initialize Firebase Admin:', e);
 }
 
 // Extend session type
@@ -1431,6 +1421,10 @@ async function startServer() {
 
   app.post('/api/auth/firebase-login', async (req, res) => {
     try {
+      if (!admin.apps.length) {
+        console.error('Firebase Admin not initialized');
+        return res.status(500).json({ success: false, message: 'Server configuration error' });
+      }
       const { idToken } = req.body;
       if (!idToken) return res.status(400).json({ success: false, message: 'No token provided' });
       
