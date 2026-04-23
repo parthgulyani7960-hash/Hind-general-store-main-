@@ -21,6 +21,18 @@ export default function TrackOrder() {
     setLoading(true);
     try {
       const res = await fetch(`/api/public/orders/${orderId}?phone=${phoneNumber}`);
+      
+      if (!res.ok) {
+        let errorMessage = 'Failed to fetch order status';
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          // If response was not JSON (e.g. HTML error), use a generic error message
+        }
+        throw new Error(errorMessage);
+      }
+
       const data = await res.json();
       if (data.success) {
         setOrder(data.order);
@@ -28,8 +40,8 @@ export default function TrackOrder() {
         toast.error(data.message || 'Order not found');
         setOrder(null);
       }
-    } catch (err) {
-      toast.error('Failed to fetch order status');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to fetch order status');
     } finally {
       setLoading(false);
     }
