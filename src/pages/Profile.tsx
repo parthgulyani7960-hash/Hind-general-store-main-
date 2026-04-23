@@ -351,6 +351,7 @@ export default function Profile() {
     { icon: Shield, label: 'Privacy Policy', path: '/privacy-policy', desc: 'How we handle your data' },
     { icon: HelpCircle, label: 'Help & Support', path: '/support', desc: 'Get assistance' },
     { icon: MessageSquare, label: 'Contact Us', path: '/contact', desc: 'Reach out to us' },
+    { icon: Truck, label: 'Track Order', path: '/track-order', desc: 'Check delivery status', color: 'text-primary' },
   ];
 
   return (

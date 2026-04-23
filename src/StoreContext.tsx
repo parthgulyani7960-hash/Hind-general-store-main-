@@ -46,6 +46,7 @@ interface StoreContextType {
   saveAddress: (address: Partial<UserAddress>) => Promise<void>;
   deleteAddress: (id: number) => Promise<void>;
   setDefaultAddress: (id: number) => Promise<void>;
+  isOnline: boolean;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -204,6 +205,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      toast.success('Back online!');
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      toast.error('You are currently offline. Some features may be unavailable.');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const fetchAddresses = async () => {
     if (!user) return;
@@ -517,7 +536,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       getProductPrice,
       simulatedRole, setSimulatedRole,
       language, setLanguage, t,
-      addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress
+      addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
+      isOnline
     }}>
       {children}
     </StoreContext.Provider>

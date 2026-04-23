@@ -7984,6 +7984,19 @@ export default function AdminDashboard() {
                       />
                     </div>
                     <div>
+                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Unit Qty</label>
+                      <input 
+                        type="number" 
+                        className="input-field py-1 text-xs" 
+                        value={v.unit_quantity}
+                        onChange={(e) => {
+                          const newVariants = [...productVariants];
+                          newVariants[i].unit_quantity = parseInt(e.target.value);
+                          setProductVariants(newVariants);
+                        }}
+                      />
+                    </div>
+                    <div>
                       <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Price (₹)</label>
                       <input 
                         type="number" 

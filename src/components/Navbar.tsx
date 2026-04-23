@@ -1,5 +1,5 @@
-import { motion } from 'motion/react';
-import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -7,9 +7,55 @@ import { cn } from '../types';
 
 import UserAvatar from './UserAvatar';
 
+const MiniCart = ({ cart, isOpen }: { cart: any[], isOpen: boolean }) => {
+  const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const itemsToShow = cart.slice(0, 3);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 10 }}
+          className="absolute top-full right-0 w-80 bg-white rounded-2xl shadow-xl border border-stone-100 p-4 z-50 mt-2"
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-lg">Mini Cart</h3>
+            <span className="text-xs text-stone-500">{cart.length} items</span>
+          </div>
+          
+          <div className="space-y-3 max-h-[300px] overflow-y-auto">
+            {itemsToShow.map((item) => (
+              <div key={item.id} className="flex items-center space-x-3">
+                <img src={item.image_url} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{item.name}</p>
+                  <p className="text-xs text-stone-500">{item.quantity} x ₹{item.price}</p>
+                </div>
+                <p className="font-bold text-sm">₹{item.price * item.quantity}</p>
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-4 pt-4 border-t border-stone-100 flex justify-between items-center">
+            <p className="font-bold">Subtotal</p>
+            <p className="font-black text-lg text-primary">₹{subtotal}</p>
+          </div>
+          
+          <Link to="/cart" className="block w-full bg-primary text-white text-center py-2 rounded-xl mt-4 font-bold text-sm hover:bg-opacity-90">
+            View Full Cart
+          </Link>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 export default function Navbar() {
-  const { user, cart, logout, wishlist, simulatedRole, setSimulatedRole, language, setLanguage, t } = useStore();
+  const { user, cart, logout, wishlist, simulatedRole, setSimulatedRole, language, setLanguage, t, isOnline } = useStore();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -49,10 +95,16 @@ export default function Navbar() {
     { to: '/', label: t('home') },
     { to: '/products', label: t('products') },
     { to: '/support', label: t('support') },
+    { to: '/track-order', label: 'Track Order' },
   ];
 
   return (
     <nav className="sticky top-0 z-50 glass shadow-sm">
+      {!isOnline && (
+        <div className="bg-red-600 text-white text-center py-1 text-xs font-bold uppercase tracking-widest z-[60]">
+          Offline Mode - Some features unavailable
+        </div>
+      )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
           <Link to="/" className="flex items-center space-x-2">
@@ -190,14 +242,21 @@ export default function Navbar() {
               )}
             </Link>
 
-            <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors">
-              <ShoppingCart size={24} />
-              {cartCount > 0 && (
-                <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                  {cartCount}
-                </span>
-              )}
-            </Link>
+            <div 
+                className="relative"
+                onMouseEnter={() => setIsMiniCartOpen(true)}
+                onMouseLeave={() => setIsMiniCartOpen(false)}
+            >
+              <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors">
+                <ShoppingCart size={24} />
+                {cartCount > 0 && (
+                  <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </Link>
+              <MiniCart cart={cart} isOpen={isMiniCartOpen} />
+            </div>
 
             {user ? (
               <div className="flex items-center space-x-4">
@@ -284,3 +343,4 @@ export default function Navbar() {
     </nav>
   );
 }
+

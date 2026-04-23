@@ -52,6 +52,7 @@ export default function Products() {
 
   const categories = ['All', ...new Set(products.map(p => p.category))];
 
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
@@ -191,11 +192,18 @@ export default function Products() {
              'Fresh items delivered to your home.'}
           </p>
         </div>
+        <button 
+          onClick={() => setIsFilterOpen(!isFilterOpen)}
+          className="md:hidden flex items-center justify-center space-x-2 btn-outline py-2.5"
+        >
+          <Filter size={18} />
+          <span>{isFilterOpen ? 'Hide Filters' : 'Show Filters'}</span>
+        </button>
       </div>
 
       <div className="flex flex-col md:flex-row gap-8">
         {/* Sidebar */}
-        <aside className="w-full md:w-64 space-y-6 flex-shrink-0">
+        <aside className={cn("w-full md:w-64 space-y-6 flex-shrink-0", isFilterOpen ? "block" : "hidden md:block")}>
           <div className="bg-white p-6 rounded-2xl border border-stone-100 shadow-sm space-y-6 sticky top-20">
             <h3 className="font-bold text-lg">Filters</h3>
             
@@ -207,7 +215,7 @@ export default function Products() {
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
                   className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                    selectedCategory === cat ? 'bg-primary text-white' : 'text-stone-600 hover:bg-stone-50'
+                    selectedCategory === cat ? 'bg-primary text-white shadow-md' : 'text-stone-600 hover:bg-stone-50'
                   }`}
                 >
                   {cat}
@@ -232,7 +240,7 @@ export default function Products() {
                 <button
                   key={rating}
                   onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
-                  className={`flex items-center space-x-2 w-full p-2 rounded-lg text-sm ${selectedRating === rating ? 'bg-amber-100 text-amber-900' : 'text-stone-600'}`}
+                  className={`flex items-center space-x-2 w-full p-2 rounded-lg text-sm ${selectedRating === rating ? 'bg-amber-100 text-amber-900 shadow-sm' : 'text-stone-600 hover:bg-stone-50'}`}
                 >
                   <Star size={16} fill={selectedRating && selectedRating >= rating ? "currentColor" : "none"} className="text-amber-400" />
                   <span>{rating}+ Stars</span>
@@ -240,7 +248,12 @@ export default function Products() {
               ))}
             </div>
             
-            <button onClick={() => { setSearchTerm(''); setSelectedCategory('All'); setSelectedRating(null); setMinPrice('0'); setMaxPrice('10000'); }} className="w-full btn-outline py-2">Clear Filters</button>
+            <button 
+              onClick={() => { setSearchTerm(''); setSelectedCategory('All'); setSelectedRating(null); setMinPrice('0'); setMaxPrice(''); }} 
+              className="w-full btn-outline py-2 border-red-200 text-red-600 hover:bg-red-50"
+            >
+              Clear Filters
+            </button>
           </div>
         </aside>
 
@@ -251,20 +264,21 @@ export default function Products() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
               <input 
                 type="text" 
-                placeholder="Search..."
+                placeholder="Search products..."
                 className="input-field pl-10 pr-4 w-full"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <select className="input-field w-full sm:w-40" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              <option value="relevance">Relevance</option>
+            <select className="input-field w-full sm:w-40 font-bold" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="relevance">Sort: Relevance</option>
               <option value="price-low">Price: Low to High</option>
               <option value="price-high">Price: High to Low</option>
               <option value="rating">Top Rated</option>
               <option value="newest">Newest First</option>
             </select>
           </div>
+
 
       <motion.div 
         initial="hidden"
