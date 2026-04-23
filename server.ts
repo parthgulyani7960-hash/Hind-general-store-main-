@@ -1472,9 +1472,13 @@ async function startServer() {
       req.session.role = user.role;
       res.json({ success: true, user, isNewUser: !user.phone });
     } catch (e: any) {
-      console.error('Firebase login error:', e);
+      console.error('Firebase login error details:', {
+        message: e.message,
+        stack: e.stack,
+        code: e.code
+      });
       logSuspicious(null, 'FAILED_LOGIN', `Firebase login failed: ${e.message}`, req.ip);
-      res.status(401).json({ success: false, message: 'Invalid authentication token' });
+      res.status(401).json({ success: false, message: 'Authentication failed: ' + e.message });
     }
   });
 
