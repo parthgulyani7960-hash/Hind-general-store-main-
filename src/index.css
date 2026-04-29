@@ -6,14 +6,32 @@
   --font-serif: "Cormorant Garamond", serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --color-primary: var(--primary-color, #064e3b);
-  --color-secondary: var(--secondary-color, #065f46);
-  --color-accent: var(--accent-color, #f59e0b);
+  --color-primary: var(--primary-color, #0f172a);
+  --color-secondary: var(--secondary-color, #1e293b);
+  --color-accent: var(--accent-color, #d97706);
+}
+
+:root {
+  --primary-color: #0f172a;
+  --secondary-color: #1e293b;
+  --accent-color: #d97706;
+}
+
+.theme-navy {
+  --primary-color: #0f172a;
+  --secondary-color: #1e293b;
+  --accent-color: #d97706;
 }
 
 .theme-emerald {
-  --primary-color: #064e3b;
+  --primary-color: #059669;
   --secondary-color: #065f46;
+  --accent-color: #f59e0b;
+}
+
+.theme-orange {
+  --primary-color: #ea580c;
+  --secondary-color: #9a3412;
   --accent-color: #f59e0b;
 }
 

@@ -14,6 +14,9 @@ import admin from 'firebase-admin';
 import fs from 'fs';
 import { google } from 'googleapis';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Initialize Firebase Admin synchronously
 try {
   const firebaseConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
@@ -25,8 +28,6 @@ try {
       });
       console.log('Firebase Admin initialized synchronously with projectId:', config.projectId);
     }
-  } else {
-    console.warn('firebase-applet-config.json not found, skipping Firebase Admin initialization');
   }
 } catch (e) {
   console.error('Failed to initialize Firebase Admin:', e);
@@ -40,39 +41,87 @@ declare module 'express-session' {
   }
 }
 
-// Determine database path. Vercel's Serverless environment is read-only except for /tmp.
+// Determine database path
 const dbPath = process.env.VERCEL ? '/tmp/store.db' : 'store.db';
-const db = new Database(dbPath);
+let db: Database.Database;
 
-// Initialize Database
-try {
-  console.log('Initializing database...');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone TEXT UNIQUE,
-    username TEXT UNIQUE,
-    password TEXT,
-    name TEXT,
-    email TEXT,
-    shop_name TEXT,
-    pin_code TEXT,
-    role TEXT DEFAULT 'customer',
-    wallet_balance REAL DEFAULT 0,
-    khata_enabled BOOLEAN DEFAULT 0,
-    khata_limit REAL DEFAULT 0,
-    khata_balance REAL DEFAULT 0,
-    credit_limit REAL DEFAULT 10000,
-    khata_due_date DATETIME,
-    segment TEXT DEFAULT 'Regular',
-    profile_photo TEXT,
-    street_address TEXT,
-    city TEXT,
-    state TEXT,
-    zip_code TEXT,
-    address TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+const connectDatabase = (path: string): Database.Database => {
+  try {
+    const database = new Database(path, { timeout: 10000 });
+    // Test basic integrity
+    try {
+      database.pragma('journal_mode = WAL');
+      database.pragma('synchronous = NORMAL');
+      database.prepare('SELECT 1').get();
+      return database;
+    } catch (err: any) {
+      if (err.code === 'SQLITE_CORRUPT' || (err.message && err.message.includes('malformed'))) {
+        console.error('!!! DATABASE CORRUPTION DETECTED !!!');
+        database.close();
+        const backupPath = `${path}.corrupt.${Date.now()}`;
+        if (fs.existsSync(path)) {
+          fs.renameSync(path, backupPath);
+          console.log(`Corrupt database moved to: ${backupPath}`);
+        }
+        return new Database(path, { timeout: 10000 });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('Failed to connect to database:', err);
+    return new Database(':memory:');
+  }
+};
+
+db = connectDatabase(dbPath);
+console.log('Database connected at:', process.env.VERCEL ? '/tmp/store.db' : 'store.db (WAL mode)');
+
+const app = express();
+const httpServer = createServer(app);
+const wss = new WebSocketServer({ server: httpServer });
+
+const broadcast = (data: any) => {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+};
+
+wss.on('connection', (ws) => {
+  console.log('Client connected to WebSocket');
+  ws.on('close', () => console.log('Client disconnected from WebSocket'));
+});
+
+async function initDatabase() {
+  try {
+    console.log('Initializing database schema...');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT UNIQUE,
+      username TEXT UNIQUE,
+      password TEXT,
+      name TEXT,
+      email TEXT,
+      shop_name TEXT,
+      pin_code TEXT,
+      role TEXT DEFAULT 'customer',
+      wallet_balance REAL DEFAULT 0,
+      khata_enabled BOOLEAN DEFAULT 0,
+      khata_limit REAL DEFAULT 0,
+      khata_balance REAL DEFAULT 0,
+      credit_limit REAL DEFAULT 10000,
+      khata_due_date DATETIME,
+      segment TEXT DEFAULT 'Regular',
+      profile_photo TEXT,
+      street_address TEXT,
+      city TEXT,
+      state TEXT,
+      zip_code TEXT,
+      address TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 
   CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -332,6 +381,8 @@ try {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     admin_id INTEGER,
     action TEXT,
+    target_type TEXT,
+    target_id TEXT,
     resource TEXT,
     details TEXT, -- JSON
     ip_address TEXT,
@@ -490,15 +541,174 @@ try {
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Order Delay', 'My order #ORD-1 is delayed by 2 days.', 'open');
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Payment Issue', 'Payment failed but amount deducted.', 'open');
   }
-  console.log('Database initialized successfully.');
-} catch (err) {
-  console.error('Database initialization failed:', err);
+    console.log('Database initialized successfully.');
+  } catch (err) {
+    console.error('Database initialization failed:', err);
+  }
 }
+
+// Seed initial data
+const seedData = () => {
+  try {
+    const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
+    if (productCount.count === 0) {
+      const products = [
+        { name: 'Basmati Rice (Premium)', description: 'Long grain aromatic basmati rice, perfect for biryani and special occasions.', price: 120, wholesale_price: 105, retail_price: 130, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800' },
+        { name: 'Mustard Oil (Cold Pressed)', description: 'Pure cold-pressed mustard oil with strong aroma and high pungency.', price: 180, wholesale_price: 165, retail_price: 195, category: 'Grocery', stock: 200, unit: 'L', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=800' },
+        { name: 'Toor Dal (Unpolished)', description: 'High protein unpolished toor dal, easy to cook and digest.', price: 160, wholesale_price: 145, retail_price: 175, category: 'Grocery', stock: 300, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1585996838426-60de38529478?w=800' },
+        { name: 'Whole Wheat Atta', description: 'Chakki fresh whole wheat atta with natural bran and fiber.', price: 45, wholesale_price: 40, retail_price: 50, category: 'Grocery', stock: 1000, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800' },
+        { name: 'Refined Sugar', description: 'Pure white refined sugar for daily use.', price: 42, wholesale_price: 38, retail_price: 45, category: 'Grocery', stock: 800, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=800' },
+        { name: 'Tata Salt', description: 'Vacuum evaporated iodized salt.', price: 25, wholesale_price: 22, retail_price: 28, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=800' },
+        { name: 'Maggi Noodles (Pack of 12)', description: 'Instant noodles with masala tastemaker.', price: 168, wholesale_price: 155, retail_price: 180, category: 'Grocery', stock: 100, unit: 'pack', image_url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800' },
+        { name: 'Amul Butter (500g)', description: 'Pasteurized salted butter.', price: 275, wholesale_price: 260, retail_price: 285, category: 'Dairy', stock: 50, unit: 'pc', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=800' }
+      ];
+
+      const insertProduct = db.prepare(`
+        INSERT INTO products (name, description, price, wholesale_price, retail_price, category, stock, unit, image_url)
+        VALUES (@name, @description, @price, @wholesale_price, @retail_price, @category, @stock, @unit, @image_url)
+      `);
+
+      products.forEach(p => insertProduct.run(p));
+    }
+
+    const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
+    if (categoryCount.count === 0) {
+      const categories = [
+        { name: 'Grocery', icon: 'ShoppingBag' },
+        { name: 'Dairy', icon: 'Milk' },
+        { name: 'Personal Care', icon: 'User' },
+        { name: 'Household', icon: 'Home' },
+        { name: 'Beverages', icon: 'Coffee' }
+      ];
+      const insertCategory = db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)');
+      categories.forEach(c => insertCategory.run(c.name, c.icon));
+    }
+
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    if (userCount.count <= 1) { 
+      const testUsers = [
+        { name: 'John Doe', phone: '9876543210', username: 'johndoe', role: 'client', wallet_balance: 500, segment: 'Retail' },
+        { name: 'Jane Smith', phone: '9876543211', username: 'janesmith', role: 'client', wallet_balance: 1200, segment: 'Wholesale' },
+        { name: 'Bob Wilson', phone: '9876543212', username: 'bobwilson', role: 'client', wallet_balance: 0, segment: 'Retail' }
+      ];
+      const insertUser = db.prepare('INSERT INTO users (name, phone, username, role, wallet_balance, segment) VALUES (?, ?, ?, ?, ?, ?)');
+      testUsers.forEach(u => insertUser.run(u.name, u.phone, u.username, u.role, u.wallet_balance, u.segment));
+    }
+
+    const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as { count: number };
+    if (orderCount.count === 0) {
+      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
+      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
+      
+      users.forEach((u, i) => {
+        const total = 500 + (i * 100);
+        const orderId = db.prepare(`
+          INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, status, address, payment_method)
+          VALUES (?, ?, ?, 0, 40, 'pending', '123 Test St, Ludhiana, Punjab - 141001', 'cod')
+        `).run(u.id, total + 40, total).lastInsertRowid;
+
+        db.prepare(`
+          INSERT INTO order_items (order_id, product_id, quantity, price)
+          VALUES (?, ?, 2, ?)
+        `).run(orderId, products[0].id, products[0].price);
+      });
+    }
+
+    const walletReqCount = db.prepare('SELECT COUNT(*) as count FROM wallet_transactions WHERE status = "pending"').get() as { count: number };
+    if (walletReqCount.count === 0) {
+      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
+      users.forEach(u => {
+        db.prepare(`
+          INSERT INTO wallet_transactions (user_id, amount, type, description, status, transaction_id)
+          VALUES (?, 1000, 'credit', 'Wallet top-up request', 'pending', 'TXN123456789')
+        `).run(u.id);
+      });
+    }
+
+    const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
+    if (ticketCount.count === 0) {
+      const users = db.prepare('SELECT id, name FROM users WHERE role = "client"').all() as { id: number, name: string }[];
+      users.forEach(u => {
+        db.prepare(`
+          INSERT INTO support_tickets (user_id, name, subject, message, status)
+          VALUES (?, ?, 'Order Issue', 'I have not received my order yet.', 'open')
+        `).run(u.id, u.name);
+      });
+    }
+
+    const reviewCount = db.prepare('SELECT COUNT(*) as count FROM reviews').get() as { count: number };
+    if (reviewCount.count === 0) {
+      const products = db.prepare('SELECT id FROM products').all() as { id: number }[];
+      products.forEach(p => {
+        db.prepare(`
+          INSERT INTO reviews (product_id, user_name, rating, comment, status)
+          VALUES (?, 'Happy Customer', 5, 'Great quality products!', 'approved')
+        `).run(p.id);
+      });
+    }
+
+    const couponCount = db.prepare('SELECT COUNT(*) as count FROM coupons').get() as { count: number };
+    if (couponCount.count === 0) {
+      const coupons = [
+        { code: 'WELCOME10', type: 'percentage', value: 10, min_order: 500 },
+        { code: 'FLAT50', type: 'flat', value: 50, min_order: 1000 }
+      ];
+      const insertCoupon = db.prepare('INSERT INTO coupons (code, type, value, min_order) VALUES (?, ?, ?, ?)');
+      coupons.forEach(c => insertCoupon.run(c.code, c.type, c.value, c.min_order));
+    }
+
+    const bulkDiscountCount = db.prepare('SELECT COUNT(*) as count FROM bulk_discounts').get() as { count: number };
+    if (bulkDiscountCount.count === 0) {
+      const products = db.prepare('SELECT id FROM products LIMIT 2').all() as { id: number }[];
+      products.forEach(p => {
+        db.prepare(`
+          INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value)
+          VALUES ('product', ?, 5, 'percentage', 10)
+        `).run(p.id);
+      });
+    }
+
+    const deliveryAreaCount = db.prepare('SELECT COUNT(*) as count FROM delivery_areas').get() as { count: number };
+    if (deliveryAreaCount.count === 0) {
+      const areas = [
+        { name: 'Ludhiana Central', fee: 0, min_order: 500 },
+        { name: 'Model Town', fee: 20, min_order: 300 },
+        { name: 'Civil Lines', fee: 30, min_order: 400 }
+      ];
+      const insertArea = db.prepare('INSERT INTO delivery_areas (name, fee, min_order) VALUES (?, ?, ?)');
+      areas.forEach(a => insertArea.run(a.name, a.fee, a.min_order));
+    }
+
+    const variantCount = db.prepare('SELECT COUNT(*) as count FROM product_variants').get() as { count: number };
+    if (variantCount.count === 0) {
+      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
+      products.forEach(p => {
+        db.prepare(`
+          INSERT INTO product_variants (product_id, name, price, stock, is_default)
+          VALUES (?, 'Single Piece', ?, 100, 1)
+        `).run(p.id, p.price);
+      });
+    }
+  } catch (err) {
+    console.error('Seeding error:', err);
+  }
+};
+
+async function startServer() {
+  await initDatabase();
+  seedData(); // Seed data at start
 
 // Migration for existing tables
 try { db.prepare('ALTER TABLE users ADD COLUMN email TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN shop_name TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN estimated_delivery_at DATETIME').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs ADD COLUMN target_type TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs ADD COLUMN target_id TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs ADD COLUMN resource TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs ADD COLUMN ip_address TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs ADD COLUMN user_agent TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs RENAME COLUMN user_id TO admin_id').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs RENAME COLUMN ip TO ip_address').run(); } catch (e) {}
   try { db.prepare('ALTER TABLE orders ADD COLUMN assigned_runner_id INTEGER').run(); } catch (e) {}
   try { db.prepare('ALTER TABLE orders ADD COLUMN last_status_update TEXT').run(); } catch (e) {}
 
@@ -750,170 +960,24 @@ const requireAdmin = (req: express.Request, res: express.Response, next: express
 
 
 
-// Seed initial data
-const seedData = () => {
-  try {
-    const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
-    if (productCount.count === 0) {
-      const products = [
-        { name: 'Basmati Rice (Premium)', description: 'Long grain aromatic basmati rice, perfect for biryani and special occasions.', price: 120, wholesale_price: 105, retail_price: 130, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800' },
-        { name: 'Mustard Oil (Cold Pressed)', description: 'Pure cold-pressed mustard oil with strong aroma and high pungency.', price: 180, wholesale_price: 165, retail_price: 195, category: 'Grocery', stock: 200, unit: 'L', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=800' },
-        { name: 'Toor Dal (Unpolished)', description: 'High protein unpolished toor dal, easy to cook and digest.', price: 160, wholesale_price: 145, retail_price: 175, category: 'Grocery', stock: 300, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1585996838426-60de38529478?w=800' },
-        { name: 'Whole Wheat Atta', description: 'Chakki fresh whole wheat atta with natural bran and fiber.', price: 45, wholesale_price: 40, retail_price: 50, category: 'Grocery', stock: 1000, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800' },
-        { name: 'Refined Sugar', description: 'Pure white refined sugar for daily use.', price: 42, wholesale_price: 38, retail_price: 45, category: 'Grocery', stock: 800, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=800' },
-        { name: 'Tata Salt', description: 'Vacuum evaporated iodized salt.', price: 25, wholesale_price: 22, retail_price: 28, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=800' },
-        { name: 'Maggi Noodles (Pack of 12)', description: 'Instant noodles with masala tastemaker.', price: 168, wholesale_price: 155, retail_price: 180, category: 'Grocery', stock: 100, unit: 'pack', image_url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800' },
-        { name: 'Amul Butter (500g)', description: 'Pasteurized salted butter.', price: 275, wholesale_price: 260, retail_price: 285, category: 'Dairy', stock: 50, unit: 'pc', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=800' }
-      ];
 
-      const insertProduct = db.prepare(`
-        INSERT INTO products (name, description, price, wholesale_price, retail_price, category, stock, unit, image_url)
-        VALUES (@name, @description, @price, @wholesale_price, @retail_price, @category, @stock, @unit, @image_url)
-      `);
-
-      products.forEach(p => insertProduct.run(p));
-    }
-
-    const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
-    if (categoryCount.count === 0) {
-      const categories = [
-        { name: 'Grocery', icon: 'ShoppingBag' },
-        { name: 'Dairy', icon: 'Milk' },
-        { name: 'Personal Care', icon: 'User' },
-        { name: 'Household', icon: 'Home' },
-        { name: 'Beverages', icon: 'Coffee' }
-      ];
-      const insertCategory = db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)');
-      categories.forEach(c => insertCategory.run(c.name, c.icon));
-    }
-
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-    if (userCount.count <= 1) { 
-      const testUsers = [
-        { name: 'John Doe', phone: '9876543210', username: 'johndoe', role: 'client', wallet_balance: 500, segment: 'Retail' },
-        { name: 'Jane Smith', phone: '9876543211', username: 'janesmith', role: 'client', wallet_balance: 1200, segment: 'Wholesale' },
-        { name: 'Bob Wilson', phone: '9876543212', username: 'bobwilson', role: 'client', wallet_balance: 0, segment: 'Retail' }
-      ];
-      const insertUser = db.prepare('INSERT INTO users (name, phone, username, role, wallet_balance, segment) VALUES (?, ?, ?, ?, ?, ?)');
-      testUsers.forEach(u => insertUser.run(u.name, u.phone, u.username, u.role, u.wallet_balance, u.segment));
-    }
-
-    const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as { count: number };
-    if (orderCount.count === 0) {
-      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
-      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
-      
-      users.forEach((u, i) => {
-        const total = 500 + (i * 100);
-        const orderId = db.prepare(`
-          INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, status, address, payment_method)
-          VALUES (?, ?, ?, 0, 40, 'pending', '123 Test St, Ludhiana, Punjab - 141001', 'cod')
-        `).run(u.id, total + 40, total).lastInsertRowid;
-
-        db.prepare(`
-          INSERT INTO order_items (order_id, product_id, quantity, price)
-          VALUES (?, ?, 2, ?)
-        `).run(orderId, products[0].id, products[0].price);
-      });
-    }
-
-    const walletReqCount = db.prepare('SELECT COUNT(*) as count FROM wallet_transactions WHERE status = "pending"').get() as { count: number };
-    if (walletReqCount.count === 0) {
-      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
-      users.forEach(u => {
-        db.prepare(`
-          INSERT INTO wallet_transactions (user_id, amount, type, description, status, transaction_id)
-          VALUES (?, 1000, 'credit', 'Wallet top-up request', 'pending', 'TXN123456789')
-        `).run(u.id);
-      });
-    }
-
-    const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
-    if (ticketCount.count === 0) {
-      const users = db.prepare('SELECT id, name FROM users WHERE role = "client"').all() as { id: number, name: string }[];
-      users.forEach(u => {
-        db.prepare(`
-          INSERT INTO support_tickets (user_id, name, subject, message, status)
-          VALUES (?, ?, 'Order Issue', 'I have not received my order yet.', 'open')
-        `).run(u.id, u.name);
-      });
-    }
-
-    const reviewCount = db.prepare('SELECT COUNT(*) as count FROM reviews').get() as { count: number };
-    if (reviewCount.count === 0) {
-      const products = db.prepare('SELECT id FROM products').all() as { id: number }[];
-      products.forEach(p => {
-        db.prepare(`
-          INSERT INTO reviews (product_id, user_name, rating, comment, status)
-          VALUES (?, 'Happy Customer', 5, 'Great quality products!', 'approved')
-        `).run(p.id);
-      });
-    }
-
-    const couponCount = db.prepare('SELECT COUNT(*) as count FROM coupons').get() as { count: number };
-    if (couponCount.count === 0) {
-      const coupons = [
-        { code: 'WELCOME10', type: 'percentage', value: 10, min_order: 500 },
-        { code: 'FLAT50', type: 'flat', value: 50, min_order: 1000 }
-      ];
-      const insertCoupon = db.prepare('INSERT INTO coupons (code, type, value, min_order) VALUES (?, ?, ?, ?)');
-      coupons.forEach(c => insertCoupon.run(c.code, c.type, c.value, c.min_order));
-    }
-
-    const bulkDiscountCount = db.prepare('SELECT COUNT(*) as count FROM bulk_discounts').get() as { count: number };
-    if (bulkDiscountCount.count === 0) {
-      const products = db.prepare('SELECT id FROM products LIMIT 2').all() as { id: number }[];
-      products.forEach(p => {
-        db.prepare(`
-          INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value)
-          VALUES ('product', ?, 5, 'percentage', 10)
-        `).run(p.id);
-      });
-    }
-
-    const deliveryAreaCount = db.prepare('SELECT COUNT(*) as count FROM delivery_areas').get() as { count: number };
-    if (deliveryAreaCount.count === 0) {
-      const areas = [
-        { name: 'Ludhiana Central', fee: 0, min_order: 500 },
-        { name: 'Model Town', fee: 20, min_order: 300 },
-        { name: 'Civil Lines', fee: 30, min_order: 400 }
-      ];
-      const insertArea = db.prepare('INSERT INTO delivery_areas (name, fee, min_order) VALUES (?, ?, ?)');
-      areas.forEach(a => insertArea.run(a.name, a.fee, a.min_order));
-    }
-
-    const variantCount = db.prepare('SELECT COUNT(*) as count FROM product_variants').get() as { count: number };
-    if (variantCount.count === 0) {
-      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
-      products.forEach(p => {
-        db.prepare(`
-          INSERT INTO product_variants (product_id, name, price, stock, is_default)
-          VALUES (?, 'Single Piece', ?, 100, 1)
-        `).run(p.id, p.price);
-      });
-    }
-  } catch (err) {
-    console.error('Seeding error:', err);
-  }
-};
-
-seedData();
 
 // Middleware for auditing admin actions
 const auditAdminAction = (req: any, res: any, next: any) => {
   if (req.session.userId && req.session.role === 'admin') {
     const logData = {
-      user_id: req.session.userId,
+      admin_id: req.session.userId,
       action: `${req.method} ${req.path}`,
       details: JSON.stringify({ body: req.body, query: req.query }),
-      ip: req.ip,
+      ip_address: req.ip,
+      user_agent: req.headers['user-agent'],
       created_at: new Date().toISOString()
     };
     try {
       db.prepare(`
-        INSERT INTO audit_logs (user_id, action, details, ip, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(logData.user_id, logData.action, logData.details, logData.ip, logData.created_at);
+        INSERT INTO audit_logs (admin_id, action, details, ip_address, user_agent, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(logData.admin_id, logData.action, logData.details, logData.ip_address, logData.user_agent, logData.created_at);
     } catch (err) {
       console.error('Audit log failed:', err);
     }
@@ -921,23 +985,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   next();
 };
 
-async function startServer() {
-  const app = express();
-  const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer });
-
-  const broadcast = (data: any) => {
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(data));
-      }
-    });
-  };
-
-  wss.on('connection', (ws) => {
-    console.log('Client connected to WebSocket');
-    ws.on('close', () => console.log('Client disconnected from WebSocket'));
-  });
 
   app.set('trust proxy', 1);
   app.use(express.json());
@@ -955,8 +1002,8 @@ async function startServer() {
     saveUninitialized: false,
     proxy: true,
     cookie: { 
-      secure: process.env.NODE_ENV === 'production' || !!process.env.VERCEL, // Needs true only on HTTPS
-      sameSite: process.env.NODE_ENV === 'production' || !!process.env.VERCEL ? 'none' : 'lax',
+      secure: true, // Always true for AI Studio/Modern browsers in iframe
+      sameSite: 'none', // Required for cross-site cookie in iframe
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     }
   }));
@@ -1152,16 +1199,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/admin/audit-logs', (req, res) => {
-    const logs = db.prepare(`
-      SELECT a.*, u.name as admin_name 
-      FROM audit_logs a 
-      LEFT JOIN users u ON a.user_id = u.id 
-      ORDER BY a.created_at DESC 
-      LIMIT 100
-    `).all();
-    res.json(logs);
-  });
+
 
   app.post('/api/admin/orders/:id/assign-runner', (req, res) => {
     const { id } = req.params;
@@ -1499,7 +1537,13 @@ async function startServer() {
 
       req.session.userId = user.id;
       req.session.role = user.role;
-      res.json({ success: true, user, isNewUser: !user.phone });
+      req.session.save((err) => {
+        if (err) {
+          console.error('[AUTH] Session save error:', err);
+          return res.status(500).json({ success: false, message: 'Session initialization failed' });
+        }
+        res.json({ success: true, user, isNewUser: !user.phone });
+      });
     } catch (e: any) {
       console.error('Firebase login error details:', {
         message: e.message,
@@ -3495,7 +3539,7 @@ async function startServer() {
   });
 
   app.post('/api/admin/payment-sync-now', requireAdmin, async (req, res) => {
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     try {
       await pollGmailForPayments(); // Manually trigger the helper
       
@@ -3544,7 +3588,7 @@ async function startServer() {
   app.post('/api/admin/orders/:id/manual-approve', requireAdmin, (req, res) => {
     const { id } = req.params;
     const { notes } = req.body;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
 
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as any;
     if (!order) return res.status(404).json({ message: 'Order not found' });

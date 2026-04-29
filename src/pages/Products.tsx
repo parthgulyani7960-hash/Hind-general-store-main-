@@ -145,10 +145,10 @@ export default function Products() {
                       )}
                     </div>
                     {user?.role === 'wholesaler' && quickViewProduct.wholesale_price && (
-                       <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">Wholesale Account Price</span>
+                       <span className="text-[10px] font-black text-accent uppercase tracking-widest mt-1">Wholesale Account Price</span>
                     )}
                     {user?.role === 'retailer' && quickViewProduct.retail_price && (
-                       <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Retailer Account Price</span>
+                       <span className="text-[10px] font-black text-secondary uppercase tracking-widest mt-1">Retailer Account Price</span>
                     )}
                   </div>
                   
@@ -316,17 +316,17 @@ export default function Products() {
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
                 />
                 <div className="absolute top-2 left-2 flex flex-col space-y-2">
-                  {product.discount > 0 && (
-                    <div className="bg-emerald-500 text-white px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-lg animate-pulse">
-                      {product.discount}% OFF
-                    </div>
-                  )}
+                    {product.discount > 0 && (
+                      <div className="bg-accent text-white px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-lg">
+                        {product.discount}% OFF
+                      </div>
+                    )}
                 </div>
                 <div className="absolute top-2 right-2 flex flex-col space-y-2">
-                  <div className={cn(
-                    "bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-xs font-bold shadow-sm flex flex-col items-end",
-                    getProductPrice(product, user?.role) < product.price ? "text-emerald-600" : "text-primary"
-                  )}>
+                    <div className={cn(
+                      "bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-xs font-bold shadow-sm flex flex-col items-end",
+                      getProductPrice(product, user?.role) < product.price ? "text-accent" : "text-primary"
+                    )}>
                     <div className="flex flex-col items-end">
                       <div className="flex items-center space-x-1">
                         {getProductPrice(product, user?.role) < product.price && (

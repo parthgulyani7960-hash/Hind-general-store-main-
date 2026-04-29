@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2 } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -109,19 +109,25 @@ export default function Navbar() {
         <div className="flex justify-between h-16 items-center">
           <Link to="/" className="flex items-center space-x-3 group">
             <div className="relative">
-              <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center transform group-hover:rotate-6 transition-transform shadow-lg shadow-primary/20 overflow-hidden">
-                <span className="text-white font-black text-2xl relative z-10">H</span>
-                <div className="absolute inset-0 bg-white/10 group-hover:translate-x-full transition-transform duration-500" />
+              <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center transform group-hover:rotate-6 transition-all duration-700 shadow-2xl shadow-primary/30 overflow-hidden border border-white/10 ring-1 ring-white/5">
+                <span className="text-white font-black text-xl relative z-10 tracking-tighter group-hover:scale-110 transition-transform duration-500 italic">HG</span>
+                <div className="absolute inset-0 bg-gradient-to-br from-accent/40 via-transparent to-transparent group-hover:opacity-100 transition-opacity duration-700" />
+                <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
               </div>
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white shadow-sm" />
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-accent rounded-lg border-2 border-white shadow-sm flex items-center justify-center">
+                <Star size={8} className="text-white fill-white" />
+              </div>
             </div>
             <div className="flex flex-col">
               <span className="text-2xl font-black text-stone-900 hidden sm:block leading-none tracking-tight group-hover:text-primary transition-colors">
-                Hind<span className="text-primary">.</span>
+                <span className="text-primary">Hind</span> General
               </span>
-              <div className="flex items-center space-x-1 text-[9px] text-stone-400 font-black uppercase tracking-[0.2em] hidden sm:flex mt-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Live Status</span>
+              <div className="flex items-center space-x-1.5 text-[9px] font-black uppercase tracking-[0.3em] hidden sm:flex mt-1.5">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent"></span>
+                </span>
+                <span className="text-stone-400">Premium Quality</span>
               </div>
             </div>
           </Link>

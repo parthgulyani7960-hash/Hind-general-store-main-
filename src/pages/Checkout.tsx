@@ -707,9 +707,12 @@ export default function Checkout() {
                             <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 border border-stone-200">2</span>
                             <p>In your UPI app, locate the <span className="font-bold text-stone-900 border-b-2 border-primary/20">Note / Add Message</span> field.</p>
                           </div>
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-3 bg-primary/5 p-4 rounded-2xl border border-primary/10">
                             <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 shadow-sm">3</span>
-                            <p>Paste your Order ID: <span className="font-black text-primary">{pendingOrder.order_id}</span></p>
+                            <div>
+                                <p className="font-black text-stone-900 border-b-2 border-primary/20 inline-block mb-1">Paste your Order ID</p>
+                                <p>Enter <span className="font-black text-primary px-1.5 py-0.5 bg-white rounded border border-primary/20">{pendingOrder.order_id}</span> in the <span className="font-bold text-stone-900 italic">Note / Remark</span> field of your UPI app. This is **CRITICAL** for instant delivery.</p>
+                            </div>
                           </div>
                         </div>
                       </div>

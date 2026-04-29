@@ -340,7 +340,7 @@ export default function Profile() {
       icon: CreditCard, 
       label: 'Khata Wallet', 
       value: user.khata_enabled ? `₹${user.khata_balance}` : 'Disabled', 
-      color: user.khata_enabled ? 'text-emerald-600' : 'text-stone-400',
+      color: user.khata_enabled ? 'text-accent' : 'text-stone-400',
       sub: user.khata_enabled ? `Limit: ₹${user.khata_limit}` : 'Contact admin to enable',
       id: 'khata'
     },
@@ -699,9 +699,9 @@ export default function Profile() {
                             <p className="font-bold text-primary">₹{order.total}</p>
                             <span className={cn(
                               "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
-                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600' : 
+                              order.status === 'delivered' ? 'bg-accent/10 text-accent' : 
                               order.status === 'cancelled' ? 'bg-red-50 text-red-600' : 
-                              order.status === 'failed' ? 'bg-stone-900 text-white' : 'bg-amber-50 text-amber-600'
+                              order.status === 'failed' ? 'bg-stone-900 text-white' : 'bg-primary/10 text-primary'
                             )}>
                               {order.status}
                             </span>
@@ -948,9 +948,19 @@ export default function Profile() {
                               )}>
                                 {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
                               </p>
-                              {tx.payment_id && (
-                                <p className="text-[8px] font-black text-stone-400 uppercase tracking-widest mt-1">Ref: {tx.payment_id}</p>
-                              )}
+                              <div className="flex flex-col items-end gap-1 mt-1">
+                                {tx.transaction_id && (
+                                  <p className="text-[8px] font-black text-stone-400 uppercase tracking-widest">ID: {tx.transaction_id}</p>
+                                )}
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[8px] font-black uppercase border",
+                                  tx.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                                  tx.status === 'pending' ? "bg-amber-50 text-amber-600 border-amber-100" : 
+                                  "bg-red-50 text-red-600 border-red-100"
+                                )}>
+                                  {tx.status || 'approved'}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>

@@ -1900,9 +1900,12 @@ export default function AdminDashboard() {
         <header className="hidden lg:flex h-20 bg-white border-b border-stone-200 items-center justify-between px-8 sticky top-0 z-40">
           <div className="flex items-center space-x-4">
             <h2 className="text-xl font-bold text-stone-900">{activeTab}</h2>
-            <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-              <span>System Live</span>
+            <div className="flex items-center space-x-3 bg-white/50 backdrop-blur-md text-primary px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border border-stone-100 shadow-sm">
+              <div className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+              </div>
+              <span>Operational: North Hub</span>
             </div>
           </div>
 
@@ -2242,9 +2245,9 @@ export default function AdminDashboard() {
                 </div>
                 <div className="space-y-4">
                   {[
-                    { label: 'API Server', status: 'Healthy', color: 'bg-emerald-500', icon: <Globe size={14} /> },
-                    { label: 'Database', status: 'Connected', color: 'bg-emerald-500', icon: <Database size={14} /> },
-                    { label: 'SMS Gateway', status: 'Online', color: 'bg-emerald-500', icon: <Phone size={14} /> },
+                    { label: 'API Server', status: 'Healthy', color: 'bg-primary', icon: <Globe size={14} /> },
+                    { label: 'Database', status: 'Connected', color: 'bg-primary', icon: <Database size={14} /> },
+                    { label: 'SMS Gateway', status: 'Online', color: 'bg-primary', icon: <Phone size={14} /> },
                     { label: 'Payment Gateway', status: 'Maintenance', color: 'bg-amber-500', icon: <CreditCard size={14} /> }
                   ].map((sys, i) => (
                     <div key={i} className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl border border-stone-100/50">
@@ -5173,12 +5176,12 @@ export default function AdminDashboard() {
               
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[
-                  { id: 'theme-emerald', name: 'Emerald', color: '#064e3b' },
+                  { id: 'theme-navy', name: 'Navy', color: '#0f172a' },
+                  { id: 'theme-orange', name: 'Orange', color: '#ea580c' },
+                  { id: 'theme-emerald', name: 'Emerald', color: '#059669' },
                   { id: 'theme-indigo', name: 'Indigo', color: '#312e81' },
-                  { id: 'theme-rose', name: 'Rose', color: '#881337' },
-                  { id: 'theme-slate', name: 'Slate', color: '#0f172a' },
-                  { id: 'theme-violet', name: 'Violet', color: '#4c1d95' },
-                  { id: 'theme-amber', name: 'Amber', color: '#78350f' },
+                  { id: 'theme-slate', name: 'Slate', color: '#334155' },
+                  { id: 'theme-amber', name: 'Amber', color: '#d97706' },
                 ].map((t) => (
                   <button
                     key={t.id}

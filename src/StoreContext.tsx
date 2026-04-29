@@ -190,9 +190,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [adminTheme, setAdminTheme] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('hgs_admin_theme');
-      return saved || 'theme-emerald';
+      return saved || 'theme-navy';
     } catch (e) {
-      return 'theme-emerald';
+      return 'theme-navy';
     }
   });
 
