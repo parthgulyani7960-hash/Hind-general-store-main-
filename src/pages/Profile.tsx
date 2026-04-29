@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
+import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { cn, Product } from '../types';
 import { useEffect } from 'react';
@@ -888,45 +889,79 @@ export default function Profile() {
 
                 {/* Wallet History */}
                 <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                  <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
                     <div>
-                      <h3 className="font-bold text-lg">Transaction History</h3>
-                      <p className="text-xs text-stone-400">Your recent wallet activity</p>
+                      <h3 className="font-bold text-lg">Detailed Transaction History</h3>
+                      <p className="text-xs text-stone-400">Track every penny spent and credited</p>
                     </div>
-                    <History size={20} className="text-stone-300" />
+                    <div className="flex items-center space-x-2">
+                       <button 
+                        onClick={fetchWalletHistory} 
+                        className="p-2 text-stone-400 hover:text-primary transition-colors bg-white rounded-xl border border-stone-100 shadow-sm"
+                        disabled={loadingHistory}
+                       >
+                         <RefreshCw size={16} className={loadingHistory ? "animate-spin" : ""} />
+                       </button>
+                    </div>
                   </div>
+                  
                   <div className="divide-y divide-stone-50">
                     {loadingHistory ? (
-                      <div className="p-12 text-center text-stone-400">Loading history...</div>
+                      <div className="p-12 text-center">
+                         <div className="flex justify-center mb-4">
+                           <RefreshCw size={32} className="text-primary animate-spin" />
+                         </div>
+                         <p className="text-sm font-bold text-stone-400">Fetching history...</p>
+                      </div>
                     ) : walletHistory.length === 0 ? (
-                      <div className="p-12 text-center text-stone-400 italic">No transactions found.</div>
+                      <div className="p-12 text-center py-20">
+                         <div className="w-16 h-16 bg-stone-50 text-stone-300 rounded-full flex items-center justify-center mx-auto mb-4">
+                           <History size={32} />
+                         </div>
+                         <p className="text-stone-400 font-bold italic">No transactions recorded yet.</p>
+                         <p className="text-[10px] text-stone-300 uppercase tracking-widest mt-1">Add money or place orders to see history</p>
+                      </div>
                     ) : (
                       walletHistory.map((tx) => (
-                        <div key={tx.id} className="p-6 hover:bg-stone-50 transition-colors">
+                        <div key={tx.id} className="p-6 hover:bg-stone-50 transition-all group border-l-4 border-transparent hover:border-primary">
                           <div className="flex justify-between items-center">
-                            <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-5">
                               <div className={cn(
-                                "p-2 rounded-xl",
-                                tx.type === 'credit' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                                "w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110",
+                                tx.type === 'credit' ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-red-50 text-red-600 border border-red-100"
                               )}>
-                                {tx.type === 'credit' ? <Plus size={16} /> : <X size={16} />}
+                                {tx.type === 'credit' ? <Plus size={20} /> : <X size={20} />}
                               </div>
                               <div>
-                                <p className="font-bold text-stone-900">{tx.description}</p>
-                                <p className="text-[10px] text-stone-400">{new Date(tx.created_at).toLocaleString()}</p>
+                                <p className="font-black text-stone-900 group-hover:text-primary transition-colors">{tx.description}</p>
+                                <div className="flex items-center space-x-2 mt-1">
+                                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{new Date(tx.created_at).toLocaleDateString()}</span>
+                                  <span className="text-[10px] text-stone-200">•</span>
+                                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
                               </div>
                             </div>
-                            <p className={cn(
-                              "font-black",
-                              tx.type === 'credit' ? "text-emerald-600" : "text-red-600"
-                            )}>
-                              {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
-                            </p>
+                            <div className="text-right">
+                              <p className={cn(
+                                "text-lg font-black tracking-tight",
+                                tx.type === 'credit' ? "text-emerald-600" : "text-red-600"
+                              )}>
+                                {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
+                              </p>
+                              {tx.payment_id && (
+                                <p className="text-[8px] font-black text-stone-400 uppercase tracking-widest mt-1">Ref: {tx.payment_id}</p>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))
                     )}
                   </div>
+                  {walletHistory.length > 5 && (
+                    <div className="p-4 bg-stone-50 text-center border-t border-stone-100">
+                       <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">End of History</p>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -1146,17 +1181,27 @@ export default function Profile() {
             </div>
 
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 no-scrollbar">
-              <div className="bg-primary/5 p-4 rounded-2xl border border-primary/10 text-center">
-                <p className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Scan to Pay (UPI)</p>
-                <div className="w-48 h-48 bg-white mx-auto rounded-xl border-2 border-primary/20 flex items-center justify-center mb-2 overflow-hidden">
-                  {upiQr ? (
-                    <img src={upiQr} alt="UPI QR" className="w-full h-full object-contain p-2" />
-                  ) : (
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=0&cu=INR`} alt="UPI QR" className="w-full h-full p-2" />
-                  )}
+              <div className="bg-primary/5 p-6 rounded-3xl border border-primary/10 text-center">
+                <p className="text-xs font-black text-primary uppercase tracking-[0.2em] mb-4">Official Payment QR</p>
+                <div className="w-56 h-56 bg-white mx-auto rounded-3xl border-4 border-white shadow-xl flex items-center justify-center mb-4 transition-transform hover:scale-105 overflow-hidden">
+                  <QRCodeCanvas 
+                    value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=0&cu=INR`}
+                    size={200}
+                    level="H"
+                    includeMargin={false}
+                    fgColor="#0c0a09"
+                    imageSettings={{
+                      src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23ea580c'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='900' font-size='22'%3EH%3C/text%3E%3C/svg%3E",
+                      height: 44,
+                      width: 44,
+                      excavate: true,
+                    }}
+                  />
                 </div>
-                <p className="text-[10px] text-stone-500 font-bold">{upiId}</p>
-                <p className="text-[8px] text-stone-300 uppercase tracking-widest mt-0.5">{upiName}</p>
+                <div className="space-y-1">
+                  <p className="text-[10px] text-stone-900 font-black uppercase tracking-widest">{upiName}</p>
+                  <p className="text-[10px] text-stone-400 font-bold uppercase tracking-tighter">Scan with any UPI App</p>
+                </div>
               </div>
 
               {bankName && (

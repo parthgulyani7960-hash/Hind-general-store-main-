@@ -27,6 +27,7 @@ const Promotions = lazy(() => import('./pages/Promotions'));
 const TermsAndConditions = lazy(() => import('./pages/TermsAndConditions'));
 const LegalPage = lazy(() => import('./pages/LegalPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminPayments = lazy(() => import('./pages/AdminPayments'));
 const DeliveryDashboard = lazy(() => import('./pages/DeliveryDashboard'));
 const MaintenancePage = lazy(() => import('./pages/MaintenancePage'));
 const TrackOrder = lazy(() => import('./pages/TrackOrder'));
@@ -84,6 +85,7 @@ function AnimatedRoutes() {
           <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
           <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
           <Route path="/admin" element={<ProtectedRoute adminOnly><PageWrapper><AdminDashboard /></PageWrapper></ProtectedRoute>} />
+          <Route path="/admin/payments" element={<ProtectedRoute adminOnly><PageWrapper><AdminPayments /></PageWrapper></ProtectedRoute>} />
           <Route path="/runner" element={<ProtectedRoute runnerOnly><PageWrapper><DeliveryDashboard /></PageWrapper></ProtectedRoute>} />
           <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
         </Routes>

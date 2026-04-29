@@ -12,6 +12,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import fs from 'fs';
+import { google } from 'googleapis';
 
 // Initialize Firebase Admin synchronously
 try {
@@ -128,6 +129,9 @@ try {
     estimated_delivery_at DATETIME,
     assigned_runner_id INTEGER,
     last_status_update TEXT,
+    order_id TEXT UNIQUE,
+    system_payment_matched BOOLEAN DEFAULT 0,
+    expires_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(assigned_runner_id) REFERENCES runners(id)
@@ -306,6 +310,21 @@ try {
     stack TEXT,
     user_id INTEGER,
     path TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS emails_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT UNIQUE,
+    sender TEXT,
+    subject TEXT,
+    body TEXT,
+    extracted_amount REAL,
+    extracted_note TEXT,
+    extracted_timestamp DATETIME,
+    match_status TEXT, -- 'MATCHED', 'FAILED', 'REVIEW_REQUIRED'
+    match_reason TEXT,
+    matched_order_id TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -508,8 +527,18 @@ try { db.prepare('ALTER TABLE wallet_transactions ADD COLUMN transaction_id TEXT
 try { db.prepare('ALTER TABLE order_items ADD COLUMN variant_id INTEGER').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE order_items ADD COLUMN variant_name TEXT').run(); } catch (e) {}
 
+  // Ensure optimal query performance with indexes
+  try { db.prepare('CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)').run(); } catch (e) {}
+  try { db.prepare('CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)').run(); } catch (e) {}
+  try { db.prepare('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)').run(); } catch (e) {}
+  try { db.prepare('CREATE INDEX IF NOT EXISTS idx_wallet_user_id ON wallet_transactions(user_id)').run(); } catch (e) {}
+  try { db.prepare('CREATE INDEX IF NOT EXISTS idx_emails_status ON emails_log(match_status)').run(); } catch (e) {}
+
   // Ensure admin role for specific phone number or email
-  try {
+  try { db.prepare('ALTER TABLE orders ADD COLUMN order_id TEXT UNIQUE').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN system_payment_matched BOOLEAN DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN expires_at DATETIME').run(); } catch (e) {}
+try {
     const adminEmail = 'parthgulyani7960@gmail.com';
     const adminPhone = '7888422429';
     db.prepare("UPDATE users SET role = 'admin' WHERE phone = ? OR email = ?").run(adminPhone, adminEmail);
@@ -2587,13 +2616,14 @@ async function startServer() {
         params.push(userId);
       }
       if (search) {
-        query += ` AND (u.name LIKE ? OR u.phone LIKE ? OR o.id LIKE ?)`;
-        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        query += ` AND (u.name LIKE ? OR u.phone LIKE ? OR o.id LIKE ? OR o.order_id LIKE ?)`;
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       }
 
       // Dynamic Sorting
       const validSortColumns: Record<string, string> = {
         id: 'o.id',
+        order_id: 'o.order_id',
         customer: 'u.name',
         total: 'o.total',
         status: 'o.status',
@@ -2621,9 +2651,10 @@ async function startServer() {
   app.post('/api/admin/orders/:id/status', (req, res) => {
     const { id } = req.params;
     const { status, rejection_reason } = req.body;
+    const adminId = (req as any).user?.id;
     
     try {
-      const existingOrder = db.prepare('SELECT status, user_id, wallet_used, total, payment_method FROM orders WHERE id = ?').get(id) as any;
+      const existingOrder = db.prepare('SELECT status, order_id, user_id, wallet_used, total, payment_method FROM orders WHERE id = ?').get(id) as any;
       if (!existingOrder) return res.status(404).json({ message: 'Order not found' });
 
       db.transaction(() => {
@@ -2632,6 +2663,10 @@ async function startServer() {
         } else {
           db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
         }
+
+        // Log administrative action
+        db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'ORDER_STATUS_UPDATE', 'ORDER', id, `Updated order ${existingOrder.order_id || id} status from ${existingOrder.status} to ${status}. ${rejection_reason ? 'Reason: ' + rejection_reason : ''}`);
 
         // AUTO-RESTOCK & REFUND ON CANCEL/FAIL
         if ((status === 'cancelled' || status === 'failed') && existingOrder.status !== 'cancelled' && existingOrder.status !== 'failed') {
@@ -2700,8 +2735,9 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/wallet/requests/:id/approve', (req, res) => {
+  app.post('/api/admin/wallet/requests/:id/approve', requireAdmin, (req, res) => {
     const { id } = req.params;
+    const adminId = (req as any).user?.id;
     const transaction = db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(id) as any;
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
     if (transaction.status !== 'pending') return res.status(400).json({ message: 'Transaction already processed' });
@@ -2709,18 +2745,31 @@ async function startServer() {
     db.transaction(() => {
       db.prepare('UPDATE wallet_transactions SET status = ? WHERE id = ?').run('approved', id);
       db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(transaction.amount, transaction.user_id);
+      
+      db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'WALLET_REQUEST_APPROVE', 'WALLET_TRANSACTION', id, `Approved wallet credit of ₹${transaction.amount} for user #${transaction.user_id}`);
+
       logEvent('info', `Wallet request #${id} approved for ₹${transaction.amount}`, 'Admin approval', transaction.user_id);
     })();
 
     res.json({ success: true });
   });
 
-  app.post('/api/admin/wallet/requests/:id/reject', (req, res) => {
+  app.post('/api/admin/wallet/requests/:id/reject', requireAdmin, (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
+    const adminId = (req as any).user?.id;
+
+    const transaction = db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(id) as any;
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+
     db.prepare("UPDATE wallet_transactions SET status = 'rejected', description = ? WHERE id = ?").run(
       `Rejected: ${reason || 'Invalid details'}`, id
     );
+
+    db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'WALLET_REQUEST_REJECT', 'WALLET_TRANSACTION', id, `Rejected wallet credit of ₹${transaction.amount} for user #${transaction.user_id}. Reason: ${reason}`);
+
     res.json({ success: true });
   });
 
@@ -2838,8 +2887,8 @@ async function startServer() {
   app.post('/api/orders', (req, res) => {
     const { user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, items, coupon_code } = req.body;
     
-    if (!user_id || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Invalid order data' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Invalid order data: No items provided' });
     }
 
     try {
@@ -2847,8 +2896,11 @@ async function startServer() {
         // Fetch current active bulk discounts
         const bulkDiscounts = db.prepare('SELECT * FROM bulk_discounts WHERE active = 1').all() as any[];
 
-        const order = db.prepare('INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, coupon_code, wallet_used) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-          user_id, 0, 0, 0, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, coupon_code, 0
+        const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+        const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
+
+        const order = db.prepare('INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, coupon_code, wallet_used, order_id, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+          user_id, 0, 0, 0, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, coupon_code, 0, orderIdStr, expiresAt
         );
         const orderId = order.lastInsertRowid;
 
@@ -2970,14 +3022,16 @@ async function startServer() {
           logSuspicious(user_id, 'LARGE_ORDER', `User placed a large order of ₹${finalTotal}`, req.ip);
         }
 
-        return { orderId, lowStockAlerts, finalTotal };
+        const orderDetails = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+        return { order: orderDetails, lowStockAlerts, finalTotal };
       })();
 
       broadcast({
         type: 'NEW_ORDER',
         payload: {
-          id: result.orderId,
-          total,
+          id: result.order.id,
+          order_id: result.order.order_id,
+          total: result.finalTotal,
           user_id,
           created_at: new Date().toISOString()
         }
@@ -2990,7 +3044,7 @@ async function startServer() {
         });
       }
 
-      res.json({ success: true, orderId: result.orderId });
+      res.json({ success: true, order: result.order });
     } catch (err: any) {
       // Create a "failed" order record so it shows in user history as requested
       try {
@@ -3302,6 +3356,213 @@ async function startServer() {
   // API 404 handler
   app.use('/api', (req, res) => {
     res.status(404).json({ success: false, message: `API route not found: ${req.method} ${req.path}` });
+  });
+
+  // --- Automated UPI Verification (Gmail API) ---
+  
+  const gmail = google.gmail('v1');
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET
+  );
+
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GMAIL_REFRESH_TOKEN
+  });
+
+  const pollGmailForPayments = async () => {
+    try {
+      console.log('[GMAIL] Polling for new transaction emails...');
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        q: `from:${process.env.TRUSTED_BANK_SENDER || 'alerts@hdfcbank.net'} after:${Math.floor(Date.now() / 1000) - 10800}`, // last 3 hours
+        auth: oauth2Client
+      });
+
+      if (!res.data.messages) {
+        return;
+      }
+
+      for (const msgInfo of res.data.messages) {
+        const messageId = msgInfo.id!;
+        const exists = db.prepare('SELECT id FROM emails_log WHERE message_id = ?').get(messageId);
+        if (exists) continue;
+
+        const msg = await gmail.users.messages.get({ userId: 'me', id: messageId, auth: oauth2Client });
+        const body = msg.data.snippet || '';
+        const timestamp = new Date(parseInt(msg.data.internalDate!));
+        
+        const amountMatch = body.match(/₹\s?([\d,]+\.?\d*)/);
+        const orderIdMatch = body.match(/ORD-\d+-[A-Z0-9]+/i);
+        
+        const extractedAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : null;
+        const extractedOrderId = orderIdMatch ? orderIdMatch[0].toUpperCase() : null;
+
+        let matchStatus = 'FAILED';
+        let matchReason = 'Transaction information not recognized.';
+        let matchedOrderId = null;
+
+        if (extractedAmount) {
+          if (extractedOrderId) {
+            const order = db.prepare('SELECT * FROM orders WHERE order_id = ? AND status = "pending"').get(extractedOrderId) as any;
+            if (order) {
+                const amountTolerance = Math.abs(order.total - extractedAmount) < 0.05;
+                const timeDiff = Math.abs(new Date(order.created_at).getTime() - timestamp.getTime()) / (1000 * 60);
+                
+                if (amountTolerance && timeDiff <= 180) {
+                    matchStatus = 'MATCHED';
+                    matchReason = 'Successfully verified via Gmail & Matching Order ID Note.';
+                    matchedOrderId = order.order_id;
+
+                    db.transaction(() => {
+                        db.prepare('UPDATE orders SET status = "paid", last_status_update = ?, system_payment_matched = 1 WHERE order_id = ?').run(new Date().toISOString(), extractedOrderId);
+                        db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(order.total, order.user_id);
+                        db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(order.user_id, order.total, 'credit', `Auto UPI Credit: ${extractedOrderId}`);
+                        db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (NULL, ?, ?, ?, ?)')
+                          .run('AUTO_PAYMENT_MATCH', 'ORDER', order.id, `Payment for ${extractedOrderId} (₹${extractedAmount}) auto-verified via Gmail.`);
+                    })();
+
+                    broadcast({ type: 'PAYMENT_VERIFIED', payload: { order_id: extractedOrderId, status: 'paid', amount: extractedAmount } });
+                } else {
+                    matchStatus = 'REVIEW_REQUIRED';
+                    matchReason = !amountTolerance ? `Amount mismatch: Expected ₹${order.total}, got ₹${extractedAmount}` : 'Verification window (3hrs) expired.';
+                }
+            } else {
+              matchStatus = 'REVIEW_REQUIRED';
+              matchReason = `Order ID ${extractedOrderId} found but order is not in 'pending' status.`;
+            }
+          } else {
+            // Amount found but NO Order ID in note
+            const potentialOrders = db.prepare('SELECT * FROM orders WHERE ABS(total - ?) < 0.05 AND status = "pending" AND created_at > ?')
+              .all(extractedAmount, new Date(Date.now() - 1000 * 60 * 180).toISOString()) as any[];
+            
+            if (potentialOrders.length === 1) {
+              matchStatus = 'REVIEW_REQUIRED';
+              matchReason = 'Amount matched one pending order, but Order ID was missing in UPI note. Manual check needed.';
+              matchedOrderId = potentialOrders[0].order_id;
+            } else if (potentialOrders.length > 1) {
+              matchStatus = 'REVIEW_REQUIRED';
+              matchReason = `Found ${potentialOrders.length} potential pending orders for ₹${extractedAmount} but no Order ID provided.`;
+            } else {
+              matchStatus = 'FAILED';
+              matchReason = `Received ₹${extractedAmount} but no matching pending orders found in the last 3 hours.`;
+            }
+          }
+        } else {
+          matchStatus = 'FAILED';
+          matchReason = 'No currency amount (₹) extracted from email body.';
+        }
+
+        db.prepare('INSERT INTO emails_log (message_id, sender, subject, body, extracted_amount, extracted_note, extracted_timestamp, match_status, match_reason, matched_order_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(messageId, process.env.TRUSTED_BANK_SENDER || 'alerts@hdfcbank.net', 'Bank Alert', body, extractedAmount, extractedOrderId, timestamp.toISOString(), matchStatus, matchReason, matchedOrderId);
+      }
+    } catch (err: any) {
+      console.error('[GMAIL] Error:', err.message);
+    }
+  };
+
+  if (process.env.GMAIL_REFRESH_TOKEN) {
+    setInterval(pollGmailForPayments, 45000);
+    pollGmailForPayments();
+  }
+
+  app.get('/api/admin/emails-log', requireAdmin, (req, res) => {
+    const logs = db.prepare('SELECT * FROM emails_log ORDER BY created_at DESC LIMIT 200').all();
+    res.json(logs);
+  });
+
+  app.get('/api/admin/audit-logs', requireAdmin, (req, res) => {
+    const logs = db.prepare(`
+      SELECT al.*, u.name as admin_name 
+      FROM audit_logs al 
+      LEFT JOIN users u ON al.admin_id = u.id 
+      ORDER BY al.created_at DESC 
+      LIMIT 500
+    `).all();
+    res.json(logs);
+  });
+
+  app.get('/api/admin/wallet-credits', requireAdmin, (req, res) => {
+    const credits = db.prepare(`
+      SELECT wt.*, u.name as user_name, u.phone as user_phone
+      FROM wallet_transactions wt
+      JOIN users u ON wt.user_id = u.id
+      WHERE wt.type = 'credit'
+      ORDER BY wt.created_at DESC
+      LIMIT 500
+    `).all();
+    res.json(credits);
+  });
+
+  app.post('/api/admin/payment-sync-now', requireAdmin, async (req, res) => {
+    const adminId = (req as any).user?.id;
+    try {
+      await pollGmailForPayments(); // Manually trigger the helper
+      
+      db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, details) VALUES (?, ?, ?, ?)')
+        .run(adminId, 'MANUAL_PAYMENT_SYNC', 'SYSTEM', 'Admin manually triggered Gmail payment sync.');
+        
+      res.json({ success: true, message: 'Sync triggered successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/payment-system-status', requireAdmin, (req, res) => {
+    const lastSync = db.prepare('SELECT created_at FROM emails_log ORDER BY created_at DESC LIMIT 1').get() as any;
+    res.json({ 
+      gmailConfigured: !!process.env.GMAIL_REFRESH_TOKEN, 
+      lastSync: lastSync?.created_at || 'Never',
+      bankSender: process.env.TRUSTED_BANK_SENDER || 'alerts@hdfcbank.net',
+      bankDomain: process.env.TRUSTED_BANK_DOMAIN || 'hdfcbank.net'
+    });
+  });
+
+  app.get('/api/orders/:id', (req, res) => {
+    const { id } = req.params;
+    const order = db.prepare('SELECT status, order_id FROM orders WHERE id = ? OR order_id = ?').get(id, id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    res.json(order);
+  });
+
+  // --- Background Tasks ---
+  const expireOrders = () => {
+    try {
+      const now = new Date().toISOString();
+      const expiredCount = db.prepare('UPDATE orders SET status = "EXPIRED", last_status_update = ? WHERE status = "pending" AND expires_at < ?').run(now, now).changes;
+      if (expiredCount > 0) {
+        console.log(`[TASKS] Expired ${expiredCount} pending orders.`);
+      }
+    } catch (err) {
+      console.error('[TASKS] Expire orders error:', err);
+    }
+  };
+
+  setInterval(expireOrders, 60000 * 5); // Check every 5 minutes
+  expireOrders();
+
+  app.post('/api/admin/orders/:id/manual-approve', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const adminId = (req as any).user?.id;
+
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as any;
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    
+    try {
+      db.transaction(() => {
+          db.prepare('UPDATE orders SET status = "paid", last_status_update = ?, admin_notes = ? WHERE id = ?').run(new Date().toISOString(), notes || 'Approved manually by admin', id);
+          db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(order.total, order.user_id);
+          db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(order.user_id, order.total, 'credit', `Manual Credit (Admin): ORD-${order.id}`);
+          
+          // Log administrative action
+          db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+            .run(adminId, 'MANUAL_PAYMENT_APPROVAL', 'ORDER', id, `Manually marked order ${order.order_id} as PAID. Notes: ${notes}`);
+      })();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
   });
 
   // Vite middleware for development

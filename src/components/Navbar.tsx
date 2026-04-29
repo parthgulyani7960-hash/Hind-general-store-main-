@@ -107,15 +107,21 @@ export default function Navbar() {
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">H</span>
+          <Link to="/" className="flex items-center space-x-3 group">
+            <div className="relative">
+              <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center transform group-hover:rotate-6 transition-transform shadow-lg shadow-primary/20 overflow-hidden">
+                <span className="text-white font-black text-2xl relative z-10">H</span>
+                <div className="absolute inset-0 bg-white/10 group-hover:translate-x-full transition-transform duration-500" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white shadow-sm" />
             </div>
             <div className="flex flex-col">
-              <span className="text-xl font-bold text-primary hidden sm:block leading-none">Hind General Store</span>
-              <div className="flex items-center space-x-1 text-[10px] text-stone-400 font-bold uppercase tracking-wider hidden sm:flex mt-1">
-                <Clock size={10} />
-                <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="text-2xl font-black text-stone-900 hidden sm:block leading-none tracking-tight group-hover:text-primary transition-colors">
+                Hind<span className="text-primary">.</span>
+              </span>
+              <div className="flex items-center space-x-1 text-[9px] text-stone-400 font-black uppercase tracking-[0.2em] hidden sm:flex mt-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Live Status</span>
               </div>
             </div>
           </Link>

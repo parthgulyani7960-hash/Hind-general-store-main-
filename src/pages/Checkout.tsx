@@ -4,15 +4,16 @@ import {
   ShoppingBag, MapPin, CreditCard, CheckCircle2, 
   ArrowRight, ArrowLeft, Truck, ShieldCheck, 
   Wallet, Camera, X, AlertCircle, Download, Clock,
-  Plus, Minus
+  Plus, Minus, RefreshCcw, Loader2, Copy
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn, calculateBulkDiscount } from '../lib/utils';
 import { QRCodeCanvas } from 'qrcode.react';
+import InfoButton from '../components/InfoButton';
 
-type Step = 'address' | 'payment' | 'confirmation';
+type Step = 'address' | 'payment_method' | 'awaiting_payment' | 'confirmation';
 
 export default function Checkout() {
   const { 
@@ -25,11 +26,24 @@ export default function Checkout() {
   const [step, setStep] = useState<Step>('address');
   const [isProcessing, setIsProcessing] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
-  const [showSavedAddresses, setShowSavedAddresses] = useState(false);
+  
+  // Pending Order Details (after creation)
+  const [pendingOrder, setPendingOrder] = useState<any>(null);
+
+  const downloadQR = () => {
+    const canvas = qrRef.current?.querySelector('canvas');
+    if (canvas) {
+      const url = canvas.toDataURL("image/png");
+      const link = document.createElement('a');
+      link.download = `HindStore_Order_${pendingOrder.order_id}.png`;
+      link.href = url;
+      link.click();
+      toast.success('QR Code saved to gallery!');
+    }
+  };
 
   const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
   const upiName = config.find(c => c.key === 'upi_name')?.value || 'Hind General Store';
-  const upiQr = config.find(c => c.key === 'upi_qr')?.value;
   
   // Address State
   const [useCustomAddress, setUseCustomAddress] = useState(false);
@@ -49,7 +63,6 @@ export default function Checkout() {
   useEffect(() => {
     if (addresses && addresses.length > 0) {
       const defaultAddr = addresses.find(a => a.is_default) || addresses[0];
-      // Only auto-select if we haven't manually chosen to use custom or selected something else
       if (!useCustomAddress && !selectedAddressId) {
         setSelectedAddressId(defaultAddr.id);
         setAddressData({
@@ -69,8 +82,9 @@ export default function Checkout() {
   }, [addresses]);
   
   const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
-  const [dynamicDeliveryFee, setDynamicDeliveryFee] = useState(40);
   
+  const isLoggedIn = !!user;
+
   useEffect(() => {
     fetch('/api/delivery-areas')
       .then(res => res.json())
@@ -93,23 +107,16 @@ export default function Checkout() {
       return;
     }
     
-    // Check minimum order for zone
     if (selectedArea && subtotal < selectedArea.min_order) {
         toast.error(`Minimum order amount for ${selectedArea.name} is ₹${selectedArea.min_order}. Add more items to your cart.`);
         return;
     }
     
-    setStep('payment');
+    setStep('payment_method');
   };
 
-  // Payment State
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'wallet' | 'upi'>('cod');
-  const [screenshot, setScreenshot] = useState<string | null>(null);
-  const [utr, setUtr] = useState('');
-  const [paymentRef] = useState(`HGS-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`);
-
+  // Calculation logic
   const cartWithDiscounts = cart.map(item => {
-    // The 'price' field in the cart item is already adjusted for the user role in StoreContext
     const basePrice = item.price;
     const bulkDiscountAmount = calculateBulkDiscount(item, item.quantity, bulkDiscounts);
     return {
@@ -138,42 +145,18 @@ export default function Checkout() {
   const total = subtotal - couponDiscount + deliveryFee;
 
   useEffect(() => {
-    if (cart.length === 0 && step !== 'confirmation') {
+    if (cart.length === 0 && !['confirmation', 'awaiting_payment'].includes(step)) {
       navigate('/cart');
     }
   }, [cart, navigate, step]);
 
-  const handleScreenshotUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setScreenshot(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const downloadQR = () => {
-    const canvas = qrRef.current?.querySelector('canvas');
-    if (canvas) {
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `payment-qr-${total}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  };
-
-  const placeOrder = async () => {
-    if (!user) {
-      toast.error('Please login to place an order');
+  const placeOrder = async (method: 'cod' | 'wallet' | 'upi') => {
+    if (!isLoggedIn && method !== 'cod') {
+      toast.error('Please login to use this payment method');
       navigate('/login');
       return;
     }
-    
+
     if (cart.length === 0) {
       toast.error('Your cart is empty');
       navigate('/cart');
@@ -185,20 +168,9 @@ export default function Checkout() {
       return;
     }
 
-    if (paymentMethod === 'wallet' && user.wallet_balance < total) {
+    if (method === 'wallet' && user.wallet_balance < total) {
       toast.error('Insufficient wallet balance');
       return;
-    }
-
-    if (paymentMethod === 'upi') {
-      if (!screenshot) {
-        toast.error('Please upload payment screenshot');
-        return;
-      }
-      if (!utr || utr.length < 8) {
-        toast.error('Please enter a valid Transaction ID / UTR');
-        return;
-      }
     }
 
     setIsProcessing(true);
@@ -207,7 +179,7 @@ export default function Checkout() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: user.id,
+          user_id: user?.id || null,
           items: cartWithDiscounts.map(item => ({
             id: item.id,
             quantity: item.quantity,
@@ -220,30 +192,28 @@ export default function Checkout() {
           bulk_discount: totalBulkDiscount,
           coupon_discount: couponDiscount,
           delivery_fee: deliveryFee,
-          payment_method: paymentMethod,
-          payment_screenshot: screenshot,
-          payment_utr: utr,
-          payment_ref: paymentRef,
+          payment_method: method,
           address: JSON.stringify(addressData), 
           coupon_code: appliedCoupon?.code
         })
       });
 
-      let data;
-      try {
-        data = await res.json();
-      } catch (e) {
-        throw new Error('Server returned an invalid response.');
-      }
+      const data = await res.json();
 
       if (!res.ok) {
         throw new Error(data.message || 'Failed to place order.');
       }
 
-      toast.success('Order placed successfully!');
-      clearCart();
-      fetchUser(); 
-      setStep('confirmation');
+      setPendingOrder(data.order);
+
+      if (method === 'upi') {
+        setStep('awaiting_payment');
+      } else {
+        toast.success('Order placed successfully!');
+        clearCart();
+        fetchUser(); 
+        setStep('confirmation');
+      }
 
     } catch (err: any) {
       toast.error(err.message || 'Failed to place order');
@@ -252,6 +222,33 @@ export default function Checkout() {
     }
   };
 
+  // Poll for payment status if step is awaiting_payment
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (step === 'awaiting_payment' && pendingOrder) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/orders/${pendingOrder.id}`);
+          const data = await res.json();
+          if (data.status === 'paid' || data.status === 'PAID') {
+            toast.success('Payment received successfully! ✅');
+            clearCart();
+            fetchUser();
+            setStep('confirmation');
+          } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+            toast.error('Payment verification failed or expired.');
+            setStep('payment_method');
+          }
+        } catch (err) {
+          console.error('Polling error:', err);
+        }
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [step, pendingOrder]);
+
+  // Removed early return for guest checkout
+
   return (
     <div className="min-h-screen bg-stone-50 py-12">
       <div className="max-w-5xl mx-auto px-4">
@@ -259,17 +256,17 @@ export default function Checkout() {
         <div className="flex items-center justify-center mb-12">
           {[
             { id: 'address', label: 'Address', icon: MapPin },
-            { id: 'payment', label: 'Payment', icon: CreditCard },
+            { id: 'payment_method', label: 'Payment', icon: CreditCard },
             { id: 'confirmation', label: 'Done', icon: CheckCircle2 },
           ].map((s, i) => (
             <div key={s.id} className="flex items-center">
               <div className={cn(
                 "flex flex-col items-center space-y-2",
-                step === s.id ? "text-primary" : "text-stone-400"
+                (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "text-primary" : "text-stone-400"
               )}>
                 <div className={cn(
                   "w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all",
-                  step === s.id ? "bg-primary text-white border-primary" : "bg-white border-stone-200"
+                  (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "bg-primary text-white border-primary" : "bg-white border-stone-200"
                 )}>
                   <s.icon size={20} />
                 </div>
@@ -278,7 +275,7 @@ export default function Checkout() {
               {i < 2 && (
                 <div className={cn(
                   "w-20 h-0.5 mx-4 rounded-full",
-                  i === 0 && (step === 'payment' || step === 'confirmation') ? "bg-primary" : "bg-stone-200"
+                  i === 0 && (['payment_method', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200"
                 )} />
               )}
             </div>
@@ -286,7 +283,6 @@ export default function Checkout() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Main Content */}
           <div className="lg:col-span-2">
             <AnimatePresence mode="wait">
               {step === 'address' && (
@@ -298,7 +294,10 @@ export default function Checkout() {
                   className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6"
                 >
                   <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold">Shipping Address</h2>
+                    <h2 className="text-2xl font-bold flex items-center gap-2">
+                       Shipping Address
+                       <InfoButton title="Shipping" message="Ensure your delivery address is accurate for timely delivery." />
+                    </h2>
                     {addresses.length > 0 && (
                       <button 
                         onClick={() => setUseCustomAddress(!useCustomAddress)}
@@ -354,67 +353,66 @@ export default function Checkout() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Full Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={addressData.name}
-                        onChange={(e) => setAddressData({...addressData, name: e.target.value})}
-                      />
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Full Name</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          value={addressData.name}
+                          onChange={(e) => setAddressData({...addressData, name: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Phone Number</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          value={addressData.phone}
+                          onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
+                        />
+                      </div>
+                      <div className="md:col-span-2 space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Street Address</label>
+                        <textarea 
+                          className="input-field min-h-[100px]" 
+                          value={addressData.address}
+                          onChange={(e) => setAddressData({...addressData, address: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">City</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          value={addressData.city}
+                          onChange={(e) => setAddressData({...addressData, city: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Pin Code</label>
+                        <input 
+                          type="text" 
+                          className="input-field" 
+                          value={addressData.pin_code}
+                          onChange={(e) => setAddressData({...addressData, pin_code: e.target.value})}
+                        />
+                      </div>
+                      <div className="md:col-span-2 space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Delivery Zone</label>
+                        <select 
+                          className="input-field" 
+                          value={addressData.delivery_area}
+                          onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
+                        >
+                          <option value="">Select your delivery zone...</option>
+                          {deliveryAreas.map(area => (
+                            <option key={area.id} value={area.name}>
+                               {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Phone Number</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={addressData.phone}
-                        onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
-                      />
-                    </div>
-                    <div className="md:col-span-2 space-y-2">
-                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Street Address</label>
-                      <textarea 
-                        className="input-field min-h-[100px]" 
-                        value={addressData.address}
-                        onChange={(e) => setAddressData({...addressData, address: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">City</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={addressData.city}
-                        onChange={(e) => setAddressData({...addressData, city: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Pin Code</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={addressData.pin_code}
-                        onChange={(e) => setAddressData({...addressData, pin_code: e.target.value})}
-                      />
-                    </div>
-                    <div className="md:col-span-2 space-y-2">
-                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Delivery Zone</label>
-                      <select 
-                        className="input-field" 
-                        value={addressData.delivery_area}
-                        onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
-                      >
-                        <option value="">Select your delivery zone...</option>
-                        {deliveryAreas.map(area => (
-                          <option key={area.id} value={area.name}>
-                             {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[10px] text-stone-400">Selecting a zone will calculate any applicable delivery fees or minimum order requirements.</p>
-                    </div>
-                  </div>
                   )}
                   
                   <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
@@ -439,184 +437,153 @@ export default function Checkout() {
                 </motion.div>
               )}
 
-              {step === 'payment' && (
+              {step === 'payment_method' && (
                 <motion.div 
-                  key="payment"
+                  key="payment_method"
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   className="space-y-6"
                 >
                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-                    <h2 className="text-2xl font-bold">Payment Method</h2>
+                    <h2 className="text-2xl font-bold">Select Payment Method</h2>
                     
-                    <div className="space-y-4">
-                      {/* Wallet Option */}
-                      <button 
-                        onClick={() => setPaymentMethod('wallet')}
-                        className={cn(
-                          "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
-                          paymentMethod === 'wallet' ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
-                        )}
-                      >
-                        <div className="flex items-center space-x-4">
-                          <div className={cn("p-3 rounded-xl", paymentMethod === 'wallet' ? "bg-primary text-white" : "bg-stone-100 text-stone-400")}>
-                            <Wallet size={24} />
-                          </div>
-                          <div className="text-left">
-                            <p className="font-bold">Pay via Wallet</p>
-                            <p className="text-xs text-stone-500">Current Balance: ₹{user.wallet_balance}</p>
-                          </div>
-                        </div>
-                        {paymentMethod === 'wallet' && <CheckCircle2 className="text-primary" />}
-                      </button>
-
-                      {/* UPI Option */}
-                      <div className={cn(
-                        "rounded-2xl border-2 transition-all overflow-hidden",
-                        paymentMethod === 'upi' ? "border-primary" : "border-stone-100 hover:border-stone-200"
-                      )}>
+                    <div className="grid grid-cols-1 gap-4">
+                      {/* UPI QR - Recommended */}
+                      <div className="relative group">
                         <button 
-                          onClick={() => setPaymentMethod('upi')}
+                          onClick={() => isLoggedIn && placeOrder('upi')}
+                          disabled={isProcessing || !isLoggedIn}
                           className={cn(
-                            "w-full p-6 flex items-center justify-between",
-                            paymentMethod === 'upi' ? "bg-primary/5" : ""
+                            "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
+                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5"
                           )}
                         >
                           <div className="flex items-center space-x-4">
-                            <div className={cn("p-3 rounded-xl", paymentMethod === 'upi' ? "bg-primary text-white" : "bg-stone-100 text-stone-400")}>
+                            <div className={cn(
+                              "p-3 rounded-xl transition-colors",
+                              !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-primary group-hover:text-white"
+                            )}>
                               <CreditCard size={24} />
                             </div>
                             <div className="text-left">
-                              <p className="font-bold">Online Payment (UPI)</p>
-                              <p className="text-xs text-stone-500">Scan QR and upload screenshot</p>
+                              <p className="font-bold">UPI QR Automation</p>
+                              <p className="text-xs text-stone-500">Fast auto-verification via UPI Note</p>
                             </div>
                           </div>
-                          {paymentMethod === 'upi' && <CheckCircle2 className="text-primary" />}
+                          <ArrowRight size={18} className="text-stone-300 group-hover:text-primary" />
                         </button>
-                        
-                        {paymentMethod === 'upi' && (
-                          <motion.div 
-                            initial={{ height: 0 }}
-                            animate={{ height: 'auto' }}
-                            className="p-6 bg-stone-50 border-t border-stone-100 space-y-6"
-                          >
-                            <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-8">
-                              <div ref={qrRef} className="bg-white p-4 rounded-2xl shadow-sm border border-stone-200 flex flex-col items-center">
-                                <QRCodeCanvas 
-                                  value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tr=${paymentRef}`}
-                                  size={150}
-                                  level="H"
-                                  includeMargin={true}
-                                />
-                                <p className="text-[10px] font-bold text-stone-600 mt-3">Pay Amount: ₹{total}</p>
-                                <button 
-                                  onClick={downloadQR}
-                                  className="mt-3 flex items-center space-x-1 text-xs font-bold text-primary hover:text-primary/80 transition-colors"
-                                >
-                                  <Download size={12} />
-                                  <span>Download QR</span>
-                                </button>
-                              </div>
-                              <div className="flex-1 space-y-4 w-full">
-                                <div className="space-y-4">
-                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Upload Payment Screenshot</label>
-                                  <div className="relative">
-                                    <input 
-                                      type="file" 
-                                      accept="image/*"
-                                      onChange={handleScreenshotUpload}
-                                      className="hidden" 
-                                      id="payment-screenshot"
-                                    />
-                                    {screenshot ? (
-                                      <div className="relative w-full h-40 rounded-xl overflow-hidden border border-stone-200">
-                                        <img src={screenshot} alt="Screenshot preview" className="w-full h-full object-cover" />
-                                        <button
-                                          type="button"
-                                          onClick={() => setScreenshot(null)}
-                                          className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                                        >
-                                          <X size={14} />
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <label 
-                                        htmlFor="payment-screenshot"
-                                        className="flex flex-col items-center justify-center space-y-2 w-full py-8 border-2 border-dashed border-stone-200 rounded-xl cursor-pointer hover:border-primary transition-all bg-white"
-                                      >
-                                        <Camera size={24} className="text-stone-400" />
-                                        <span className="text-sm font-bold text-stone-500">Click to upload screenshot</span>
-                                      </label>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="text-xs font-bold text-stone-600 uppercase tracking-wider">Transaction ID (UTR)</label>
-                                  <input 
-                                    type="text" 
-                                    placeholder="Enter your 12-digit UPI Transaction ID"
-                                    className="input-field bg-white border-primary focus:ring-primary"
-                                    value={utr}
-                                    onChange={(e) => setUtr(e.target.value)}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </motion.div>
+                        {!isLoggedIn && (
+                          <div className="mt-2 flex items-center justify-between px-2">
+                            <p className="text-[10px] text-stone-500 font-medium italic">* Login required for UPI automated payments.</p>
+                            <button 
+                              onClick={() => navigate('/login')}
+                              className="text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
+                            >
+                              Login with Google
+                            </button>
+                          </div>
                         )}
                       </div>
 
-                      {/* Khata Option (B2B Credit) */}
-                      {user.khata_enabled && (
+                      {/* Wallet */}
+                      <div className="relative group">
                         <button 
-                          onClick={() => setPaymentMethod('khata' as any)}
+                          onClick={() => isLoggedIn && placeOrder('wallet')}
+                          disabled={isProcessing || !isLoggedIn || (user?.wallet_balance || 0) < total}
                           className={cn(
-                            "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
-                            paymentMethod === 'khata' ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                            "w-full p-6 rounded-3xl border-2 transition-all flex items-center justify-between",
+                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5",
+                            isLoggedIn && (user?.wallet_balance || 0) < total && "opacity-50 cursor-not-allowed"
                           )}
                         >
                           <div className="flex items-center space-x-4">
-                            <div className={cn("p-3 rounded-xl", paymentMethod === 'khata' ? "bg-primary text-white" : "bg-stone-100 text-stone-400")}>
-                              <Clock size={24} />
+                            <div className={cn(
+                              "p-4 rounded-2xl transition-colors",
+                              !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-primary group-hover:text-white"
+                            )}>
+                              <Wallet size={24} />
                             </div>
                             <div className="text-left">
-                              <p className="font-bold">Khata (Credit Line)</p>
-                              <p className="text-xs text-stone-500">Buy now, pay later within {user.khata_limit || 0} limit</p>
-                              <div className="mt-1 w-full bg-stone-200 h-1 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-primary" 
-                                  style={{ width: `${Math.min(100, ((user.khata_balance || 0) / (user.credit_limit || 10000)) * 100)}%` }} 
-                                />
-                              </div>
+                              <p className="font-bold text-stone-900">Store Wallet</p>
+                              {isLoggedIn ? (
+                                <div className="mt-1 flex items-center">
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded-full text-[10px] font-black uppercase border",
+                                    (user?.wallet_balance || 0) < total ? "bg-red-50 text-red-600 border-red-100" : "bg-emerald-50 text-emerald-600 border-emerald-100"
+                                  )}>
+                                    Balance: ₹{user?.wallet_balance || 0}
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-stone-500">Login to access your wallet</p>
+                              )}
                             </div>
                           </div>
-                          {paymentMethod === 'khata' && <CheckCircle2 className="text-primary" />}
+                          {isProcessing ? <Loader2 size={18} className="animate-spin text-primary" /> : <ArrowRight size={18} className="text-stone-300 group-hover:text-primary" />}
                         </button>
+                      </div>
+
+                      {/* Khata */}
+                      {(!isLoggedIn || user?.khata_enabled) && (
+                        <div className="relative group">
+                          <button 
+                            onClick={() => isLoggedIn && placeOrder('khata' as any)}
+                            disabled={isProcessing || !isLoggedIn || (user?.khata_balance || 0) + total > (user?.credit_limit || 0)}
+                            className={cn(
+                              "w-full p-6 rounded-3xl border-2 transition-all flex items-center justify-between",
+                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-blue-500 hover:bg-blue-50/50",
+                              isLoggedIn && (user?.khata_balance || 0) + total > (user?.credit_limit || 0) && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <div className="flex items-center space-x-4">
+                              <div className={cn(
+                                "p-4 rounded-2xl transition-colors",
+                                !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-blue-500 group-hover:text-white"
+                              )}>
+                                <Clock size={24} />
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold text-stone-900">Khata (Credit Line)</p>
+                                {isLoggedIn ? (
+                                  <div className="mt-1 flex flex-wrap gap-2">
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
+                                      Limit: ₹{user?.credit_limit || 0}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-stone-50 text-stone-500 border border-stone-200">
+                                      Used: ₹{user?.khata_balance || 0}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-stone-500">Login to view credit limit</p>
+                                )}
+                              </div>
+                            </div>
+                            <ArrowRight size={18} className={cn("text-stone-300", isLoggedIn && "group-hover:text-blue-500")} />
+                          </button>
+                        </div>
                       )}
 
-                      {/* COD Option */}
+                      {/* COD */}
                       <button 
-                        onClick={() => setPaymentMethod('cod')}
-                        className={cn(
-                          "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
-                          paymentMethod === 'cod' ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
-                        )}
+                        onClick={() => placeOrder('cod')}
+                        disabled={isProcessing}
+                        className="w-full p-6 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group"
                       >
                         <div className="flex items-center space-x-4">
-                          <div className={cn("p-3 rounded-xl", paymentMethod === 'cod' ? "bg-primary text-white" : "bg-stone-100 text-stone-400")}>
+                          <div className="p-3 rounded-xl bg-stone-100 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
                             <Truck size={24} />
                           </div>
                           <div className="text-left">
                             <p className="font-bold">Cash on Delivery</p>
-                            <p className="text-xs text-stone-500">Pay when you receive your order</p>
+                            <p className="text-xs text-stone-500">Pay at your doorstep</p>
                           </div>
                         </div>
-                        {paymentMethod === 'cod' && <CheckCircle2 className="text-primary" />}
+                        <ArrowRight size={18} className="text-stone-300 group-hover:text-emerald-500" />
                       </button>
                     </div>
-                    
-                    <div className="flex items-center space-x-2 mt-4">
+
+                    <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
                       <input 
                         type="checkbox" 
                         id="terms" 
@@ -630,21 +597,156 @@ export default function Checkout() {
                     </div>
                   </div>
 
-                  <div className="flex space-x-4">
+                  <button 
+                    onClick={() => setStep('address')}
+                    className="w-full py-4 border border-stone-200 rounded-2xl font-bold text-stone-500 hover:bg-stone-100 flex items-center justify-center space-x-2"
+                  >
+                    <ArrowLeft size={18} />
+                    <span>Back to Address</span>
+                  </button>
+                </motion.div>
+              )}
+
+              {step === 'awaiting_payment' && pendingOrder && (
+                <motion.div 
+                  key="awaiting_payment"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-8 text-center"
+                >
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-bold">Complete Your Payment</h2>
+                    <p className="text-stone-500 text-sm">Scan the QR code below using any UPI app (PhonePe, GPay, Paytm, etc.)</p>
+                  </div>
+
+                  <div className="flex flex-col items-center space-y-6">
+                    <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-stone-100 relative group max-w-md w-full overflow-hidden">
+                      {/* Decorative Background Elements */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl" />
+                      <div className="absolute bottom-0 left-0 w-32 h-32 bg-emerald-500/5 rounded-full -ml-16 -mb-16 blur-3xl" />
+                      
+                      <div className="relative z-10 flex flex-col items-center">
+                        <div className="flex items-center space-x-3 mb-8">
+                          <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-lg transform rotate-6 border-4 border-white">
+                            <span className="text-white font-black text-xl">H</span>
+                          </div>
+                          <div className="text-left">
+                            <p className="text-sm font-black text-stone-900 leading-tight">Hind General Store</p>
+                            <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Official Payment QR</p>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-center mb-8" ref={qrRef}>
+                          <div className="relative p-6 bg-white rounded-[2.5rem] shadow-sm border border-stone-100 ring-12 ring-stone-50">
+                            <QRCodeCanvas 
+                              value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tn=${pendingOrder.order_id}`}
+                              size={220}
+                              level="H"
+                              includeMargin={false}
+                              fgColor="#1c1917"
+                              eyeRadius={[
+                                { outer: [20, 20, 4, 20], inner: [8, 8, 2, 8] },
+                                { outer: [20, 20, 20, 4], inner: [8, 8, 8, 2] },
+                                { outer: [20, 4, 20, 20], inner: [8, 2, 8, 8] },
+                              ]}
+                              imageSettings={{
+                                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='14' fill='%23ea580c'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-family='Inter, sans-serif' font-weight='900' font-size='24'%3EH%3C/text%3E%3C/svg%3E",
+                                height: 50,
+                                width: 50,
+                                excavate: true,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="w-full space-y-6">
+                          <div className="text-center">
+                            <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.3em] mb-2">Total Amount</p>
+                            <p className="text-5xl font-black text-stone-900 tracking-tight">₹{total}</p>
+                            
+                            <div className="mt-4 inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 shadow-sm shadow-emerald-500/5">
+                               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                               <span className="text-[10px] font-black uppercase tracking-widest">Securing Payment...</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-6 border-t border-dashed border-stone-200">
+                             <div className="bg-primary/5 p-5 rounded-3xl border-2 border-primary/10 text-center relative group/token">
+                                <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-1">Transaction Note (Embedded)</p>
+                                <p className="text-xl font-black text-primary tracking-widest">{pendingOrder.order_id}</p>
+                                <p className="text-[8px] text-primary/60 font-bold mt-1 uppercase tracking-tighter">Automatic matching verification active</p>
+                             </div>
+                             
+                             <div className="mt-4 flex justify-center">
+                                <button 
+                                  onClick={downloadQR}
+                                  className="flex items-center gap-2 px-6 py-2.5 bg-stone-900 text-white rounded-2xl hover:bg-stone-800 transition-all font-black text-[10px] uppercase tracking-[0.1em] shadow-lg shadow-stone-900/20"
+                                >
+                                  <Download size={14} className="text-primary" />
+                                  <span>Download QR Card</span>
+                                </button>
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="w-full space-y-4 max-w-sm">
+                      {/* Step by Step Instructions */}
+                      <div className="space-y-3 text-xs font-medium text-stone-600 bg-white p-5 rounded-3xl border border-stone-100 shadow-sm">
+                        <p className="font-black text-stone-900 mb-3 flex items-center gap-2">
+                          <CheckCircle2 size={16} className="text-primary" />
+                          Steps for Auto-Verification
+                        </p>
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 border border-stone-200">1</span>
+                            <p>Scan the QR or use the button below to pay.</p>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 border border-stone-200">2</span>
+                            <p>In your UPI app, locate the <span className="font-bold text-stone-900 border-b-2 border-primary/20">Note / Add Message</span> field.</p>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 shadow-sm">3</span>
+                            <p>Paste your Order ID: <span className="font-black text-primary">{pendingOrder.order_id}</span></p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Mobile Deep Link Button */}
+                      <div className="block md:hidden">
+                        <a 
+                          href={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tn=${pendingOrder.order_id}`}
+                          className="w-full btn-primary py-4 rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-primary/20"
+                        >
+                          <CreditCard size={20} />
+                          <span className="font-bold">Pay with UPI App</span>
+                        </a>
+                        <p className="text-[10px] text-stone-400 text-center mt-2">Opens GPay, PhonePe, Paytm, etc.</p>
+                      </div>
+
+                      <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-amber-800 text-xs text-left flex gap-3">
+                        <AlertCircle className="shrink-0" size={18} />
+                        <div>
+                          <p><strong>Crucial:</strong> Do not change the <strong>Note/Remark</strong>. Our system uses the Order ID <strong>{pendingOrder.order_id}</strong> for auto-verification.</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col items-center space-y-3">
+                        <div className="flex items-center space-x-3 text-primary">
+                          <RefreshCcw className="animate-spin" size={18} />
+                          <span className="font-bold animate-pulse">Waiting for payment confirmation...</span>
+                        </div>
+                        <p className="text-[10px] text-stone-400">Payment detection usually takes 30-60 seconds after successful transaction.</p>
+                      </div>
+                    </div>
+
                     <button 
-                      onClick={() => setStep('address')}
-                      className="flex-1 py-4 border border-stone-200 rounded-2xl font-bold text-stone-500 hover:bg-stone-100 flex items-center justify-center space-x-2"
+                      onClick={() => setStep('payment_method')}
+                      className="text-xs font-bold text-stone-400 hover:text-stone-600 transition-colors"
                     >
-                      <ArrowLeft size={18} />
-                      <span>Back to Address</span>
-                    </button>
-                    <button 
-                      onClick={placeOrder}
-                      disabled={isProcessing}
-                      className="flex-[2] btn-primary py-4 flex items-center justify-center space-x-2 shadow-xl shadow-primary/20"
-                    >
-                      <span>{isProcessing ? 'Processing...' : `Pay ₹${total}`}</span>
-                      {!isProcessing && <ArrowRight size={18} />}
+                      Cancel and choose different method
                     </button>
                   </div>
                 </motion.div>
@@ -668,8 +770,12 @@ export default function Checkout() {
                     <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">Order Details</p>
                     <div className="space-y-2">
                       <div className="flex justify-between space-x-12">
+                        <span className="text-sm text-stone-500">Order ID</span>
+                        <span className="text-sm font-bold uppercase">{pendingOrder?.order_id || '#HGS-PENDING'}</span>
+                      </div>
+                      <div className="flex justify-between space-x-12">
                         <span className="text-sm text-stone-500">Payment Status</span>
-                        <span className="text-sm font-bold text-emerald-600 uppercase">Success</span>
+                        <span className="text-sm font-bold text-emerald-600 uppercase">Paid</span>
                       </div>
                       <div className="flex justify-between space-x-12">
                         <span className="text-sm text-stone-500">Delivery Method</span>
@@ -706,102 +812,65 @@ export default function Checkout() {
               <h3 className="text-xl font-bold">Order Summary</h3>
               
               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                <AnimatePresence mode="popLayout">
-                  {cartWithDiscounts.map((item) => (
-                    <motion.div 
-                      key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
-                      layout
-                      initial={{ opacity: 0, x: -10, scale: 0.95 }}
-                      animate={{ opacity: 1, x: 0, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9, filter: "blur(4px)" }}
-                      className="flex items-center space-x-4 border-b border-stone-50 pb-4 last:border-0 last:pb-0"
-                    >
-                      <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100 shrink-0">
-                        <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold line-clamp-1">{item.name}</p>
-                        <div className="flex items-center space-x-2 mt-1">
-                          <div className="flex items-center space-x-1.5 bg-stone-50 rounded border border-stone-200">
-                            <motion.button 
-                              whileTap={{ scale: 0.8 }}
-                              onClick={() => updateQuantity(item.id, -1, item.selectedVariant?.id)} 
-                              className="p-1 hover:bg-white text-stone-500 hover:text-primary rounded transition-colors"
-                            >
-                              <Minus size={10} strokeWidth={3} />
-                            </motion.button>
-                            <span className="font-bold text-[10px] w-3 text-center leading-none">{item.quantity}</span>
-                            <motion.button 
-                              whileTap={{ scale: 0.8 }}
-                              onClick={() => updateQuantity(item.id, 1, item.selectedVariant?.id)} 
-                              className="p-1 hover:bg-white text-stone-500 hover:text-primary rounded transition-colors"
-                            >
-                              <Plus size={10} strokeWidth={3} />
-                            </motion.button>
-                          </div>
-                        </div>
-                        {item.bulkDiscountAmount > 0 && (
-                          <p className="text-[8px] text-emerald-600 font-bold uppercase mt-1">Bulk Discount Applied</p>
-                        )}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-xs font-bold">₹{item.finalPrice * item.quantity}</p>
-                        {item.bulkDiscountAmount > 0 && (
-                          <p className="text-[8px] text-emerald-600 font-medium">Saved ₹{item.bulkDiscountAmount * item.quantity}</p>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                {cartWithDiscounts.map((item) => (
+                  <div 
+                    key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
+                    className="flex items-center space-x-4 border-b border-stone-50 pb-4 last:border-0 last:pb-0"
+                  >
+                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100 shrink-0">
+                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold line-clamp-1">{item.name}</p>
+                      <p className="text-xs text-stone-500 mt-0.5">Qty: {item.quantity}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-black">₹{item.finalPrice * item.quantity}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               <div className="space-y-3 pt-6 border-t border-stone-100">
-                <div className="flex justify-between text-sm text-stone-500">
-                  <span>Items Subtotal</span>
-                  <span>₹{subtotal + totalBulkDiscount}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-stone-500">Subtotal</span>
+                  <span className="font-bold text-stone-800">₹{subtotal}</span>
                 </div>
-                {totalBulkDiscount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-600">
-                    <span>Bulk Savings</span>
-                    <span>-₹{totalBulkDiscount}</span>
-                  </div>
-                )}
                 {couponDiscount > 0 && (
                   <div className="flex justify-between text-sm text-emerald-600">
                     <span>Coupon Discount</span>
-                    <span>-₹{couponDiscount}</span>
+                    <span className="font-black">-₹{couponDiscount}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm text-stone-500">
-                  <span>Delivery Fee</span>
-                  <span>{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}</span>
+                {totalBulkDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-600">
+                    <span>Bulk Discount</span>
+                    <span className="font-black">-₹{totalBulkDiscount}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-stone-500">Delivery Fee</span>
+                  <span className="font-bold text-stone-800">{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}</span>
                 </div>
-                <div className="pt-4 border-t border-stone-100 flex justify-between font-black text-xl">
-                  <span>Total</span>
-                  <span>₹{total}</span>
-                </div>
-              </div>
-
-              <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex items-start space-x-3">
-                <ShieldCheck size={20} className="text-emerald-600 mt-0.5" />
-                <div>
-                  <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest">Secure Checkout</p>
-                  <p className="text-[10px] text-emerald-600">Your data is protected by industry-standard encryption.</p>
+                <div className="flex justify-between text-lg pt-3 border-t border-stone-200">
+                  <span className="font-black text-stone-900">Total</span>
+                  <span className="text-2xl font-black text-primary">₹{total}</span>
                 </div>
               </div>
             </div>
 
-            {step === 'address' && (
-              <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100 space-y-3">
-                <div className="flex items-center space-x-2 text-amber-600">
-                  <AlertCircle size={18} />
-                  <span className="text-xs font-bold uppercase tracking-tight">Important Note</span>
+            <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl shadow-stone-200 space-y-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-primary">
+                  <ShieldCheck size={24} />
                 </div>
-                <p className="text-[10px] text-amber-700 leading-relaxed">
-                  Please ensure your delivery address and phone number are correct. We use these details for order verification and delivery updates.
-                </p>
+                <div>
+                  <p className="text-sm font-bold">Secure Checkout</p>
+                  <p className="text-[10px] text-stone-400">SSL Encrypted Transactions</p>
+                </div>
               </div>
-            )}
+              <p className="text-[10px] text-stone-500 italic">By placing this order, you agree to our policies regarding returns and cancellations. All UPI payments are processed via automated verification.</p>
+            </div>
           </div>
         </div>
       </div>

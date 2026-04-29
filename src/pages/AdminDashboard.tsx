@@ -10,13 +10,12 @@ import {
   ChevronRight, ChevronLeft, Search, Filter, MoreVertical, Tag, Receipt, ArrowRight,
   BarChart3, Plus, Trash2, Download, Star, Clock, CheckCircle2,
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
-  MapPin, Phone, Globe, Shield, Bell, Database, RefreshCw, ShieldAlert,
+  MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink,
   StickyNote, Truck, Home, Navigation
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
-import { Navigate } from 'react-router-dom';
 import { cn, Order } from '../types';
 import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
@@ -25,6 +24,7 @@ import 'react-quill-new/dist/quill.snow.css';
 type Tab = 'Overview' | 'Analytics' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs';
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
@@ -1639,6 +1639,7 @@ export default function AdminDashboard() {
       title: 'Sales & Logistics',
       items: [
         { name: 'Orders' as Tab, icon: ShoppingBag },
+        { name: 'Payment Automation' as any, icon: ShieldCheck, path: '/admin/payments' },
         { name: 'Logistics' as Tab, icon: Truck },
         { name: 'Coupons' as Tab, icon: CreditCard },
         { name: 'Promotions' as Tab, icon: TrendingUp },
@@ -1791,7 +1792,7 @@ export default function AdminDashboard() {
     <div className={cn("min-h-screen bg-stone-50 flex", adminTheme)}>
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-stone-200 h-16 flex items-center justify-between px-4 z-50">
-        <h1 className="text-xl font-serif font-bold text-primary">Admin</h1>
+        <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
         <button 
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="p-2 text-stone-500 hover:bg-stone-100 rounded-lg"
@@ -1820,14 +1821,14 @@ export default function AdminDashboard() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="p-6 border-b border-stone-100">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-primary/20">
-              <LayoutDashboard size={24} />
+        <div className="p-8 border-b border-stone-100">
+          <div className="flex items-center space-x-4">
+            <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3">
+              <span className="font-black text-2xl">H</span>
             </div>
             <div>
-              <h1 className="text-xl font-serif font-bold text-primary">Hind Store</h1>
-              <p className="text-[10px] text-stone-400 uppercase font-bold tracking-widest">Admin Panel</p>
+              <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
+              <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Hind Store</p>
             </div>
           </div>
         </div>
@@ -1841,7 +1842,11 @@ export default function AdminDashboard() {
                   <button
                     key={item.name}
                     onClick={() => {
-                      setActiveTab(item.name);
+                      if ((item as any).path) {
+                        navigate((item as any).path);
+                      } else {
+                        setActiveTab(item.name);
+                      }
                       setSidebarOpen(false);
                     }}
                     className={cn(
@@ -1855,6 +1860,15 @@ export default function AdminDashboard() {
                     <span>{item.name}</span>
                   </button>
                 ))}
+                {group.title === 'Settings' && (
+                  <Link
+                    to="/admin/payments"
+                    className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-stone-500 hover:bg-stone-50 hover:text-primary"
+                  >
+                    <ShieldCheck size={18} />
+                    <span>UPI Automation</span>
+                  </Link>
+                )}
               </div>
             </div>
           ))}
@@ -3788,8 +3802,10 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <p className="text-sm font-bold">{order.user_name}</p>
-                          <p className="text-xs text-stone-400">{order.user_phone}</p>
+                          <p className="text-sm font-bold">{order.user_name || 'Guest Customer'}</p>
+                          <p className="text-xs text-stone-400">
+                            {order.user_phone || (order.address ? JSON.parse(order.address).phone : 'N/A')}
+                          </p>
                         </td>
                         <td className="px-6 py-4 font-bold text-sm">₹{order.total}</td>
                         <td className="px-6 py-4">
@@ -3891,7 +3907,8 @@ export default function AdminDashboard() {
                                <span className="text-xs font-bold font-mono text-primary">#ORD-{order.id}</span>
                                <span className="text-xs font-bold text-stone-500">₹{order.total}</span>
                              </div>
-                             <p className="text-sm font-bold text-stone-800 truncate mb-1">{order.user_name}</p>
+                             <p className="text-sm font-bold text-stone-800 truncate mb-1">{order.user_name || 'Guest Customer'}</p>
+                             <p className="text-[10px] text-stone-400 mb-1">{order.user_phone || (order.address ? JSON.parse(order.address).phone : 'No Phone')}</p>
                              <div className="text-[10px] text-stone-400 flex items-center justify-between mt-3 pt-3 border-t border-stone-100">
                                <span className="flex items-center space-x-1">
                                   <Clock size={12} />
