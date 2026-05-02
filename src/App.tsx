@@ -43,11 +43,16 @@ import MaintenancePage from './pages/MaintenancePage';
 import TrackOrder from './pages/TrackOrder';
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
-  const { user } = useStore();
+  const { user, isProfileComplete } = useStore();
   const location = useLocation();
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Redirect to complete profile if needed, UNLESS already on that page
+  if (!isProfileComplete() && location.pathname !== '/complete-profile') {
+    return <Navigate to="/complete-profile" replace />;
   }
 
   if (adminOnly && user.role !== 'admin') {
@@ -119,8 +124,21 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { subscribeNewsletter, adminTheme } = useStore();
+  const { subscribeNewsletter, adminTheme, t } = useStore();
   const [newsletterEmail, setNewsletterEmail] = useState('');
+
+  useEffect(() => {
+    // Show a small notification when the app is refreshed
+    const hasRefreshed = sessionStorage.getItem('hgs_refreshed');
+    if (hasRefreshed) {
+      toast.success(t('welcome_back') || 'Welcome back! Page refreshed.', {
+        icon: '🔄',
+        duration: 3000,
+        position: 'bottom-center'
+      });
+    }
+    sessionStorage.setItem('hgs_refreshed', 'true');
+  }, [t]);
 
   const handleNewsletter = async (e: React.FormEvent) => {
     e.preventDefault();

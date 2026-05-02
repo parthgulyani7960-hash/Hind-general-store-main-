@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User } from 'lucide-react';
+import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn } from '../types';
+import { useStore } from '../StoreContext';
 
 export default function TrackOrder() {
+  const { t } = useStore();
   const [orderId, setOrderId] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [order, setOrder] = useState<any>(null);
@@ -18,9 +20,27 @@ export default function TrackOrder() {
       return;
     }
 
+    // New Validations
+    const orderIdRegex = /^HGS-\d{8}-[A-Z0-9]{5}$/i;
+    const phoneRegex = /^[6-9]\d{9}$/;
+
+    if (!orderIdRegex.test(orderId.trim()) && !/^\d+$/.test(orderId.trim())) {
+      toast.error('Invalid Order ID format (Expected: HGS-YYYYMMDD-XXXXX)');
+      return;
+    }
+
+    if (!phoneRegex.test(phoneNumber.trim().replace(/\D/g, ''))) {
+      toast.error('Please enter a valid 10-digit mobile number');
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await fetch(`/api/public/orders/${orderId}?phone=${phoneNumber}`);
+      // Input sanitation/format check (optional but good for security)
+      const cleanOrderId = orderId.trim();
+      const cleanPhone = phoneNumber.trim().replace(/\D/g, ''); // Extract only digits for server check or keep if using PhoneInput
+
+      const res = await fetch(`/api/public/orders/${encodeURIComponent(cleanOrderId)}?phone=${encodeURIComponent(phoneNumber.trim())}`);
       
       if (!res.ok) {
         let errorMessage = 'Failed to fetch order status';
@@ -28,7 +48,6 @@ export default function TrackOrder() {
           const errorData = await res.json();
           errorMessage = errorData.message || errorMessage;
         } catch (e) {
-          // If response was not JSON (e.g. HTML error), use a generic error message
         }
         throw new Error(errorMessage);
       }
@@ -48,11 +67,11 @@ export default function TrackOrder() {
   };
 
   const steps = [
-    { key: 'pending', label: 'Order Placed', icon: Package, description: 'We have received your order' },
-    { key: 'confirmed', label: 'Confirmed', icon: CheckCircle2, description: 'Inventory has been reserved' },
-    { key: 'processing', label: 'Processing', icon: Info, description: 'Your items are being packed' },
-    { key: 'shipped', label: 'Shipped', icon: Truck, description: 'Order is out of the store' },
-    { key: 'delivered', label: 'Delivered', icon: Home, description: 'Enjoy your purchase!' }
+    { key: 'pending', label: t('order_placed'), icon: Package, description: 'We have received your order' },
+    { key: 'confirmed', label: t('confirmed'), icon: CheckCircle2, description: 'Inventory has been reserved' },
+    { key: 'processing', label: t('processing'), icon: Info, description: 'Your items are being packed' },
+    { key: 'shipped', label: t('shipped'), icon: Truck, description: 'Order is out of the store' },
+    { key: 'delivered', label: t('delivered'), icon: Home, description: 'Enjoy your purchase!' }
   ];
 
   const currentStepIndex = order ? steps.findIndex(s => s.key === order.status) : -1;
@@ -69,7 +88,7 @@ export default function TrackOrder() {
           >
             <Truck className="text-primary" size={40} />
           </motion.div>
-          <h1 className="text-4xl font-black text-stone-900 mb-4">Order Status</h1>
+          <h1 className="text-4xl font-black text-stone-900 mb-4">{t('track_order')}</h1>
           <p className="text-stone-500 font-medium">Enter your details below to see the latest status of your order.</p>
         </div>
 
@@ -77,12 +96,12 @@ export default function TrackOrder() {
         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100 mb-12">
           <form onSubmit={handleTrack} className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Order ID</label>
+              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">{t('order_id')}</label>
               <div className="relative">
                 <Package className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
                 <input 
                   type="text" 
-                  placeholder="e.g. 1024"
+                  placeholder="e.g. HGS-2024..."
                   value={orderId}
                   onChange={(e) => setOrderId(e.target.value)}
                   className="w-full pl-12 pr-4 py-4 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700"
@@ -90,7 +109,7 @@ export default function TrackOrder() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Phone Number</label>
+              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">{t('phone_number')}</label>
               <div className="relative">
                 <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
                 <input 
@@ -109,7 +128,7 @@ export default function TrackOrder() {
                 className="w-full bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
               >
                 {loading ? <Search className="animate-spin" /> : <Search size={20} />}
-                <span>{loading ? 'Searching...' : 'Check Status'}</span>
+                <span>{loading ? 'Searching...' : t('check_status')}</span>
               </button>
             </div>
           </form>
@@ -125,11 +144,11 @@ export default function TrackOrder() {
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
               <div className="flex justify-between items-center mb-12">
                 <div>
-                  <h3 className="text-2xl font-black text-stone-900">Order #{order.id}</h3>
+                  <h3 className="text-2xl font-black text-stone-900">Order #{order.order_id || order.id}</h3>
                   <p className="text-sm text-stone-500 font-medium">Placed on {new Date(order.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="px-6 py-2 bg-primary/10 rounded-full">
-                  <span className="text-sm font-black text-primary uppercase tracking-widest">{order.status}</span>
+                  <span className="text-sm font-black text-primary uppercase tracking-widest">{t(order.status) || order.status}</span>
                 </div>
               </div>
 
@@ -174,6 +193,34 @@ export default function TrackOrder() {
                   })}
                 </div>
               </div>
+            </div>
+
+            {/* Order Items & Summary */}
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
+               <h4 className="text-xl font-bold mb-6 flex items-center gap-2">
+                 <ShoppingBag size={20} className="text-primary" />
+                 {t('order_summary')}
+               </h4>
+               <div className="space-y-4">
+                 {order.items && order.items.map((item: any) => (
+                   <div key={item.id} className="flex items-center justify-between py-3 border-b border-stone-50 last:border-0">
+                     <div className="flex items-center space-x-4">
+                        <div className="w-12 h-12 bg-stone-100 rounded-xl overflow-hidden shrink-0">
+                           <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-stone-900 text-sm">{item.name}</p>
+                          <p className="text-xs text-stone-400">Qty: {item.quantity}</p>
+                        </div>
+                     </div>
+                     <p className="font-bold text-stone-900 text-sm">₹{item.price * item.quantity}</p>
+                   </div>
+                 ))}
+                 <div className="pt-4 border-t border-stone-100 flex justify-between items-center">
+                    <span className="font-bold text-stone-500 uppercase tracking-widest text-[10px]">{t('total')}</span>
+                    <span className="text-2xl font-black text-primary">₹{order.total}</span>
+                 </div>
+               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

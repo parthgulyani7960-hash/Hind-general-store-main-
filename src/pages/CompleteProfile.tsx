@@ -19,6 +19,13 @@ export default function CompleteProfile() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const navigate = useNavigate();
+  const { isProfileComplete } = useStore();
+
+  React.useEffect(() => {
+    if (isProfileComplete()) {
+      navigate('/', { replace: true });
+    }
+  }, [isProfileComplete, navigate]);
 
   const startCamera = async () => {
     try {

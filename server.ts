@@ -47,10 +47,16 @@ let db: Database.Database;
 
 const connectDatabase = (path: string): Database.Database => {
   try {
-    const database = new Database(path, { timeout: 10000 });
-    // Test basic integrity
+    // Increase timeout for serverless environments
+    const database = new Database(path, { timeout: 20000 });
+    
+    // Check if we need to initialize or migrations
     try {
-      database.pragma('journal_mode = WAL');
+      if (process.env.VERCEL) {
+        database.pragma('journal_mode = DELETE');
+      } else {
+        database.pragma('journal_mode = WAL');
+      }
       database.pragma('synchronous = NORMAL');
       database.prepare('SELECT 1').get();
       return database;
@@ -63,35 +69,44 @@ const connectDatabase = (path: string): Database.Database => {
           fs.renameSync(path, backupPath);
           console.log(`Corrupt database moved to: ${backupPath}`);
         }
-        return new Database(path, { timeout: 10000 });
+        return new Database(path, { timeout: 20000 });
       }
       throw err;
     }
   } catch (err) {
     console.error('Failed to connect to database:', err);
+    // In-memory as absolute fallback to prevent total crash
     return new Database(':memory:');
   }
 };
 
 db = connectDatabase(dbPath);
-console.log('Database connected at:', process.env.VERCEL ? '/tmp/store.db' : 'store.db (WAL mode)');
+console.log('Database connected at:', dbPath);
 
 const app = express();
-const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
+let httpServer: any;
+
+// WebSocket setup - Skip on Vercel
+let wss: WebSocketServer | null = null;
+if (!process.env.VERCEL) {
+  httpServer = createServer(app);
+  wss = new WebSocketServer({ server: httpServer });
+
+  wss.on('connection', (ws) => {
+    console.log('Client connected to WebSocket');
+    ws.on('close', () => console.log('Client disconnected from WebSocket'));
+  });
+}
 
 const broadcast = (data: any) => {
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
-    }
-  });
+  if (wss) {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(data));
+      }
+    });
+  }
 };
-
-wss.on('connection', (ws) => {
-  console.log('Client connected to WebSocket');
-  ws.on('close', () => console.log('Client disconnected from WebSocket'));
-});
 
 async function initDatabase() {
   try {
@@ -1088,22 +1103,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/settings', (req, res) => {
-    const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
-    const settings = db.prepare('SELECT * FROM settings').all() as any[];
-    const publicSettings = settings.filter(s => !sensitiveKeys.includes(s.key));
-    
-    const maintenance = getSetting('maintenance_mode') === 'true';
-    const authMode = getSetting('auth_mode') || 'otp';
-    const storePhone = getSetting('store_phone');
-    const whatsappNumber = getSetting('whatsapp_number');
-    
-    res.json({ 
-      maintenance, 
-      authMode,
-      storePhone,
-      whatsappNumber,
-      config: publicSettings
-    });
+    try {
+      const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
+      const settings = db.prepare('SELECT * FROM settings').all() as any[];
+      const publicSettings = settings.filter(s => !sensitiveKeys.includes(s.key));
+      
+      const maintenance = getSetting('maintenance_mode') === 'true';
+      const authMode = getSetting('auth_mode') || 'otp';
+      const storePhone = getSetting('store_phone');
+      const whatsappNumber = getSetting('whatsapp_number');
+      
+      res.json({ 
+        maintenance, 
+        authMode,
+        storePhone,
+        whatsappNumber,
+        config: publicSettings
+      });
+    } catch (err: any) {
+      console.error('Settings fetch error:', err);
+      res.status(500).json({ success: false, message: 'Failed to fetch settings', error: err.message });
+    }
   });
 
   app.get('/api/user/profile', requireAuth, (req, res) => {
@@ -1285,6 +1305,24 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/admin/system-logs', (req, res) => {
     const logs = db.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100').all();
     res.json(logs);
+  });
+
+  app.post('/api/user/data-request', requireAuth, (req, res) => {
+    const { type, reason } = req.body;
+    const userId = req.session.userId;
+    
+    try {
+      db.prepare(`
+        INSERT INTO suspicious_activities (user_id, activity_type, description)
+        VALUES (?, ?, ?)
+      `).run(userId, 'DATA_REQUEST', `${type.toUpperCase()} REQUEST: ${reason}`);
+      
+      logEvent('info', `Data Request: ${type} from user ${userId}`, reason, userId, req.path);
+      
+      res.json({ success: true, message: 'Request recorded successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to record request' });
+    }
   });
 
   app.get('/api/admin/suspicious-activities', (req, res) => {
@@ -1469,18 +1507,23 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/auth/me', (req, res) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ success: false, message: 'Not authenticated' });
+      }
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'User not found' });
+      }
+      
+      const tokenPayload = { userId: user.id, role: user.role, timestamp: Date.now() };
+      const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+      
+      res.json({ success: true, user, token });
+    } catch (err: any) {
+      console.error('Auth/me error:', err);
+      res.status(500).json({ success: false, message: 'Failed to verify session', error: err.message });
     }
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'User not found' });
-    }
-    
-    const tokenPayload = { userId: user.id, role: user.role, timestamp: Date.now() };
-    const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
-    
-    res.json({ success: true, user, token });
   });
 
   app.post('/api/auth/logout', (req, res) => {
@@ -1500,6 +1543,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/auth/complete-profile', requireAuth, (req, res) => {
     const { name, phone, profile_photo } = req.body;
     try {
+      if (!phone || phone.length < 10) {
+        return res.status(400).json({ success: false, message: 'Invalid phone number' });
+      }
+      if (!name || name.trim().length < 2) {
+        return res.status(400).json({ success: false, message: 'Invalid name' });
+      }
+
       const formattedName = capitalizeName(name);
       db.prepare('UPDATE users SET name = ?, phone = ?, profile_photo = ? WHERE id = ?')
         .run(formattedName, phone, profile_photo, req.session.userId);
@@ -1587,19 +1637,24 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/bulk-discounts', (req, res) => {
-    const discounts = db.prepare(`
-      SELECT bd.*, 
-             CASE 
-               WHEN bd.entity_type = 'product' THEN p.name 
-               WHEN bd.entity_type = 'category' THEN c.name 
-             END as entity_name
-      FROM bulk_discounts bd
-      LEFT JOIN products p ON bd.entity_type = 'product' AND bd.entity_id = p.id
-      LEFT JOIN categories c ON bd.entity_type = 'category' AND bd.entity_id = c.id
-      WHERE bd.active = 1
-      ORDER BY bd.min_qty DESC
-    `).all();
-    res.json(discounts);
+    try {
+      const discounts = db.prepare(`
+        SELECT bd.*, 
+               CASE 
+                 WHEN bd.entity_type = 'product' THEN p.name 
+                 WHEN bd.entity_type = 'category' THEN c.name 
+               END as entity_name
+        FROM bulk_discounts bd
+        LEFT JOIN products p ON bd.entity_type = 'product' AND bd.entity_id = p.id
+        LEFT JOIN categories c ON bd.entity_type = 'category' AND bd.entity_id = c.id
+        WHERE bd.active = 1
+        ORDER BY bd.min_qty DESC
+      `).all();
+      res.json(discounts);
+    } catch (err: any) {
+      console.error('Bulk discounts fetch failed:', err);
+      res.status(500).json({ success: false, message: 'Failed to fetch bulk discounts', error: err.message });
+    }
   });
 
   app.get('/api/categories', (req, res) => {
@@ -2287,17 +2342,40 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/products', (req, res) => {
-    const products = db.prepare(`
-      SELECT p.*, 
-      (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
-      (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
-      FROM products p
-    `).all().map((p: any) => ({
-      ...p,
-      images: p.images ? JSON.parse(p.images) : [],
-      specifications: p.specifications ? JSON.parse(p.specifications) : {}
-    }));
-    res.json(products);
+    try {
+      // Ensure DB connection is fresh if needed or check specifically for products
+      const productsCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as any;
+      
+      const products = db.prepare(`
+        SELECT p.*, 
+        (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
+        (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
+        FROM products p
+        WHERE p.is_listed = 1 OR ? = 'admin'
+      `).all(req.session?.role).map((p: any) => {
+        let images = [];
+        let specs = {};
+        try {
+          images = p.images ? JSON.parse(p.images) : [];
+        } catch (e) {
+          console.error(`Invalid images JSON for product ${p.id}:`, p.images);
+        }
+        try {
+          specs = p.specifications ? JSON.parse(p.specifications) : {};
+        } catch (e) {
+          console.error(`Invalid specs JSON for product ${p.id}:`, p.specifications);
+        }
+        return {
+          ...p,
+          images: Array.isArray(images) ? images : [],
+          specifications: specs
+        };
+      });
+      res.json(products);
+    } catch (err: any) {
+      console.error('Products fetch failed:', err);
+      res.status(500).json({ success: false, message: 'Failed to fetch products', error: err.message });
+    }
   });
 
   app.get('/api/products/:id', (req, res) => {
@@ -2971,7 +3049,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         // Fetch current active bulk discounts
         const bulkDiscounts = db.prepare('SELECT * FROM bulk_discounts WHERE active = 1').all() as any[];
 
-        const orderIdStr = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+        let year = new Date().getFullYear();
+        let month = String(new Date().getMonth() + 1).padStart(2, '0');
+        let day = String(new Date().getDate()).padStart(2, '0');
+        const orderIdStr = `HGS-${year}${month}${day}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
         const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
 
         const order = db.prepare('INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, coupon_code, wallet_used, order_id, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
@@ -3170,18 +3251,26 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     try {
       const order = db.prepare(`
-        SELECT o.id, o.status, o.created_at, o.total, o.address, o.assigned_runner_id,
+        SELECT o.id, o.order_id, o.status, o.created_at, o.total, o.address, o.assigned_runner_id,
                u.phone,
                r.name as runner_name, r.phone as runner_phone, r.current_lat, r.current_lng
         FROM orders o 
         JOIN users u ON o.user_id = u.id 
         LEFT JOIN runners r ON o.assigned_runner_id = r.id
-        WHERE o.id = ? AND u.phone = ?
-      `).get(id, phone) as any;
+        WHERE (o.id = ? OR o.order_id = ?) AND u.phone = ?
+      `).get(id, id, phone) as any;
 
       if (!order) {
         return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
       }
+
+      const items = db.prepare(`
+        SELECT oi.*, p.name, p.image_url 
+        FROM order_items oi 
+        JOIN products p ON oi.product_id = p.id 
+        WHERE oi.order_id = ?
+      `).all(order.id);
+      order.items = items;
 
       res.json({ success: true, order });
     } catch (err: any) {
@@ -3663,9 +3752,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     });
   }
 
+  // Global Error Handler - MUST be after all routes
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[GLOBAL ERROR]', err);
+    // Avoid circular JSON if err is an object
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = process.env.NODE_ENV !== 'production' ? (err instanceof Error ? err.stack : null) : null;
+    
+    // If headers already sent, delegate to next
+    if (res.headersSent) {
+      return next(err);
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error', 
+      error: errorMessage,
+      stack: errorStack
+    });
+  });
+
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   
-  if (!process.env.VERCEL) {
+  if (!process.env.VERCEL && httpServer) {
     httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });

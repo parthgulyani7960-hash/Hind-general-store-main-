@@ -2115,21 +2115,23 @@ export default function AdminDashboard() {
             {/* Quick Actions Panel */}
             <motion.div 
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+              className="grid grid-cols-2 lg:grid-cols-6 gap-4"
             >
               {[
                 { label: 'Add Product', icon: <Plus size={18} />, action: () => { setActiveTab('Product Catalog'); setProductModal({ open: true, mode: 'add' }); }, color: 'text-primary bg-primary/10 hover:bg-primary hover:text-white' },
                 { label: 'Review Orders', icon: <ShoppingBag size={18} />, action: () => setActiveTab('Orders'), color: 'text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white' },
-                { label: 'Manage Coupons', icon: <Tag size={18} />, action: () => setActiveTab('Coupons'), color: 'text-amber-600 bg-amber-50 hover:bg-amber-600 hover:text-white' },
-                { label: 'System Logs', icon: <Activity size={18} />, action: () => setActiveTab('System Status'), color: 'text-stone-600 bg-stone-100 hover:bg-stone-600 hover:text-white' }
+                { label: 'Coupons', icon: <Tag size={18} />, action: () => setActiveTab('Coupons'), color: 'text-amber-600 bg-amber-50 hover:bg-amber-600 hover:text-white' },
+                { label: 'Payments', icon: <IndianRupee size={18} />, action: () => navigate('/admin/payments'), color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white' },
+                { label: 'Customers', icon: <Users size={18} />, action: () => setActiveTab('User Management'), color: 'text-purple-600 bg-purple-50 hover:bg-purple-600 hover:text-white' },
+                { label: 'Health', icon: <Activity size={18} />, action: () => setActiveTab('System Status'), color: 'text-stone-600 bg-stone-100 hover:bg-stone-600 hover:text-white' }
               ].map((action, i) => (
                 <button
                   key={i}
                   onClick={action.action}
                   className={cn("flex flex-col items-center justify-center p-4 rounded-2xl transition-all duration-300 gap-2 border border-transparent hover:border-black/5 hover:shadow-sm", action.color)}
                 >
-                  {action.icon}
-                  <span className="text-xs font-bold uppercase tracking-wider">{action.label}</span>
+                  <div className="p-2 rounded-xl bg-white/20">{action.icon}</div>
+                  <span className="text-[10px] font-black uppercase tracking-widest">{action.label}</span>
                 </button>
               ))}
             </motion.div>

@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { calculateBulkDiscount, cn } from '../lib/utils';
 
 export default function Cart() {
-  const { cart, updateQuantity, removeFromCart, user, appliedCoupon, setAppliedCoupon, bulkDiscounts } = useStore();
+  const { t, cart, updateQuantity, removeFromCart, user, appliedCoupon, setAppliedCoupon, bulkDiscounts } = useStore();
   const [couponCode, setCouponCode] = useState(appliedCoupon?.code || '');
   const [isValidating, setIsValidating] = useState(false);
 
@@ -81,10 +81,10 @@ export default function Cart() {
         <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mx-auto">
           <ShoppingBag size={48} className="text-stone-300" />
         </div>
-        <h1 className="text-3xl font-bold">Your cart is empty</h1>
-        <p className="text-stone-500">Looks like you haven't added anything to your cart yet.</p>
+        <h1 className="text-3xl font-bold">{t('empty_cart') || 'Your cart is empty'}</h1>
+        <p className="text-stone-500">{t('empty_cart_msg') || "Looks like you haven't added anything to your cart yet."}</p>
         <Link to="/products" className="btn-primary inline-block">
-          Start Shopping
+          {t('start_shopping') || 'Start Shopping'}
         </Link>
       </div>
     );
@@ -92,7 +92,7 @@ export default function Cart() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <h1 className="text-3xl font-bold mb-8">Shopping Cart</h1>
+      <h1 className="text-3xl font-bold mb-8">{t('shopping_cart') || 'Shopping Cart'}</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="lg:col-span-2 space-y-4">
@@ -190,7 +190,7 @@ export default function Cart() {
 
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 space-y-4">
-            <h3 className="text-xl font-bold">Order Summary</h3>
+            <h3 className="text-xl font-bold">{t('order_summary') || 'Order Summary'}</h3>
             
             {/* Coupon Section */}
             <div className="space-y-3">
@@ -294,7 +294,7 @@ export default function Cart() {
               </div>
             </div>
             <Link to="/checkout" className="w-full btn-primary py-4 flex items-center justify-center space-x-2">
-              <span>Proceed to Checkout</span>
+              <span>{t('proceed_to_checkout') || 'Proceed to Checkout'}</span>
               <ArrowRight size={18} />
             </Link>
           </div>

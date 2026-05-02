@@ -16,18 +16,34 @@ export default function Products() {
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
   const [onSaleOnly, setOnSaleOnly] = useState(false);
-  const { addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
+  const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
   const activeRole = simulatedRole || user?.role;
 
-  useEffect(() => {
-    fetch('/api/products')
-      .then(res => res.json())
-      .then(data => {
-        setProducts(data);
-        setLoading(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/products');
+      if (!res.ok) throw new Error('Failed to fetch products');
+      const data = await res.json();
+      setProducts(data);
+      if (data.length > 0) {
         const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
         setMaxPrice(maxP.toString());
-      });
+      }
+    } catch (err: any) {
+      console.error('Products fetch error:', err);
+      setError(err.message || 'Something went wrong');
+      toast.error('Could not load products. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
   }, [user?.role]);
 
   const filteredProducts = products
@@ -61,7 +77,30 @@ export default function Products() {
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="flex flex-col items-center space-y-4">
+        <Loader2 className="animate-spin h-12 w-12 text-primary" />
+        <p className="text-stone-500 font-medium">{t('loading_products') || 'Loading products...'}</p>
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="bg-white p-8 rounded-3xl shadow-xl border border-stone-100 max-w-md w-full text-center space-y-6">
+        <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+          <X size={32} />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-black text-stone-900">{t('failed_load_products') || 'Failed to load products'}</h2>
+          <p className="text-stone-500">{error}</p>
+        </div>
+        <button 
+          onClick={() => fetchProducts()}
+          className="w-full btn-primary py-4"
+        >
+          {t('try_again') || 'Try Again'}
+        </button>
+      </div>
     </div>
   );
 
@@ -157,24 +196,24 @@ export default function Products() {
                   
                   <p className="text-stone-600 leading-relaxed">{quickViewProduct.description}</p>
                   
-                  <div className="pt-6 border-t border-stone-100 flex gap-4">
-                    <button 
-                      onClick={() => {
-                        addToCart(quickViewProduct);
-                        setQuickViewProduct(null);
-                      }}
-                      className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2"
-                    >
-                      <ShoppingCart size={20} />
-                      <span>Add to Cart</span>
-                    </button>
-                    <Link 
-                      to={`/product/${quickViewProduct.id}`}
-                      className="px-6 py-4 border border-stone-200 rounded-2xl font-bold hover:bg-stone-50 transition-colors flex items-center justify-center"
-                    >
-                      View Details
-                    </Link>
-                  </div>
+                    <div className="pt-6 border-t border-stone-100 flex gap-4">
+                      <button 
+                        onClick={() => {
+                          addToCart(quickViewProduct);
+                          setQuickViewProduct(null);
+                        }}
+                        className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2"
+                      >
+                        <ShoppingCart size={20} />
+                        <span>{t('add_to_cart')}</span>
+                      </button>
+                      <Link 
+                        to={`/product/${quickViewProduct.id}`}
+                        className="px-6 py-4 border border-stone-200 rounded-2xl font-bold hover:bg-stone-50 transition-colors flex items-center justify-center"
+                      >
+                        {t('view_details') || 'View Details'}
+                      </Link>
+                    </div>
                 </div>
               </div>
             </motion.div>
@@ -185,13 +224,13 @@ export default function Products() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-stone-900">
-            {activeRole === 'wholesaler' ? 'Wholesale Distribution Catalog' : 
-             activeRole === 'retailer' ? 'Retail Partner Inventory' : 
-             'Our Products'}
+            {activeRole === 'wholesaler' ? (t('wholesale_portal') || 'Wholesale Portal') : 
+             activeRole === 'retailer' ? (t('retail_portal') || 'Retail Portal') : 
+             (t('all_products') || 'Our Products')}
           </h1>
           <p className="text-stone-500">
-            {activeRole === 'wholesaler' ? 'Exclusive bulk supply for your wholesale operations.' : 
-             activeRole === 'retailer' ? 'Curated inventory with partner margins.' : 
+            {activeRole === 'wholesaler' ? (t('bulk_supply') || 'Bulk Supply') : 
+             activeRole === 'retailer' ? (t('grow_business') || 'Grow Business') : 
              'Fresh items delivered to your home.'}
           </p>
         </div>
@@ -208,11 +247,11 @@ export default function Products() {
         {/* Sidebar */}
         <aside className={cn("w-full md:w-64 space-y-6 flex-shrink-0", isFilterOpen ? "block" : "hidden md:block")}>
           <div className="bg-white p-6 rounded-2xl border border-stone-100 shadow-sm space-y-6 sticky top-20">
-            <h3 className="font-bold text-lg">Filters</h3>
+            <h3 className="font-bold text-lg">{t('filters') || 'Filters'}</h3>
             
             {/* Category Filter */}
             <div className="space-y-2">
-              <p className="text-sm font-bold text-stone-700">Category</p>
+              <p className="text-sm font-bold text-stone-700">{t('categories') || 'Categories'}</p>
               {categories.map(cat => (
                 <button
                   key={cat}

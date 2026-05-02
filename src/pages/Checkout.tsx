@@ -20,7 +20,8 @@ export default function Checkout() {
     cart, user, appliedCoupon, clearCart, 
     fetchUser, bulkDiscounts, config,
     addresses, fetchAddresses,
-    updateQuantity, removeFromCart
+    updateQuantity, removeFromCart,
+    t
   } = useStore();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('address');
@@ -295,7 +296,7 @@ export default function Checkout() {
                 >
                   <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold flex items-center gap-2">
-                       Shipping Address
+                       {t('shipping_address') || 'Shipping Address'}
                        <InfoButton title="Shipping" message="Ensure your delivery address is accurate for timely delivery." />
                     </h2>
                     {addresses.length > 0 && (
@@ -770,23 +771,23 @@ export default function Checkout() {
                     <p className="text-stone-500">Thank you for shopping with Hind General Store.</p>
                   </div>
                   <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 inline-block text-left">
-                    <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">Order Details</p>
+                    <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">{t('order_details') || 'Order Details'}</p>
                     <div className="space-y-2">
                       <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">Order ID</span>
+                        <span className="text-sm text-stone-500">{t('order_id') || 'Order ID'}</span>
                         <span className="text-sm font-bold uppercase">{pendingOrder?.order_id || '#HGS-PENDING'}</span>
                       </div>
                       <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">Payment Status</span>
-                        <span className="text-sm font-bold text-emerald-600 uppercase">Paid</span>
+                        <span className="text-sm text-stone-500">{t('payment_status') || 'Payment Status'}</span>
+                        <span className="text-sm font-bold text-emerald-600 uppercase">{t('paid') || 'Paid'}</span>
                       </div>
                       <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">Delivery Method</span>
-                        <span className="text-sm font-bold">Standard Delivery</span>
+                        <span className="text-sm text-stone-500">{t('delivery_method') || 'Delivery Method'}</span>
+                        <span className="text-sm font-bold">{t('standard_delivery') || 'Standard Delivery'}</span>
                       </div>
                       <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">Estimated Arrival</span>
-                        <span className="text-sm font-bold">2-4 Business Days</span>
+                        <span className="text-sm text-stone-500">{t('estimated_arrival') || 'Estimated Arrival'}</span>
+                        <span className="text-sm font-bold">2-4 {(t('business_days') || 'Business Days')}</span>
                       </div>
                     </div>
                   </div>
@@ -812,7 +813,7 @@ export default function Checkout() {
           {/* Order Summary Sidebar */}
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">Order Summary</h3>
+              <h3 className="text-xl font-bold">{t('order_summary') || 'Order Summary'}</h3>
               
               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                 {cartWithDiscounts.map((item) => (

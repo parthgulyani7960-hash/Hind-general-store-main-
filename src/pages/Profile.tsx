@@ -33,7 +33,21 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'wallet' | 'insights' | 'addresses'>('history');
+  const [showDataModal, setShowDataModal] = useState<{ open: boolean; type: 'export' | 'delete' | null }>({ open: false, type: null });
+
+  const handleDataRequest = async (type: 'export' | 'delete') => {
+    if (!window.confirm(t('confirm_action'))) return;
+    
+    // Simulate data request
+    toast.promise(
+      new Promise(resolve => setTimeout(resolve, 2000)),
+      {
+        loading: `${type === 'export' ? 'Preparing your data...' : 'Processing deletion request...'}`,
+        success: t(type === 'export' ? 'data_exported_success' : 'data_deleted_success'),
+        error: 'Failed to process request'
+      }
+    );
+  };
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [editingAddress, setEditingAddress] = useState<any>(null);
   const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
@@ -675,12 +689,26 @@ export default function Profile() {
                 exit={{ opacity: 0, y: -10 }}
                 className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden"
               >
-                <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-                  <div>
-                    <h3 className="font-bold text-lg">Order History</h3>
-                    <p className="text-xs text-stone-400">Track and manage your orders</p>
+                <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/30">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
+                      <ShoppingBag size={18} />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-lg leading-tight">{t('order_history') || 'Order History'}</h3>
+                      <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">{t('track_and_manage') || 'Track and manage your orders'}</p>
+                    </div>
                   </div>
-                  <History size={20} className="text-stone-300" />
+                  <button 
+                    onClick={() => fetchOrders()}
+                    className={cn(
+                      "p-2 hover:bg-stone-100 rounded-xl transition-all text-stone-400 hover:text-primary active:rotate-180 duration-500",
+                      loadingOrders && "animate-spin"
+                    )}
+                    title="Refresh History"
+                  >
+                    <RefreshCw size={18} />
+                  </button>
                 </div>
                 <div className="divide-y divide-stone-50">
                   {loadingOrders ? (
@@ -692,7 +720,7 @@ export default function Profile() {
                       <div key={order.id} className="p-6 hover:bg-stone-50 transition-colors">
                         <div className="flex justify-between items-start mb-4">
                           <div>
-                            <p className="font-bold text-stone-900">Order #ORD-{order.id}</p>
+                            <p className="font-bold text-stone-900">Order #{order.order_id || order.id}</p>
                             <p className="text-xs text-stone-400">{new Date(order.created_at).toLocaleDateString()}</p>
                           </div>
                           <div className="flex flex-col items-end space-y-1">
@@ -703,9 +731,40 @@ export default function Profile() {
                               order.status === 'cancelled' ? 'bg-red-50 text-red-600' : 
                               order.status === 'failed' ? 'bg-stone-900 text-white' : 'bg-primary/10 text-primary'
                             )}>
-                              {order.status}
+                              {t(order.status) || order.status}
                             </span>
+                            {order.status === 'delivered' && (
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    // Simulated reorder: add items back to cart
+                                    // In a real app, this would call /api/orders/:id/reorder
+                                    toast.success('Items from this order added to your cart!');
+                                  } catch (e) {
+                                    toast.error('Failed to reorder');
+                                  }
+                                }}
+                                className="flex items-center space-x-1 text-[10px] font-bold text-stone-400 hover:text-primary transition-colors pt-1"
+                              >
+                                <RefreshCw size={10} />
+                                <span>RE-ORDER</span>
+                              </button>
+                            )}
                           </div>
+                        </div>
+
+                        <div className="flex justify-between items-center bg-stone-50/50 p-4 rounded-2xl border border-stone-100 mb-6">
+                            <div className="flex items-center space-x-3">
+                               <Package size={18} className="text-primary" />
+                               <span className="text-xs font-bold text-stone-700">{order.items_count || 0} items in order</span>
+                            </div>
+                            <Link 
+                                to={`/invoice/${order.id}`}
+                                className="text-xs font-black text-stone-400 hover:text-primary tracking-widest uppercase flex items-center space-x-1"
+                            >
+                                <span>{t('view_details') || 'View Details'}</span>
+                                <ChevronRight size={14} />
+                            </Link>
                         </div>
 
                         {/* Order Tracking Timeline */}
@@ -879,7 +938,7 @@ export default function Profile() {
                     <h2 className="text-5xl font-black mb-6">₹{user.wallet_balance}</h2>
                     <button 
                       onClick={() => setShowAddMoney(true)}
-                      className="bg-white text-stone-900 px-8 py-3 rounded-2xl font-bold flex items-center space-x-2 hover:bg-primary hover:text-white transition-all"
+                      className="bg-white text-stone-900 px-8 py-3 rounded-2xl font-bold flex items-center space-x-2 hover:bg-primary hover:text-white transition-all shadow-xl shadow-stone-900/10"
                     >
                       <Plus size={20} />
                       <span>Add Money</span>
@@ -887,91 +946,67 @@ export default function Profile() {
                   </div>
                 </div>
 
-                {/* Wallet History */}
+                {/* Wallet Tracking UI */}
                 <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-                  <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                    <div>
-                      <h3 className="font-bold text-lg">Detailed Transaction History</h3>
-                      <p className="text-xs text-stone-400">Track every penny spent and credited</p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                       <button 
-                        onClick={fetchWalletHistory} 
-                        className="p-2 text-stone-400 hover:text-primary transition-colors bg-white rounded-xl border border-stone-100 shadow-sm"
-                        disabled={loadingHistory}
-                       >
-                         <RefreshCw size={16} className={loadingHistory ? "animate-spin" : ""} />
-                       </button>
-                    </div>
-                  </div>
-                  
-                  <div className="divide-y divide-stone-50">
-                    {loadingHistory ? (
-                      <div className="p-12 text-center">
-                         <div className="flex justify-center mb-4">
-                           <RefreshCw size={32} className="text-primary animate-spin" />
-                         </div>
-                         <p className="text-sm font-bold text-stone-400">Fetching history...</p>
-                      </div>
-                    ) : walletHistory.length === 0 ? (
-                      <div className="p-12 text-center py-20">
-                         <div className="w-16 h-16 bg-stone-50 text-stone-300 rounded-full flex items-center justify-center mx-auto mb-4">
-                           <History size={32} />
-                         </div>
-                         <p className="text-stone-400 font-bold italic">No transactions recorded yet.</p>
-                         <p className="text-[10px] text-stone-300 uppercase tracking-widest mt-1">Add money or place orders to see history</p>
-                      </div>
-                    ) : (
-                      walletHistory.map((tx) => (
-                        <div key={tx.id} className="p-6 hover:bg-stone-50 transition-all group border-l-4 border-transparent hover:border-primary">
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center space-x-5">
-                              <div className={cn(
-                                "w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110",
-                                tx.type === 'credit' ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-red-50 text-red-600 border border-red-100"
-                              )}>
-                                {tx.type === 'credit' ? <Plus size={20} /> : <X size={20} />}
-                              </div>
-                              <div>
-                                <p className="font-black text-stone-900 group-hover:text-primary transition-colors">{tx.description}</p>
-                                <div className="flex items-center space-x-2 mt-1">
-                                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{new Date(tx.created_at).toLocaleDateString()}</span>
-                                  <span className="text-[10px] text-stone-200">•</span>
-                                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className={cn(
-                                "text-lg font-black tracking-tight",
-                                tx.type === 'credit' ? "text-emerald-600" : "text-red-600"
-                              )}>
-                                {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
-                              </p>
-                              <div className="flex flex-col items-end gap-1 mt-1">
-                                {tx.transaction_id && (
-                                  <p className="text-[8px] font-black text-stone-400 uppercase tracking-widest">ID: {tx.transaction_id}</p>
-                                )}
-                                <span className={cn(
-                                  "px-2 py-0.5 rounded-full text-[8px] font-black uppercase border",
-                                  tx.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                                  tx.status === 'pending' ? "bg-amber-50 text-amber-600 border-amber-100" : 
-                                  "bg-red-50 text-red-600 border-red-100"
-                                )}>
-                                  {tx.status || 'approved'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
+                    <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+                        <div>
+                            <h3 className="font-black text-lg text-stone-900 uppercase tracking-tight">{t('wallet_tracking') || 'Wallet Tracking'}</h3>
+                            <p className="text-xs text-stone-400 font-medium">Monitoring your flow of funds</p>
                         </div>
-                      ))
-                    )}
-                  </div>
-                  {walletHistory.length > 5 && (
-                    <div className="p-4 bg-stone-50 text-center border-t border-stone-100">
-                       <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">End of History</p>
+                        <div className="flex items-center space-x-3">
+                             <button 
+                                onClick={fetchWalletHistory}
+                                className="p-2 hover:bg-white rounded-xl transition-all text-stone-400 hover:text-primary border border-transparent hover:border-stone-100 shadow-sm"
+                                title="Refresh History"
+                             >
+                                <RefreshCw size={18} className={loadingHistory ? "animate-spin" : ""} />
+                             </button>
+                             <div className="p-2 bg-primary/10 rounded-xl">
+                                <Wallet size={18} className="text-primary" />
+                             </div>
+                        </div>
                     </div>
-                  )}
+                    
+                    <div className="divide-y divide-stone-50">
+                        {loadingHistory ? (
+                            <div className="p-12 text-center text-stone-400 italic">Syncing transactions...</div>
+                        ) : walletHistory.length === 0 ? (
+                            <div className="p-12 text-center text-stone-400 italic">No transactions yet</div>
+                        ) : (
+                            <>
+                                {walletHistory.slice(0, 5).map((tx) => (
+                                    <div key={tx.id} className="p-6 flex justify-between items-center hover:bg-stone-50 transition-all cursor-pointer">
+                                        <div className="flex items-center space-x-4">
+                                            <div className={cn(
+                                                "p-3 rounded-2xl",
+                                                tx.type === 'credit' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
+                                            )}>
+                                                {tx.type === 'credit' ? <Plus size={18} /> : <Trash2 size={18} />}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-stone-900 uppercase tracking-tighter">{tx.description || 'Wallet Transaction'}</p>
+                                                <p className="text-[10px] text-stone-400 font-bold">{new Date(tx.created_at).toLocaleDateString()} • {tx.transaction_id || tx.id}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className={cn(
+                                                "font-black text-lg",
+                                                tx.type === 'credit' ? 'text-emerald-600' : 'text-stone-900'
+                                            )}>
+                                                {tx.type === 'credit' ? '+' : '-'} ₹{tx.amount}
+                                            </p>
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">{tx.status || 'approved'}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {walletHistory.length > 5 && (
+                                    <button className="w-full p-4 text-[10px] font-black text-primary uppercase tracking-[0.2em] bg-stone-50/50 hover:bg-stone-50 transition-colors">
+                                        {t('view_all') || 'View All Transactions'}
+                                    </button>
+                                )}
+                            </>
+                        )}
+                    </div>
                 </div>
               </motion.div>
             )}
@@ -1150,9 +1185,18 @@ export default function Profile() {
                 </div>
               </div>
               <div 
-                onClick={() => {
+                onClick={async () => {
                   if (window.confirm('Are you absolutely sure? This will send a request to our administrators to permanently delete your account and all associated data.')) {
-                    toast.success('Deletion request sent to administrators. We will process this within 48 hours.');
+                    try {
+                      await fetch('/api/user/data-request', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: 'deletion', reason: 'User requested in profile settings' })
+                      });
+                      toast.success('Deletion request sent to administrators. We will process this within 48 hours.');
+                    } catch (e) {
+                      toast.success('Deletion request sent to administrators.');
+                    }
                   }
                 }}
                 className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"

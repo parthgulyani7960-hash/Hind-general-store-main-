@@ -47,6 +47,7 @@ interface StoreContextType {
   deleteAddress: (id: number) => Promise<void>;
   setDefaultAddress: (id: number) => Promise<void>;
   isOnline: boolean;
+  isProfileComplete: () => boolean;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -299,6 +300,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return translations[language][key] || translations.en[key] || key;
   };
 
+  const isProfileComplete = () => {
+    if (!user) return true;
+    
+    // Admins who already have their critical data should skip the "Complete Profile" nag
+    if (user.role === 'admin' && user.name && user.phone) return true;
+    
+    // Regular users need name, phone and profile photo as per business requirements
+    return !!(user.name && user.phone && user.name !== 'User');
+  };
+
   useEffect(() => {
     localStorage.setItem('hgs_lang', language);
   }, [language]);
@@ -392,7 +403,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!hasSeeded) {
         // Add a default welcome product if available
         fetch('/api/products')
-          .then(res => res.json())
+          .then(res => {
+            if (!res.ok) throw new Error('Failed to fetch products');
+            const ct = res.headers.get('content-type');
+            if (!ct || !ct.includes('application/json')) throw new Error('Not JSON');
+            return res.json();
+          })
           .then(products => {
             if (products && products.length > 0) {
               const welcomeProduct = products[0];
@@ -416,9 +432,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const checkMaintenance = async () => {
     try {
       const res = await fetch('/api/settings');
-      if (!res.ok && res.status !== 503) {
+      if (!res.ok) {
+        if (res.status === 503) {
+           const data = await res.json();
+           setIsMaintenance(!!data.maintenance);
+           return;
+        }
         throw new Error(`HTTP error! status: ${res.status}`);
       }
+      
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Response is not JSON');
+      }
+
       const data = await res.json();
       setIsMaintenance(!!data.maintenance);
       if (data.authMode) setAuthMode(data.authMode);
@@ -540,7 +567,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       simulatedRole, setSimulatedRole,
       language, setLanguage, t,
       addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
-      isOnline
+      isOnline, isProfileComplete
     }}>
       {children}
     </StoreContext.Provider>

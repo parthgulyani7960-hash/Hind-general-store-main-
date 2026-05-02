@@ -8,43 +8,61 @@ import { cn } from '../types';
 import UserAvatar from './UserAvatar';
 
 const MiniCart = ({ cart, isOpen }: { cart: any[], isOpen: boolean }) => {
+  const { t } = useStore();
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const itemsToShow = cart.slice(0, 3);
+  const itemsToShow = cart.slice(0, 5);
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 10 }}
-          className="absolute top-full right-0 w-80 bg-white rounded-2xl shadow-xl border border-stone-100 p-4 z-50 mt-2"
+          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+          className="absolute top-full right-0 w-80 bg-white rounded-[2rem] shadow-2xl shadow-stone-200/50 border border-stone-100 p-6 z-50 mt-4 overflow-hidden"
         >
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-lg">Mini Cart</h3>
-            <span className="text-xs text-stone-500">{cart.length} items</span>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-black text-stone-900">{t('mini_cart')}</h3>
+            <span className="text-[10px] font-black text-white bg-primary px-2 py-0.5 rounded-full uppercase tracking-tighter">{cart.length}</span>
           </div>
           
-          <div className="space-y-3 max-h-[300px] overflow-y-auto">
-            {itemsToShow.map((item) => (
-              <div key={item.id} className="flex items-center space-x-3">
-                <img src={item.image_url} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{item.name}</p>
-                  <p className="text-xs text-stone-500">{item.quantity} x ₹{item.price}</p>
-                </div>
-                <p className="font-bold text-sm">₹{item.price * item.quantity}</p>
+          <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+            {cart.length === 0 ? (
+              <div className="text-center py-8 text-stone-400">
+                <ShoppingBag size={32} className="mx-auto mb-2 opacity-20" />
+                <p className="text-xs font-bold uppercase tracking-widest">{t('no_items') || 'Your cart is empty'}</p>
               </div>
-            ))}
+            ) : (
+              itemsToShow.map((item) => (
+                <div key={item.id} className="flex items-center space-x-3 group">
+                  <div className="w-14 h-14 bg-stone-50 rounded-xl overflow-hidden shrink-0 border border-stone-100">
+                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-stone-800 truncate">{item.name}</p>
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">{item.quantity} x ₹{item.price}</p>
+                  </div>
+                  <p className="font-black text-sm text-stone-900">₹{item.price * item.quantity}</p>
+                </div>
+              ))
+            )}
+            {cart.length > 5 && (
+              <p className="text-[10px] text-center font-bold text-stone-400 uppercase tracking-widest pt-2">
+                + {cart.length - 5} more items
+              </p>
+            )}
           </div>
           
-          <div className="mt-4 pt-4 border-t border-stone-100 flex justify-between items-center">
-            <p className="font-bold">Subtotal</p>
-            <p className="font-black text-lg text-primary">₹{subtotal}</p>
+          <div className="mt-6 pt-6 border-t border-dashed border-stone-100 flex justify-between items-center">
+            <p className="font-bold text-stone-500 uppercase tracking-[0.2em] text-[10px]">{t('subtotal')}</p>
+            <p className="font-black text-2xl text-primary">₹{subtotal}</p>
           </div>
           
-          <Link to="/cart" className="block w-full bg-primary text-white text-center py-2 rounded-xl mt-4 font-bold text-sm hover:bg-opacity-90">
-            View Full Cart
+          <Link 
+            to="/cart" 
+            className="block w-full bg-stone-900 text-white text-center py-4 rounded-2xl mt-6 font-black text-xs uppercase tracking-widest hover:bg-primary transition-all shadow-lg hover:shadow-primary/20 active:scale-95"
+          >
+            {t('view_full_cart')}
           </Link>
         </motion.div>
       )}

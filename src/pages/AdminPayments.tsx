@@ -395,28 +395,57 @@ export default function AdminPayments() {
             ) : activeTab === 'WALLET' ? (
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-stone-50 border-b border-stone-100">
-                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest">User / Date</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest">Credit Amount</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest">Description / Type</th>
+                  <tr className="bg-stone-100/50 border-b border-stone-200">
+                    <th className="px-6 py-4 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">User Transaction</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Value</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Context / Reason</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-50">
-                  {filteredWallet.map((credit) => (
-                    <tr key={credit.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-6">
-                        <p className="text-xs font-bold text-stone-900">{credit.user_name}</p>
-                        <p className="text-[10px] text-stone-400">{new Date(credit.created_at).toLocaleString()}</p>
-                      </td>
-                      <td className="px-6 py-6">
-                        <span className="text-sm font-black text-emerald-600">+₹{credit.amount}</span>
-                      </td>
-                      <td className="px-6 py-6">
-                        <p className="text-xs font-bold text-stone-800">{credit.description}</p>
-                        <p className="text-[10px] text-stone-400 uppercase tracking-wider font-medium">{credit.type}</p>
-                      </td>
+                  {filteredWallet.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-20 text-center text-stone-400 italic">No wallet transactions found.</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredWallet.map((credit) => (
+                      <tr key={credit.id} className="hover:bg-stone-50 transition-colors group">
+                        <td className="px-6 py-6">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-black">
+                              {credit.user_name?.[0] || 'U'}
+                            </div>
+                            <div>
+                              <p className="text-sm font-black text-stone-900">{credit.user_name}</p>
+                              <p className="text-[10px] text-stone-400 font-bold">{new Date(credit.created_at).toLocaleString('en-IN')}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 font-black text-lg text-emerald-600">
+                           ₹{credit.amount}
+                        </td>
+                        <td className="px-6 py-6">
+                           <p className="text-xs font-bold text-stone-800">{credit.description}</p>
+                           <span className="text-[9px] bg-stone-100 text-stone-400 px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-stone-200 mt-1 inline-block">
+                              {credit.type || 'wallet_load'}
+                           </span>
+                        </td>
+                        <td className="px-6 py-6 text-right">
+                           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end space-x-2">
+                              <button 
+                                onClick={() => toast.success('Sending receipt to user email...')}
+                                className="p-2 bg-white border border-stone-200 text-stone-400 hover:text-primary rounded-lg transition-colors"
+                              >
+                                <Mail size={16} />
+                              </button>
+                              <button className="p-2 bg-white border border-stone-200 text-stone-400 hover:text-primary rounded-lg transition-colors">
+                                <ExternalLink size={16} />
+                              </button>
+                           </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             ) : (
