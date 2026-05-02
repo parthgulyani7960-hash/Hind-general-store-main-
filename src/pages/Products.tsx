@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Filter, ShoppingCart, Plus, Minus, Share2, Heart, Star, Loader2, X, Camera } from 'lucide-react';
+import { 
+  Search, Filter, ShoppingCart, Plus, Minus, 
+  Share2, Heart, Star, Loader2, X, Camera,
+  Zap, LayoutGrid, ArrowDownNarrowWide, ArrowUpNarrowWide, Clock
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Product, cn } from '../types';
 import { useStore } from '../StoreContext';
@@ -16,6 +20,7 @@ export default function Products() {
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
   const [onSaleOnly, setOnSaleOnly] = useState(false);
+  const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
   const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
   const activeRole = simulatedRole || user?.role;
 
@@ -49,8 +54,14 @@ export default function Products() {
   const filteredProducts = products
     .filter(p => {
       const activePrice = getProductPrice(p, user?.role);
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                           p.description.toLowerCase().includes(searchTerm.toLowerCase());
+      const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
+      
+      const matchesSearch = searchTerms.length === 0 || searchTerms.every(term => 
+        p.name.toLowerCase().includes(term) || 
+        p.description.toLowerCase().includes(term) ||
+        p.category.toLowerCase().includes(term)
+      );
+
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
       const matchesMinPrice = activePrice >= Number(minPrice);
@@ -74,6 +85,16 @@ export default function Products() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+
+  // Body scroll lock
+  useEffect(() => {
+    if (isFilterOpen || quickViewProduct) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [isFilterOpen, quickViewProduct]);
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -221,174 +242,327 @@ export default function Products() {
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-stone-900">
-            {activeRole === 'wholesaler' ? (t('wholesale_portal') || 'Wholesale Portal') : 
-             activeRole === 'retailer' ? (t('retail_portal') || 'Retail Portal') : 
-             (t('all_products') || 'Our Products')}
-          </h1>
-          <p className="text-stone-500">
-            {activeRole === 'wholesaler' ? (t('bulk_supply') || 'Bulk Supply') : 
-             activeRole === 'retailer' ? (t('grow_business') || 'Grow Business') : 
-             'Fresh items delivered to your home.'}
-          </p>
-        </div>
-        <button 
-          onClick={() => setIsFilterOpen(!isFilterOpen)}
-          className="md:hidden flex items-center justify-center space-x-2 btn-outline py-2.5"
-        >
-          <Filter size={18} />
-          <span>{isFilterOpen ? 'Hide Filters' : 'Show Filters'}</span>
-        </button>
-      </div>
-
-      <div className="flex flex-col md:flex-row gap-8">
-        {/* Sidebar */}
-        <aside className={cn("w-full md:w-64 space-y-6 flex-shrink-0", isFilterOpen ? "block" : "hidden md:block")}>
-          <div className="bg-white p-6 rounded-2xl border border-stone-100 shadow-sm space-y-6 sticky top-20">
-            <h3 className="font-bold text-lg">{t('filters') || 'Filters'}</h3>
+      <div className="flex flex-col gap-6">
+        {/* Modern Top Navigation & Filter Bar */}
+        <div className="sticky top-[64px] pb-4 z-40 bg-stone-50/80 backdrop-blur-md px-4 md:px-0 -mx-4 md:mx-0">
+          <div className="bg-white p-4 rounded-3xl border border-stone-100 shadow-xl shadow-stone-200/40 space-y-4">
+            <div className="flex flex-col md:flex-row gap-4 items-center">
+            {/* Search - More prominent with better focus states */}
+            <div className="relative flex-1 group w-full">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-primary transition-colors" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search products, brands, categories..."
+                className="w-full bg-stone-50 border-2 border-transparent rounded-2xl py-3.5 pl-12 pr-4 focus:border-primary/20 focus:bg-white transition-all text-sm font-bold outline-none placeholder:text-stone-400 placeholder:font-medium"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
             
-            {/* Category Filter */}
-            <div className="space-y-2">
-              <p className="text-sm font-bold text-stone-700">{t('categories') || 'Categories'}</p>
+            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto hide-scrollbar">
+               {/* Quick Filters */}
+               <button
+                 onClick={() => setOnSaleOnly(!onSaleOnly)}
+                 className={cn(
+                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap",
+                   onSaleOnly ? "bg-accent text-white shadow-lg shadow-accent/30" : "bg-stone-50 text-stone-500 hover:bg-stone-100"
+                 )}
+               >
+                 <Zap size={12} fill={onSaleOnly ? "currentColor" : "none"} />
+                 <span>On Sale</span>
+               </button>
+
+               <div className="h-8 w-px bg-stone-200 mx-1 hidden md:block" />
+
+               <button
+                 onClick={() => setIsFilterOpen(true)}
+                 className={cn(
+                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap",
+                   (selectedRating !== null || minPrice !== '0' || maxPrice !== '' || sortBy !== 'relevance') 
+                     ? "bg-primary text-white shadow-lg shadow-primary/30" 
+                     : "bg-stone-900 text-white hover:bg-stone-800"
+                 )}
+               >
+                 <Filter size={12} />
+                 <span>Filters {(selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance') && '•'}</span>
+               </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {/* Quick Categories Bar */}
+            <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
               {categories.map(cat => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                    selectedCategory === cat ? 'bg-primary text-white shadow-md' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
+                  className={cn(
+                    "px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-2",
+                    selectedCategory === cat 
+                      ? "bg-primary border-primary text-white shadow-lg shadow-primary/20 scale-105" 
+                      : "bg-white border-stone-100 text-stone-400 hover:border-stone-200 hover:text-stone-600"
+                  )}
                 >
                   {cat}
                 </button>
               ))}
             </div>
 
-            {/* Price Filter */}
-            <div className="space-y-2">
-              <p className="text-sm font-bold text-stone-700">Price Range</p>
-              <div className="flex items-center space-x-2">
-                <input type="number" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} className="input-field w-full" placeholder="Min" />
-                <span className="text-stone-300">-</span>
-                <input type="number" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className="input-field w-full" placeholder="Max" />
-              </div>
-            </div>
-
-            {/* Rating Filter */}
-            <div className="space-y-2">
-              <p className="text-sm font-bold text-stone-700">Minimum Rating</p>
-              {[5, 4, 3, 2, 1].map(rating => (
-                <button
-                  key={rating}
-                  onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
-                  className={`flex items-center space-x-2 w-full p-2 rounded-lg text-sm transition-all ${selectedRating === rating ? 'bg-amber-100 text-amber-900 shadow-sm' : 'text-stone-600 hover:bg-stone-50'}`}
+            {/* Active Filter Chips */}
+            {(selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || sortBy !== 'relevance' || searchTerm) && (
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-stone-50">
+                <span className="text-[9px] font-black uppercase tracking-tighter text-stone-400 mr-1">Active:</span>
+                {searchTerm && (
+                  <div className="flex items-center gap-1.5 bg-stone-100 px-3 py-1.5 rounded-lg text-[10px] font-bold text-stone-600">
+                    <span>"{searchTerm}"</span>
+                    <button onClick={() => setSearchTerm('')}><X size={10} /></button>
+                  </div>
+                )}
+                {selectedCategory !== 'All' && (
+                  <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-lg text-[10px] font-bold text-primary">
+                    <span>{selectedCategory}</span>
+                    <button onClick={() => setSelectedCategory('All')}><X size={10} /></button>
+                  </div>
+                )}
+                {onSaleOnly && (
+                  <div className="flex items-center gap-1.5 bg-accent/10 px-3 py-1.5 rounded-lg text-[10px] font-bold text-accent">
+                    <span>On Sale</span>
+                    <button onClick={() => setOnSaleOnly(false)}><X size={10} /></button>
+                  </div>
+                )}
+                {selectedRating !== null && (
+                  <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-lg text-[10px] font-bold text-amber-600">
+                    <span className="flex items-center">{selectedRating}+ <Star size={8} className="ml-0.5" fill="currentColor" /></span>
+                    <button onClick={() => setSelectedRating(null)}><X size={10} /></button>
+                  </div>
+                )}
+                {minPrice !== '0' && (
+                  <div className="flex items-center gap-1.5 bg-stone-100 px-3 py-1.5 rounded-lg text-[10px] font-bold text-stone-600">
+                    <span>Min: ₹{minPrice}</span>
+                    <button onClick={() => setMinPrice('0')}><X size={10} /></button>
+                  </div>
+                )}
+                <button 
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedCategory('All');
+                    setSelectedRating(null);
+                    setMinPrice('0');
+                    setOnSaleOnly(false);
+                    setSortBy('relevance');
+                  }}
+                  className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline ml-auto"
                 >
-                  <Star size={16} fill={selectedRating && selectedRating >= rating ? "currentColor" : "none"} className="text-amber-400" />
-                  <span>{rating}+ Stars</span>
+                  Clear All
                 </button>
-              ))}
-            </div>
-
-            {/* Special Filter */}
-            <div className="pt-2 border-t border-stone-100">
-               <button
-                 onClick={() => setOnSaleOnly(!onSaleOnly)}
-                 className={`flex items-center justify-between w-full p-3 rounded-xl border transition-all ${
-                   onSaleOnly 
-                     ? 'bg-accent/10 border-accent text-accent font-bold' 
-                     : 'border-stone-100 text-stone-600 hover:border-stone-200'
-                 }`}
-               >
-                 <span className="text-sm">Only Discounted</span>
-                 <div className={`w-10 h-6 rounded-full relative transition-colors ${onSaleOnly ? 'bg-accent' : 'bg-stone-200'}`}>
-                   <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${onSaleOnly ? 'left-5' : 'left-1'}`} />
-                 </div>
-               </button>
-            </div>
-            
-            <button 
-              onClick={() => { 
-                setSearchTerm(''); 
-                setSelectedCategory('All'); 
-                setSelectedRating(null); 
-                setMinPrice('0'); 
-                const maxP = Math.max(...products.map(p => getProductPrice(p, user?.role)));
-                setMaxPrice(maxP.toString());
-                setOnSaleOnly(false);
-              }} 
-              className="w-full btn-outline py-2 border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-            >
-              Clear Filters
-            </button>
-          </div>
-        </aside>
-
-        {/* Product Grid */}
-        <div className="flex-1 space-y-6">
-          <div className="flex flex-col space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-2xl border border-stone-100 shadow-sm gap-4">
-              <div className="relative w-full sm:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Search products..."
-                  className="input-field pl-10 pr-4 w-full"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
               </div>
-              <div className="flex items-center space-x-2 w-full sm:w-auto">
-                <span className="text-xs font-bold text-stone-400 uppercase tracking-wider hidden sm:block">Sort By</span>
-                <select className="input-field w-full sm:w-48 font-bold" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  <option value="relevance">Relevance</option>
-                  <option value="popularity">Popularity (Most Reviewed)</option>
-                  <option value="price-low">Price: Low to High</option>
-                  <option value="price-high">Price: High to Low</option>
-                  <option value="rating">Top Rated</option>
-                  <option value="newest">Newest First</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Active Filters Chips */}
-            <div className="flex flex-wrap gap-2 items-center min-h-[32px]">
-               {selectedCategory !== 'All' && (
-                 <div className="flex items-center space-x-1 bg-stone-100 px-3 py-1 rounded-full text-xs font-bold text-stone-600 border border-stone-200">
-                    <span>Category: {selectedCategory}</span>
-                    <button onClick={() => setSelectedCategory('All')} className="text-stone-400 hover:text-stone-600"><X size={14} /></button>
-                 </div>
-               )}
-               {selectedRating !== null && (
-                 <div className="flex items-center space-x-1 bg-stone-100 px-3 py-1 rounded-full text-xs font-bold text-stone-600 border border-stone-200">
-                    <span>Rating: {selectedRating}+ Stars</span>
-                    <button onClick={() => setSelectedRating(null)} className="text-stone-400 hover:text-stone-600"><X size={14} /></button>
-                 </div>
-               )}
-               {onSaleOnly && (
-                 <div className="flex items-center space-x-1 bg-accent/10 px-3 py-1 rounded-full text-xs font-bold text-accent border border-accent/20">
-                    <span>On Sale Only</span>
-                    <button onClick={() => setOnSaleOnly(false)} className="text-accent/60 hover:text-accent"><X size={14} /></button>
-                 </div>
-               )}
-               {searchTerm && (
-                 <div className="flex items-center space-x-1 bg-stone-100 px-3 py-1 rounded-full text-xs font-bold text-stone-600 border border-stone-200">
-                    <span>Search: {searchTerm}</span>
-                    <button onClick={() => setSearchTerm('')} className="text-stone-400 hover:text-stone-600"><X size={14} /></button>
-                 </div>
-               )}
-               {(selectedCategory !== 'All' || selectedRating !== null || onSaleOnly || searchTerm) && (
-                 <button 
-                  onClick={() => { setSearchTerm(''); setSelectedCategory('All'); setSelectedRating(null); setOnSaleOnly(false); }}
-                  className="text-xs font-bold text-stone-400 hover:text-primary transition-colors underline underline-offset-2 ml-2"
-                 >
-                   Reset All
-                 </button>
-               )}
-            </div>
+            )}
           </div>
+        </div>
+      </div>
+
+      {/* Filter Drawer Overlay */}
+        <AnimatePresence>
+          {isFilterOpen && (
+            <>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsFilterOpen(false)}
+                className="fixed inset-0 bg-stone-900/60 backdrop-blur-md z-[60] overscroll-none"
+              />
+              <motion.div 
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="fixed top-0 right-0 h-full w-full max-w-sm bg-white z-[70] shadow-2xl flex flex-col overscroll-none"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-8 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
+                  <div>
+                    <h2 className="text-xl font-black text-stone-900">Filters</h2>
+                    <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest">Personalize your feed</p>
+                  </div>
+                  <button 
+                    onClick={() => setIsFilterOpen(false)}
+                    className="p-3 bg-white rounded-2xl hover:bg-stone-50 transition-all shadow-sm border border-stone-100"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-8 space-y-12">
+                  {/* Sorting Section */}
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2">
+                      <LayoutGrid size={14} className="text-primary" />
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Sort Results</h3>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'relevance', label: 'Recommended', icon: Star },
+                        { id: 'popularity', label: 'Best Sellers', icon: Zap },
+                        { id: 'price-low', label: 'Lowest Price', icon: ArrowDownNarrowWide },
+                        { id: 'price-high', label: 'Highest Price', icon: ArrowUpNarrowWide },
+                        { id: 'rating', label: 'User Rating', icon: Star },
+                        { id: 'newest', label: 'Newly Added', icon: Clock },
+                      ].map(option => (
+                        <button
+                          key={option.id}
+                          onClick={() => setSortBy(option.id)}
+                          className={cn(
+                            "group flex items-center justify-between p-4 rounded-2xl border-2 transition-all",
+                            sortBy === option.id 
+                              ? "border-primary bg-primary/5 text-primary" 
+                              : "border-stone-50 text-stone-500 hover:border-stone-200 hover:bg-stone-50"
+                          )}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <option.icon size={16} className={sortBy === option.id ? "text-primary" : "text-stone-300 group-hover:text-stone-400"} />
+                            <span className="font-bold text-sm tracking-tight">{option.label}</span>
+                          </div>
+                          {sortBy === option.id && <div className="w-2 h-2 bg-primary rounded-full" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Price Section */}
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2">
+                      <Zap size={14} className="text-primary" />
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Price Threshold</h3>
+                    </div>
+                    <div className="bg-stone-50 p-6 rounded-3xl space-y-8 border border-stone-100">
+                      <div className="flex flex-col space-y-6">
+                        <div className="space-y-3">
+                          <p className="text-[9px] font-black uppercase text-stone-400 tracking-tighter">Minimum Price</p>
+                          <div className="flex items-center space-x-2">
+                            <button 
+                              onClick={() => {
+                                const next = Math.max(0, (parseInt(minPrice || '0') || 0) - 10);
+                                setMinPrice(next.toString());
+                              }}
+                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
+                            >
+                              <Minus size={14} />
+                            </button>
+                            <div className="flex-1 flex items-center bg-white border border-stone-200 rounded-xl px-3 py-2">
+                              <span className="text-stone-400 font-bold text-sm mr-1">₹</span>
+                              <input 
+                                type="number" 
+                                value={minPrice} 
+                                onChange={(e) => setMinPrice(e.target.value)} 
+                                className="bg-transparent font-black text-lg w-full outline-none"
+                              />
+                            </div>
+                            <button 
+                              onClick={() => {
+                                const next = (parseInt(minPrice || '0') || 0) + 10;
+                                setMinPrice(next.toString());
+                              }}
+                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <p className="text-[9px] font-black uppercase text-stone-400 tracking-tighter">Maximum Price</p>
+                          <div className="flex items-center space-x-2">
+                            <button 
+                              onClick={() => {
+                                const next = Math.max(0, (parseInt(maxPrice || '0') || 0) - 50);
+                                setMaxPrice(next.toString());
+                              }}
+                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
+                            >
+                              <Minus size={14} />
+                            </button>
+                            <div className="flex-1 flex items-center justify-end bg-white border border-stone-200 rounded-xl px-3 py-2">
+                              <span className="text-stone-400 font-bold text-sm mr-1">₹</span>
+                              <input 
+                                type="number" 
+                                value={maxPrice} 
+                                onChange={(e) => setMaxPrice(e.target.value)} 
+                                className="bg-transparent font-black text-lg w-full text-right outline-none"
+                              />
+                            </div>
+                            <button 
+                              onClick={() => {
+                                const next = (parseInt(maxPrice || '0') || 0) + 50;
+                                setMaxPrice(next.toString());
+                              }}
+                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Rating Section */}
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2">
+                      <Star size={14} className="text-primary" />
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Min Rating</h3>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      {[5, 4, 3, 2, 1].map(rating => (
+                        <button
+                          key={rating}
+                          onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
+                          className={cn(
+                            "flex flex-col items-center justify-center flex-1 py-4 rounded-2xl border-2 transition-all space-y-2 shadow-sm",
+                            selectedRating === rating 
+                              ? "bg-amber-50 border-amber-400 text-amber-600 scale-105 shadow-lg shadow-amber-200/40" 
+                              : "bg-white border-stone-50 text-stone-400 hover:border-amber-100 hover:text-amber-400"
+                          )}
+                        >
+                          <Star size={18} fill={selectedRating === rating ? "currentColor" : "none"} />
+                          <span className="font-black text-[10px] tracking-tighter">{rating}★</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-8 bg-white border-t border-stone-100 flex items-center justify-between">
+                  <button 
+                    onClick={() => { 
+                      setSearchTerm(''); 
+                      setSelectedCategory('All'); 
+                      setSelectedRating(null); 
+                      setMinPrice('0'); 
+                      const maxP = Math.max(...products.map(p => getProductPrice(p, user?.role)));
+                      setMaxPrice(maxP.toString());
+                      setOnSaleOnly(false);
+                      setSortBy('relevance');
+                    }} 
+                    className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400 hover:text-primary transition-colors"
+                  >
+                    Reset
+                  </button>
+                  <button 
+                    onClick={() => setIsFilterOpen(false)}
+                    className="px-10 py-4 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-primary/25 hover:scale-105 active:scale-95 transition-all"
+                  >
+                    View Result
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
 
+        {/* Product Grid Content */}
+        <div className="flex-1">
       <motion.div 
         initial="hidden"
         animate="visible"
@@ -410,11 +584,13 @@ export default function Products() {
             <motion.div 
               key={product.id}
               layout
+              onMouseEnter={() => setHoverQuickView(product.id)}
+              onMouseLeave={() => setHoverQuickView(null)}
               variants={{
                 hidden: { opacity: 0, y: 20 },
                 visible: { opacity: 1, y: 0 }
               }}
-              className="bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-md transition-all flex flex-col"
+              className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-md transition-all flex flex-col"
             >
               <Link to={`/product/${product.id}`} className="relative h-48 overflow-hidden block group/image">
                 <img 
@@ -520,13 +696,14 @@ export default function Products() {
                       </button>
                     </motion.div>
                   ) : (
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => addToCart(product)}
-                      className="flex-1 btn-primary flex items-center justify-center space-x-2"
+                      className="flex-1 btn-primary flex items-center justify-center space-x-2 shadow-lg shadow-primary/20"
                     >
                       <ShoppingCart size={18} />
-                      <span>Add</span>
-                    </button>
+                      <span className="text-xs font-black uppercase tracking-widest">Add</span>
+                    </motion.button>
                   )}
                   <button 
                     onClick={(e) => {
@@ -545,10 +722,43 @@ export default function Products() {
                   </button>
                 </div>
               </div>
+              <AnimatePresence>
+                {hoverQuickView === product.id && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="absolute inset-0 bg-white/95 backdrop-blur-md z-30 p-6 flex flex-col items-center justify-center text-center shadow-xl hidden sm:flex"
+                  >
+                     <img src={product.image_url} alt={product.name} className="w-32 h-32 object-cover rounded-2xl shadow-md mb-4" />
+                     <h3 className="text-xl font-bold text-stone-900 mb-2 truncate w-full">{product.name}</h3>
+                     <p className="text-primary font-black text-2xl mb-6">₹{getProductPrice(product, user?.role)}</p>
+                     
+                     <div className="w-full flex space-x-2">
+                        {cartItem ? (
+                           <div className="flex-1 flex items-center justify-between bg-stone-100 rounded-xl p-2 border border-stone-200">
+                             <button onClick={() => updateQuantity(product.id, -1)} className="p-3 hover:bg-white rounded-lg transition-colors text-primary"><Minus size={20} /></button>
+                             <span className="font-bold text-lg">{cartItem.quantity}</span>
+                             <button onClick={() => updateQuantity(product.id, 1)} className="p-3 hover:bg-white rounded-lg transition-colors text-primary"><Plus size={20} /></button>
+                           </div>
+                        ) : (
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={(e) => { e.preventDefault(); addToCart(product); }}
+                            className="flex-1 btn-primary py-4 text-lg font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/25 flex justify-center items-center gap-2"
+                          >
+                            <ShoppingCart size={20} />
+                            <span>Quick Add</span>
+                          </motion.button>
+                        )}
+                     </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           );
-      })}
-    </motion.div>
+        })}
+      </motion.div>
 
       {filteredProducts.length === 0 && (
         <div className="text-center py-20">

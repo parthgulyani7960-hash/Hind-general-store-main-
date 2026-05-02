@@ -52,7 +52,7 @@ export default function Home() {
                 </p>
               </motion.div>
             )}
-            <h1 className="text-6xl font-bold text-primary leading-tight">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-primary leading-[1.1] md:leading-tight">
               {activeRole === 'wholesaler' ? (
                 <>{t('wholesale_portal')} <br /> <span className="text-accent">{t('bulk_supply')}</span></>
               ) : activeRole === 'retailer' ? (
@@ -70,11 +70,11 @@ export default function Home() {
               }
             </p>
             <div className="flex flex-wrap gap-4">
-              <Link to="/products" className="btn-primary text-lg px-8 py-4 flex items-center space-x-2">
+              <Link to="/products" className="btn-primary w-full md:w-auto text-lg px-8 py-4 flex items-center justify-center space-x-2">
                 <span>{t('all_products')}</span>
                 <ArrowRight size={20} />
               </Link>
-              <Link to="/support" className="bg-white text-stone-800 border border-stone-200 px-8 py-4 rounded-xl font-medium hover:bg-stone-50 transition-all flex items-center space-x-2">
+              <Link to="/support" className="bg-white w-full md:w-auto justify-center text-stone-800 border border-stone-200 px-8 py-4 rounded-xl font-medium hover:bg-stone-50 transition-all flex items-center space-x-2">
                 <PhoneCall size={20} />
                 <span>Contact Support</span>
               </Link>
@@ -161,21 +161,21 @@ export default function Home() {
       </section>
 
       {/* Categories Preview */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-        <div className="flex justify-between items-end">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 md:space-y-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3">
           <div>
-            <h2 className="text-3xl font-bold text-stone-900">Popular Categories</h2>
-            <p className="text-stone-500">Explore our wide range of products</p>
+            <h2 className="text-2xl md:text-3xl font-bold text-stone-900">Popular Categories</h2>
+            <p className="text-sm md:text-base text-stone-500 mt-1 md:mt-0">Explore our wide range of products</p>
           </div>
-          <Link to="/products" className="text-primary font-medium hover:underline">View All</Link>
+          <Link to="/products" className="text-primary font-bold hover:underline inline-flex items-center">View All <ArrowRight size={16} className="ml-1" /></Link>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
           {['Grocery', 'Oils', 'Dairy', 'Personal Care'].map((cat, i) => (
             <Link 
               key={i}
               to={`/products?category=${encodeURIComponent(cat)}`}
-              className="relative h-48 rounded-2xl overflow-hidden group block"
+              className="relative h-36 md:h-48 rounded-2xl overflow-hidden group block"
             >
               <img 
                 src={`https://picsum.photos/seed/${cat}/400/300`} 

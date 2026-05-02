@@ -84,6 +84,41 @@ db = connectDatabase(dbPath);
 console.log('Database connected at:', dbPath);
 
 const app = express();
+
+// Security Headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https:;");
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// Basic Rate Limiting to prevent automated misuse
+const rateLimits = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS = 100; // per minute per IP
+
+app.use((req, res, next) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  const limit = rateLimits.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
+
+  if (now > limit.resetTime) {
+    limit.count = 1;
+    limit.resetTime = now + RATE_LIMIT_WINDOW;
+  } else {
+    limit.count++;
+  }
+
+  rateLimits.set(ip, limit);
+
+  if (limit.count > MAX_REQUESTS) {
+    return res.status(429).json({ success: false, message: 'Too many requests. Please slow down.' });
+  }
+  next();
+});
 let httpServer: any;
 
 // WebSocket setup - Skip on Vercel
@@ -363,7 +398,10 @@ async function initDatabase() {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT,
     message TEXT,
-    type TEXT, -- 'ad', 'system', 'order'
+    type TEXT, -- 'ad', 'system', 'order', 'announcement'
+    priority TEXT DEFAULT 'medium', -- 'low', 'medium', 'high'
+    target_role TEXT DEFAULT 'all', -- 'all', 'admin', 'user', 'delivery'
+    expires_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -1500,8 +1538,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     db.transaction(() => {
       db.prepare('DELETE FROM cart_items WHERE user_id = ?').run(userId);
       const insert = db.prepare('INSERT INTO cart_items (user_id, product_id, quantity) VALUES (?, ?, ?)');
+      
+      const itemMap = new Map();
       for (const item of items) {
-        insert.run(userId, item.id, item.quantity);
+        if (itemMap.has(item.id)) {
+          itemMap.set(item.id, itemMap.get(item.id) + item.quantity);
+        } else {
+          itemMap.set(item.id, item.quantity);
+        }
+      }
+      
+      for (const [productId, quantity] of itemMap.entries()) {
+        insert.run(userId, productId, quantity);
       }
     })();
     res.json({ success: true });
@@ -2161,8 +2209,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.post('/api/admin/notifications', (req, res) => {
-    const { title, message, type } = req.body;
-    db.prepare('INSERT INTO notifications (title, message, type) VALUES (?, ?, ?)').run(title, message, type);
+    const { title, message, type, priority, target_role, expires_at } = req.body;
+    db.prepare('INSERT INTO notifications (title, message, type, priority, target_role, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(title, message, type, priority || 'medium', target_role || 'all', expires_at || null);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/notifications/:id', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM notifications WHERE id = ?').run(id);
     res.json({ success: true });
   });
 
@@ -2855,6 +2910,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const existingOrder = db.prepare('SELECT status, order_id, user_id, wallet_used, total, payment_method FROM orders WHERE id = ?').get(id) as any;
       if (!existingOrder) return res.status(404).json({ message: 'Order not found' });
 
+      const oldState = { status: existingOrder.status };
+
       db.transaction(() => {
         if (rejection_reason) {
           db.prepare('UPDATE orders SET status = ?, rejection_reason = ? WHERE id = ?').run(status, rejection_reason, id);
@@ -2862,9 +2919,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
         }
 
-        // Log administrative action
+        // Log administrative action with reversible state
         db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
-          .run(adminId, 'ORDER_STATUS_UPDATE', 'ORDER', id, `Updated order ${existingOrder.order_id || id} status from ${existingOrder.status} to ${status}. ${rejection_reason ? 'Reason: ' + rejection_reason : ''}`);
+          .run(adminId, 'ORDER_STATUS_UPDATE', 'ORDER', id, JSON.stringify({ 
+            message: `Updated order ${existingOrder.order_id || id} status from ${existingOrder.status} to ${status}. ${rejection_reason ? 'Reason: ' + rejection_reason : ''}`,
+            oldState,
+            newState: { status }
+          }));
 
         // AUTO-RESTOCK & REFUND ON CANCEL/FAIL
         if ((status === 'cancelled' || status === 'failed') && existingOrder.status !== 'cancelled' && existingOrder.status !== 'failed') {
@@ -3009,7 +3070,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.put('/api/admin/products/:id', (req, res) => {
     const { id } = req.params;
+    const adminId = (req as any).user?.id;
     const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id } = req.body;
+    
+    const oldState = db.prepare('SELECT * FROM products WHERE id = ?').get(id) as any;
+    if (!oldState) return res.status(404).json({ message: 'Product not found' });
+
     db.prepare(`
       UPDATE products SET 
       name = ?, description = ?, price = ?, wholesale_price = ?, retail_price = ?, 
@@ -3018,6 +3084,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       WHERE id = ?
     `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null, id);
     
+    // Log action with state
+    db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+      .run(adminId, 'PRODUCT_UPDATE', 'PRODUCT', id, JSON.stringify({
+        message: `Updated product ${name} (ID: ${id})`,
+        oldState,
+        newState: req.body
+      }));
+
     const s = Number(stock);
     const rp = Number(reorder_point || 5);
     if (s <= rp) {
@@ -3032,6 +3106,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.delete('/api/admin/products/:id', (req, res) => {
     const { id } = req.params;
+    const adminId = (req as any).user?.id;
+    const oldState = db.prepare('SELECT * FROM products WHERE id = ?').get(id) as any;
+    if (oldState) {
+      db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+        .run(adminId, 'PRODUCT_DELETE', 'PRODUCT', id, JSON.stringify({
+          message: `Deleted product ${oldState.name} (ID: ${id})`,
+          oldState
+        }));
+    }
     db.prepare('DELETE FROM products WHERE id = ?').run(id);
     res.json({ success: true });
   });
@@ -3362,6 +3445,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const currentUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
     if (!currentUser) return res.status(404).json({ message: 'User not found' });
 
+    const phone = body.phone !== undefined ? body.phone : currentUser.phone;
+    if (phone && phone !== currentUser.phone) {
+      const existingPhone = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone, id);
+      if (existingPhone) {
+        return res.status(400).json({ message: 'Mobile number already in use' });
+      }
+    }
+
     const name = body.name !== undefined ? body.name : currentUser.name;
     const email = body.email !== undefined ? body.email : currentUser.email;
     const shop_name = body.shop_name !== undefined ? body.shop_name : currentUser.shop_name;
@@ -3379,15 +3470,33 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       UPDATE users SET 
       name = ?, email = ?, shop_name = ?, pin_code = ?, role = ?, 
       khata_enabled = ?, khata_limit = ?, khata_due_date = ?, segment = ?,
-      street_address = ?, city = ?, state = ?
+      street_address = ?, city = ?, state = ?, phone = ?
       WHERE id = ?
-    `).run(name, email, shop_name, pin_code, role, khata_enabled ? 1 : 0, khata_limit, khata_due_date, segment, street_address, city, state, id);
+    `).run(name, email, shop_name, pin_code, role, khata_enabled ? 1 : 0, khata_limit, khata_due_date, segment, street_address, city, state, phone, id);
+
+    const adminId = (req as any).user?.id;
+    db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+      .run(adminId, 'USER_UPDATE', 'USER', id, JSON.stringify({
+        message: `Updated profile for user ${name} (ID: ${id})`,
+        oldState: currentUser,
+        newState: body
+      }));
+
     res.json({ success: true });
   });
 
   app.delete('/api/admin/users/:id', (req, res) => {
     const { id } = req.params;
+    const adminId = (req as any).user?.id;
     try {
+      const oldState = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+      if (oldState) {
+        db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'USER_DELETE', 'USER', id, JSON.stringify({
+            message: `Deleted user ${oldState.name} (ID: ${id})`,
+            oldState
+          }));
+      }
       db.prepare('DELETE FROM users WHERE id = ?').run(id);
       res.json({ success: true, message: 'User deleted securely' });
     } catch (e: any) {
@@ -3735,6 +3844,77 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       LIMIT 500
     `).all();
     res.json(logs);
+  });
+
+  app.post('/api/admin/audit-logs/:id/revert', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const adminId = (req as any).user?.id;
+    
+    try {
+      const log = db.prepare('SELECT * FROM audit_logs WHERE id = ?').get(id) as any;
+      if (!log) return res.status(404).json({ message: 'Log not found' });
+      
+      const details = JSON.parse(log.details);
+      if (!details.oldState) return res.status(400).json({ message: 'This action cannot be reverted' });
+
+      const old = details.oldState;
+      
+      db.transaction(() => {
+        let currentState: any = null;
+        
+        switch (log.action) {
+          case 'PRODUCT_UPDATE':
+            currentState = db.prepare('SELECT * FROM products WHERE id = ?').get(log.target_id);
+            db.prepare(`
+              UPDATE products SET 
+                name = ?, description = ?, price = ?, wholesale_price = ?, retail_price = ?, 
+                discount = ?, discount_price = ?, stock = ?, reorder_point = ?, max_qty = ?, 
+                is_listed = ?, category = ?, image_url = ?, images = ?, specifications = ?, supplier_id = ?
+              WHERE id = ?
+            `).run(
+              old.name, old.description, old.price, old.wholesale_price, old.retail_price,
+              old.discount, old.discount_price, old.stock, old.reorder_point, old.max_qty,
+              old.is_listed, old.category, old.image_url, old.images, old.specifications, old.supplier_id,
+              log.target_id
+            );
+            break;
+          case 'ORDER_STATUS_UPDATE':
+            currentState = db.prepare('SELECT status FROM orders WHERE id = ?').get(log.target_id);
+            db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(old.status, log.target_id);
+            break;
+          case 'USER_UPDATE':
+            currentState = db.prepare('SELECT * FROM users WHERE id = ?').get(log.target_id);
+            db.prepare('UPDATE users SET name = ?, email = ?, phone = ?, role = ?, wallet_balance = ?, is_active = ?, segment = ? WHERE id = ?')
+              .run(old.name, old.email, old.phone, old.role, old.wallet_balance, old.is_active, old.segment, log.target_id);
+            break;
+          case 'PRODUCT_DELETE':
+            db.prepare(`
+              INSERT INTO products (id, name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image_url, images, specifications, supplier_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(log.target_id, old.name, old.description, old.price, old.wholesale_price, old.retail_price, old.discount, old.discount_price, old.stock, old.reorder_point, old.max_qty, old.is_listed, old.category, old.image_url, old.images, old.specifications, old.supplier_id);
+            break;
+          case 'USER_DELETE':
+            db.prepare(`
+              INSERT INTO users (id, name, email, phone, role, wallet_balance, is_active, segment, shop_name, pin_code, khata_enabled, khata_limit, street_address, city, state)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(log.target_id, old.name, old.email, old.phone, old.role, old.wallet_balance, old.is_active, old.segment, old.shop_name, old.pin_code, old.khata_enabled, old.khata_limit, old.street_address, old.city, old.state);
+            break;
+        }
+
+        // Log the reversion itself - this allows "Forward" action (Redo) by reverting the revert
+        db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'ACTION_REVERTED', 'AUDIT_LOG', id, JSON.stringify({ 
+            message: `Reverted ${log.action} on ${log.target_type} #${log.target_id}`,
+            oldState: currentState, // What it was just before we reverted (to allow redo)
+            revertedLogId: id
+          }));
+      })();
+
+      res.json({ success: true, message: 'Action reverted successfully' });
+    } catch (err: any) {
+      console.error('Revert error:', err);
+      res.status(500).json({ success: false, message: 'Failed to revert action: ' + err.message });
+    }
   });
 
   app.get('/api/admin/wallet-credits', requireAdmin, (req, res) => {

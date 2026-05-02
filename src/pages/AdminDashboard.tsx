@@ -21,7 +21,7 @@ import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
-type Tab = 'Overview' | 'Analytics' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -83,7 +83,14 @@ export default function AdminDashboard() {
   const [orderModal, setOrderModal] = useState({ open: false, order: null as any });
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationModal, setNotificationModal] = useState({ open: false });
-  const [newNotification, setNewNotification] = useState({ title: '', message: '', type: 'ad' });
+  const [newNotification, setNewNotification] = useState({ 
+    title: '', 
+    message: '', 
+    type: 'ad',
+    priority: 'medium',
+    target_role: 'all',
+    expires_at: ''
+  });
   const [selectedProducts, setSelectedProducts] = useState<number[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
@@ -235,6 +242,9 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
+    if (activeTab === 'Announcements') {
+      fetchNotifications();
+    }
     if (activeTab === 'Logistics') {
       fetchRunners();
       fetchOrders();
@@ -1280,6 +1290,24 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleRevertAction = async (logId: number) => {
+    if (!confirm('Are you sure you want to revert this action? This will restore the previous state.')) return;
+    try {
+      const res = await fetch(`/api/admin/audit-logs/${logId}/revert`, { method: 'POST' });
+      if (res.ok) {
+        toast.success('Action reverted successfully');
+        fetchAuditLogs();
+        // Refresh relevant data based on log action if needed, or just full refresh stats
+        fetchStats();
+      } else {
+        const data = await res.json();
+        toast.error(data.message || 'Failed to revert action');
+      }
+    } catch (err) {
+      toast.error('Network error during reversion');
+    }
+  };
+
   const handleNotificationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -1291,11 +1319,31 @@ export default function AdminDashboard() {
       if (res.ok) {
         toast.success('Notification sent');
         setNotificationModal({ open: false });
-        setNewNotification({ title: '', message: '', type: 'ad' });
+        setNewNotification({ 
+          title: '', 
+          message: '', 
+          type: 'ad',
+          priority: 'medium',
+          target_role: 'all',
+          expires_at: ''
+        });
         fetchNotifications();
       }
     } catch (err) {
       toast.error('Failed to send notification');
+    }
+  };
+
+  const handleDeleteNotification = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this announcement?')) return;
+    try {
+      const res = await fetch(`/api/admin/notifications/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Announcement removed');
+        fetchNotifications();
+      }
+    } catch (err) {
+      toast.error('Failed to delete announcement');
     }
   };
 
@@ -1654,6 +1702,7 @@ export default function AdminDashboard() {
       items: [
         { name: 'Overview' as Tab, icon: LayoutDashboard },
         { name: 'Analytics' as Tab, icon: BarChart3 },
+        { name: 'Announcements' as Tab, icon: Bell },
       ]
     },
     {
@@ -2657,6 +2706,88 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {activeTab === 'Announcements' && (
+          <div className="space-y-8">
+             <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 flex flex-col md:flex-row justify-between items-center gap-6">
+              <div>
+                <h2 className="text-3xl font-black text-stone-900">Platform Announcements</h2>
+                <p className="text-stone-500 mt-1">Manage broadcast messages, critical alerts, and marketing ads.</p>
+              </div>
+              <button 
+                onClick={() => setNotificationModal({ open: true })}
+                className="w-full md:w-auto flex items-center justify-center space-x-2 bg-stone-900 text-white px-8 py-4 rounded-2xl text-sm font-bold hover:bg-stone-800 transition-all shadow-xl shadow-stone-900/10"
+              >
+                <Plus size={18} />
+                <span>Create New Announcement</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6">
+              {notifications.map((n: any) => (
+                <div key={n.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all">
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div className="flex space-x-4">
+                      <div className={cn(
+                        "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
+                        n.priority === 'high' ? 'bg-red-50 text-red-500' :
+                        n.priority === 'medium' ? 'bg-amber-50 text-amber-500' : 'bg-blue-50 text-blue-500'
+                      )}>
+                        {n.type === 'alert' ? <AlertTriangle size={24} /> : <Bell size={24} />}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-3">
+                          <h4 className="text-lg font-black text-stone-900">{n.title}</h4>
+                          <span className={cn(
+                            "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border",
+                            n.priority === 'high' ? 'bg-red-50 text-red-600 border-red-100' :
+                            n.priority === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'
+                          )}>
+                            {n.priority} Priority
+                          </span>
+                        </div>
+                        <p className="text-sm text-stone-500 max-w-2xl">{n.message}</p>
+                        <div className="flex flex-wrap items-center gap-4 mt-2">
+                           <div className="flex items-center space-x-1.5 text-[10px] font-bold text-stone-400">
+                             <Users size={12} />
+                             <span>Targets: {n.target_role || 'All Users'}</span>
+                           </div>
+                           <div className="flex items-center space-x-1.5 text-[10px] font-bold text-stone-400">
+                             <Clock size={12} />
+                             <span>Sent: {new Date(n.created_at).toLocaleString('en-IN')}</span>
+                           </div>
+                           {n.expires_at && (
+                             <div className="flex items-center space-x-1.5 text-[10px] font-bold text-red-400">
+                               <AlertTriangle size={12} />
+                               <span>Expires: {new Date(n.expires_at).toLocaleString('en-IN')}</span>
+                             </div>
+                           )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-start">
+                      <button 
+                        onClick={() => handleDeleteNotification(n.id)}
+                        className="p-2 text-stone-400 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {notifications.length === 0 && (
+                <div className="bg-stone-50 rounded-3xl p-20 text-center border-2 border-dashed border-stone-200">
+                  <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4 text-stone-300">
+                    <Bell size={32} />
+                  </div>
+                  <h3 className="text-xl font-bold text-stone-900">No active announcements</h3>
+                  <p className="text-stone-500 max-w-sm mx-auto mt-2">Use the button above to dispatch your first formal platform announcement.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'Analytics' && analyticsData && (
           <div className="space-y-8">
             {/* Analytics Filters */}
@@ -2752,13 +2883,13 @@ export default function AdminDashboard() {
                 <h3 className="text-3xl font-black">{analyticsData.totalOrders}</h3>
                 <div className="mt-2 flex items-center text-emerald-500 text-xs font-bold">
                   <ShoppingBag size={14} className="mr-1" />
-                  <span>{Math.round(analyticsData.totalOrders / (analyticsData.salesOverTime.length || 1))} orders / day avg</span>
+                  <span>{Math.round(analyticsData.totalOrders / ((analyticsData.salesOverTime?.length) || 1))} orders / day avg</span>
                 </div>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
                 <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1">Conversion Rate</p>
                 <h3 className="text-3xl font-black">
-                  {analyticsData.conversionData.length > 0 
+                  {analyticsData.conversionData?.length > 0 
                     ? (analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.orders, 0) / 
                        analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) * 100).toFixed(1) 
                     : '0.0'}%
@@ -3553,39 +3684,71 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {auditLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-stone-50/30 transition-colors group">
-                        <td className="px-8 py-5">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 bg-stone-100 rounded-lg flex items-center justify-center text-stone-400 font-bold uppercase text-xs">
-                              {log.admin_name?.[0] || 'A'}
+                    {auditLogs.map((log) => {
+                      const details = (() => {
+                        try { return JSON.parse(log.details); } catch(e) { return { message: log.details }; }
+                      })();
+                      const isReversible = !!details.oldState;
+                      const isReversion = log.action === 'ACTION_REVERTED';
+
+                      return (
+                        <tr key={log.id} className="hover:bg-stone-50/30 transition-colors group">
+                          <td className="px-8 py-5">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 bg-stone-100 rounded-lg flex items-center justify-center text-stone-400 font-bold uppercase text-xs">
+                                {log.admin_name?.[0] || 'A'}
+                              </div>
+                              <span className="text-xs font-bold text-stone-900">{log.admin_name || 'System'}</span>
                             </div>
-                            <span className="text-xs font-bold text-stone-900">{log.admin_name}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <span className={cn(
-                            "text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg",
-                            log.action === 'DELETE' ? 'bg-red-50 text-red-600' :
-                            log.action === 'PUT' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
-                          )}>
-                            {log.action}
-                          </span>
-                        </td>
-                        <td className="px-6 py-5">
-                           <span className="text-xs font-mono text-stone-500 bg-stone-50 px-2 py-1 rounded border border-stone-100">{log.resource}</span>
-                        </td>
-                        <td className="px-6 py-5 max-w-[200px]">
-                           <p className="text-[10px] text-stone-400 font-mono truncate cursor-help" title={log.details}>{log.details}</p>
-                        </td>
-                        <td className="px-6 py-5">
-                           <span className="text-[10px] font-bold text-stone-500">{log.ip_address}</span>
-                        </td>
-                        <td className="px-8 py-5 text-right text-[10px] font-bold text-stone-400">
-                           {new Date(log.created_at).toLocaleString('en-IN')}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-6 py-5">
+                            <span className={cn(
+                              "text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg",
+                              log.action === 'DELETE' ? 'bg-red-50 text-red-600' :
+                              log.action === 'ACTION_REVERTED' ? 'bg-amber-50 text-amber-600' :
+                              log.action === 'PUT' || log.action?.includes('UPDATE') ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                            )}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="px-6 py-5">
+                             <span className="text-xs font-mono text-stone-500 bg-stone-50 px-2 py-1 rounded border border-stone-100">{log.resource || log.target_type}</span>
+                          </td>
+                          <td className="px-6 py-5 max-w-[300px]">
+                             <div className="space-y-1">
+                               <p className="text-[10px] text-stone-700 font-medium leading-tight">{details.message || log.details}</p>
+                               {isReversion && (
+                                 <p className="text-[9px] text-amber-600 font-bold">Action Redone/Restored</p>
+                               )}
+                             </div>
+                          </td>
+                          <td className="px-6 py-5">
+                             {isReversible ? (
+                               <button 
+                                 onClick={() => handleRevertAction(log.id)}
+                                 className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-primary hover:text-primary/70 transition-colors bg-primary/5 px-3 py-1.5 rounded-xl border border-primary/10"
+                               >
+                                 <RefreshCw size={12} />
+                                 <span>Undo Action</span>
+                               </button>
+                             ) : isReversion ? (
+                               <button 
+                                 onClick={() => handleRevertAction(log.id)}
+                                 className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-amber-600 hover:text-amber-700 transition-colors bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200"
+                               >
+                                 <RefreshCw size={12} />
+                                 <span>Redo Original</span>
+                               </button>
+                             ) : (
+                               <span className="text-[10px] text-stone-400 italic">Not Reversible</span>
+                             )}
+                          </td>
+                          <td className="px-8 py-5 text-right text-[10px] font-bold text-stone-400">
+                             {new Date(log.created_at).toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {auditLogs.length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-8 py-12 text-center text-stone-400 italic">No audit records found</td>
@@ -7291,54 +7454,112 @@ export default function AdminDashboard() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
+            className="bg-white rounded-[2.5rem] p-10 max-w-xl w-full shadow-2xl border border-stone-100"
           >
-            <h3 className="text-2xl font-bold mb-6">Send Notification</h3>
-            <form onSubmit={handleNotificationSubmit} className="space-y-4">
+            <div className="flex justify-between items-center mb-8">
               <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Title</label>
-                <input 
-                  type="text" 
-                  required
-                  className="input-field"
-                  value={newNotification.title}
-                  onChange={(e) => setNewNotification({...newNotification, title: e.target.value})}
-                />
+                <h3 className="text-2xl font-black text-stone-900">Broadcast Announcement</h3>
+                <p className="text-stone-500 text-sm mt-1">Create and dispatch informative messages across the platform.</p>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Message</label>
-                <textarea 
-                  required
-                  className="input-field min-h-[100px]"
-                  value={newNotification.message}
-                  onChange={(e) => setNewNotification({...newNotification, message: e.target.value})}
-                />
+              <button 
+                onClick={() => setNotificationModal({ open: false })}
+                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleNotificationSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Subject Title</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="E.g. Weekend Flash Sale Live!"
+                    className="input-field py-4 text-base"
+                    value={newNotification.title}
+                    onChange={(e) => setNewNotification({...newNotification, title: e.target.value})}
+                  />
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Message Content</label>
+                  <textarea 
+                    required
+                    placeholder="Enter detailed announcement message..."
+                    className="input-field min-h-[120px] py-4 text-base resize-none"
+                    value={newNotification.message}
+                    onChange={(e) => setNewNotification({...newNotification, message: e.target.value})}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Announcement Type</label>
+                  <select 
+                    className="input-field py-3 text-sm"
+                    value={newNotification.type}
+                    onChange={(e) => setNewNotification({...newNotification, type: e.target.value})}
+                  >
+                    <option value="announcement">📢 Formal Announcement</option>
+                    <option value="ad">🏷️ Promotional Ad</option>
+                    <option value="alert">🚨 Critical Alert</option>
+                    <option value="info">ℹ️ System Info</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Priority Level</label>
+                  <select 
+                    className="input-field py-3 text-sm"
+                    value={newNotification.priority}
+                    onChange={(e) => setNewNotification({...newNotification, priority: e.target.value})}
+                  >
+                    <option value="low">Low (Standard)</option>
+                    <option value="medium">Medium (Important)</option>
+                    <option value="high">High (Urgent)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Target Audience</label>
+                  <select 
+                    className="input-field py-3 text-sm"
+                    value={newNotification.target_role}
+                    onChange={(e) => setNewNotification({...newNotification, target_role: e.target.value})}
+                  >
+                    <option value="all">Everyone</option>
+                    <option value="user">Registered Customers Only</option>
+                    <option value="admin">Admin Team Only</option>
+                    <option value="delivery">Delivery Staff</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Expiry Date (Optional)</label>
+                  <input 
+                    type="datetime-local"
+                    className="input-field py-3 text-sm"
+                    value={newNotification.expires_at}
+                    onChange={(e) => setNewNotification({...newNotification, expires_at: e.target.value})}
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Type</label>
-                <select 
-                  className="input-field"
-                  value={newNotification.type}
-                  onChange={(e) => setNewNotification({...newNotification, type: e.target.value})}
-                >
-                  <option value="ad">Advertisement</option>
-                  <option value="alert">Alert</option>
-                  <option value="info">Information</option>
-                </select>
-              </div>
-              <div className="flex space-x-3 pt-4">
+
+              <div className="flex space-x-4 pt-4">
                 <button 
                   type="button"
                   onClick={() => setNotificationModal({ open: false })}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+                  className="flex-1 py-4 border border-stone-200 rounded-2xl font-bold text-stone-600 hover:bg-stone-50 transition-all font-sans"
                 >
-                  Cancel
+                  Discard
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
+                  className="flex-2 py-4 bg-stone-900 text-white rounded-2xl font-bold hover:bg-stone-800 transition-all shadow-xl shadow-stone-900/10 font-sans flex items-center justify-center space-x-2"
                 >
-                  Send
+                  <Send size={18} />
+                  <span>Dispatch Announcement</span>
                 </button>
               </div>
             </form>
@@ -7407,6 +7628,24 @@ export default function AdminDashboard() {
                 <div className="bg-stone-50 p-6 rounded-2xl space-y-4">
                   <h4 className="font-bold text-stone-900 border-b border-stone-200 pb-2">Contact Info</h4>
                   <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Name</label>
+                      <input 
+                        type="text" 
+                        className="input-field py-2 text-sm"
+                        defaultValue={customerModal.user.name}
+                        onBlur={(e) => handleUserUpdate(customerModal.user.id, { name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Phone</label>
+                      <input 
+                        type="text" 
+                        className="input-field py-2 text-sm"
+                        defaultValue={customerModal.user.phone}
+                        onBlur={(e) => handleUserUpdate(customerModal.user.id, { phone: e.target.value })}
+                      />
+                    </div>
                     <div>
                       <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Email</label>
                       <input 

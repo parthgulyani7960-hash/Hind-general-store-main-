@@ -96,6 +96,7 @@ export interface Review {
   user_name: string;
   rating: number;
   comment: string;
+  is_verified?: boolean | number;
   created_at: string;
   response?: string;
 }

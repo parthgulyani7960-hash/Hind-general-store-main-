@@ -150,7 +150,7 @@ export default function Navbar() {
             </div>
           </Link>
 
-          <div className="relative flex-1 max-w-sm mx-4">
+          <div className="relative flex-1 max-w-sm ml-4 mr-2 md:mx-4">
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-stone-400" size={18} />
               <input
@@ -263,7 +263,7 @@ export default function Navbar() {
               </div>
             )}
             
-            <Link to="/wishlist" className="relative p-2 text-stone-600 hover:text-primary transition-colors">
+            <Link to="/wishlist" className="relative p-2 text-stone-600 hover:text-primary transition-colors hidden md:block">
               <Heart size={24} />
               {wishlistCount > 0 && (
                 <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
@@ -272,17 +272,24 @@ export default function Navbar() {
               )}
             </Link>
 
-            <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors">
-              <ShoppingCart size={24} />
-              {cartCount > 0 && (
-                <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                  {cartCount}
-                </span>
-              )}
-            </Link>
+            <div 
+              className="relative hidden md:block"
+              onMouseEnter={() => setIsMiniCartOpen(true)}
+              onMouseLeave={() => setIsMiniCartOpen(false)}
+            >
+              <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors block">
+                <ShoppingCart size={24} />
+                {cartCount > 0 && (
+                  <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </Link>
+              <MiniCart cart={cart} isOpen={isMiniCartOpen} />
+            </div>
 
             {user ? (
-              <div className="flex items-center space-x-4">
+              <div className="hidden lg:flex items-center space-x-4">
                 <Link to="/profile" className="flex items-center space-x-3 group bg-stone-50 hover:bg-stone-100 px-3 py-1.5 rounded-2xl border border-stone-100 transition-all">
                   <UserAvatar user={user} size="sm" />
                   <div className="flex flex-col items-start overflow-hidden">
@@ -296,18 +303,20 @@ export default function Navbar() {
                 </Link>
               </div>
             ) : (
-              <Link to="/login" className="btn-primary flex items-center space-x-2">
+              <Link to="/login" className="btn-primary hidden md:flex items-center space-x-2">
                 <User size={18} />
                 <span>Login</span>
               </Link>
             )}
 
-            <button 
-              className="md:hidden p-2 text-stone-600"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-            >
-              {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
-            </button>
+            <div className="flex items-center space-x-2 md:hidden">
+               <button 
+                  className="p-2 text-stone-600 hover:text-primary transition-colors"
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+               >
+                  {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+               </button>
+            </div>
           </div>
         </div>
       </div>

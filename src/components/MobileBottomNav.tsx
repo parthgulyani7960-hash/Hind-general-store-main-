@@ -1,42 +1,81 @@
-import { Home, ShoppingBag, ShoppingCart, User, Truck } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
+import { Home, ShoppingBag, ShoppingCart, User, Heart, Check } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { cn } from '../types';
 
 export default function MobileBottomNav() {
-  const { cart } = useStore();
-  const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-
+  const location = useLocation();
+  const { cart, wishlist, lastAddedId } = useStore();
+  
   const navItems = [
-    { to: '/', icon: Home, label: 'Home' },
-    { to: '/products', icon: ShoppingBag, label: 'Shop' },
-    { to: '/track-order', icon: Truck, label: 'Track' },
-    { to: '/cart', icon: ShoppingCart, label: 'Cart', count: cartCount },
-    { to: '/profile', icon: User, label: 'Profile' },
+    { icon: Home, label: 'Home', path: '/' },
+    { icon: ShoppingBag, label: 'Shop', path: '/products' },
+    { icon: ShoppingCart, label: 'Cart', path: '/cart', badge: cart.length, highlight: !!lastAddedId },
+    { icon: Heart, label: 'Saved', path: '/wishlist', badge: wishlist.length },
+    { icon: User, label: 'Profile', path: '/profile' }
   ];
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-stone-200 shadow-lg px-2 py-2 flex justify-between items-center">
-      {navItems.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) => cn(
-            "flex flex-col items-center justify-center w-full py-1 rounded-lg transition-colors",
-            isActive ? "text-primary font-bold" : "text-stone-500 hover:text-primary"
-          )}
-        >
-          <div className="relative">
-            <item.icon size={24} />
-            {item.count !== undefined && item.count > 0 && (
-              <span className="absolute -top-1 -right-2 bg-accent text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                {item.count}
+    <div className="md:hidden fixed bottom-1 left-0 right-0 z-50 px-4 pb-6 pt-2 pointer-events-none">
+      <motion.div 
+        initial={{ y: 100 }}
+        animate={{ y: 0 }}
+        className="bg-white/90 backdrop-blur-2xl border border-stone-200/50 shadow-[0_-8px_40px_rgb(0,0,0,0.12)] rounded-[2.5rem] p-2 flex items-center justify-around pointer-events-auto max-w-lg mx-auto"
+      >
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <Link 
+              key={item.path} 
+              to={item.path}
+              className="relative flex flex-col items-center justify-center p-3 group outline-none"
+            >
+              <motion.div 
+                animate={item.highlight ? { 
+                  scale: [1, 1.3, 1],
+                  rotate: [0, -10, 10, 0]
+                } : {}}
+                className={cn(
+                  "p-2.5 rounded-2xl transition-all duration-300 relative",
+                  isActive ? "bg-primary text-white scale-110 shadow-lg shadow-primary/30" : "text-stone-400 group-active:scale-90",
+                  item.highlight && !isActive && "text-primary"
+                )}
+              >
+                {item.highlight && !isActive ? <Check size={20} strokeWidth={3} /> : <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />}
+                
+                <AnimatePresence>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <motion.span 
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0 }}
+                      key={item.badge}
+                      className="absolute -top-1 -right-1 bg-accent text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-white shadow-sm"
+                    >
+                      {item.badge}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+              
+              {isActive && (
+                <motion.div 
+                  layoutId="bottomNavDot"
+                  className="absolute -bottom-1.5 w-1 h-1 bg-primary rounded-full shadow-sm shadow-primary/50"
+                />
+              )}
+
+              <span className={cn(
+                "text-[9px] font-black uppercase tracking-[0.1em] mt-1.5 transition-all",
+                isActive ? "text-primary opacity-100" : "text-stone-400 opacity-0 translate-y-2"
+              )}>
+                {item.label}
               </span>
-            )}
-          </div>
-          <span className="text-[10px] mt-1">{item.label}</span>
-        </NavLink>
-      ))}
+            </Link>
+          );
+        })}
+      </motion.div>
     </div>
   );
 }

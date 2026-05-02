@@ -21,9 +21,18 @@ export default function Checkout() {
     fetchUser, bulkDiscounts, config,
     addresses, fetchAddresses,
     updateQuantity, removeFromCart,
+    isProfileComplete,
     t
   } = useStore();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isProfileComplete()) {
+      toast.error('Please complete your profile to place an order.');
+      navigate('/complete-profile');
+    }
+  }, [isProfileComplete, navigate]);
+
   const [step, setStep] = useState<Step>('address');
   const [isProcessing, setIsProcessing] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);

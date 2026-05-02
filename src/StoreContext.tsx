@@ -48,6 +48,10 @@ interface StoreContextType {
   setDefaultAddress: (id: number) => Promise<void>;
   isOnline: boolean;
   isProfileComplete: () => boolean;
+  isMobile: boolean;
+  isTablet: boolean;
+  lastAddedId: number | null;
+  logActivity: (type: string, details: string, severity?: 'low' | 'medium' | 'high') => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -83,7 +87,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('hgs_token');
       }
     } catch (err) {
-      console.error('Auth check failed');
+      // Silently handle
     }
   };
 
@@ -96,7 +100,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setUser(data);
       }
     } catch (err) {
-      console.error('Failed to refresh user');
+      // Silently handle
     }
   };
 
@@ -209,6 +213,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+  const [lastAddedId, setLastAddedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setIsTablet(window.innerWidth >= 768 && window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -237,7 +254,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setAddresses(data);
       }
     } catch (err) {
-      console.error('Failed to fetch addresses');
+      // Silently handle
     } finally {
       setLoadingAddresses(false);
     }
@@ -303,11 +320,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const isProfileComplete = () => {
     if (!user) return true;
     
-    // Admins who already have their critical data should skip the "Complete Profile" nag
-    if (user.role === 'admin' && user.name && user.phone) return true;
+    // Check for mandatory fields: name, phone, and profile photo
+    const hasName = user.name && user.name !== 'User';
+    const hasPhone = !!user.phone;
+    const hasPhoto = !!user.profile_photo;
     
-    // Regular users need name, phone and profile photo as per business requirements
-    return !!(user.name && user.phone && user.name !== 'User');
+    // We strictly enforce these for everyone to ensure order management is possible
+    return !!(hasName && hasPhone && hasPhoto);
   };
 
   useEffect(() => {
@@ -320,7 +339,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       setBulkDiscounts(data);
     } catch (err) {
-      console.error('Failed to fetch bulk discounts');
+      // Silently fail to avoid console spam during server restarts
     }
   };
 
@@ -387,7 +406,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch cart:', err);
+      // Silently handle
     }
   };
 
@@ -416,7 +435,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               localStorage.setItem('hgs_seeded_cart', 'true');
             }
           })
-          .catch(err => console.error('Failed to seed default cart:', err));
+          .catch(() => {});
       }
     }
   }, [cart.length, cartLoadedFromStorage]);
@@ -455,7 +474,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (themeSetting) setAdminTheme(themeSetting.value);
       }
     } catch (err) {
-      console.error('Failed to check maintenance status:', err);
+      // Silently fail during dev server restarts
     }
   };
 
@@ -472,13 +491,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const getProductPrice = (product: Product, userRole?: string) => {
     const activeRole = simulatedRole || userRole;
     if (activeRole === 'wholesaler' && product.wholesale_price) return product.wholesale_price;
-    if (activeRole === 'retailer' && product.retail_price) return product.retail_price;
+    // For anyone else (guests, simple users, retailers), show the retail price if it exists
+    if (product.retail_price) return product.retail_price;
     return product.price;
   };
 
   const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
-    const activePrice = getProductPrice(product, user?.role);
+    let activePrice = getProductPrice(product, user?.role);
     
+    // If variant is selected, use its price (applying product discount if any)
+    if (variant) {
+      activePrice = variant.price;
+    }
+
     setCart(prev => {
       const existing = prev.find(item => 
         item.id === product.id && 
@@ -493,7 +518,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, { ...product, quantity, selectedVariant: variant, price: activePrice }];
     });
-    toast.success(`${product.name}${variant ? ` (${variant.name})` : ''} added to cart`);
+    
+    // Set last added ID for feedback then clear it
+    setLastAddedId(product.id);
+    setTimeout(() => setLastAddedId(null), 2000);
+    
+    const displayName = `${product.name}${variant ? ` (${variant.name})` : ''}`;
+    toast.success(`${displayName} added to cart`);
+    logActivity('CART_ADD', `Added ${quantity}x ${displayName} to cart`);
   };
 
   const removeFromCart = (productId: number, variantId?: number) => {
@@ -503,6 +535,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateQuantity = (productId: number, delta: number, variantId?: number) => {
+    if (delta > 0) {
+      setLastAddedId(productId);
+      setTimeout(() => setLastAddedId(null), 2000);
+    }
     setCart(prev => {
       const item = prev.find(i => 
         i.id === productId && (variantId ? i.selectedVariant?.id === variantId : !i.selectedVariant)
@@ -596,6 +632,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       language, setLanguage, t,
       addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
       isOnline, isProfileComplete,
+      isMobile, isTablet, lastAddedId,
       logActivity
     }}>
       {children}

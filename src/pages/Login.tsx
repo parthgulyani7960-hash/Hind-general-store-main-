@@ -16,12 +16,9 @@ export default function Login() {
     setLoading(true);
     let token = null;
     try {
-      console.log('Initiating Firebase Google Sign In...');
       const { token: idToken } = await signInWithGoogle();
       token = idToken;
-      console.log('Firebase Sign In successful, token obtained. Calling API...');
     } catch (err: any) {
-      console.error("Auth popup error:", err);
       toast.error(err.message || 'Firebase Auth failed');
       setLoading(false);
       return;
@@ -40,14 +37,12 @@ export default function Login() {
           const errorData = await res.json();
           errorMessage = errorData.message || errorMessage;
         } catch (e) {
-          // If response was not JSON (e.g. HTML error page), keep generic
-          console.error("Login server returned non-JSON error");
+          // If response was not JSON (e.g. HTML error page from proxy)
         }
         throw new Error(errorMessage);
       }
 
       const data = await res.json();
-      console.log('Backend response:', data);
 
       if (data.success) {
         if (data.token) {
@@ -64,7 +59,6 @@ export default function Login() {
         toast.error(data.message || 'Login API failed');
       }
     } catch (err: any) {
-      console.error("API call error:", err);
       toast.error('Backend connection failed: ' + err.message);
     } finally {
       setLoading(false);

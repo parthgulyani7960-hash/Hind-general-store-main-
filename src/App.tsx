@@ -43,16 +43,11 @@ import MaintenancePage from './pages/MaintenancePage';
 import TrackOrder from './pages/TrackOrder';
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
-  const { user, isProfileComplete } = useStore();
+  const { user } = useStore();
   const location = useLocation();
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  // Redirect to complete profile if needed, UNLESS already on that page
-  if (!isProfileComplete() && location.pathname !== '/complete-profile') {
-    return <Navigate to="/complete-profile" replace />;
   }
 
   if (adminOnly && user.role !== 'admin') {
@@ -203,14 +198,14 @@ export default function App() {
       <div className={cn("min-h-screen flex flex-col", adminTheme)}>
         <Toaster position="top-center" />
         <Navbar />
-        <main className="flex-1 pb-16 md:pb-0">
+        <main className="flex-1 pb-24 md:pb-0">
           <ErrorBoundary>
             <AnimatedRoutes />
           </ErrorBoundary>
         </main>
         <MobileBottomNav />
         <BackToTop />
-        <footer className="bg-stone-900 text-stone-400 py-12 pb-20 md:pb-12">
+        <footer className="bg-stone-900 text-stone-400 py-12 pb-32 md:pb-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="space-y-4">
               <h3 className="text-white font-bold text-lg">Hind General Store</h3>

@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingCart, Share2, ArrowLeft, ShieldCheck, Truck, Info, Star, 
   MessageSquare, Plus, Minus, Clock, Camera, Image as ImageIcon,
-  ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag
+  ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag,
+  CheckCircle2, ThumbsUp, Filter
 } from 'lucide-react';
 import { Product, Review, cn } from '../types';
 import { useStore } from '../StoreContext';
@@ -191,24 +192,37 @@ export default function ProductDetail() {
     }
   };
 
-  const handleMoveImage = async (index: number, direction: 'left' | 'right') => {
+  const handleMoveImage = async (index: number, direction: 'up' | 'down') => {
     if (!user || user.role !== 'admin') return;
-    const images = [...(product.images || [])];
-    const newIndex = direction === 'left' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= images.length) return;
     
-    const temp = images[index];
-    images[index] = images[newIndex];
-    images[newIndex] = temp;
+    // allImages is [product.image_url, ...product.images]
+    const currentImages = [product.image_url, ...(product.images || [])].filter(Boolean);
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    
+    if (newIndex < 0 || newIndex >= currentImages.length) return;
+    
+    const updatedAll = [...currentImages];
+    const temp = updatedAll[index];
+    updatedAll[index] = updatedAll[newIndex];
+    updatedAll[newIndex] = temp;
+    
+    // Split back into image_url and images
+    const newImageUrl = updatedAll[0];
+    const newImages = updatedAll.slice(1);
     
     try {
-      const res = await fetch(`/api/admin/products/${id}/images`, {
+      const res = await fetch(`/api/admin/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images })
+        body: JSON.stringify({ 
+          ...product, 
+          image: newImageUrl, 
+          images: newImages 
+        })
       });
       if (res.ok) {
         fetchProduct();
+        setActiveImage(newIndex);
       }
     } catch (err) {
       toast.error('Failed to reorder images');
@@ -217,15 +231,25 @@ export default function ProductDetail() {
 
   const handleSetMainImage = async (imageUrl: string) => {
     if (!user || user.role !== 'admin') return;
+    
+    const currentAll = [product.image_url, ...(product.images || [])].filter(Boolean);
+    const newImages = currentAll.filter(img => img !== imageUrl);
+    const newImageUrl = imageUrl;
+
     try {
       const res = await fetch(`/api/admin/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...product, image: imageUrl })
+        body: JSON.stringify({ 
+          ...product, 
+          image: newImageUrl, 
+          images: newImages 
+        })
       });
       if (res.ok) {
         toast.success('Main image updated');
         fetchProduct();
+        setActiveImage(0);
       }
     } catch (err) {
       toast.error('Failed to update main image');
@@ -396,10 +420,14 @@ export default function ProductDetail() {
               </div>
             </div>
             <h1 className="text-4xl font-bold text-stone-900 mt-4">{product.name}</h1>
-            <div className="flex items-center space-x-2 mt-2">
+            <div className="flex items-center space-x-3 mt-2">
+              <div className="flex items-center space-x-1.5 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                <Star size={14} className="text-amber-500" fill="currentColor" />
+                <span className="text-sm font-black text-amber-700">{(product.avg_rating || 0).toFixed(1)}</span>
+              </div>
               <div className="flex text-amber-400">
                 {[...Array(5)].map((_, i) => (
-                  <Star key={i} size={16} fill={i < Math.round(product.avg_rating || 0) ? "currentColor" : "none"} />
+                  <Star key={i} size={14} fill={i < Math.round(product.avg_rating || 0) ? "currentColor" : "none"} />
                 ))}
               </div>
               <span className="text-sm text-stone-400 font-bold">({product.review_count || 0} reviews)</span>
@@ -415,17 +443,17 @@ export default function ProductDetail() {
                     ? (product.discount > 0 ? Math.round(selectedVariant.price * (1 - product.discount / 100)) : selectedVariant.price)
                     : getActivePrice(product)}
                 </p>
-                {(product.discount > 0 || getProductPrice(product, user?.role) < product.price) && (
+                {(product.discount > 0 || (selectedVariant ? selectedVariant.price : getProductPrice(product, user?.role)) < (selectedVariant ? selectedVariant.price : product.price)) && (
                   <p className="text-xl text-stone-400 line-through font-medium">
                     ₹{selectedVariant ? selectedVariant.price : product.price}
                   </p>
                 )}
-                <span className="text-sm text-stone-400 font-normal">per {selectedVariant ? selectedVariant.name : product.unit}</span>
+                <span className="text-sm text-stone-400 font-normal">per {selectedVariant ? selectedVariant.name : (product.unit || 'unit')}</span>
               </div>
-              {user?.role === 'wholesaler' && product.wholesale_price && (
+              {user?.role === 'wholesaler' && product.wholesale_price && !selectedVariant && (
                 <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Wholesale Account Pricing Applied</span>
               )}
-              {user?.role === 'retailer' && product.retail_price && (
+              {user?.role === 'retailer' && product.retail_price && !selectedVariant && (
                 <span className="text-xs font-black text-blue-600 uppercase tracking-widest">Retailer Account Pricing Applied</span>
               )}
             </div>
@@ -544,12 +572,12 @@ export default function ProductDetail() {
             </div>
           )}
 
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-4 flex-1">
-              <div className="flex items-center space-x-4 bg-stone-50 rounded-2xl p-2 border border-stone-200">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+            <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-4 flex-1">
+              <div className="flex items-center justify-between xl:justify-center bg-stone-50 rounded-2xl p-2 border border-stone-200">
                 <button 
                   onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
-                  className="p-3 hover:bg-white rounded-xl transition-all text-primary shadow-sm"
+                  className="p-3 hover:bg-white rounded-xl transition-all text-primary shadow-sm min-w-[48px] min-h-[48px] flex items-center justify-center"
                 >
                   <Minus size={20} />
                 </button>
@@ -558,19 +586,19 @@ export default function ProductDetail() {
                 </div>
                 <button 
                   onClick={() => setQuantity(prev => Math.min(selectedVariant ? selectedVariant.stock : product.stock, prev + 1))}
-                  className="p-3 hover:bg-white rounded-xl transition-all text-primary shadow-sm"
+                  className="p-3 hover:bg-white rounded-xl transition-all text-primary shadow-sm min-w-[48px] min-h-[48px] flex items-center justify-center"
                 >
                   <Plus size={20} />
                 </button>
               </div>
 
-              <div className="flex items-center space-x-4 flex-1">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 flex-1">
                 <button 
                   onClick={() => {
                     addToCart(product, selectedVariant, quantity);
                     toast.success('Added to cart!');
                   }}
-                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5"
+                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5 min-h-[56px]"
                 >
                   <ShoppingCart size={22} />
                   <span>Add to Cart</span>
@@ -580,7 +608,7 @@ export default function ProductDetail() {
                     addToCart(product, selectedVariant, quantity);
                     navigate('/cart');
                   }}
-                  className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg"
+                  className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg min-h-[56px]"
                 >
                   <ShoppingBag size={22} />
                   <span>Buy Now</span>
@@ -589,7 +617,7 @@ export default function ProductDetail() {
             </div>
             <button 
               onClick={handleShare}
-              className="px-6 py-4 bg-stone-100 text-stone-600 rounded-xl hover:bg-stone-200 transition-all flex items-center space-x-2 font-bold"
+              className="px-6 py-4 bg-stone-100 text-stone-600 rounded-xl hover:bg-stone-200 transition-all flex items-center justify-center space-x-2 font-bold min-h-[56px] xl:w-auto w-full"
               title="Share Product"
             >
               <Share2 size={20} />
@@ -682,90 +710,175 @@ export default function ProductDetail() {
       )}
 
       {/* Reviews Section */}
-      <div className="mt-20 grid grid-cols-1 lg:grid-cols-3 gap-12">
-        <div className="lg:col-span-2 space-y-8">
-          <h2 className="text-2xl font-bold flex items-center space-x-2">
-            <MessageSquare className="text-primary" />
-            <span>Customer Reviews</span>
-          </h2>
+      <div className="mt-32 space-y-12">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold text-stone-900">Customer Feedback</h2>
+            <p className="text-stone-500 font-medium">What our verified customers are saying</p>
+          </div>
+          <button 
+            onClick={() => {
+              const el = document.getElementById('review-form');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="text-primary font-bold hover:underline flex items-center space-x-1"
+          >
+            <span>Write a Review</span>
+            <Plus size={16} />
+          </button>
+        </div>
 
-          <div className="space-y-6">
-            {reviews.length === 0 ? (
-              <p className="text-stone-400 italic">No reviews yet. Be the first to review!</p>
-            ) : (
-              reviews.map((review) => (
-                <div key={review.id} className="bg-white p-6 rounded-2xl border border-stone-100 shadow-sm">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center space-x-2">
-                        <p className="font-bold">{review.user_name}</p>
-                        {isVerifiedPurchase(review) && (
-                            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Verified Purchase</span>
-                        )}
-                    </div>
-                    <div className="flex text-amber-400">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} size={12} fill={i < review.rating ? "currentColor" : "none"} />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+          {/* Rating Summary Card */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm space-y-6">
+              <div className="flex items-center space-x-6">
+                <div className="text-center">
+                  <p className="text-6xl font-black text-stone-900">{(product.avg_rating || 0).toFixed(1)}</p>
+                  <div className="flex text-amber-400 mt-2">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} size={18} fill={i < Math.round(product.avg_rating || 0) ? "currentColor" : "none"} />
+                    ))}
+                  </div>
+                  <p className="text-stone-400 text-xs font-bold uppercase tracking-widest mt-2">{product.review_count || 0} Reviews</p>
+                </div>
+                <div className="flex-1 space-y-2">
+                  {[5, 4, 3, 2, 1].map((stars) => {
+                    const count = reviews.filter(r => r.rating === stars).length;
+                    const percentage = reviews.length > 0 ? (count / reviews.length) * 100 : 0;
+                    return (
+                      <div key={stars} className="flex items-center space-x-3 text-xs">
+                        <span className="font-bold text-stone-500 w-3">{stars}</span>
+                        <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${percentage}%` }}
+                            className="h-full bg-primary" 
+                          />
+                        </div>
+                        <span className="text-stone-400 w-8 text-right font-medium">{Math.round(percentage)}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div id="review-form" className="pt-6 border-t border-stone-50">
+                <h3 className="text-lg font-bold mb-4">Post a Review</h3>
+                <form onSubmit={handleSubmitReview} className="space-y-4">
+                  <div className="flex flex-col space-y-2">
+                    <label className="text-[10px] font-black uppercase text-stone-400 tracking-widest">Rate this product</label>
+                    <div className="flex space-x-1">
+                      {[1, 2, 3, 4, 5].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setRating(num)}
+                          className={cn(
+                            "p-1.5 transition-all",
+                            rating >= num ? "text-amber-400" : "text-stone-200"
+                          )}
+                        >
+                          <Star size={24} fill={rating >= num ? "currentColor" : "none"} />
+                        </button>
                       ))}
                     </div>
                   </div>
-                  <p className="text-stone-600 text-sm leading-relaxed">{review.comment}</p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-stone-400 tracking-widest">Your Experience</label>
+                    <textarea
+                      required
+                      className="w-full bg-stone-50 border-stone-100 rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all min-h-[120px] outline-none placeholder:text-stone-300"
+                      placeholder="Share your thoughts with other customers..."
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                    />
+                  </div>
+                  <button type="submit" className="w-full btn-primary py-4 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20">
+                    Submit Feedback
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          {/* Individual Reviews List */}
+          <div className="lg:col-span-8 flex flex-col space-y-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2 text-stone-400">
+                <Filter size={14} />
+                <span className="text-xs font-bold uppercase tracking-widest">Sort: Most Recent</span>
+              </div>
+            </div>
+
+            {reviews.length === 0 ? (
+              <div className="text-center py-20 bg-stone-50 rounded-3xl border border-dashed border-stone-200">
+                <MessageSquare className="mx-auto text-stone-200 mb-4" size={48} />
+                <p className="text-stone-400 font-medium">No reviews yet. Be the first to share your thoughts!</p>
+              </div>
+            ) : (
+              reviews.map((review, i) => (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                  key={review.id} 
+                  className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm relative group overflow-hidden"
+                >
+                  <div className="flex items-start justify-between relative z-10">
+                    <div className="flex items-center space-x-4">
+                      <div className="w-12 h-12 bg-stone-100 rounded-full flex items-center justify-center text-primary font-black text-lg border-2 border-white shadow-sm">
+                        {review.user_name?.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-bold text-stone-900">{review.user_name}</p>
+                          {review.is_verified && (
+                            <div className="flex items-center space-x-1 bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-100">
+                              <CheckCircle2 size={10} />
+                              <span className="text-[9px] font-black uppercase tracking-wider">Verified Purchase</span>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-0.5">{new Date(review.created_at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                      </div>
+                    </div>
+                    <div className="flex text-amber-400 bg-amber-50 p-1.5 px-3 rounded-full border border-amber-100">
+                      {[...Array(5)].map((_, starIdx) => (
+                        <Star key={starIdx} size={14} fill={starIdx < review.rating ? "currentColor" : "none"} />
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-6 relative z-10">
+                    <p className="text-stone-600 leading-relaxed font-medium whitespace-pre-wrap">{review.comment}</p>
+                  </div>
                   
                   {review.response && (
-                    <div className="mt-4 p-4 bg-primary/5 border-l-4 border-primary rounded-r-xl">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-                          <span className="text-[8px] text-white font-bold">H</span>
+                    <div className="mt-6 p-6 bg-primary/5 rounded-2xl border border-primary/10 relative z-10">
+                      <div className="flex items-center space-x-2 mb-3">
+                        <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow-sm">
+                          <span className="text-[10px] text-white font-black">S</span>
                         </div>
-                        <p className="text-[10px] font-black text-primary uppercase tracking-widest">Store Response</p>
+                        <p className="text-[10px] font-black text-primary uppercase tracking-[0.1em]">Store Performance Response</p>
                       </div>
-                      <p className="text-sm text-stone-700 font-medium">{review.response}</p>
+                      <p className="text-sm text-stone-700 font-bold leading-relaxed">{review.response}</p>
                     </div>
                   )}
 
-                  <p className="text-[10px] text-stone-400 mt-4 uppercase font-bold tracking-widest">
-                    {new Date(review.created_at).toLocaleDateString()}
-                  </p>
-                </div>
+                  <div className="mt-6 pt-6 border-t border-stone-50 flex items-center space-x-4">
+                    <button className="flex items-center space-x-1.5 text-[10px] font-bold text-stone-400 hover:text-primary transition-colors">
+                      <ThumbsUp size={12} />
+                      <span>Helpful</span>
+                    </button>
+                    <button className="flex items-center space-x-1.5 text-[10px] font-bold text-stone-400 hover:text-red-400 transition-colors">
+                      <span>Report</span>
+                    </button>
+                  </div>
+                </motion.div>
               ))
             )}
           </div>
-        </div>
-
-        <div className="bg-stone-50 p-8 rounded-3xl border border-stone-100 h-fit">
-          <h3 className="text-xl font-bold mb-6">Write a Review</h3>
-          <form onSubmit={handleSubmitReview} className="space-y-4">
-            <div>
-              <label className="block text-sm font-bold text-stone-700 mb-2">Rating</label>
-              <div className="flex space-x-2">
-                {[1, 2, 3, 4, 5].map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setRating(num)}
-                    className={cn(
-                      "p-2 rounded-lg transition-all",
-                      rating >= num ? "text-amber-400" : "text-stone-300"
-                    )}
-                  >
-                    <Star size={24} fill={rating >= num ? "currentColor" : "none"} />
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-stone-700 mb-2">Your Comment</label>
-              <textarea
-                required
-                className="input-field min-h-[120px]"
-                placeholder="What did you like or dislike?"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-              />
-            </div>
-            <button type="submit" className="w-full btn-primary py-3">
-              Submit Review
-            </button>
-          </form>
         </div>
       </div>
 
@@ -810,11 +923,11 @@ export default function ProductDetail() {
                       
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2">
                         <div className="flex items-center space-x-2">
-                          {i > 0 && i <= (product.images?.length || 0) && (
+                          {i > 0 && (
                             <button 
-                              onClick={() => handleMoveImage(i - 1, 'left')}
+                              onClick={() => handleMoveImage(i, 'up')}
                               className="p-1.5 bg-white rounded-full text-stone-600 hover:text-primary shadow-sm"
-                              title="Move Left"
+                              title="Move Up"
                             >
                               <ChevronLeft size={14} />
                             </button>
@@ -826,11 +939,11 @@ export default function ProductDetail() {
                           >
                             <Trash2 size={14} />
                           </button>
-                          {i > 0 && i < (product.images?.length || 0) && (
+                          {i < allImages.length - 1 && (
                             <button 
-                              onClick={() => handleMoveImage(i - 1, 'right')}
+                              onClick={() => handleMoveImage(i, 'down')}
                               className="p-1.5 bg-white rounded-full text-stone-600 hover:text-primary shadow-sm"
-                              title="Move Right"
+                              title="Move Down"
                             >
                               <ChevronRight size={14} />
                             </button>
