@@ -791,6 +791,8 @@ try { db.prepare('ALTER TABLE orders ADD COLUMN payment_ref TEXT').run(); } catc
 try { db.prepare('ALTER TABLE users ADD COLUMN username TEXT').run(); } catch (e) {}
 try { db.prepare('CREATE UNIQUE INDEX idx_users_username ON users(username)').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN password TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN lat REAL').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN lng REAL').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN street_address TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN city TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN state TEXT').run(); } catch (e) {}

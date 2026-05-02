@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { StoreProvider } from './StoreContext';
 import './index.css';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Auth Interceptor: Automatically injects token into every fetch request
 try {
@@ -28,9 +29,11 @@ try {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <StoreProvider>
-      <App />
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <App />
+      </StoreProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
 

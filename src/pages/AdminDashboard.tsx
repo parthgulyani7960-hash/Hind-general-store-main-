@@ -8268,13 +8268,16 @@ export default function AdminDashboard() {
                         
                         return (
                           <div key={step.id} className="flex flex-col items-center">
-                            <div className={`
+                            <motion.div 
+                              animate={isCurrent ? { scale: [1, 1.05, 1] } : {}}
+                              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                              className={`
                               w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 border-2
                               ${isActive ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20' : 'bg-white border-stone-200 text-stone-300'}
                               ${isCurrent ? 'ring-4 ring-primary/20 scale-110' : ''}
                             `}>
                               <Icon size={18} />
-                            </div>
+                            </motion.div>
                             <span className={`
                               text-[10px] font-bold mt-3 uppercase tracking-wider
                               ${isActive ? 'text-primary' : 'text-stone-400'}

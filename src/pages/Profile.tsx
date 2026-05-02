@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { cn, Product } from '../types';
 import { useEffect } from 'react';
 import WholesaleInsights from '../components/WholesaleInsights';
+import LocationPicker from '../components/LocationPicker';
 
 export default function Profile() {
   const { 
@@ -169,7 +170,9 @@ export default function Profile() {
     zip_code: (user as any)?.zip_code || '',
     address: user?.address || '',
     profile_photo: user?.profile_photo || '',
-    phone: user?.phone || ''
+    phone: user?.phone || '',
+    lat: (user as any)?.lat || null,
+    lng: (user as any)?.lng || null
   });
 
   const [orders, setOrders] = useState<any[]>([]);
@@ -644,14 +647,7 @@ export default function Profile() {
                         if (val.length === 6) lookupPincode(val, 'profile');
                       }}
                     />
-                    <button 
-                      onClick={getCurrentLocation}
-                      type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
-                      title="Use My Current Location"
-                    >
-                      <Navigation2 size={14} />
-                    </button>
+                    <LocationPicker onLocationFound={(lat, lng) => setFormData({...formData, lat, lng})} />
                   </div>
                 </div>
               </div>
