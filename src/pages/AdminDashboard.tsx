@@ -486,6 +486,24 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleToggleBulkDiscount = async (discount: any) => {
+    try {
+      const res = await fetch(`/api/admin/bulk-discounts/${discount.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...discount, active: !discount.active })
+      });
+      if (res.ok) {
+        toast.success(`Bulk discount ${!discount.active ? 'enabled' : 'disabled'}`);
+        fetchBulkDiscounts();
+      } else {
+        toast.error('Failed to toggle bulk discount');
+      }
+    } catch (err) {
+      toast.error('Failed to toggle bulk discount');
+    }
+  };
+
   const handleDeleteBulkDiscount = async (id: number) => {
     if (!confirm('Are you sure you want to delete this bulk discount?')) return;
     try {
@@ -6164,12 +6182,18 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={cn(
-                          "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
-                          discount.active ? 'bg-emerald-50 text-emerald-600' : 'bg-stone-100 text-stone-400'
-                        )}>
-                          {discount.active ? 'Active' : 'Inactive'}
-                        </span>
+                        <button 
+                          onClick={() => handleToggleBulkDiscount(discount)}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-colors duration-300 relative",
+                            discount.active ? 'bg-emerald-500' : 'bg-stone-300'
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
+                            discount.active ? 'translate-x-7' : 'translate-x-1'
+                          )} />
+                        </button>
                       </td>
                       <td className="px-6 py-4 text-xs text-stone-500">
                         {new Date(discount.created_at).toLocaleDateString()}
