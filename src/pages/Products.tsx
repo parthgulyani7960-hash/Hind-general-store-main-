@@ -31,7 +31,8 @@ export default function Products() {
   const [sortBy, setSortBy] = useState('relevance');
   const [onSaleOnly, setOnSaleOnly] = useState(false);
   const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
-  const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
+  const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole, config } = useStore();
+  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const { isMobile, isTablet } = useDeviceType();
   const activeRole = simulatedRole || user?.role;
 
@@ -218,12 +219,18 @@ export default function Products() {
               
               <div className="flex flex-col md:flex-row">
                 <div className="md:w-1/2 h-[300px] md:h-[500px] relative">
-                  <img 
-                    src={quickViewProduct.image_url} 
-                    alt={quickViewProduct.name}
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
+                  {showImages ? (
+                    <img 
+                      src={quickViewProduct.image_url} 
+                      alt={quickViewProduct.name}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
+                      <Camera size={48} />
+                    </div>
+                  )}
                   <button
                     onClick={() => setZoomImage(quickViewProduct.image_url)}
                     className="absolute top-4 left-4 p-2 bg-white/80 backdrop-blur-sm rounded-full hover:bg-white transition-colors"
@@ -691,13 +698,19 @@ export default function Products() {
               className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-md transition-all flex flex-col"
             >
               <Link to={`/product/${product.id}`} className="relative h-48 overflow-hidden block group/image">
-                <img 
-                  src={product.image_url} 
-                  alt={product.name}
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover group-hover/image:scale-105 transition-transform duration-500"
-                />
+                {showImages ? (
+                  <img 
+                    src={product.image_url} 
+                    alt={product.name}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover group-hover/image:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
+                    <Camera size={32} />
+                  </div>
+                )}
                 
                 {/* Improved Quick View Overlay */}
                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10">

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock, Camera } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { useState } from 'react';
@@ -7,7 +7,8 @@ import toast from 'react-hot-toast';
 import { calculateBulkDiscount, cn } from '../lib/utils';
 
 export default function Cart() {
-  const { t, cart, updateQuantity, removeFromCart, user, appliedCoupon, setAppliedCoupon, bulkDiscounts } = useStore();
+  const { t, cart, updateQuantity, removeFromCart, user, appliedCoupon, setAppliedCoupon, bulkDiscounts, config } = useStore();
+  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const [couponCode, setCouponCode] = useState(appliedCoupon?.code || '');
   const [isValidating, setIsValidating] = useState(false);
 
@@ -194,13 +195,19 @@ export default function Cart() {
                 className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex items-center gap-6 group hover:border-primary/20 transition-all duration-500 border-l-4 border-l-transparent hover:border-l-primary"
               >
                 <div className="relative shrink-0 overflow-hidden rounded-2xl">
-                  <img 
-                    src={item.image_url} 
-                    className="w-28 h-28 object-cover transition-transform duration-700 group-hover:scale-110" 
-                    alt={item.name} 
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
+                  {showImages ? (
+                    <img 
+                      src={item.image_url} 
+                      className="w-28 h-28 object-cover transition-transform duration-700 group-hover:scale-110" 
+                      alt={item.name} 
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-28 h-28 flex items-center justify-center bg-stone-100 text-stone-400">
+                      <Camera size={32} />
+                    </div>
+                  )}
                   {item.discount > 0 && (
                     <div className="absolute top-2 left-2 bg-red-500 text-white text-[8px] font-black uppercase px-2 py-1 rounded-lg shadow-lg">
                       {item.discount}% OFF

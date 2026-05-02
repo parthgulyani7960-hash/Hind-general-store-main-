@@ -14,6 +14,7 @@ const FEATURES = [
   { key: 'feature_bulk_discount_enabled', label: 'Bulk Discount Module', description: 'Allow setting tiered pricing for bulk orders.' },
   { key: 'feature_khata_enabled', label: 'Khata System (Credit)', description: 'Enable credit management for trusted customers.' },
   { key: 'feature_delivery_areas_enabled', label: 'Delivery Areas (Zones)', description: 'Restrict services based on geographic zones.' },
+  { key: 'feature_show_product_images', label: 'Display Product Images', description: 'Enable or disable the display of product images across the site.' },
 ];
 
 export default function FeatureToggles({ config, onUpdate }: FeatureTogglesProps) {

@@ -180,6 +180,16 @@ async function initDatabase() {
     is_out_of_stock BOOLEAN DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS suppliers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    contact_person TEXT,
+    email TEXT,
+    phone TEXT,
+    address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
@@ -513,6 +523,15 @@ async function initDatabase() {
     UNIQUE(user_id, product_id)
   );
 
+  CREATE TABLE IF NOT EXISTS feature_toggles (
+    key TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT 1
+  );
+  
+  INSERT OR IGNORE INTO feature_toggles (key, enabled) VALUES ('enable_checkout', 1);
+  INSERT OR IGNORE INTO feature_toggles (key, enabled) VALUES ('enable_wishlist', 1);
+  INSERT OR IGNORE INTO feature_toggles (key, enabled) VALUES ('enable_wallet', 1);
+
   CREATE TABLE IF NOT EXISTS bulk_discounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     entity_type TEXT, -- 'product' or 'category'
@@ -780,16 +799,6 @@ try { db.prepare('ALTER TABLE users ADD COLUMN address TEXT').run(); } catch (e)
 
 // Advanced Enterprise Tables
 db.exec(`
-  CREATE TABLE IF NOT EXISTS suppliers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    contact_person TEXT,
-    email TEXT,
-    phone TEXT,
-    address TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
   CREATE TABLE IF NOT EXISTS promotional_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT,
@@ -2266,7 +2275,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/search/suggestions', (req, res) => {
     const { q } = req.query;
     if (!q) return res.json([]);
-    const suggestions = db.prepare('SELECT id, name, category, image_url FROM products WHERE name LIKE ? AND is_listed = 1 LIMIT 8').all(`%${q}%`);
+    const suggestions = db.prepare('SELECT id, name, category, image_url, price FROM products WHERE name LIKE ? AND is_listed = 1 LIMIT 8').all(`%${q}%`);
     res.json(suggestions);
   });
 
@@ -2493,7 +2502,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
           FROM products p
           WHERE p.is_listed = 1 OR ? = 'admin'
-        `).all(req.session?.role) as any[];
+        `).all(req.session?.role || 'guest') as any[];
       } catch (e) {
         console.error('[DB] SQLite Product Fetch Failed:', e);
       }

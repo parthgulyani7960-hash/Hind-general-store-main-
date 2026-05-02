@@ -30,7 +30,8 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t } = useStore();
+  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config } = useStore();
+  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const navigate = useNavigate();
   const activeRole = simulatedRole || user?.role;
   const isInWishlist = wishlist.includes(product?.id);
@@ -347,17 +348,23 @@ export default function ProductDetail() {
               <ImageIcon size={20} />
             </button>
             <AnimatePresence mode="wait">
-              <motion.img 
-                key={activeImage}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                src={allImages[activeImage]} 
-                alt={product.name} 
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover" 
-              />
+              {showImages ? (
+                <motion.img 
+                  key={activeImage}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  src={allImages[activeImage]} 
+                  alt={product.name} 
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover" 
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
+                  <Camera size={64} />
+                </div>
+              )}
             </AnimatePresence>
             
             {allImages.length > 1 && (
@@ -410,7 +417,13 @@ export default function ProductDetail() {
                     activeImage === i ? "border-primary shadow-md" : "border-transparent opacity-60 hover:opacity-100"
                   )}
                 >
-                  <img src={img} className="w-full h-full object-cover" alt={`Thumbnail ${i}`} loading="lazy" referrerPolicy="no-referrer" />
+                  {showImages ? (
+                    <img src={img} className="w-full h-full object-cover" alt={`Thumbnail ${i}`} loading="lazy" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
+                      <Camera size={20} />
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
@@ -702,13 +715,19 @@ export default function ProductDetail() {
                 className="bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 group"
               >
                 <Link to={`/product/${p.id}`} className="relative h-48 block overflow-hidden">
-                  <img 
-                    src={p.image_url} 
-                    alt={p.name} 
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
+                  {showImages ? (
+                    <img 
+                      src={p.image_url} 
+                      alt={p.name} 
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
+                      <Camera size={32} />
+                    </div>
+                  )}
                   {p.discount > 0 && (
                     <div className="absolute top-2 left-2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg">
                       {p.discount}% OFF

@@ -359,6 +359,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const isProfileComplete = () => {
     if (!user) return true;
     
+    // Admins don't need full profile
+    if (user.role === 'admin') return true;
+
     // Check for mandatory fields: name, phone, and profile photo
     const hasName = user.name && user.name !== 'User';
     const hasPhone = !!user.phone;

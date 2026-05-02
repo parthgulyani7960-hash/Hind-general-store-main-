@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star, Camera } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -7,7 +7,7 @@ import { cn } from '../types';
 
 import UserAvatar from './UserAvatar';
 
-const MiniCart = ({ cart, isOpen }: { cart: any[], isOpen: boolean }) => {
+const MiniCart = ({ cart, isOpen, showImages }: { cart: any[], isOpen: boolean, showImages: boolean }) => {
   const { t } = useStore();
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const itemsToShow = cart.slice(0, 5);
@@ -35,9 +35,15 @@ const MiniCart = ({ cart, isOpen }: { cart: any[], isOpen: boolean }) => {
             ) : (
               itemsToShow.map((item) => (
                 <div key={item.id} className="flex items-center space-x-3 group">
-                  <div className="w-14 h-14 bg-stone-50 rounded-xl overflow-hidden shrink-0 border border-stone-100">
-                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                  </div>
+                  {showImages ? (
+                    <div className="w-14 h-14 bg-stone-50 rounded-xl overflow-hidden shrink-0 border border-stone-100">
+                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 flex items-center justify-center bg-stone-50 rounded-xl border border-stone-100 text-stone-400 shrink-0">
+                      <Camera size={20} />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-stone-800 truncate">{item.name}</p>
                     <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">{item.quantity} x ₹{item.price}</p>
@@ -71,14 +77,16 @@ const MiniCart = ({ cart, isOpen }: { cart: any[], isOpen: boolean }) => {
 };
 
 export default function Navbar() {
-  const { user, cart, logout, wishlist, simulatedRole, setSimulatedRole, language, setLanguage, t, isOnline } = useStore();
+  const { user, cart, logout, wishlist, simulatedRole, setSimulatedRole, language, setLanguage, t, isOnline, config } = useStore();
+  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<{id: number, name: string}[]>([]);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const navigate = useNavigate();
+  const { addToCart, updateQuantity } = useStore();
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -176,26 +184,53 @@ export default function Navbar() {
             </div>
             {showSuggestions && suggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 overflow-hidden z-50">
-                {suggestions.map((suggestion: any) => (
-                  <button
-                    key={suggestion.id}
-                    onClick={() => {
-                      setSearchQuery(suggestion.name);
-                      setShowSuggestions(false);
-                      navigate(`/product/${suggestion.id}`);
-                    }}
-                    className="w-full text-left px-4 py-3 min-h-[44px] hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <img src={suggestion.image_url} alt={suggestion.name} className="w-10 h-10 rounded-md object-cover" />
-                      <div className="flex flex-col">
-                        <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
-                        <span className="text-[10px] text-stone-400 uppercase tracking-wider">{suggestion.category}</span>
+                {suggestions.map((suggestion: any) => {
+                  const itemInCart = cart.find((c: any) => c.id === suggestion.id);
+                  return (
+                    <div
+                      key={suggestion.id}
+                      className="w-full px-4 py-3 min-h-[44px] hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
+                    >
+                      <button
+                        onClick={() => {
+                          setSearchQuery(suggestion.name);
+                          setShowSuggestions(false);
+                          navigate(`/product/${suggestion.id}`);
+                        }}
+                        className="flex-grow flex items-center gap-3 text-left"
+                      >
+                        {showImages ? (
+                          <img src={suggestion.image_url} alt={suggestion.name} className="w-10 h-10 rounded-md object-cover" />
+                        ) : (
+                          <div className="w-10 h-10 flex items-center justify-center bg-stone-100 text-stone-400 rounded-md">
+                            <Camera size={16} />
+                          </div>
+                        )}
+                        <div className="flex flex-col">
+                          <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
+                          <span className="text-[10px] text-stone-400 uppercase tracking-wider">{suggestion.category} - ₹{suggestion.price}</span>
+                        </div>
+                      </button>
+                      
+                      <div className="flex items-center gap-2">
+                        {itemInCart ? (
+                          <div className="flex items-center gap-2 bg-stone-100 rounded-lg p-1">
+                            <button onClick={() => updateQuantity(suggestion.id, itemInCart.quantity - 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded-md shadow-sm hover:bg-stone-50">-</button>
+                            <span className="text-xs font-bold w-4 text-center">{itemInCart.quantity}</span>
+                            <button onClick={() => updateQuantity(suggestion.id, itemInCart.quantity + 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded-md shadow-sm hover:bg-stone-50">+</button>
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={() => addToCart(suggestion)}
+                            className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-lg hover:bg-primary/20 transition-colors"
+                          >
+                            Add
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <Search size={14} className="text-stone-300" />
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             )}
             {showSuggestions && searchQuery.trim().length >= 2 && suggestions.length === 0 && (
@@ -321,7 +356,7 @@ export default function Navbar() {
                   </span>
                 )}
               </Link>
-              <MiniCart cart={cart} isOpen={isMiniCartOpen} />
+              <MiniCart cart={cart} isOpen={isMiniCartOpen} showImages={showImages} />
             </div>
 
             {user ? (
