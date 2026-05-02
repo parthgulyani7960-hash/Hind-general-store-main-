@@ -20,8 +20,9 @@ import { cn, Order } from '../types';
 import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import FeatureToggles from '../components/admin/FeatureToggles';
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -1826,7 +1827,7 @@ export default function AdminDashboard() {
 
   const tabs: Tab[] = [
     'Overview', 'Analytics', 'Orders', 'Returns', 'Product Catalog', 'Categories', 'Customers', 'Wallet Requests', 'Reviews', 
-    'Coupons', 'Bulk Discounts', 'Suppliers', 'Roles', 'Promotions', 'Support', 'Newsletter', 'Expenses', 'Store Settings', 
+    'Coupons', 'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Roles', 'Promotions', 'Support', 'Newsletter', 'Expenses', 'Store Settings', 
     'Payment Settings', 'System Status'
   ];
 
@@ -5450,6 +5451,17 @@ export default function AdminDashboard() {
                   </button>
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-1">Admin Email Address</label>
+                  <input 
+                    type="email" 
+                    className="input-field"
+                    placeholder="e.g., admin@example.com"
+                    defaultValue={config.find(c => c.key === 'admin_email')?.value}
+                    onBlur={(e) => updateSetting('admin_email', e.target.value)}
+                  />
+                  <p className="text-[10px] text-stone-400 mt-1">Designated admin email for system privileges.</p>
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Admin Phone Number</label>
                   <input 
                     type="text" 
@@ -6267,6 +6279,10 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
+        )}
+
+        {activeTab === 'Feature Toggles' && (
+          <FeatureToggles config={config} onUpdate={fetchConfig} />
         )}
 
         {/* Suppliers Tab */}

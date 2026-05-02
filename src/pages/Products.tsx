@@ -59,12 +59,18 @@ export default function Products() {
       // 2. If API fails, try direct Firestore fallback (User request: "stored in the Firebase")
       console.log('API failed, attempting Firestore fallback...');
       try {
-        const { db: fsDb } = await import('../firebase');
+        const { db: fsDb, handleFirestoreError, OperationType } = await import('../firebase');
         const { collection, getDocs, query, where } = await import('firebase/firestore');
         
         const q = query(collection(fsDb, 'products'), where('is_listed', '==', true));
-        const snapshot = await getDocs(q);
-        const fbData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        let snapshot;
+        try {
+          snapshot = await getDocs(q);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, 'products');
+        }
+        
+        const fbData = snapshot!.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
         
         if (fbData.length > 0) {
           setProducts(fbData);

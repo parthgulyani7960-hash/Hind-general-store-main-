@@ -853,14 +853,14 @@ export default function Profile() {
                   ) : (
                     orders.map((order) => (
                       <div key={order.id} className="p-4 md:p-6 hover:bg-stone-50 transition-colors border-b border-stone-50 last:border-0">
-                        <div className="flex justify-between items-start mb-4">
+                        <div className="flex justify-between items-start mb-6">
                           <div>
                             <div className="flex items-center space-x-2">
-                              <p className="font-black text-stone-900 tracking-tighter uppercase text-sm">Order #{order.order_id || order.id}</p>
+                              <p className="font-black text-stone-900 tracking-tighter uppercase text-base">Order #{order.order_id || order.id}</p>
                               <button 
                                 onClick={() => {
                                   navigator.clipboard.writeText(order.order_id || String(order.id));
-                                  toast.success('Order ID copied to clipboard!');
+                                  toast.success('Order ID copied!');
                                 }}
                                 className="p-1 hover:bg-stone-200 rounded-md transition-colors text-stone-400 hover:text-primary"
                                 title="Copy Order ID"
@@ -868,67 +868,42 @@ export default function Profile() {
                                 <Copy size={12} />
                               </button>
                             </div>
-                            <p className="text-[10px] text-stone-400 font-bold mt-0.5">{new Date(order.created_at).toLocaleDateString()} AT {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                            <div className="flex items-center space-x-4 mt-2">
+                                <p className="text-[10px] text-stone-500 font-bold bg-stone-100 px-2 py-1 rounded-lg uppercase tracking-wider">{new Date(order.created_at).toLocaleDateString()}</p>
+                                <p className="text-[10px] text-stone-500 font-bold bg-stone-100 px-2 py-1 rounded-lg uppercase tracking-wider">{order.items_count || 0} Items</p>
+                            </div>
                           </div>
-                          <div className="flex flex-col items-end space-y-1">
-                            <p className="font-black text-lg text-primary leading-none tracking-tight">₹{order.total}</p>
+                          <div className="flex flex-col items-end space-y-2">
+                            <p className="font-black text-2xl text-primary leading-none tracking-tight">₹{order.total}</p>
                             <span className={cn(
-                              "text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest border",
-                              order.status === 'delivered' ? 'bg-accent/10 text-accent border-accent/20' : 
+                              "text-[10px] font-black px-3 py-1 rounded-lg uppercase tracking-widest border",
+                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
                               order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' : 
                               order.status === 'failed' ? 'bg-stone-900 text-white border-stone-900' : 
                               'bg-primary/10 text-primary border-primary/20'
                             )}>
                               {t(order.status) || order.status}
                             </span>
-                            {order.estimated_delivery_at && order.status !== 'delivered' && (
-                              <div className="flex items-center space-x-1 text-[9px] font-bold text-emerald-600 uppercase tracking-widest">
-                                <Clock size={10} className="animate-pulse" />
-                                <span>Est: {new Date(order.estimated_delivery_at).toLocaleDateString()}</span>
-                              </div>
-                            )}
-                            {order.status === 'delivered' && (
-                              <button 
-                                onClick={async () => {
-                                  try {
-                                    // Simulated reorder: add items back to cart
-                                    toast.success(t('reorder_success') || 'Items from this order added to your cart!');
-                                  } catch (e) {
-                                    toast.error(t('failed_reorder') || 'Failed to reorder');
-                                  }
-                                }}
-                                className="flex items-center space-x-1 text-[9px] font-black text-stone-300 hover:text-primary transition-colors pt-1 uppercase tracking-widest"
-                              >
-                                <RefreshCw size={10} />
-                                <span>{t('reorder') || 'RE-ORDER'}</span>
-                              </button>
-                            )}
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center bg-stone-50 p-4 rounded-2xl border border-stone-100/50 mb-4">
-                            <div className="flex items-center space-x-3">
-                               <div className="p-2 bg-white rounded-xl shadow-sm">
-                                 <Package size={14} className="text-primary" />
-                               </div>
-                               <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">{order.items_count || 0} ITEMS</span>
-                            </div>
+                        <div className="flex justify-between items-center bg-stone-50 p-4 rounded-2xl border border-stone-100/50 mb-6">
                             <div className="flex items-center space-x-4">
-                              <Link 
-                                  to={`/invoice/${order.id}`}
-                                  className="text-[10px] font-black text-stone-500 hover:text-primary tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
-                              >
-                                  <span>{t('view_details') || 'DETAILS'}</span>
-                                  <ChevronRight size={12} />
-                              </Link>
-                              <Link 
-                                  to={`/track-order?id=${order.order_id || order.id}`}
-                                  className="text-[10px] font-black text-primary hover:text-primary/80 tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
-                              >
-                                  <span>TRACK</span>
-                                  <Truck size={12} />
-                              </Link>
+                                <Link 
+                                    to={`/invoice/${order.id}`}
+                                    className="text-[10px] font-black text-stone-500 hover:text-primary tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
+                                >
+                                    <Info size={12} />
+                                    <span>{t('view_details') || 'DETAILS'}</span>
+                                </Link>
                             </div>
+                            <Link 
+                                to={`/track-order?id=${order.order_id || order.id}`}
+                                className="bg-primary hover:bg-primary/90 text-white text-[10px] font-black tracking-[0.2em] uppercase flex items-center space-x-2 px-4 py-2 rounded-xl transition-all shadow-md shadow-primary/20"
+                            >
+                                <span>Track Order</span>
+                                <Truck size={14} />
+                            </Link>
                         </div>
 
                         {/* Order Tracking Timeline for Mobile */}

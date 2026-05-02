@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "admin", "delivery"] },
+        "wallet_balance": { "type": "number" }
+      },
+      "required": ["uid", "email"]
+    },
+    "product": {
+      "title": "Product",
+      "description": "Product details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" }
+      },
+      "required": ["name", "price"]
+    },
+    "order": {
+        "title": "Order",
+        "description": "Customer order",
+        "type": "object",
+        "properties": {
+            "userId": { "type": "string" },
+            "total": { "type": "number" },
+            "status": { "type": "string" }
+        },
+        "required": ["userId", "total"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "user",
+      "description": "User profile collection"
+    },
+    "products/{productId}": {
+        "schema": "product",
+        "description": "Product catalog"
+    },
+    "orders/{orderId}": {
+        "schema": "order",
+        "description": "Customer orders"
+    }
+  }
+}

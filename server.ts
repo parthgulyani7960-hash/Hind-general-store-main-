@@ -530,6 +530,7 @@ async function initDatabase() {
   INSERT OR IGNORE INTO settings (key, value) VALUES ('auth_mode', 'otp'); -- 'otp' or 'password'
   INSERT OR IGNORE INTO settings (key, value) VALUES ('otp_api_key', '');
   INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_phone', '7888422429');
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_email', 'parthgulyani7960@gmail.com');
   INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_otp', '75391');
   INSERT OR IGNORE INTO settings (key, value) VALUES ('store_name', 'Hind General Store');
   INSERT OR IGNORE INTO settings (key, value) VALUES ('store_phone', '+91 98765 43210');
@@ -758,6 +759,7 @@ try { db.prepare('ALTER TABLE orders ADD COLUMN payment_id TEXT').run(); } catch
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_screenshot TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN rejection_reason TEXT').run(); } catch (e) {}
 try { db.prepare("ALTER TABLE orders ADD COLUMN delivery_type TEXT DEFAULT 'home'").run(); } catch (e) {}
+try { db.prepare('ALTER TABLE audit_logs ADD COLUMN user_agent TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN notes TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN admin_notes TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN delivery_boy_id INTEGER').run(); } catch (e) {}
@@ -1649,7 +1651,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         }
       }
       
-      const adminEmail = 'parthgulyani7960@gmail.com';
+      const adminEmail = getAdminEmail();
       if (user.email === adminEmail && user.role !== 'admin') {
         db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', user.id);
         user.role = 'admin';
@@ -1679,6 +1681,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.status(401).json({ success: false, message: 'Authentication failed: ' + e.message });
     }
   });
+
+  // Helper to check admin email
+  function getAdminEmail() {
+    const setting = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_email') as any;
+    return setting ? setting.value : 'parthgulyani7960@gmail.com';
+  }
 
   app.get('/api/bulk-discounts', (req, res) => {
     try {
@@ -2221,7 +2229,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/search/suggestions', (req, res) => {
     const { q } = req.query;
     if (!q) return res.json([]);
-    const suggestions = db.prepare('SELECT id, name FROM products WHERE name LIKE ? AND is_listed = 1 LIMIT 8').all(`%${q}%`);
+    const suggestions = db.prepare('SELECT id, name, category, image_url FROM products WHERE name LIKE ? AND is_listed = 1 LIMIT 8').all(`%${q}%`);
     res.json(suggestions);
   });
 

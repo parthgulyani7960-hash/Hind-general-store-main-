@@ -176,7 +176,7 @@ export default function Navbar() {
             </div>
             {showSuggestions && suggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 overflow-hidden z-50">
-                {suggestions.map((suggestion) => (
+                {suggestions.map((suggestion: any) => (
                   <button
                     key={suggestion.id}
                     onClick={() => {
@@ -186,8 +186,14 @@ export default function Navbar() {
                     }}
                     className="w-full text-left px-4 py-3 min-h-[44px] hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
                   >
-                    <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
-                    <Search size={12} className="text-stone-300" />
+                    <div className="flex items-center gap-3">
+                      <img src={suggestion.image_url} alt={suggestion.name} className="w-10 h-10 rounded-md object-cover" />
+                      <div className="flex flex-col">
+                        <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
+                        <span className="text-[10px] text-stone-400 uppercase tracking-wider">{suggestion.category}</span>
+                      </div>
+                    </div>
+                    <Search size={14} className="text-stone-300" />
                   </button>
                 ))}
               </div>
