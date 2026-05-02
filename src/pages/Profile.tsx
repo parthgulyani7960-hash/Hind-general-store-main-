@@ -898,7 +898,7 @@ export default function Profile() {
                                 </Link>
                             </div>
                             <Link 
-                                to={`/track-order?id=${order.order_id || order.id}`}
+                                to={`/track-order?orderId=${order.order_id || order.id}&phone=${user?.phone}`}
                                 className="bg-primary hover:bg-primary/90 text-white text-[10px] font-black tracking-[0.2em] uppercase flex items-center space-x-2 px-4 py-2 rounded-xl transition-all shadow-md shadow-primary/20"
                             >
                                 <span>Track Order</span>

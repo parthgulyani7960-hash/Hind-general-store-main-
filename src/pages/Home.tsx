@@ -165,11 +165,11 @@ function HomeInner() {
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
               viewport={{ once: true }}
-              className="bg-white p-8 rounded-2xl shadow-sm border border-stone-100 hover:shadow-md transition-all"
+              className="bg-white p-8 md:p-12 rounded-3xl shadow-sm border border-stone-100 hover:shadow-lg transition-all"
             >
-              <div className="mb-4">{feature.icon}</div>
-              <h3 className="text-xl font-bold mb-2">{feature.title}</h3>
-              <p className="text-stone-500">{feature.desc}</p>
+              <div className="mb-6">{feature.icon}</div>
+              <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold mb-4">{feature.title}</h3>
+              <p className="text-lg md:text-xl lg:text-2xl text-stone-600">{feature.desc}</p>
             </motion.div>
           ))}
         </div>

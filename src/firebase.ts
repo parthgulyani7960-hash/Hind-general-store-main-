@@ -63,13 +63,18 @@ export const signInWithGoogle = async () => {
     const token = await result.user.getIdToken();
     return { user: result.user, token };
   } catch (error: any) {
-    console.error('Error signing in with Google', error);
+    console.error('Error signing in with Google', {
+      code: error.code,
+      message: error.message,
+      stack: error.stack,
+      error: error
+    });
     if (error.code === 'auth/popup-closed-by-user') {
       throw new Error('Sign-in cancelled. Please try again.');
     } else if (error.code === 'auth/popup-blocked') {
       throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
     } else {
-        throw new Error('Sign-in failed. Please ensure Firebase is properly configured for this domain.');
+        throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please ensure Firebase Google Auth is enabled.`);
     }
   }
 };

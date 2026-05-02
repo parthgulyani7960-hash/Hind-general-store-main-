@@ -1503,12 +1503,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.post('/api/admin/bulk-discounts', (req, res) => {
-    const { entity_type, entity_id, min_qty, discount_type, discount_value } = req.body;
+    const { entity_type, entity_id, min_qty, discount_type, discount_value, active } = req.body;
     try {
       const result = db.prepare(`
-        INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(entity_type, entity_id, min_qty, discount_type, discount_value);
+        INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value, active)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(entity_type, entity_id, min_qty, discount_type, discount_value, active ? 1 : 0);
       res.json({ success: true, id: result.lastInsertRowid });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });

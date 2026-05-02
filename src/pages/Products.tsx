@@ -695,9 +695,9 @@ export default function Products() {
                 hidden: { opacity: 0, y: 20 },
                 visible: { opacity: 1, y: 0 }
               }}
-              className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-md transition-all flex flex-col"
+              className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-lg transition-all flex flex-col p-6"
             >
-              <Link to={`/product/${product.id}`} className="relative h-48 overflow-hidden block group/image">
+              <Link to={`/product/${product.id}`} className="relative h-64 overflow-hidden block group/image mb-4 -mx-6 -mt-6">
                 {showImages ? (
                   <img 
                     src={product.image_url} 
@@ -708,7 +708,7 @@ export default function Products() {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
-                    <Camera size={32} />
+                    <Camera size={48} />
                   </div>
                 )}
                 
@@ -719,37 +719,37 @@ export default function Products() {
                       e.preventDefault();
                       setQuickViewProduct(product);
                     }}
-                    className="bg-white text-stone-900 px-6 py-2 rounded-full font-bold flex items-center space-x-2 pointer-events-auto hover:bg-stone-50 hover:scale-105 transition-all shadow-xl"
+                    className="bg-white text-stone-900 px-6 py-3 rounded-full font-black text-sm flex items-center space-x-2 pointer-events-auto hover:bg-stone-50 hover:scale-105 transition-all shadow-xl"
                   >
-                    <Search size={16} />
+                    <Search size={20} />
                     <span>Quick View</span>
                   </button>
                 </div>
 
-                <div className="absolute top-2 left-2 flex flex-col space-y-2 z-20">
+                <div className="absolute top-4 left-4 flex flex-col space-y-2 z-20">
                     {product.discount > 0 && (
-                      <div className="bg-accent text-white px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-lg">
+                      <div className="bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider shadow-lg">
                         {product.discount}% OFF
                       </div>
                     )}
                 </div>
-                <div className="absolute top-2 right-2 flex flex-col space-y-2 z-20">
+                <div className="absolute top-4 right-4 flex flex-col space-y-2 z-20">
                     <div className={cn(
-                      "bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-xs font-bold shadow-sm flex flex-col items-end",
+                      "bg-white/90 backdrop-blur px-3 py-2 rounded-xl text-sm font-black shadow-sm flex flex-col items-end",
                       getProductPrice(product, user?.role) < product.price ? "text-accent" : "text-primary"
                     )}>
                     <div className="flex flex-col items-end">
                       <div className="flex items-center space-x-1">
                         {getProductPrice(product, user?.role) < product.price && (
-                          <span className="text-[10px] text-stone-400 line-through font-medium">₹{product.price}</span>
+                          <span className="text-xs text-stone-400 line-through font-bold">₹{product.price}</span>
                         )}
-                        <span>₹{getProductPrice(product, user?.role)}</span>
+                        <span className="text-xl">₹{getProductPrice(product, user?.role)}</span>
                       </div>
                       {user?.role === 'wholesaler' && product.wholesale_price && (
-                        <span className="text-[8px] font-black uppercase tracking-tighter">Wholesale</span>
+                        <span className="text-[10px] font-black uppercase tracking-tighter">Wholesale</span>
                       )}
                       {user?.role === 'retailer' && product.retail_price && (
-                        <span className="text-[8px] font-black uppercase tracking-tighter">Retail</span>
+                        <span className="text-[10px] font-black uppercase tracking-tighter">Retail</span>
                       )}
                     </div>
                   </div>
@@ -759,33 +759,33 @@ export default function Products() {
                       toggleWishlist(product.id);
                     }}
                     className={cn(
-                      "p-2 rounded-lg backdrop-blur shadow-sm transition-all",
+                      "p-3 rounded-xl backdrop-blur shadow-sm transition-all",
                       wishlist.includes(product.id) 
                         ? "bg-red-500 text-white" 
                         : "bg-white/90 text-stone-400 hover:text-red-500"
                     )}
                   >
-                    <Heart size={16} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
+                    <Heart size={20} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
                   </button>
                 </div>
               </Link>
               
-              <div className="p-4 flex-1 flex flex-col">
-                <Link to={`/product/${product.id}`} className="mb-2 block group">
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-stone-400">{product.category}</span>
-                  <h3 className="text-lg font-bold text-stone-900 group-hover:text-primary transition-colors">{product.name}</h3>
-                  <div className="flex items-center space-x-1 mt-1">
+              <div className="flex-1 flex flex-col">
+                <Link to={`/product/${product.id}`} className="mb-4 block group">
+                  <span className="text-xs uppercase tracking-widest font-black text-primary">{product.category}</span>
+                  <h3 className="text-2xl md:text-3xl font-black text-stone-900 group-hover:text-primary transition-colors mt-1">{product.name}</h3>
+                  <div className="flex items-center space-x-2 mt-2">
                     <div className="flex text-amber-400">
                       {[...Array(5)].map((_, i) => (
-                        <Star key={i} size={10} fill={i < Math.round((product as any).avg_rating || 0) ? "currentColor" : "none"} />
+                        <Star key={i} size={14} fill={i < Math.round((product as any).avg_rating || 0) ? "currentColor" : "none"} />
                       ))}
                     </div>
-                    <span className="text-[10px] text-stone-400 font-bold">({(product as any).review_count || 0})</span>
+                    <span className="text-xs text-stone-400 font-black">({(product as any).review_count || 0} reviews)</span>
                   </div>
                 </Link>
-                <p className="text-sm text-stone-500 mb-4 line-clamp-2">{product.description}</p>
+                <p className="text-base md:text-lg text-stone-600 mb-6 line-clamp-3 leading-relaxed">{product.description}</p>
                 
-                <div className="mt-auto flex space-x-2">
+                <div className="mt-auto flex space-x-3">
                   {cartItem ? (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.8 }}

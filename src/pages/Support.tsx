@@ -107,7 +107,7 @@ export default function Support() {
           <h3 className="font-bold">WhatsApp</h3>
           <p className="text-xs text-stone-500">Fastest way to get help</p>
           <a 
-            href={`https://wa.me/${(config.find(c => c.key === 'whatsapp_number')?.value || '919876543210').replace(/\D/g, '')}`} 
+            href={`https://wa.me/${(config.find(c => c.key === 'whatsapp_number')?.value || '919876543210').replace(/\D/g, '')}?text=${encodeURIComponent(user ? `Hello, I need support for my account (User ID: ${user.id}, Name: ${user.name}, Phone: ${user.phone}).` : "Hello, I need support.")}`}
             target="_blank" 
             className="text-primary font-bold text-sm hover:underline"
           >
@@ -130,7 +130,10 @@ export default function Support() {
           </div>
           <h3 className="font-bold">Email</h3>
           <p className="text-xs text-stone-500">For detailed inquiries</p>
-          <a href="mailto:support@hindstore.com" className="text-primary font-bold text-sm hover:underline">
+          <a 
+            href={`mailto:support@hindstore.com?subject=${encodeURIComponent("Support Request")}&body=${encodeURIComponent(user ? `I need help for my account.\n\nUser ID: ${user.id}\nName: ${user.name}\nPhone: ${user.phone}\n\nDetails:` : "I need help.")}`}
+            className="text-primary font-bold text-sm hover:underline"
+          >
             support@hindstore.com
           </a>
         </div>

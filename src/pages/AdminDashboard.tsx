@@ -21,6 +21,7 @@ import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import FeatureToggles from '../components/admin/FeatureToggles';
+import ProductImageManager from '../components/admin/ProductImageManager';
 
 type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
 
@@ -7329,67 +7330,15 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-2 space-y-6">
-              <div 
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-stone-200 rounded-2xl p-8 text-center hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group"
-              >
-                <Camera size={32} className="mx-auto text-stone-300 group-hover:text-primary transition-colors mb-2" />
-                <p className="text-sm font-bold text-stone-500 group-hover:text-primary transition-colors">Click to upload images</p>
-                <p className="text-xs text-stone-400 mt-1">Supports multiple JPG, PNG files</p>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  multiple 
-                  accept="image/*" 
-                  onChange={handleImageUpload} 
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {newProduct.images.map((img, i) => (
-                  <div key={i} className={cn(
-                    "relative aspect-square rounded-2xl overflow-hidden border-2 group transition-all",
-                    newProduct.image === img ? "border-primary shadow-lg" : "border-stone-100"
-                  )}>
-                    <img src={img} className="w-full h-full object-cover" alt="" />
-                    
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
-                      <button 
-                        onClick={() => moveImage(i, 'left')}
-                        disabled={i === 0}
-                        className="p-2 bg-white rounded-full text-stone-600 hover:text-primary disabled:opacity-50"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <button 
-                        onClick={() => deleteImage(i)}
-                        className="p-2 bg-red-500 rounded-full text-white hover:bg-red-600"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => moveImage(i, 'right')}
-                        disabled={i === newProduct.images.length - 1}
-                        className="p-2 bg-white rounded-full text-stone-600 hover:text-primary disabled:opacity-50"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-
-                    <button 
-                      onClick={() => setNewProduct({ ...newProduct, image: img })}
-                      className={cn(
-                        "absolute top-2 left-2 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm",
-                        newProduct.image === img ? "bg-primary text-white" : "bg-white/90 text-stone-600 hover:bg-white"
-                      )}
-                    >
-                      {newProduct.image === img ? 'Main Image' : 'Set as Main'}
-                    </button>
-                  </div>
-                ))}
-              </div>
+            <div className="flex-1 overflow-y-auto pr-2">
+              <ProductImageManager 
+                allImages={imageModal.images} 
+                primaryImage={newProduct.image} 
+                onUpdate={(allImages, primaryImage) => {
+                  setNewProduct({ ...newProduct, images: allImages, image: primaryImage });
+                  setImageModal({ ...imageModal, images: allImages }); 
+                }}
+              />
             </div>
 
             <div className="mt-8 pt-6 border-t border-stone-100">
