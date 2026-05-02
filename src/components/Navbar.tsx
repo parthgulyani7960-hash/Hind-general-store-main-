@@ -123,7 +123,7 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="sticky top-0 z-50 glass shadow-sm">
+    <nav className="sticky top-0 z-50 glass shadow-sm pt-safe">
       {!isOnline && (
         <div className="bg-red-600 text-white text-center py-1 text-xs font-bold uppercase tracking-widest z-[60]">
           Offline Mode - Some features unavailable
@@ -156,7 +156,7 @@ export default function Navbar() {
             </div>
           </Link>
 
-          <div className="relative flex-1 max-w-sm ml-4 mr-2 md:mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="relative flex-grow max-w-lg w-full mx-2 md:mx-4" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-stone-400" size={18} />
               <input
@@ -171,7 +171,7 @@ export default function Navbar() {
                     navigate(`/products?search=${encodeURIComponent(searchQuery)}`);
                   }
                 }}
-                className="w-full pl-10 pr-4 py-2 rounded-xl bg-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full pl-10 pr-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             {showSuggestions && suggestions.length > 0 && (
@@ -184,7 +184,7 @@ export default function Navbar() {
                       setShowSuggestions(false);
                       navigate(`/product/${suggestion.id}`);
                     }}
-                    className="w-full text-left px-4 py-2 hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
+                    className="w-full text-left px-4 py-3 min-h-[44px] hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
                   >
                     <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
                     <Search size={12} className="text-stone-300" />
@@ -375,8 +375,8 @@ export default function Navbar() {
               to={link.to} 
               onClick={() => setIsMenuOpen(false)}
               className={({ isActive }) => cn(
-                "block text-base font-medium transition-colors",
-                isActive ? "text-primary font-bold" : "text-stone-600"
+                "block text-lg py-3 min-h-[44px] font-medium transition-colors",
+                isActive ? "text-primary font-bold bg-stone-50 rounded-xl px-4" : "text-stone-600 px-4"
               )}
             >
               {link.label}
@@ -387,8 +387,8 @@ export default function Navbar() {
               to="/admin" 
               onClick={() => setIsMenuOpen(false)}
               className={({ isActive }) => cn(
-                "block text-base font-bold transition-colors",
-                isActive ? "text-primary" : "text-stone-900"
+                "block text-lg py-3 min-h-[44px] font-bold transition-colors",
+                isActive ? "text-primary bg-stone-50 rounded-xl px-4" : "text-stone-900 px-4"
               )}
             >
               Admin Panel

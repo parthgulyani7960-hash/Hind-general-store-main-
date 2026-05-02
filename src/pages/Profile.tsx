@@ -479,7 +479,7 @@ export default function Profile() {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-4xl mx-auto px-4 py-8 pb-32 md:pb-8">
       {/* Profile Header */}
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-stone-100 mb-6">
         <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-8">

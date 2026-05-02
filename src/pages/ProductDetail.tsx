@@ -325,7 +325,7 @@ export default function ProductDetail() {
   if (!product) return <div className="text-center py-20">Product not found</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10">
       <button onClick={() => navigate(-1)} className="flex items-center space-x-2 text-stone-500 hover:text-primary mb-8 transition-colors">
         <ArrowLeft size={20} />
         <span>Back to Store</span>

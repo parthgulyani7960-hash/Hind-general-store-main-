@@ -28,7 +28,7 @@ export default function Invoice() {
   if (!order) return <div className="text-center py-20">Order not found</div>;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-10">
+    <div className="max-w-4xl mx-auto px-4 py-10 pb-32 md:pb-10">
       <div className="flex justify-between items-center mb-8 no-print">
         <button onClick={() => navigate(-1)} className="flex items-center space-x-2 text-stone-500 hover:text-primary">
           <ArrowLeft size={20} />

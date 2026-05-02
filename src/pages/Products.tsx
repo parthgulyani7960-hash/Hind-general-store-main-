@@ -165,7 +165,7 @@ export default function Products() {
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10 space-y-8">
       {/* Zoom Modal */}
       <AnimatePresence>
         {zoomImage && (
@@ -337,7 +337,7 @@ export default function Products() {
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
                   className={cn(
-                    "px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-2",
+                    "px-5 py-3 md:py-2 min-h-[44px] md:min-h-0 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-2",
                     selectedCategory === cat 
                       ? "bg-primary border-primary text-white shadow-lg shadow-primary/20 scale-105" 
                       : "bg-white border-stone-100 text-stone-400 hover:border-stone-200 hover:text-stone-600"

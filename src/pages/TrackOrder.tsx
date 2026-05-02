@@ -118,7 +118,7 @@ export default function TrackOrder() {
   };
 
   return (
-    <div className="min-h-screen pt-24 pb-12 bg-stone-50">
+    <div className="min-h-screen pt-24 pb-32 md:pb-12 bg-stone-50">
       <div className="max-w-4xl mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-12">

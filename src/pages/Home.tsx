@@ -6,7 +6,9 @@ import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
 
-export default function Home() {
+import ErrorBoundary from '../components/ErrorBoundary';
+
+function HomeInner() {
   const { user, simulatedRole, t } = useStore();
   const activeRole = simulatedRole || user?.role;
   const [categories, setCategories] = React.useState<any[]>([]);
@@ -23,7 +25,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="space-y-20 pb-20">
+    <div className="space-y-20 pb-safe md:pb-20">
       {/* Hero Section */}
       <section className="relative h-[80vh] flex items-center overflow-hidden">
         <div className="absolute inset-0 z-0">
@@ -282,5 +284,13 @@ export default function Home() {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <ErrorBoundary>
+      <HomeInner />
+    </ErrorBoundary>
   );
 }

@@ -22,7 +22,7 @@ export default function TermsAndConditions() {
     <div className="min-h-screen bg-stone-50">
       <Navbar />
       
-      <main className="pt-24 pb-20 px-4">
+      <main className="pt-24 pb-32 md:pb-20 px-4">
         <div className="max-w-4xl mx-auto">
           <Link 
             to="/" 

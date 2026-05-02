@@ -1,12 +1,17 @@
 @import "tailwindcss";
-@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+@import url("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
 
-html, body {
+html,
+body {
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
 }
 
-a, button, input, select, textarea {
+a,
+button,
+input,
+select,
+textarea {
   touch-action: manipulation;
 }
 
@@ -18,31 +23,63 @@ a, button, input, select, textarea {
   --color-primary: var(--primary-color, #0f172a);
   --color-secondary: var(--secondary-color, #1e293b);
   --color-accent: var(--accent-color, #d97706);
-  
+
   --animate-slide-left: slide-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   --animate-vibrate: vibrate 0.3s linear infinite;
 
   @keyframes slide-left {
-    from { opacity: 0; transform: translateX(30px); }
-    to { opacity: 1; transform: translateX(0); }
+    from {
+      opacity: 0;
+      transform: translateX(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
   }
   @keyframes vibrate {
-    0% { transform: translate(0); }
-    20% { transform: translate(-2px, 2px); }
-    40% { transform: translate(-2px, -2px); }
-    60% { transform: translate(2px, 2px); }
-    80% { transform: translate(2px, -2px); }
-    100% { transform: translate(0); }
+    0% {
+      transform: translate(0);
+    }
+    20% {
+      transform: translate(-2px, 2px);
+    }
+    40% {
+      transform: translate(-2px, -2px);
+    }
+    60% {
+      transform: translate(2px, 2px);
+    }
+    80% {
+      transform: translate(2px, -2px);
+    }
+    100% {
+      transform: translate(0);
+    }
+  }
+}
+
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .min-h-safe {
+    min-height: calc(
+      100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+    );
   }
 }
 
 @layer base {
   .page-transition-wrapper {
-    @apply animate-slide-left;
+    @apply animate-slide-left w-full h-full;
   }
-  
+
   .mobile-active-state {
-    @apply transition-transform active:scale-95 active:opacity-80;
+    @apply transition-all active:scale-[0.98] active:opacity-90;
   }
 }
 
@@ -113,19 +150,21 @@ a, button, input, select, textarea {
 }
 
 .btn-primary {
-  @apply bg-primary text-white px-6 py-2 rounded-xl font-medium transition-all hover:bg-secondary active:scale-95 disabled:opacity-50;
+  @apply bg-primary text-white px-6 py-3 md:py-2 min-h-[44px] md:min-h-0 rounded-xl font-medium transition-all hover:bg-secondary active:scale-[0.98] disabled:opacity-50;
 }
 
 .btn-outline {
-  @apply border-2 border-stone-200 text-stone-700 px-6 py-2 rounded-xl font-medium transition-all hover:bg-stone-50 active:scale-95 disabled:opacity-50;
+  @apply border-2 border-stone-200 text-stone-700 px-6 py-3 md:py-2 min-h-[44px] md:min-h-0 rounded-xl font-medium transition-all hover:bg-stone-50 active:scale-[0.98] disabled:opacity-50;
 }
 
-input, textarea, select {
+input,
+textarea,
+select {
   font-size: 16px !important;
 }
 
 .input-field {
-  @apply w-full px-4 py-3 sm:py-2 rounded-xl border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all;
+  @apply w-full px-4 py-3 sm:py-2 min-h-[44px] md:min-h-0 rounded-xl border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all;
 }
 
 .ql-editor {

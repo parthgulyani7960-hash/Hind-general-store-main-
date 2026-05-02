@@ -210,7 +210,7 @@ export default function App() {
     <Router>
       <ScrollToTopOnNavigate />
       <FullScreenAlert />
-      <div className={cn("min-h-screen flex flex-col", adminTheme)}>
+      <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <Toaster position="top-center" />
         <Navbar />
         <main className="flex-1 pb-24 md:pb-0">

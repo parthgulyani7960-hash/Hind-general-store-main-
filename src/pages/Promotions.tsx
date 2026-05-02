@@ -40,7 +40,7 @@ export default function Promotions() {
   return (
     <div className="min-h-screen bg-stone-50">
       <Navbar />
-      <main className="pt-24 pb-20">
+      <main className="pt-24 pb-32 md:pb-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
           <div className="text-center space-y-4">
             <motion.div 

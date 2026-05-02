@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1071,6 +1070,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     next();
   });
 
+  // Global Admin Authorization Middleware
+  app.use('/api/admin', requireAdmin);
+
   app.get('/api/settings', (req, res) => {
     try {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
@@ -1493,6 +1495,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/cart', (req, res) => {
     const userId = req.query.userId;
     if (!userId) return res.status(400).json({ message: 'User ID required' });
+    if (Number(userId) !== req.session.userId) return res.status(403).json({ message: 'Unauthorized' });
     const items = db.prepare(`
       SELECT c.*, p.name, p.price, p.image_url, p.stock, p.category
       FROM cart_items c
@@ -1505,6 +1508,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/cart/sync', (req, res) => {
     const { userId, items } = req.body;
     if (!userId) return res.status(400).json({ message: 'User ID required' });
+    if (Number(userId) !== req.session.userId) return res.status(403).json({ message: 'Unauthorized' });
     
     db.transaction(() => {
       db.prepare('DELETE FROM cart_items WHERE user_id = ?').run(userId);
@@ -1780,7 +1784,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // Delivery Areas
   app.get('/api/user/insights/:userId', requireAuth, (req, res) => {
     const { userId } = req.params;
-    if (parseInt(userId) !== (req.session as any).user.id && (req.session as any).user.role !== 'admin') {
+    if (parseInt(userId) !== req.session.userId && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -1922,7 +1926,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         params.push(endDate);
       }
       if (segment && segment !== 'all') {
-        orderFilter += ' AND u.segment = ?';
+        orderFilter += ' AND u.role = ?';
         params.push(segment);
       }
       if (category && category !== 'all') {
@@ -2139,29 +2143,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true, message: 'Sync triggered successfully. Refresh in a few moments.' });
   });
 
-  app.get('/api/public/orders/:id', (req, res) => {
-    const { id } = req.params;
-    const { phone } = req.query;
-    if (!phone) return res.status(400).json({ success: false, message: 'Phone number required' });
-    
-    try {
-      const order = db.prepare(`
-        SELECT o.*, u.name as user_name, u.phone as user_phone
-        FROM orders o
-        JOIN users u ON o.user_id = u.id
-        WHERE (o.id = ? OR o.order_id = ?) AND u.phone = ?
-      `).get(id, id, phone) as any;
-
-      if (!order) return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
-      
-      const items = db.prepare('SELECT oi.*, p.name as product_name, p.image_url FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?').all(order.id);
-      
-      res.json({ success: true, order: { ...order, items } });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
   app.post('/api/admin/roles', (req, res) => {
     const { name, permissions } = req.body;
     db.prepare('INSERT INTO roles (name, permissions) VALUES (?, ?)').run(name, JSON.stringify(permissions));
@@ -2193,6 +2174,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/user/insights/:userId', (req, res) => {
     const { userId } = req.params;
+    if (Number(userId) !== req.session.userId && req.session.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
     const orders = db.prepare(`
       SELECT o.*, oi.product_name, oi.quantity, oi.price, p.category
       FROM orders o
@@ -2424,6 +2408,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/wallet-history/:userId', (req, res) => {
     const { userId } = req.params;
+    if (Number(userId) !== req.session.userId && req.session.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
     const history = db.prepare('SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
     res.json(history);
   });
@@ -2999,7 +2986,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/admin/orders/:id/status', (req, res) => {
     const { id } = req.params;
     const { status, rejection_reason } = req.body;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     
     try {
       const existingOrder = db.prepare('SELECT status, order_id, user_id, wallet_used, total, payment_method FROM orders WHERE id = ?').get(id) as any;
@@ -3100,7 +3087,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/admin/wallet/requests/:id/approve', requireAdmin, (req, res) => {
     const { id } = req.params;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     const transaction = db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(id) as any;
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
     if (transaction.status !== 'pending') return res.status(400).json({ message: 'Transaction already processed' });
@@ -3121,7 +3108,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/admin/wallet/requests/:id/reject', requireAdmin, (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
 
     const transaction = db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(id) as any;
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
@@ -3174,7 +3161,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.put('/api/admin/products/:id', (req, res) => {
     const { id } = req.params;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id } = req.body;
     
     const oldState = db.prepare('SELECT * FROM products WHERE id = ?').get(id) as any;
@@ -3210,7 +3197,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.delete('/api/admin/products/:id', (req, res) => {
     const { id } = req.params;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     const oldState = db.prepare('SELECT * FROM products WHERE id = ?').get(id) as any;
     if (oldState) {
       db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
@@ -3492,7 +3479,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     try {
       const order = db.prepare(`
-        SELECT o.id, o.order_id, o.status, o.created_at, o.total, o.address, o.assigned_runner_id,
+        SELECT o.*,
                u.phone,
                r.name as runner_name, r.phone as runner_phone, r.current_lat, r.current_lng
         FROM orders o 
@@ -3529,6 +3516,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(orders);
   });
 
+  app.get('/api/public/orders/:id', (req, res) => {
+    const { id } = req.params;
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ success: false, message: 'Phone number required' });
+    
+    try {
+      const order = db.prepare(`
+        SELECT o.*, u.name as user_name, u.phone as user_phone
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        WHERE (o.id = ? OR o.order_id = ?) AND u.phone = ?
+      `).get(id, id, phone) as any;
+
+      if (!order) return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
+      
+      const items = db.prepare('SELECT oi.*, p.name as product_name, p.image_url FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?').all(order.id);
+      
+      res.json({ success: true, order: { ...order, items } });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/orders/:id', (req, res) => {
     const { id } = req.params;
     try {
@@ -3540,6 +3550,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       `).get(id, id) as any;
       
       if (!order) return res.status(404).json({ message: 'Order not found' });
+      
+      // Privacy Fix: Check if user is the owner of the order or an admin
+      if (order.user_id !== req.session.userId && req.session.role !== 'admin') {
+        return res.status(403).json({ message: 'Unauthorized access to order details' });
+      }
 
       const items = db.prepare(`
         SELECT oi.*, p.name as product_name, p.image_url 
@@ -3608,7 +3623,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       );
     }
 
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
       .run(adminId, 'USER_UPDATE', 'USER', id, JSON.stringify({
         message: `Updated profile for user ${name} (ID: ${id})`,
@@ -3621,7 +3636,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.delete('/api/admin/users/:id', (req, res) => {
     const { id } = req.params;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     try {
       const oldState = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
       if (oldState) {
@@ -3638,8 +3653,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/user/update-profile', (req, res) => {
-    const { id, name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone } = req.body;
+  app.post('/api/user/update-profile', requireAuth, (req, res) => {
+    let { id, name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone } = req.body;
+    id = req.session.userId; // FORBID arbitrary id updates
     try {
       // Check for duplicate phone
       if (phone) {
@@ -3707,9 +3723,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const { userId, type, details, severity } = req.body;
     try {
       db.prepare(`
-        INSERT INTO suspicious_activities (user_id, type, details, severity, date)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(userId || null, type, details, severity || 'low', new Date().toISOString());
+        INSERT INTO suspicious_activities (user_id, activity_type, description, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(userId || null, type, details, new Date().toISOString());
       res.json({ success: true });
     } catch (err) {
       console.error('Audit log failed:', err);
@@ -3737,10 +3753,19 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/orders/:id/return', (req, res) => {
     const { id } = req.params;
     const { product_id, quantity, reason } = req.body;
+    
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
     try {
       const order = db.prepare('SELECT user_id, status FROM orders WHERE id = ?').get(id) as any;
       if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
       
+      if (order.user_id !== req.session.userId) {
+        return res.status(403).json({ success: false, message: 'Unauthorized access to order' });
+      }
+
       // Safety: Only delivered orders can be returned
       if (order.status !== 'delivered') {
         return res.status(400).json({ success: false, message: 'Only delivered orders can be returned' });
@@ -4000,7 +4025,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/admin/audit-logs/:id/revert', requireAdmin, (req, res) => {
     const { id } = req.params;
-    const adminId = (req as any).user?.id;
+    const adminId = req.session.userId;
     
     try {
       const log = db.prepare('SELECT * FROM audit_logs WHERE id = ?').get(id) as any;
@@ -4148,9 +4173,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     try {
       console.log('Initializing Vite server...');
+      const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { 
           middlewareMode: true,
@@ -4190,7 +4216,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     });
   });
 
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
   
   if (!process.env.VERCEL && httpServer) {
     httpServer.listen(PORT, '0.0.0.0', () => {

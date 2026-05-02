@@ -263,7 +263,7 @@ export default function Checkout() {
   // Removed early return for guest checkout
 
   return (
-    <div className="min-h-screen bg-stone-50 py-12">
+    <div className="min-h-screen bg-stone-50 py-12 pb-32 md:pb-12">
       <div className="max-w-5xl mx-auto px-4">
         {/* Checkout Steps */}
         <div className="flex items-center justify-center mb-12">
