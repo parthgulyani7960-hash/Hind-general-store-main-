@@ -12,7 +12,7 @@ import {
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink,
-  StickyNote, Truck, Home, Navigation
+  StickyNote, Truck, Home, Navigation, IndianRupee
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -21,7 +21,7 @@ import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
-type Tab = 'Overview' | 'Analytics' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs';
+type Tab = 'Overview' | 'Analytics' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -130,6 +130,27 @@ export default function AdminDashboard() {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState<{ products: any[], orders: any[], users: any[], suspicious?: any[] } | null>(null);
   const [isGlobalSearching, setIsGlobalSearching] = useState(false);
+  const [customerActivities, setCustomerActivities] = useState<any[]>([]);
+  const [customerOrders, setCustomerOrders] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const fetchCustomerActivities = async (userId: number) => {
+    try {
+      const res = await fetch(`/api/admin/activities?userId=${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerActivities(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch individual customer activities');
+    }
+  };
+
+  useEffect(() => {
+    if (customerModal.open && customerModal.user) {
+      fetchCustomerActivities(customerModal.user.id);
+    }
+  }, [customerModal.open, customerModal.user?.id]);
 
   // Enhanced Product Filters
   const [productStockFilter, setProductStockFilter] = useState<'all' | 'low' | 'out'>('all');
@@ -668,7 +689,15 @@ export default function AdminDashboard() {
     }
   };
 
+  const [bugReports, setBugReports] = useState<any[]>([]);
+
   useEffect(() => {
+    if (activeTab === 'Bug Reports') {
+      fetch('/api/admin/bugs')
+        .then(res => res.json())
+        .then(data => setBugReports(data))
+        .catch(console.error);
+    }
     if (activeTab === 'System Status') {
       fetchSystemLogs();
       fetchSuspiciousActivities();
@@ -1670,6 +1699,7 @@ export default function AdminDashboard() {
         { name: 'Payment Settings' as Tab, icon: CreditCard },
         { name: 'Suspicious Activities' as Tab, icon: AlertTriangle },
         { name: 'System Status' as Tab, icon: Activity },
+        { name: 'Bug Reports' as Tab, icon: AlertTriangle },
       ]
     }
   ];
@@ -2126,7 +2156,7 @@ export default function AdminDashboard() {
                 { label: 'Health', icon: <Activity size={18} />, action: () => setActiveTab('System Status'), color: 'text-stone-600 bg-stone-100 hover:bg-stone-600 hover:text-white' }
               ].map((action, i) => (
                 <button
-                  key={i}
+                  key={`quick-action-${i}`}
                   onClick={action.action}
                   className={cn("flex flex-col items-center justify-center p-4 rounded-2xl transition-all duration-300 gap-2 border border-transparent hover:border-black/5 hover:shadow-sm", action.color)}
                 >
@@ -4576,7 +4606,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-left">
                 <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
                   <tr>
@@ -4675,6 +4705,58 @@ export default function AdminDashboard() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile-only Card View */}
+            <div className="md:hidden space-y-4 p-4">
+              {filteredUsers.map((u) => (
+                <div key={u.id} className="bg-stone-50 border border-stone-100 p-4 rounded-3xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 rounded-full bg-white border border-stone-100 flex items-center justify-center overflow-hidden">
+                        {u.profile_photo ? (
+                          <img src={u.profile_photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <Users size={20} className="text-stone-400" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-black text-stone-900 leading-tight">{u.name}</p>
+                        <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{u.phone}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-[9px] font-black px-2 py-1 bg-primary/10 text-primary rounded-full uppercase tracking-widest">{u.role}</span>
+                      <p className="text-[8px] text-stone-400 font-bold mt-1 uppercase tracking-tighter">{u.segment}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white p-3 rounded-2xl border border-stone-100">
+                      <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1 leading-none">Wallet</p>
+                      <p className="text-sm font-black text-primary tracking-tight">₹{u.wallet_balance}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-stone-100">
+                       <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1 leading-none">Khata</p>
+                       <p className={cn("text-sm font-black tracking-tight", u.khata_enabled ? "text-emerald-600" : "text-stone-300")}>
+                          {u.khata_enabled ? `₹${u.khata_balance}` : 'OFF'}
+                       </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                     <div className="flex items-center space-x-2">
+                       <button onClick={() => setCustomerModal({ open: true, user: u })} className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-600 active:scale-95 transition-all shadow-sm"><Eye size={18} /></button>
+                       <button onClick={() => fetchCustomerOrders(u.id)} className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-600 active:scale-95 transition-all shadow-sm"><ShoppingBag size={18} /></button>
+                       <button onClick={() => fetchWalletHistory(u.id)} className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-600 active:scale-95 transition-all shadow-sm"><History size={18} /></button>
+                     </div>
+                     <div className="flex items-center space-x-2">
+                        <a href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`} target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center active:scale-95 transition-all"><MessageCircle size={18} /></a>
+                        <button onClick={() => setWalletModal({ open: true, userId: u.id })} className="bg-stone-900 text-white h-10 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">Add ₹</button>
+                     </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -6001,6 +6083,50 @@ export default function AdminDashboard() {
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-stone-400 italic">No suspicious activities found</td>
                     </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'Bug Reports' && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-bold">Auto-Reported Bugs & Errors</h3>
+            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-stone-50 border-b border-stone-100">
+                  <tr>
+                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">ID</th>
+                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Reporter</th>
+                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Page</th>
+                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Message & Stack</th>
+                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {bugReports.length === 0 ? (
+                    <tr><td colSpan={5} className="px-6 py-8 text-center text-stone-500">No bugs reported yet.</td></tr>
+                  ) : (
+                    bugReports.map((bug) => (
+                      <tr key={bug.id} className="hover:bg-stone-50">
+                        <td className="px-6 py-4 font-mono text-xs">{bug.id}</td>
+                        <td className="px-6 py-4">
+                          <p className="font-bold">{bug.reporter_name}</p>
+                          <p className="text-xs text-stone-500 tracking-tighter uppercase font-medium">User: {bug.user_id || 'Guest'}</p>
+                        </td>
+                        <td className="px-6 py-4 text-xs font-mono">{bug.path}</td>
+                        <td className="px-6 py-4 max-w-xs md:max-w-md whitespace-normal">
+                          <p className="font-bold text-red-600 line-clamp-1">{bug.message}</p>
+                          <p className="text-xs text-stone-500 mt-1 line-clamp-2 font-mono bg-stone-100 p-1 rounded">
+                            {bug.why}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-stone-500">
+                          {new Date(bug.created_at).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
@@ -7418,6 +7544,35 @@ export default function AdminDashboard() {
                       >
                         Load History
                       </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-stone-50 p-6 rounded-2xl space-y-4">
+                  <h4 className="font-bold text-stone-900 border-b border-stone-200 pb-2 flex items-center">
+                    <ShieldCheck size={16} className="mr-2 text-stone-400" />
+                    Security Activity Log
+                  </h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                    {customerActivities.length > 0 ? (
+                      customerActivities.map((act: any) => (
+                        <div key={act.id} className="text-[10px] p-2 bg-white rounded-lg border border-stone-100 space-y-1">
+                          <div className="flex justify-between items-start">
+                            <span className={cn(
+                              "font-black uppercase tracking-tighter px-1.5 py-0.5 rounded",
+                              act.severity === 'high' ? "bg-red-100 text-red-700" : 
+                              act.severity === 'medium' ? "bg-amber-100 text-amber-700" :
+                              "bg-blue-100 text-blue-700"
+                            )}>
+                              {act.type}
+                            </span>
+                            <span className="text-stone-300 font-mono">{new Date(act.date).toLocaleString()}</span>
+                          </div>
+                          <p className="text-stone-600 leading-normal">{act.details}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-stone-400 py-4 text-center">No security activities logged</p>
                     )}
                   </div>
                 </div>

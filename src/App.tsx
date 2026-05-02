@@ -128,17 +128,66 @@ export default function App() {
   const [newsletterEmail, setNewsletterEmail] = useState('');
 
   useEffect(() => {
-    // Show a small notification when the app is refreshed
-    const hasRefreshed = sessionStorage.getItem('hgs_refreshed');
-    if (hasRefreshed) {
-      toast.success(t('welcome_back') || 'Welcome back! Page refreshed.', {
-        icon: '🔄',
-        duration: 3000,
-        position: 'bottom-center'
-      });
-    }
-    sessionStorage.setItem('hgs_refreshed', 'true');
-  }, [t]);
+    // Global error handler
+    const handleGlobalError = (event: ErrorEvent) => {
+      try {
+        const userStr = localStorage.getItem('hgs_user');
+        let userId = null;
+        let reporterName = 'System Auto (Guest)';
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          userId = user.id;
+          reporterName = user.name || user.phone || 'System Auto (User)';
+        }
+        
+        fetch('/api/bugs/report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: userId,
+            reporter_name: reporterName,
+            message: event.message || 'Global Error',
+            why: event.error?.stack?.substring(0, 500) || 'No stack trace',
+            path: window.location.pathname,
+            action_log: 'Automatically captured by Global Error Handler'
+          })
+        }).catch(() => {});
+      } catch(e) {}
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      try {
+        const userStr = localStorage.getItem('hgs_user');
+        let userId = null;
+        let reporterName = 'System Auto (Guest)';
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          userId = user.id;
+          reporterName = user.name || user.phone || 'System Auto (User)';
+        }
+        
+        fetch('/api/bugs/report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: userId,
+            reporter_name: reporterName,
+            message: event.reason?.message || 'Unhandled Promise Rejection',
+            why: event.reason?.stack?.substring(0, 500) || String(event.reason),
+            path: window.location.pathname,
+            action_log: 'Automatically captured by Promise Rejection Handler'
+          })
+        }).catch(() => {});
+      } catch(e) {}
+    };
+
+    window.addEventListener('error', handleGlobalError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleGlobalError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   const handleNewsletter = async (e: React.FormEvent) => {
     e.preventDefault();

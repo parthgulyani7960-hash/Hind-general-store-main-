@@ -37,7 +37,7 @@ export default function WholesaleInsights() {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="grid grid-cols-4 gap-4">
-          {[1,2,3,4].map(i => <div key={i} className="h-32 bg-stone-100 rounded-3xl" />)}
+          {[1,2,3,4].map(i => <div key={`skeleton-${i}`} className="h-32 bg-stone-100 rounded-3xl" />)}
         </div>
         <div className="grid grid-cols-2 gap-6">
           <div className="h-80 bg-stone-100 rounded-3xl" />
@@ -163,7 +163,7 @@ export default function WholesaleInsights() {
         <h3 className="text-lg font-black text-stone-900 mb-6">Most Purchased</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.topProducts?.map((product: any, idx: number) => (
-            <div key={idx} className="flex items-center p-3 bg-stone-50 rounded-2xl border border-stone-100">
+            <div key={`top-product-${idx}`} className="flex items-center p-3 bg-stone-50 rounded-2xl border border-stone-100">
               <img src={product.image_url} alt={product.name} className="w-12 h-12 rounded-xl object-cover mr-4" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-stone-900 truncate">{product.name}</p>

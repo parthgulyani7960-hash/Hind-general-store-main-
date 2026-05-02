@@ -272,21 +272,14 @@ export default function Navbar() {
               )}
             </Link>
 
-            <div 
-                className="relative"
-                onMouseEnter={() => setIsMiniCartOpen(true)}
-                onMouseLeave={() => setIsMiniCartOpen(false)}
-            >
-              <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors">
-                <ShoppingCart size={24} />
-                {cartCount > 0 && (
-                  <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                    {cartCount}
-                  </span>
-                )}
-              </Link>
-              <MiniCart cart={cart} isOpen={isMiniCartOpen} />
-            </div>
+            <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors">
+              <ShoppingCart size={24} />
+              {cartCount > 0 && (
+                <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
 
             {user ? (
               <div className="flex items-center space-x-4">
@@ -301,12 +294,6 @@ export default function Navbar() {
                     </span>
                   </div>
                 </Link>
-                <button 
-                  onClick={logout}
-                  className="text-sm text-red-600 hover:text-red-700 font-medium hidden sm:block"
-                >
-                  Logout
-                </button>
               </div>
             ) : (
               <Link to="/login" className="btn-primary flex items-center space-x-2">

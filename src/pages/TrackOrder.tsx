@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag } from 'lucide-react';
+import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn } from '../types';
@@ -143,9 +143,19 @@ export default function TrackOrder() {
           >
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
               <div className="flex justify-between items-center mb-12">
-                <div>
+                <div className="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
                   <h3 className="text-2xl font-black text-stone-900">Order #{order.order_id || order.id}</h3>
-                  <p className="text-sm text-stone-500 font-medium">Placed on {new Date(order.created_at).toLocaleDateString()}</p>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(order.order_id || String(order.id));
+                      toast.success('Order ID copied to clipboard!');
+                    }}
+                    className="w-fit p-2 bg-stone-100 hover:bg-stone-200 rounded-xl transition-all text-stone-400 hover:text-primary flex items-center space-x-2"
+                    title="Copy Order ID"
+                  >
+                    <Copy size={16} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Copy ID</span>
+                  </button>
                 </div>
                 <div className="px-6 py-2 bg-primary/10 rounded-full">
                   <span className="text-sm font-black text-primary uppercase tracking-widest">{t(order.status) || order.status}</span>

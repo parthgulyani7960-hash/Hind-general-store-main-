@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
+import toast from 'react-hot-toast';
 import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle } from 'lucide-react';
 
 export default function Invoice() {
@@ -125,7 +126,19 @@ export default function Invoice() {
           </div>
           <div className="text-right">
             <h2 className="text-4xl font-bold text-stone-900 uppercase tracking-tighter">Invoice</h2>
-            <p className="text-stone-500 mt-2">Order ID: <span className="font-mono font-bold text-stone-900">#ORD-{order.id}</span></p>
+            <div className="flex items-center justify-end space-x-2 mt-2">
+              <p className="text-stone-500">Order ID: <span className="font-mono font-bold text-stone-900">#ORD-{order.id}</span></p>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(String(order.id));
+                  toast.success('Order ID copied!');
+                }}
+                className="p-1 hover:bg-stone-100 rounded-md transition-colors text-stone-300 hover:text-primary no-print"
+                title="Copy Order ID"
+              >
+                <Download size={14} className="rotate-180" /> {/* Using icon as a helper */}
+              </button>
+            </div>
             <p className="text-stone-500">Date: <span className="font-bold text-stone-900">{new Date(order.created_at).toLocaleDateString()}</span></p>
           </div>
         </div>

@@ -537,7 +537,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const logActivity = async (type: string, details: string, severity: 'low' | 'medium' | 'high' = 'low') => {
+    try {
+      await fetch('/api/audit/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.id, type, details, severity })
+      });
+    } catch (err) {
+      console.error('Failed to log activity:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.id) {
+       // Check if we just logged in (this session)
+       const lastSessionId = sessionStorage.getItem('hgs_session_id');
+       if (!lastSessionId) {
+          const newSessionId = Math.random().toString(36).substring(7);
+          sessionStorage.setItem('hgs_session_id', newSessionId);
+          logActivity('LOGIN', `User session started - ID: ${newSessionId}`);
+       }
+    }
+  }, [user?.id]);
+
   const logout = async () => {
+    if (user) {
+      await logActivity('LOGOUT', 'User logged out voluntarily');
+    }
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
@@ -546,6 +573,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     localStorage.removeItem('hgs_user');
     localStorage.removeItem('hgs_token');
+    sessionStorage.removeItem('hgs_session_id');
     toast.success('Logged out successfully');
   };
 
@@ -567,7 +595,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       simulatedRole, setSimulatedRole,
       language, setLanguage, t,
       addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
-      isOnline, isProfileComplete
+      isOnline, isProfileComplete,
+      logActivity
     }}>
       {children}
     </StoreContext.Provider>

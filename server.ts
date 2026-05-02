@@ -367,6 +367,17 @@ async function initDatabase() {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS bug_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    reporter_name TEXT,
+    message TEXT,
+    why TEXT,
+    path TEXT,
+    action_log TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS system_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     level TEXT, -- 'error', 'info', 'warning'
@@ -1550,6 +1561,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         return res.status(400).json({ success: false, message: 'Invalid name' });
       }
 
+      // Check if phone number is already taken by another user
+      const existingUser = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone, req.session.userId);
+      if (existingUser) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'This mobile number is already registered with another account. Please use a different number or contact support if this is an error.' 
+        });
+      }
+
       const formattedName = capitalizeName(name);
       db.prepare('UPDATE users SET name = ?, phone = ?, profile_photo = ? WHERE id = ?')
         .run(formattedName, phone, profile_photo, req.session.userId);
@@ -1557,7 +1577,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       delete user.password;
       res.json({ success: true, user });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to complete profile' });
+      console.error('Profile complete failed:', err);
+      res.status(500).json({ success: false, message: 'Failed to complete profile. If the issue persists, please contact support.' });
     }
   });
 
@@ -2681,6 +2702,30 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(variants);
   });
 
+  // BUGS ENDPOINTS
+  app.post('/api/bugs/report', (req, res) => {
+    try {
+      const { user_id, reporter_name, message, why, path, action_log } = req.body;
+      db.prepare(`
+        INSERT INTO bug_reports (user_id, reporter_name, message, why, path, action_log)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(user_id || null, reporter_name || 'System Auto', message || '', why || '', path || '', action_log || '');
+      res.json({ success: true, message: 'Bug reported successfully' });
+    } catch (e: any) {
+      console.error('Error reporting bug:', e);
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/bugs', (req, res) => {
+    try {
+      const bugs = db.prepare('SELECT * FROM bug_reports ORDER BY created_at DESC').all();
+      res.json(bugs);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get('/api/admin/stats', (req, res) => {
     try {
       const totalOrders = db.prepare('SELECT COUNT(*) as count FROM orders').get() as any;
@@ -3353,6 +3398,22 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/user/update-profile', (req, res) => {
     const { id, name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone } = req.body;
     try {
+      // Check for duplicate phone
+      if (phone) {
+        const existingPhone = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone, id);
+        if (existingPhone) {
+          return res.status(400).json({ success: false, message: 'This mobile number is already in use by another account.' });
+        }
+      }
+
+      // Check for duplicate username
+      if (username) {
+        const existingUser = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, id);
+        if (existingUser) {
+          return res.status(400).json({ success: false, message: 'Username already exists' });
+        }
+      }
+
       const formattedName = name ? capitalizeName(name) : name;
       db.prepare(`
         UPDATE users SET 
@@ -3363,11 +3424,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
       res.json({ success: true, user });
     } catch (err: any) {
-      if (err.message.includes('UNIQUE constraint failed: users.username')) {
-        res.status(400).json({ success: false, message: 'Username already exists' });
-      } else {
-        res.status(500).json({ success: false, message: 'Update failed' });
-      }
+      console.error('Update profile error:', err);
+      res.status(500).json({ success: false, message: 'Update failed. Please try again.' });
     }
   });
 
@@ -3381,6 +3439,39 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     });
     updateMany(settings);
     res.json({ success: true });
+  });
+
+  // Audit Logging
+  app.get('/api/admin/activities', (req, res) => {
+    const { userId } = req.query;
+    try {
+      let query = 'SELECT * FROM suspicious_activities';
+      let params: any[] = [];
+      if (userId) {
+        query += ' WHERE user_id = ?';
+        params.push(userId);
+      }
+      query += ' ORDER BY date DESC LIMIT 100';
+      const activities = db.prepare(query).all(...params);
+      res.json(activities);
+    } catch (err) {
+      console.error('Failed to fetch activities:', err);
+      res.status(500).json([]);
+    }
+  });
+
+  app.post('/api/audit/log', (req, res) => {
+    const { userId, type, details, severity } = req.body;
+    try {
+      db.prepare(`
+        INSERT INTO suspicious_activities (user_id, type, details, severity, date)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(userId || null, type, details, severity || 'low', new Date().toISOString());
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Audit log failed:', err);
+      res.status(500).json({ success: false });
+    }
   });
 
   // Returns logic

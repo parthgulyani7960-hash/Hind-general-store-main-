@@ -83,6 +83,11 @@ export const translations = {
     invalid_phone: "Please enter a valid 10-digit phone number",
     deleted_request_logged: "Deletion request logged with administrators.",
     request_failed: "Request failed. Please try again later.",
+    empty_cart: "Your cart is empty",
+    empty_cart_msg: "Looks like you haven't added anything to your cart yet.",
+    start_shopping: "Start Shopping",
+    shopping_cart: "Shopping Cart",
+    proceed_to_checkout: "Proceed to Checkout",
   },
   hi: {
     home: "होम",
@@ -159,6 +164,11 @@ export const translations = {
     invalid_phone: "कृपया 10 अंकों का मान्य फ़ोन नंबर दर्ज करें",
     deleted_request_logged: "डिलीशन अनुरोध व्यवस्थापकों के पास दर्ज किया गया।",
     request_failed: "अनुरोध विफल रहा। कृपया बाद में प्रयास करें।",
+    empty_cart: "आपका कार्ट खाली है",
+    empty_cart_msg: "ऐसा लगता है कि आपने अभी तक अपने कार्ट में कुछ भी नहीं जोड़ा है।",
+    start_shopping: "खरीदारी शुरू करें",
+    shopping_cart: "शॉपिंग कार्ट",
+    proceed_to_checkout: "चेकआउट के लिए आगे बढ़ें",
   },
   pa: {
     home: "ਹੋਮ",
@@ -235,5 +245,10 @@ export const translations = {
     invalid_phone: "ਕਿਰਪਾ ਕਰਕੇ 10 ਅੰਕਾਂ ਦਾ ਵੈਧ ਫੋਨ ਨੰਬਰ ਦਰਜ ਕਰੋ",
     deleted_request_logged: "ਡੇਟਾ ਹਟਾਉਣ ਦੀ ਬੇਨਤੀ ਦਰਜ ਕੀਤੀ ਗਈ।",
     request_failed: "ਬੇਨਤੀ ਅਸਫਲ ਰਹੀ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+    empty_cart: "ਤੁਹਾਡਾ ਕਾਰਟ ਖਾਲੀ ਹੈ",
+    empty_cart_msg: "ਲੱਗਦਾ ਹੈ ਕਿ ਤੁਸੀਂ ਅਜੇ ਤੱਕ ਆਪਣੇ ਕਾਰਟ ਵਿੱਚ ਕੁਝ ਵੀ ਨਹੀਂ ਜੋੜਿਆ ਹੈ।",
+    start_shopping: "ਖਰੀਦਦਾਰੀ ਸ਼ੁਰੂ ਕਰੋ",
+    shopping_cart: "ਸ਼ਾਪਿੰਗ ਕਾਰਟ",
+    proceed_to_checkout: "ਚੈੱਕਆਉਟ ਲਈ ਅੱਗੇ ਵਧੋ",
   }
 };

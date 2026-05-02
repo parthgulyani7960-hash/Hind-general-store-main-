@@ -4,7 +4,7 @@ import {
   User, Mail, Phone, MapPin, ShoppingBag, Shield, HelpCircle, 
   ChevronRight, Camera, LogOut, Settings, Bell, CreditCard, 
   History, Wallet, Info, MessageSquare, ExternalLink, Activity, Globe, Plus, X,
-  Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2
+  Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -26,7 +26,7 @@ export default function Profile() {
     toggleWishlist, 
     subscribeNewsletter,
     addresses, deleteAddress, setDefaultAddress, saveAddress,
-    simulatedRole, t
+    simulatedRole, t, logActivity
   } = useStore();
   const navigate = useNavigate();
   const activeRole = simulatedRole || user?.role;
@@ -117,6 +117,7 @@ export default function Profile() {
     }
   };
 
+  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet'>('history');
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [addAmount, setAddAmount] = useState('');
   const [paymentId, setPaymentId] = useState('');
@@ -717,19 +718,32 @@ export default function Profile() {
                     <div className="p-12 text-center text-stone-400 italic">No orders found yet.</div>
                   ) : (
                     orders.map((order) => (
-                      <div key={order.id} className="p-6 hover:bg-stone-50 transition-colors">
+                      <div key={order.id} className="p-4 md:p-6 hover:bg-stone-50 transition-colors border-b border-stone-50 last:border-0">
                         <div className="flex justify-between items-start mb-4">
                           <div>
-                            <p className="font-bold text-stone-900">Order #{order.order_id || order.id}</p>
-                            <p className="text-xs text-stone-400">{new Date(order.created_at).toLocaleDateString()}</p>
+                            <div className="flex items-center space-x-2">
+                              <p className="font-black text-stone-900 tracking-tighter uppercase text-sm">Order #{order.order_id || order.id}</p>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(order.order_id || String(order.id));
+                                  toast.success('Order ID copied to clipboard!');
+                                }}
+                                className="p-1 hover:bg-stone-200 rounded-md transition-colors text-stone-400 hover:text-primary"
+                                title="Copy Order ID"
+                              >
+                                <Copy size={12} />
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-stone-400 font-bold mt-0.5">{new Date(order.created_at).toLocaleDateString()} AT {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
                           <div className="flex flex-col items-end space-y-1">
-                            <p className="font-bold text-primary">₹{order.total}</p>
+                            <p className="font-black text-lg text-primary leading-none tracking-tight">₹{order.total}</p>
                             <span className={cn(
-                              "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
-                              order.status === 'delivered' ? 'bg-accent/10 text-accent' : 
-                              order.status === 'cancelled' ? 'bg-red-50 text-red-600' : 
-                              order.status === 'failed' ? 'bg-stone-900 text-white' : 'bg-primary/10 text-primary'
+                              "text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest border",
+                              order.status === 'delivered' ? 'bg-accent/10 text-accent border-accent/20' : 
+                              order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' : 
+                              order.status === 'failed' ? 'bg-stone-900 text-white border-stone-900' : 
+                              'bg-primary/10 text-primary border-primary/20'
                             )}>
                               {t(order.status) || order.status}
                             </span>
@@ -738,35 +752,68 @@ export default function Profile() {
                                 onClick={async () => {
                                   try {
                                     // Simulated reorder: add items back to cart
-                                    // In a real app, this would call /api/orders/:id/reorder
-                                    toast.success('Items from this order added to your cart!');
+                                    toast.success(t('reorder_success') || 'Items from this order added to your cart!');
                                   } catch (e) {
-                                    toast.error('Failed to reorder');
+                                    toast.error(t('failed_reorder') || 'Failed to reorder');
                                   }
                                 }}
-                                className="flex items-center space-x-1 text-[10px] font-bold text-stone-400 hover:text-primary transition-colors pt-1"
+                                className="flex items-center space-x-1 text-[9px] font-black text-stone-300 hover:text-primary transition-colors pt-1 uppercase tracking-widest"
                               >
                                 <RefreshCw size={10} />
-                                <span>RE-ORDER</span>
+                                <span>{t('reorder') || 'RE-ORDER'}</span>
                               </button>
                             )}
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center bg-stone-50/50 p-4 rounded-2xl border border-stone-100 mb-6">
+                        <div className="flex justify-between items-center bg-stone-50 p-4 rounded-2xl border border-stone-100/50 mb-4">
                             <div className="flex items-center space-x-3">
-                               <Package size={18} className="text-primary" />
-                               <span className="text-xs font-bold text-stone-700">{order.items_count || 0} items in order</span>
+                               <div className="p-2 bg-white rounded-xl shadow-sm">
+                                 <Package size={14} className="text-primary" />
+                               </div>
+                               <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">{order.items_count || 0} ITEMS</span>
                             </div>
                             <Link 
                                 to={`/invoice/${order.id}`}
-                                className="text-xs font-black text-stone-400 hover:text-primary tracking-widest uppercase flex items-center space-x-1"
+                                className="text-[10px] font-black text-primary hover:text-primary/80 tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
                             >
-                                <span>{t('view_details') || 'View Details'}</span>
-                                <ChevronRight size={14} />
+                                <span>{t('view_details') || 'DETAILS'}</span>
+                                <ChevronRight size={12} />
                             </Link>
                         </div>
 
+                        {/* Order Tracking Timeline for Mobile */}
+                        {['processing', 'shipped', 'delivered'].includes(order.status) && (
+                          <div className="mt-2 flex items-center space-x-2">
+                             {[
+                               { s: 'pending', i: <Clock size={10} /> },
+                               { s: 'processing', i: <Settings size={10} /> },
+                               { s: 'shipped', i: <Truck size={10} /> },
+                               { s: 'delivered', i: <CheckCircle size={10} /> }
+                             ].map((step, idx) => {
+                               const statuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'failed'];
+                               const currentIdx = statuses.indexOf(order.status);
+                               const stepIdx = statuses.indexOf(step.s);
+                               const isActive = stepIdx <= currentIdx;
+                               return (
+                                 <React.Fragment key={step.s}>
+                                   <div className={cn(
+                                     "w-6 h-6 rounded-full flex items-center justify-center transition-all",
+                                     isActive ? "bg-primary text-white shadow-sm shadow-primary/20 scale-110" : "bg-stone-100 text-stone-300"
+                                   )}>
+                                     {step.i}
+                                   </div>
+                                   {idx < 3 && (
+                                     <div className={cn(
+                                       "h-0.5 flex-1 rounded-full",
+                                       isActive && stepIdx < currentIdx ? "bg-primary/30" : "bg-stone-100"
+                                     )} />
+                                   )}
+                                 </React.Fragment>
+                               )
+                             })}
+                          </div>
+                        )}
                         {/* Order Tracking Timeline */}
                         <div className="mb-6 p-4 bg-stone-50 rounded-2xl border border-stone-100">
                           {order.status === 'shipped' && order.estimated_delivery_at && (
@@ -1046,7 +1093,7 @@ export default function Profile() {
             <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-stone-50">
               {resourceItems.map((item, idx) => (
                 <Link 
-                  key={idx} 
+                  key={`resource-${idx}`} 
                   to={item.path}
                   className="flex items-center justify-between p-6 hover:bg-stone-50 transition-colors group"
                 >
@@ -1167,6 +1214,7 @@ export default function Profile() {
                   link.href = url;
                   link.download = `my_data_${user.name.replace(/\s+/g, '_')}.json`;
                   link.click();
+                  logActivity('DATA_EXPORT', 'User exported personal data (profile, orders, wallet)');
                   toast.success('Your data has been compiled and downloaded.');
                 }}
                 className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
@@ -1193,6 +1241,7 @@ export default function Profile() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ type: 'deletion', reason: 'User requested in profile settings' })
                       });
+                      logActivity('DATA_DELETION_REQUEST', 'User requested permanent account and data deletion', 'medium');
                       toast.success('Deletion request sent to administrators. We will process this within 48 hours.');
                     } catch (e) {
                       toast.success('Deletion request sent to administrators.');
