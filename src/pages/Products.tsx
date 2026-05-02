@@ -5,15 +5,25 @@ import {
   Share2, Heart, Star, Loader2, X, Camera,
   Zap, LayoutGrid, ArrowDownNarrowWide, ArrowUpNarrowWide, Clock
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Product, cn } from '../types';
 import { useStore } from '../StoreContext';
+import { useDeviceType } from '../lib/device';
 import toast from 'react-hot-toast';
 
 export default function Products() {
+  const location = useLocation();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const search = params.get('search');
+    if (search) {
+      setSearchTerm(search);
+    }
+  }, [location.search]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
   const [minPrice, setMinPrice] = useState('0');
@@ -22,26 +32,55 @@ export default function Products() {
   const [onSaleOnly, setOnSaleOnly] = useState(false);
   const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
   const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
+  const { isMobile, isTablet } = useDeviceType();
   const activeRole = simulatedRole || user?.role;
 
   const [error, setError] = useState<string | null>(null);
+
+  // Use dynamic sticky top based on device
+  const stickyTop = isMobile ? 'top-[56px]' : 'top-[64px]';
 
   const fetchProducts = async () => {
     setLoading(true);
     setError(null);
     try {
+      // 1. Try local API
       const res = await fetch('/api/products');
-      if (!res.ok) throw new Error('Failed to fetch products');
-      const data = await res.json();
-      setProducts(data);
-      if (data.length > 0) {
-        const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
-        setMaxPrice(maxP.toString());
+      if (res.ok) {
+        const data = await res.json();
+        setProducts(data);
+        if (data.length > 0) {
+          const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
+          setMaxPrice(maxP.toString());
+        }
+        return;
+      }
+      
+      // 2. If API fails, try direct Firestore fallback (User request: "stored in the Firebase")
+      console.log('API failed, attempting Firestore fallback...');
+      try {
+        const { db: fsDb } = await import('../firebase');
+        const { collection, getDocs, query, where } = await import('firebase/firestore');
+        
+        const q = query(collection(fsDb, 'products'), where('is_listed', '==', true));
+        const snapshot = await getDocs(q);
+        const fbData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        
+        if (fbData.length > 0) {
+          setProducts(fbData);
+          const maxP = Math.max(...fbData.map((p: any) => getProductPrice(p as any, user?.role)));
+          setMaxPrice(maxP.toString());
+          toast.success('Loaded products from backup source');
+        } else {
+          throw new Error('No products found in backup');
+        }
+      } catch (fbErr: any) {
+        throw new Error(`Primary and backup sources failed. ${fbErr.message}`);
       }
     } catch (err: any) {
       console.error('Products fetch error:', err);
       setError(err.message || 'Something went wrong');
-      toast.error('Could not load products. Please try again.');
+      toast.error('Could not load products. Please check your connection.');
     } finally {
       setLoading(false);
     }
@@ -243,8 +282,8 @@ export default function Products() {
       </AnimatePresence>
 
       <div className="flex flex-col gap-6">
-        {/* Modern Top Navigation & Filter Bar */}
-        <div className="sticky top-[64px] pb-4 z-40 bg-stone-50/80 backdrop-blur-md px-4 md:px-0 -mx-4 md:mx-0">
+        {/* Modern Top Navigation & Filter Bar - Enhanced for better stickiness and mobile detection */}
+        <div className={cn("sticky pb-4 z-40 bg-stone-50 bg-opacity-90 backdrop-blur-xl px-4 md:px-0 -mx-4 md:mx-0 transition-all", stickyTop)}>
           <div className="bg-white p-4 rounded-3xl border border-stone-100 shadow-xl shadow-stone-200/40 space-y-4">
             <div className="flex flex-col md:flex-row gap-4 items-center">
             {/* Search - More prominent with better focus states */}
@@ -252,42 +291,43 @@ export default function Products() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-primary transition-colors" size={18} />
               <input 
                 type="text" 
-                placeholder="Search products, brands, categories..."
-                className="w-full bg-stone-50 border-2 border-transparent rounded-2xl py-3.5 pl-12 pr-4 focus:border-primary/20 focus:bg-white transition-all text-sm font-bold outline-none placeholder:text-stone-400 placeholder:font-medium"
+                placeholder="Find something special..."
+                className="w-full bg-stone-50 border-2 border-transparent rounded-2xl py-3.5 pl-12 pr-4 focus:border-primary/20 focus:bg-white transition-all text-sm font-black outline-none placeholder:text-stone-300 placeholder:font-bold"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
             
-            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto hide-scrollbar">
+            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto hide-scrollbar touch-pan-x">
                {/* Quick Filters */}
-               <button
+               <motion.button
+                 whileTap={{ scale: 0.95 }}
                  onClick={() => setOnSaleOnly(!onSaleOnly)}
                  className={cn(
-                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap",
-                   onSaleOnly ? "bg-accent text-white shadow-lg shadow-accent/30" : "bg-stone-50 text-stone-500 hover:bg-stone-100"
+                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap border-2",
+                   onSaleOnly ? "bg-accent border-accent text-white shadow-lg shadow-accent/30" : "bg-stone-50 border-stone-100 text-stone-400 hover:bg-stone-100"
                  )}
                >
                  <Zap size={12} fill={onSaleOnly ? "currentColor" : "none"} />
                  <span>On Sale</span>
-               </button>
-
-               <div className="h-8 w-px bg-stone-200 mx-1 hidden md:block" />
-
-               <button
+               </motion.button>
+               
+               <motion.button
+                 whileTap={{ scale: 0.95 }}
                  onClick={() => setIsFilterOpen(true)}
                  className={cn(
-                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap",
+                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap border-2",
                    (selectedRating !== null || minPrice !== '0' || maxPrice !== '' || sortBy !== 'relevance') 
-                     ? "bg-primary text-white shadow-lg shadow-primary/30" 
-                     : "bg-stone-900 text-white hover:bg-stone-800"
+                     ? "bg-primary border-primary text-white shadow-lg shadow-primary/30" 
+                     : "bg-stone-900 border-stone-900 text-white hover:bg-stone-800"
                  )}
                >
                  <Filter size={12} />
                  <span>Filters {(selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance') && '•'}</span>
-               </button>
+               </motion.button>
             </div>
           </div>
+        </div>
 
           <div className="flex flex-col gap-3">
             {/* Quick Categories Bar */}
@@ -393,141 +433,193 @@ export default function Products() {
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-8 space-y-12">
-                  {/* Sorting Section */}
+                <div className="flex-1 overflow-y-auto p-8 space-y-12 no-scrollbar">
+                  {/* Sorting Section - Redesigned for visual clarity */}
                   <div className="space-y-6">
-                    <div className="flex items-center gap-2">
-                      <LayoutGrid size={14} className="text-primary" />
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Sort Results</h3>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ArrowDownNarrowWide size={16} className="text-primary" />
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Sort Collection</h3>
+                      </div>
+                      <span className="text-[9px] font-bold text-stone-300">Choose logic</span>
                     </div>
-                    <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-2 gap-3">
                       {[
                         { id: 'relevance', label: 'Recommended', icon: Star },
-                        { id: 'popularity', label: 'Best Sellers', icon: Zap },
-                        { id: 'price-low', label: 'Lowest Price', icon: ArrowDownNarrowWide },
-                        { id: 'price-high', label: 'Highest Price', icon: ArrowUpNarrowWide },
-                        { id: 'rating', label: 'User Rating', icon: Star },
-                        { id: 'newest', label: 'Newly Added', icon: Clock },
+                        { id: 'popularity', label: 'Trending', icon: Zap },
+                        { id: 'price-low', label: 'Price: Low', icon: ArrowDownNarrowWide },
+                        { id: 'price-high', label: 'Price: High', icon: ArrowUpNarrowWide },
+                        { id: 'rating', label: 'Top Rated', icon: Star },
+                        { id: 'newest', label: 'What\'s New', icon: Clock },
                       ].map(option => (
                         <button
                           key={option.id}
                           onClick={() => setSortBy(option.id)}
                           className={cn(
-                            "group flex items-center justify-between p-4 rounded-2xl border-2 transition-all",
+                            "group flex flex-col items-start p-4 rounded-2xl border-2 transition-all text-left space-y-3 relative overflow-hidden",
                             sortBy === option.id 
                               ? "border-primary bg-primary/5 text-primary" 
                               : "border-stone-50 text-stone-500 hover:border-stone-200 hover:bg-stone-50"
                           )}
                         >
-                          <div className="flex items-center space-x-3">
-                            <option.icon size={16} className={sortBy === option.id ? "text-primary" : "text-stone-300 group-hover:text-stone-400"} />
-                            <span className="font-bold text-sm tracking-tight">{option.label}</span>
-                          </div>
-                          {sortBy === option.id && <div className="w-2 h-2 bg-primary rounded-full" />}
+                          {sortBy === option.id && (
+                            <motion.div 
+                              layoutId="sort-active-bg"
+                              className="absolute top-0 right-0 w-8 h-8 bg-primary/10 rounded-bl-2xl flex items-center justify-center"
+                            >
+                              <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
+                            </motion.div>
+                          )}
+                          <option.icon size={18} className={sortBy === option.id ? "text-primary" : "text-stone-300 group-hover:text-stone-400"} />
+                          <span className="font-black text-[11px] leading-tight uppercase tracking-tight">{option.label}</span>
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Price Section */}
+                  {/* Price Section - Bento style inputs */}
                   <div className="space-y-6">
-                    <div className="flex items-center gap-2">
-                      <Zap size={14} className="text-primary" />
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Price Threshold</h3>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap size={16} className="text-primary" />
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Cost Spectrum</h3>
+                      </div>
+                      <div className="text-[9px] font-bold text-stone-300 bg-stone-50 px-2 py-0.5 rounded-full">INR (₹)</div>
                     </div>
-                    <div className="bg-stone-50 p-6 rounded-3xl space-y-8 border border-stone-100">
-                      <div className="flex flex-col space-y-6">
-                        <div className="space-y-3">
-                          <p className="text-[9px] font-black uppercase text-stone-400 tracking-tighter">Minimum Price</p>
-                          <div className="flex items-center space-x-2">
-                            <button 
-                              onClick={() => {
-                                const next = Math.max(0, (parseInt(minPrice || '0') || 0) - 10);
-                                setMinPrice(next.toString());
-                              }}
-                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
-                            >
-                              <Minus size={14} />
-                            </button>
-                            <div className="flex-1 flex items-center bg-white border border-stone-200 rounded-xl px-3 py-2">
-                              <span className="text-stone-400 font-bold text-sm mr-1">₹</span>
-                              <input 
-                                type="number" 
-                                value={minPrice} 
-                                onChange={(e) => setMinPrice(e.target.value)} 
-                                className="bg-transparent font-black text-lg w-full outline-none"
-                              />
-                            </div>
-                            <button 
-                              onClick={() => {
-                                const next = (parseInt(minPrice || '0') || 0) + 10;
-                                setMinPrice(next.toString());
-                              }}
-                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-stone-50 p-5 rounded-[2rem] border border-stone-100 flex flex-col space-y-3 group focus-within:border-primary/20 transition-all">
+                        <label className="text-[9px] font-black uppercase text-stone-400 tracking-tighter ml-1">Minimum</label>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-stone-300 font-black text-xs">₹</span>
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            value={minPrice} 
+                            onChange={(e) => setMinPrice(e.target.value)} 
+                            className="bg-transparent font-black text-xl w-full outline-none placeholder:text-stone-200"
+                          />
                         </div>
+                        <div className="flex gap-1">
+                          {[0, 100, 500].map(val => (
+                            <button 
+                              key={val}
+                              onClick={() => setMinPrice(val.toString())}
+                              className="text-[8px] font-black uppercase tracking-tighter text-stone-400 hover:text-primary"
+                            >
+                              {val === 0 ? 'Any' : `₹${val}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-                        <div className="space-y-3">
-                          <p className="text-[9px] font-black uppercase text-stone-400 tracking-tighter">Maximum Price</p>
-                          <div className="flex items-center space-x-2">
+                      <div className="bg-stone-50 p-5 rounded-[2rem] border border-stone-100 flex flex-col space-y-3 group focus-within:border-primary/20 transition-all">
+                        <label className="text-[9px] font-black uppercase text-stone-400 tracking-tighter ml-1">Maximum</label>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-stone-300 font-black text-xs">₹</span>
+                          <input 
+                            type="number" 
+                            placeholder="Any"
+                            value={maxPrice} 
+                            onChange={(e) => setMaxPrice(e.target.value)} 
+                            className="bg-transparent font-black text-xl w-full outline-none placeholder:text-stone-200"
+                          />
+                        </div>
+                        <div className="flex gap-1 justify-end">
+                          {[1000, 5000, 10000].map(val => (
                             <button 
-                              onClick={() => {
-                                const next = Math.max(0, (parseInt(maxPrice || '0') || 0) - 50);
-                                setMaxPrice(next.toString());
-                              }}
-                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
+                              key={val}
+                              onClick={() => setMaxPrice(val.toString())}
+                              className="text-[8px] font-black uppercase tracking-tighter text-stone-400 hover:text-primary"
                             >
-                              <Minus size={14} />
+                              ₹{val/1000}k
                             </button>
-                            <div className="flex-1 flex items-center justify-end bg-white border border-stone-200 rounded-xl px-3 py-2">
-                              <span className="text-stone-400 font-bold text-sm mr-1">₹</span>
-                              <input 
-                                type="number" 
-                                value={maxPrice} 
-                                onChange={(e) => setMaxPrice(e.target.value)} 
-                                className="bg-transparent font-black text-lg w-full text-right outline-none"
-                              />
-                            </div>
-                            <button 
-                              onClick={() => {
-                                const next = (parseInt(maxPrice || '0') || 0) + 50;
-                                setMaxPrice(next.toString());
-                              }}
-                              className="w-10 h-10 bg-white border border-stone-200 rounded-xl flex items-center justify-center text-stone-600 hover:bg-stone-100 transition-colors"
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </div>
+                          ))}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Rating Section */}
+                  {/* Rating Section - Refined Star Selectors */}
                   <div className="space-y-6">
                     <div className="flex items-center gap-2">
-                      <Star size={14} className="text-primary" />
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Min Rating</h3>
+                      <Star size={16} className="text-primary" />
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">User Satisfaction</h3>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      {[5, 4, 3, 2, 1].map(rating => (
+                    {/* On Sale Toggle in Drawer */}
+                    <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100 flex items-center justify-between mb-2">
+                       <div className="flex items-center space-x-3">
+                         <div className="p-2 bg-accent/10 rounded-lg text-accent">
+                           <Zap size={16} fill="currentColor" />
+                         </div>
+                         <div className="flex flex-col">
+                           <span className="text-[11px] font-black uppercase tracking-tight text-stone-900">On Sale Only</span>
+                           <span className="text-[9px] font-bold text-stone-400">Show discounted items</span>
+                         </div>
+                       </div>
+                       <button
+                         onClick={() => setOnSaleOnly(!onSaleOnly)}
+                         className={cn(
+                           "relative w-12 h-6 rounded-full transition-colors",
+                           onSaleOnly ? "bg-accent" : "bg-stone-200"
+                         )}
+                       >
+                         <motion.div 
+                           animate={{ x: onSaleOnly ? 24 : 4 }}
+                           className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                         />
+                       </button>
+                    </div>
+                    <div className="space-y-3">
+                      {[5, 4, 3, 2].map(rating => (
                         <button
                           key={rating}
                           onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
                           className={cn(
-                            "flex flex-col items-center justify-center flex-1 py-4 rounded-2xl border-2 transition-all space-y-2 shadow-sm",
+                            "w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all relative overflow-hidden group",
                             selectedRating === rating 
-                              ? "bg-amber-50 border-amber-400 text-amber-600 scale-105 shadow-lg shadow-amber-200/40" 
-                              : "bg-white border-stone-50 text-stone-400 hover:border-amber-100 hover:text-amber-400"
+                              ? "bg-amber-50/50 border-amber-300 text-amber-700" 
+                              : "bg-white border-stone-50 text-stone-500 hover:border-amber-100"
                           )}
                         >
-                          <Star size={18} fill={selectedRating === rating ? "currentColor" : "none"} />
-                          <span className="font-black text-[10px] tracking-tighter">{rating}★</span>
+                          <div className="flex items-center space-x-3">
+                            <div className="flex space-x-1">
+                              {[...Array(5)].map((_, i) => (
+                                <Star 
+                                  key={i} 
+                                  size={12} 
+                                  className={cn(
+                                    "transition-colors",
+                                    i < rating ? "text-amber-400" : "text-stone-100"
+                                  )} 
+                                  fill="currentColor" 
+                                />
+                              ))}
+                            </div>
+                            <span className="font-black text-[11px] uppercase tracking-widest">{rating}+ Stars</span>
+                          </div>
+                          {selectedRating === rating ? (
+                            <motion.div 
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              className="w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center"
+                            >
+                              <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                            </motion.div>
+                          ) : (
+                            <span className="text-[9px] font-bold text-stone-300 group-hover:text-amber-200 transition-colors">Select Range</span>
+                          )}
                         </button>
                       ))}
+                      <button 
+                         onClick={() => setSelectedRating(null)}
+                         className={cn(
+                           "w-full text-center py-3 text-[9px] font-black uppercase tracking-widest transition-colors",
+                           selectedRating === null ? "text-primary bg-primary/5 rounded-xl border border-primary/10" : "text-stone-400 hover:text-stone-600"
+                         )}
+                      >
+                        All Ratings
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -751,6 +843,20 @@ export default function Products() {
                             <span>Quick Add</span>
                           </motion.button>
                         )}
+                        <button 
+                           onClick={(e) => {
+                             e.preventDefault();
+                             toggleWishlist(product.id);
+                           }}
+                           className={cn(
+                             "p-4 rounded-xl border border-stone-200 transition-all flex items-center justify-center",
+                             wishlist.includes(product.id) 
+                               ? "bg-red-50 text-red-500 border-red-200 hover:bg-red-100" 
+                               : "bg-white text-stone-400 hover:text-red-500 hover:bg-stone-50"
+                           )}
+                        >
+                           <Heart size={24} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
+                        </button>
                      </div>
                   </motion.div>
                 )}
@@ -767,6 +873,5 @@ export default function Products() {
       )}
       </div>
     </div>
-  </div>
   );
 }

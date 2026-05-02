@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { User } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
 
@@ -11,6 +11,9 @@ export default function Login() {
   const { setUser } = useStore();
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  const location = useLocation();
+  const from = (location.state as any)?.from?.pathname || "/";
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -53,7 +56,7 @@ export default function Login() {
         if (data.isNewUser) {
           navigate('/complete-profile');
         } else {
-          navigate('/');
+          navigate(from, { replace: true });
         }
       } else {
         toast.error(data.message || 'Login API failed');

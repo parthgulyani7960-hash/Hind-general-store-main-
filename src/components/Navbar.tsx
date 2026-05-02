@@ -76,7 +76,7 @@ export default function Navbar() {
   const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<{id: number, name: string}[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const navigate = useNavigate();
 
@@ -105,6 +105,12 @@ export default function Navbar() {
     const timer = setTimeout(fetchSuggestions, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const handleClickOutside = () => setShowSuggestions(false);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const wishlistCount = wishlist.length;
@@ -150,7 +156,7 @@ export default function Navbar() {
             </div>
           </Link>
 
-          <div className="relative flex-1 max-w-sm ml-4 mr-2 md:mx-4">
+          <div className="relative flex-1 max-w-sm ml-4 mr-2 md:mx-4" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-stone-400" size={18} />
               <input
@@ -159,6 +165,12 @@ export default function Navbar() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setShowSuggestions(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    setShowSuggestions(false);
+                    navigate(`/products?search=${encodeURIComponent(searchQuery)}`);
+                  }
+                }}
                 className="w-full pl-10 pr-4 py-2 rounded-xl bg-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -166,22 +178,40 @@ export default function Navbar() {
               <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 overflow-hidden z-50">
                 {suggestions.map((suggestion) => (
                   <button
-                    key={suggestion}
+                    key={suggestion.id}
                     onClick={() => {
-                      setSearchQuery(suggestion);
+                      setSearchQuery(suggestion.name);
                       setShowSuggestions(false);
-                      navigate(`/products?search=${encodeURIComponent(suggestion)}`);
+                      navigate(`/product/${suggestion.id}`);
                     }}
-                    className="w-full text-left px-4 py-2 hover:bg-stone-50 text-sm"
+                    className="w-full text-left px-4 py-2 hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
                   >
-                    {suggestion}
+                    <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
+                    <Search size={12} className="text-stone-300" />
                   </button>
                 ))}
               </div>
             )}
             {showSuggestions && searchQuery.trim().length >= 2 && suggestions.length === 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 p-4 text-sm text-stone-500 z-50">
-                No products found.
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 p-4 z-50 overflow-hidden">
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className="w-12 h-12 bg-stone-50 rounded-2xl flex items-center justify-center">
+                    <ShoppingBag size={24} className="text-stone-300" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-stone-900">Product not found</p>
+                    <p className="text-[10px] text-stone-400 font-medium">We couldn't find what you're looking for</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setShowSuggestions(false);
+                      navigate(`/support?subject=${encodeURIComponent(`Product Request: ${searchQuery}`)}&message=${encodeURIComponent(`I couldn't find the product "${searchQuery}" in your store. Could you please check if it is available or if you can order it?`)}`);
+                    }}
+                    className="w-full py-2 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary/90 transition-all"
+                  >
+                    Submit a Request
+                  </button>
+                </div>
               </div>
             )}
           </div>

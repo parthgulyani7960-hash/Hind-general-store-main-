@@ -179,7 +179,10 @@ export default function Checkout() {
     }
 
     if (method === 'wallet' && user.wallet_balance < total) {
-      toast.error('Insufficient wallet balance');
+      toast.error('Insufficient wallet balance. Redirecting to add money...', { icon: '💰' });
+      setTimeout(() => {
+        navigate('/profile?tab=wallet&action=add-money');
+      }, 1000);
       return;
     }
 
@@ -400,12 +403,72 @@ export default function Checkout() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Pin Code</label>
-                        <input 
-                          type="text" 
-                          className="input-field" 
-                          value={addressData.pin_code}
-                          onChange={(e) => setAddressData({...addressData, pin_code: e.target.value})}
-                        />
+                        <div className="relative">
+                          <input 
+                            type="text" 
+                            className="input-field pr-10" 
+                            value={addressData.pin_code}
+                            placeholder="6 digit PIN"
+                            onChange={async (e) => {
+                              const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                              setAddressData({...addressData, pin_code: val});
+                              if (val.length === 6) {
+                                try {
+                                  const res = await fetch(`https://api.postalpincode.in/pincode/${val}`);
+                                  const data = await res.json();
+                                  if (data[0].Status === 'Success') {
+                                    const po = data[0].PostOffice[0];
+                                    setAddressData(prev => ({
+                                      ...prev,
+                                      city: po.District,
+                                      state: po.State
+                                    }));
+                                  }
+                                } catch (err) {
+                                  console.error('Pincode lookup failed');
+                                }
+                              }
+                            }}
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if ("geolocation" in navigator) {
+                                toast.loading('Fetching location...', { id: 'geo_checkout' });
+                                navigator.geolocation.getCurrentPosition(
+                                  async (pos) => {
+                                    const { latitude, longitude } = pos.coords;
+                                    try {
+                                      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+                                      const data = await res.json();
+                                      if (data && data.address) {
+                                        const addr = data.address;
+                                        setAddressData(prev => ({
+                                          ...prev,
+                                          address: `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`,
+                                          city: addr.city || addr.town || addr.village || '',
+                                          state: addr.state || '',
+                                          pin_code: addr.postcode?.slice(0, 6) || ''
+                                        }));
+                                        toast.success('Location found!', { id: 'geo_checkout' });
+                                      } else {
+                                        setAddressData(prev => ({...prev, address: `${latitude}, ${longitude}`}));
+                                        toast.success('Location coordinates captured', { id: 'geo_checkout' });
+                                      }
+                                    } catch(err) {
+                                      toast.error('Could not reverse geocode', { id: 'geo_checkout' });
+                                    }
+                                  },
+                                  (err) => toast.error('Location denied', { id: 'geo_checkout' })
+                                );
+                              }
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
+                            title="Use My Current Location"
+                          >
+                            <MapPin size={16} />
+                          </button>
+                        </div>
                       </div>
                       <div className="md:col-span-2 space-y-2">
                         <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Delivery Zone</label>

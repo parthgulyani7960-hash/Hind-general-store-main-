@@ -18,6 +18,32 @@ a, button, input, select, textarea {
   --color-primary: var(--primary-color, #0f172a);
   --color-secondary: var(--secondary-color, #1e293b);
   --color-accent: var(--accent-color, #d97706);
+  
+  --animate-slide-left: slide-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-vibrate: vibrate 0.3s linear infinite;
+
+  @keyframes slide-left {
+    from { opacity: 0; transform: translateX(30px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes vibrate {
+    0% { transform: translate(0); }
+    20% { transform: translate(-2px, 2px); }
+    40% { transform: translate(-2px, -2px); }
+    60% { transform: translate(2px, 2px); }
+    80% { transform: translate(2px, -2px); }
+    100% { transform: translate(0); }
+  }
+}
+
+@layer base {
+  .page-transition-wrapper {
+    @apply animate-slide-left;
+  }
+  
+  .mobile-active-state {
+    @apply transition-transform active:scale-95 active:opacity-80;
+  }
 }
 
 :root {

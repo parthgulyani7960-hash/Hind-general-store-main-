@@ -4,7 +4,7 @@ import {
   User, Mail, Phone, MapPin, ShoppingBag, Shield, HelpCircle, 
   ChevronRight, Camera, LogOut, Settings, Bell, CreditCard, 
   History, Wallet, Info, MessageSquare, ExternalLink, Activity, Globe, Plus, X,
-  Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy
+  Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy, Navigation2
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -68,6 +68,95 @@ export default function Profile() {
   const bankAccount = config.find(c => c.key === 'account_number')?.value;
   const bankIfsc = config.find(c => c.key === 'ifsc_code')?.value;
 
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  const downloadQR = () => {
+    try {
+      const canvas = qrRef.current?.querySelector('canvas');
+      if (canvas) {
+        const url = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `hind_store_qr_${user?.id || 'payment'}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('QR Code saved to gallery');
+      } else {
+        toast.error('QR Code not ready. Please try again.');
+      }
+    } catch (err) {
+      console.error('QR Download Error:', err);
+      toast.error('Failed to download QR code');
+    }
+  };
+
+  const getCurrentLocation = () => {
+    if ("geolocation" in navigator) {
+      toast.loading('Fetching your location...', { id: 'geo' });
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          try {
+            // Reverse geocoding can be complex without a proxy or API key, 
+            // but we'll try to use a public one or at least save the coordinates
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+            const data = await res.json();
+            
+            if (data && data.address) {
+              const addr = data.address;
+              const city = addr.city || addr.town || addr.village || '';
+              const state = addr.state || '';
+              const postcode = addr.postcode || '';
+              const road = addr.road || '';
+              const neighbourhood = addr.neighbourhood || addr.suburb || '';
+
+              setFormData(prev => ({
+                ...prev,
+                street_address: `${road}${neighbourhood ? ', ' + neighbourhood : ''}`,
+                city: city,
+                state: state,
+                pin_code: postcode.slice(0, 6)
+              }));
+              toast.success('Location updated successfully', { id: 'geo' });
+            } else {
+              setFormData(prev => ({ ...prev, address: `${latitude}, ${longitude}` }));
+              toast.success('Coordinates captured', { id: 'geo' });
+            }
+          } catch (err) {
+            toast.error('Reverse geocoding failed', { id: 'geo' });
+          }
+        },
+        (error) => {
+          toast.error(`Permission denied: ${error.message}`, { id: 'geo' });
+        }
+      );
+    } else {
+      toast.error('Geolocation is not supported by your browser');
+    }
+  };
+
+  const lookupPincode = async (pincode: string, target: 'profile' | 'address') => {
+    if (pincode.length !== 6) return;
+    try {
+      const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`);
+      const data = await res.json();
+      if (data[0].Status === 'Success') {
+        const postOffice = data[0].PostOffice[0];
+        if (target === 'profile') {
+          setFormData(prev => ({
+            ...prev,
+            city: postOffice.District,
+            state: postOffice.State
+          }));
+        }
+        return { city: postOffice.District, state: postOffice.State };
+      }
+    } catch (err) {
+      console.error('Pincode lookup failed');
+    }
+  };
+
   const [formData, setFormData] = useState({
     name: user?.name || '',
     username: user?.username || '',
@@ -118,6 +207,20 @@ export default function Profile() {
   };
 
   const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet'>('history');
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const action = params.get('action');
+    if (tab && ['history', 'wishlist', 'addresses', 'insights', 'wallet'].includes(tab)) {
+      setActiveProfileTab(tab as any);
+    }
+    if (action === 'add-money') {
+      setActiveProfileTab('wallet');
+      setShowAddMoney(true);
+    }
+  }, []);
+
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [addAmount, setAddAmount] = useState('');
   const [paymentId, setPaymentId] = useState('');
@@ -529,12 +632,27 @@ export default function Profile() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Pin Code</label>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    value={formData.pin_code}
-                    onChange={(e) => setFormData({...formData, pin_code: e.target.value})}
-                  />
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      value={formData.pin_code}
+                      placeholder="6 digit PIN"
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                        setFormData({...formData, pin_code: val});
+                        if (val.length === 6) lookupPincode(val, 'profile');
+                      }}
+                    />
+                    <button 
+                      onClick={getCurrentLocation}
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
+                      title="Use My Current Location"
+                    >
+                      <Navigation2 size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
               <div>
@@ -720,7 +838,18 @@ export default function Profile() {
                   {loadingOrders ? (
                     <div className="p-12 text-center text-stone-400">Loading orders...</div>
                   ) : orders.length === 0 ? (
-                    <div className="p-12 text-center text-stone-400 italic">No orders found yet.</div>
+                    <div className="p-12 flex flex-col items-center text-center space-y-4">
+                      <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center text-stone-300">
+                        <ShoppingBag size={24} />
+                      </div>
+                      <div>
+                        <p className="text-stone-500 font-bold">No orders found yet.</p>
+                        <p className="text-xs text-stone-400 mt-1">Looks like you haven't made your first order.</p>
+                      </div>
+                      <Link to="/products" className="btn-primary px-6 py-2.5 rounded-xl text-sm mt-2">
+                        Start Shopping
+                      </Link>
+                    </div>
                   ) : (
                     orders.map((order) => (
                       <div key={order.id} className="p-4 md:p-6 hover:bg-stone-50 transition-colors border-b border-stone-50 last:border-0">
@@ -752,6 +881,12 @@ export default function Profile() {
                             )}>
                               {t(order.status) || order.status}
                             </span>
+                            {order.estimated_delivery_at && order.status !== 'delivered' && (
+                              <div className="flex items-center space-x-1 text-[9px] font-bold text-emerald-600 uppercase tracking-widest">
+                                <Clock size={10} className="animate-pulse" />
+                                <span>Est: {new Date(order.estimated_delivery_at).toLocaleDateString()}</span>
+                              </div>
+                            )}
                             {order.status === 'delivered' && (
                               <button 
                                 onClick={async () => {
@@ -778,13 +913,22 @@ export default function Profile() {
                                </div>
                                <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">{order.items_count || 0} ITEMS</span>
                             </div>
-                            <Link 
-                                to={`/invoice/${order.id}`}
-                                className="text-[10px] font-black text-primary hover:text-primary/80 tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
-                            >
-                                <span>{t('view_details') || 'DETAILS'}</span>
-                                <ChevronRight size={12} />
-                            </Link>
+                            <div className="flex items-center space-x-4">
+                              <Link 
+                                  to={`/invoice/${order.id}`}
+                                  className="text-[10px] font-black text-stone-500 hover:text-primary tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
+                              >
+                                  <span>{t('view_details') || 'DETAILS'}</span>
+                                  <ChevronRight size={12} />
+                              </Link>
+                              <Link 
+                                  to={`/track-order?id=${order.order_id || order.id}`}
+                                  className="text-[10px] font-black text-primary hover:text-primary/80 tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
+                              >
+                                  <span>TRACK</span>
+                                  <Truck size={12} />
+                              </Link>
+                            </div>
                         </div>
 
                         {/* Order Tracking Timeline for Mobile */}
@@ -1291,7 +1435,7 @@ export default function Profile() {
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 no-scrollbar">
               <div className="bg-primary/5 p-6 rounded-3xl border border-primary/10 text-center">
                 <p className="text-xs font-black text-primary uppercase tracking-[0.2em] mb-4">Official Payment QR</p>
-                <div className="w-56 h-56 bg-white mx-auto rounded-3xl border-4 border-white shadow-xl flex items-center justify-center mb-4 transition-transform hover:scale-105 overflow-hidden">
+                <div ref={qrRef} className="w-56 h-56 bg-white mx-auto rounded-3xl border-4 border-white shadow-xl flex items-center justify-center mb-4 transition-transform hover:scale-105 overflow-hidden">
                   <QRCodeCanvas 
                     value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=0&cu=INR`}
                     size={200}
@@ -1306,6 +1450,13 @@ export default function Profile() {
                     }}
                   />
                 </div>
+                <button 
+                  onClick={downloadQR}
+                  className="flex items-center justify-center space-x-2 text-[10px] font-black text-primary hover:text-primary/80 uppercase tracking-widest mx-auto mb-4"
+                >
+                  <Download size={14} />
+                  <span>Download QR</span>
+                </button>
                 <div className="space-y-1">
                   <p className="text-[10px] text-stone-900 font-black uppercase tracking-widest">{upiName}</p>
                   <p className="text-[10px] text-stone-400 font-bold uppercase tracking-tighter">Scan with any UPI App</p>
@@ -1326,6 +1477,20 @@ export default function Profile() {
 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Amount to Add (₹)</label>
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {[200, 500, 1000, 2000].map(amt => (
+                    <button
+                      key={amt}
+                      onClick={() => setAddAmount(amt.toString())}
+                      className={cn(
+                        "py-2 rounded-xl text-[10px] font-black border-2 transition-all",
+                        addAmount === amt.toString() ? "bg-primary border-primary text-white" : "bg-stone-50 border-stone-100 text-stone-400"
+                      )}
+                    >
+                      ₹{amt}
+                    </button>
+                  ))}
+                </div>
                 <input 
                   type="number" 
                   placeholder="Enter amount"
@@ -1558,14 +1723,70 @@ export default function Profile() {
                       className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                     />
                   </div>
-                  <div>
+                  <div className="col-span-2 sm:col-span-1">
                     <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Code</label>
-                    <input 
-                      name="pin_code"
-                      required
-                      defaultValue={editingAddress?.pin_code}
-                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                    />
+                    <div className="relative">
+                      <input 
+                        name="pin_code"
+                        required
+                        placeholder="6 digit PIN"
+                        defaultValue={editingAddress?.pin_code}
+                        onChange={async (e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                          e.target.value = val;
+                          if (val.length === 6) {
+                            const data = await lookupPincode(val, 'address');
+                            if (data) {
+                              const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
+                              const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
+                              if (cityInput) cityInput.value = data.city;
+                              if (stateInput) stateInput.value = data.state;
+                            }
+                          }
+                        }}
+                        className="w-full px-4 py-3 pr-10 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          if ("geolocation" in navigator) {
+                            toast.loading('Fetching location...', { id: 'geo_prof_modal' });
+                            navigator.geolocation.getCurrentPosition(
+                              async (pos) => {
+                                const { latitude, longitude } = pos.coords;
+                                try {
+                                  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+                                  const data = await res.json();
+                                  if (data && data.address) {
+                                    const addr = data.address;
+                                    const pcInput = document.querySelector('input[name="pin_code"]') as HTMLInputElement;
+                                    const stInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
+                                    const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
+                                    const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
+                                    
+                                    if (pcInput && addr.postcode) pcInput.value = addr.postcode.slice(0, 6);
+                                    if (stInput) stInput.value = `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`;
+                                    if (cityInput && (addr.city || addr.town || addr.village)) cityInput.value = addr.city || addr.town || addr.village;
+                                    if (stateInput && addr.state) stateInput.value = addr.state;
+                                    
+                                    toast.success('Location found!', { id: 'geo_prof_modal' });
+                                  } else {
+                                    toast.success('Location coordinates captured', { id: 'geo_prof_modal' });
+                                  }
+                                } catch(err) {
+                                  toast.error('Could not reverse geocode', { id: 'geo_prof_modal' });
+                                }
+                              },
+                              (err) => toast.error('Location denied', { id: 'geo_prof_modal' })
+                            );
+                          }
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
+                        title="Use My Current Location"
+                      >
+                        <Navigation2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 

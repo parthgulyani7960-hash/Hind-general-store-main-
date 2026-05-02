@@ -3,6 +3,19 @@ import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import MobileBottomNav from './components/MobileBottomNav';
 import BackToTop from './components/BackToTop';
+import FullScreenAlert from './components/FullScreenAlert';
+
+// Shared Vibration Helper for Flash Messages
+export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') => {
+  if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+    const patterns = {
+      light: [10],
+      medium: [30],
+      heavy: [50, 30, 50]
+    };
+    navigator.vibrate(patterns[type]);
+  }
+};
 import { useStore } from './StoreContext';
 import React, { useState, Suspense, lazy, useEffect } from 'react';
 import toast from 'react-hot-toast';
@@ -108,10 +121,11 @@ function AnimatedRoutes() {
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3, ease: "easeInOut" }}
+      initial={{ opacity: 0, x: 30 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -30 }}
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      className="page-transition-wrapper"
     >
       {children}
     </motion.div>
@@ -195,6 +209,7 @@ export default function App() {
   return (
     <Router>
       <ScrollToTopOnNavigate />
+      <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col", adminTheme)}>
         <Toaster position="top-center" />
         <Navbar />

@@ -11,7 +11,7 @@ import {
   BarChart3, Plus, Trash2, Download, Star, Clock, CheckCircle2,
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
-  Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink,
+  Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink, LogOut,
   StickyNote, Truck, Home, Navigation, IndianRupee
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
@@ -25,10 +25,11 @@ type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' |
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole } = useStore();
+  const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
   const [newBatchCategory, setNewBatchCategory] = useState('');
   const [stats, setStats] = useState<any>(null);
@@ -186,10 +187,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchAuditLogs = async () => {
+  const fetchAuditLogs = async (target_type = 'all', limit = 100) => {
     setIsFetchingAudit(true);
     try {
-      const res = await fetch('/api/admin/audit-logs');
+      const res = await fetch(`/api/admin/audit-logs?target_type=${target_type}&limit=${limit}`);
       const data = await res.json();
       setAuditLogs(data);
     } catch (err) {
@@ -241,21 +242,14 @@ export default function AdminDashboard() {
     }
   };
 
+  const [auditLogLimit, setAuditLogLimit] = useState(500);
+  const [auditLogType, setAuditLogType] = useState('all');
+
   useEffect(() => {
-    if (activeTab === 'Announcements') {
-      fetchNotifications();
-    }
-    if (activeTab === 'Logistics') {
-      fetchRunners();
-      fetchOrders();
-    }
     if (activeTab === 'Audit Logs') {
-      fetchAuditLogs();
+      fetchAuditLogs(auditLogType, auditLogLimit);
     }
-    if (activeTab === 'Suspicious Activities') {
-      fetchSuspiciousActivities();
-    }
-  }, [activeTab]);
+  }, [activeTab, auditLogType, auditLogLimit]);
 
   const handleSaveRunner = async () => {
     try {
@@ -714,6 +708,25 @@ export default function AdminDashboard() {
     }
     if (activeTab === 'Store Settings' || activeTab === 'Payment Settings') {
       fetchConfig();
+    }
+    if (activeTab === 'Customers') {
+      fetchUsers();
+    }
+    if (activeTab === 'Newsletter') {
+      fetchNewsletter();
+    }
+    if (activeTab === 'Logistics') {
+      fetchRunners();
+      fetchOrders();
+    }
+    if (activeTab === 'Wallet Requests') {
+      fetchWalletRequests();
+    }
+    if (activeTab === 'Support') {
+      fetchTickets();
+    }
+    if (activeTab === 'Orders' || activeTab === 'Analytics') {
+      fetchOrders();
     }
   }, [activeTab]);
 
@@ -1356,6 +1369,36 @@ export default function AdminDashboard() {
       });
       if (res.ok) {
         toast.success('User updated');
+
+        // Automatically queue a full-screen alert for the user about account changes
+        let alertTitle = 'Account Updated';
+        let alertMessage = 'Your account features have been updated by the administrator.';
+        let alertDetails = `Changes: ${Object.keys(data).join(', ')}`;
+        
+        if (data.role) {
+          alertTitle = 'Role Changed';
+          alertMessage = `Your account role has been updated to ${data.role.toUpperCase()}.`;
+        } else if (data.is_verified !== undefined) {
+          alertTitle = data.is_verified ? 'Account Verified ✅' : 'Verification Suspended ⚠️';
+          alertMessage = data.is_verified ? 'Your identity has been verified. Welcome!' : 'Your verification status has been revoked.';
+        } else if (data.khata_enabled !== undefined) {
+          alertTitle = data.khata_enabled ? 'Khata Facility Enabled 💳' : 'Khata Facility Disabled';
+          alertMessage = data.khata_enabled ? 'You can now use Khata (Credit Line) for your orders.' : 'The Khata facility is no longer available on your account.';
+        }
+
+        await fetch(`/api/admin/users/${userId}/alert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            title: alertTitle, 
+            message: alertMessage, 
+            details: alertDetails, 
+            type: 'success', 
+            duration: 5000, 
+            is_unskippable: true 
+          })
+        }).catch(err => console.error('Alert failed', err));
+
         // Update local state without closing modal
         if (customerModal.user && customerModal.user.id === userId) {
           setCustomerModal({ ...customerModal, user: { ...customerModal.user, ...data } });
@@ -1896,26 +1939,43 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 w-72 bg-white border-r border-stone-200 z-50 lg:sticky lg:block overflow-y-auto no-scrollbar transition-transform duration-300 lg:translate-x-0",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          "fixed inset-y-0 left-0 w-72 bg-white border-r border-stone-200 z-50 lg:sticky lg:block overflow-y-auto no-scrollbar transition-all duration-300 transform",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:w-20 lg:translate-x-0"
         )}
       >
-        <div className="p-8 border-b border-stone-100">
-          <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3">
+        <div className="p-8 border-b border-stone-100 flex items-center justify-between">
+          {!sidebarOpen ? (
+            <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3 mx-auto">
               <span className="font-black text-2xl">H</span>
             </div>
-            <div>
-              <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
-              <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Hind Store</p>
+          ) : (
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3">
+                <span className="font-black text-2xl">H</span>
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
+                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Hind Store</p>
+              </div>
             </div>
-          </div>
+          )}
+          <button 
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="hidden lg:block p-2 text-stone-400 hover:text-primary transition-colors"
+          >
+            {sidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+          </button>
         </div>
 
         <nav className="p-4 space-y-8">
           {sidebarGroups.map((group, i) => (
             <div key={i}>
-              <h3 className="px-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-4">{group.title}</h3>
+              <h3 className={cn(
+                "px-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-4",
+                !sidebarOpen && "text-center px-0"
+              )}>
+                {sidebarOpen ? group.title : group.title[0]}
+              </h3>
               <div className="space-y-1">
                 {group.items.map((item) => (
                   <button
@@ -1926,17 +1986,21 @@ export default function AdminDashboard() {
                       } else {
                         setActiveTab(item.name);
                       }
-                      setSidebarOpen(false);
+                      if (!window.matchMedia('(min-width: 1024px)').matches) {
+                        setSidebarOpen(false);
+                      }
                     }}
                     className={cn(
                       "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
                       activeTab === item.name
                         ? "bg-primary text-white shadow-lg shadow-primary/20"
-                        : "text-stone-500 hover:bg-stone-50 hover:text-primary"
+                        : "text-stone-500 hover:bg-stone-50 hover:text-primary",
+                      !sidebarOpen && "justify-center px-0"
                     )}
+                    title={!sidebarOpen ? item.name : ''}
                   >
                     <item.icon size={18} />
-                    <span>{item.name}</span>
+                    {sidebarOpen && <span>{item.name}</span>}
                   </button>
                 ))}
                 {group.title === 'Settings' && (
@@ -1966,9 +2030,19 @@ export default function AdminDashboard() {
               <p className="text-sm font-bold text-stone-900 truncate">{user.name}</p>
               <p className="text-[10px] text-primary uppercase font-black tracking-wider">{user.role}</p>
             </div>
-            <Link to="/" className="p-2 text-stone-400 hover:text-primary transition-colors">
+            <Link to="/" className="p-2 text-stone-400 hover:text-primary transition-colors" title="View Site">
               <ExternalLink size={16} />
             </Link>
+            <button 
+              onClick={() => {
+                logout();
+                navigate('/login');
+              }}
+              className="p-2 text-stone-400 hover:text-red-500 transition-colors" 
+              title="Logout"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
@@ -2120,11 +2194,19 @@ export default function AdminDashboard() {
             </div>
             
             <div className="flex items-center space-x-2">
-              <button className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all relative">
+              <button 
+                onClick={() => setActiveTab('Announcements')}
+                className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all relative"
+                title="Notifications"
+              >
                 <Bell size={20} />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
               </button>
-              <button className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all">
+              <button 
+                onClick={() => setActiveTab('Store Settings')}
+                className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all"
+                title="Settings"
+              >
                 <Settings size={20} />
               </button>
             </div>
@@ -2707,82 +2789,118 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Announcements' && (
-          <div className="space-y-8">
-             <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 flex flex-col md:flex-row justify-between items-center gap-6">
-              <div>
-                <h2 className="text-3xl font-black text-stone-900">Platform Announcements</h2>
-                <p className="text-stone-500 mt-1">Manage broadcast messages, critical alerts, and marketing ads.</p>
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="bg-white p-10 rounded-[3rem] shadow-xl shadow-stone-200/40 border border-stone-100 flex flex-col lg:flex-row justify-between items-center gap-8 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32" />
+              <div className="relative z-10 text-center lg:text-left">
+                <h2 className="text-4xl font-black text-stone-900 tracking-tighter">Broadcast Center</h2>
+                <p className="text-stone-500 mt-2 text-lg max-w-md">Communicate with your customers in real-time. Alerts, updates, and promotions.</p>
               </div>
               <button 
                 onClick={() => setNotificationModal({ open: true })}
-                className="w-full md:w-auto flex items-center justify-center space-x-2 bg-stone-900 text-white px-8 py-4 rounded-2xl text-sm font-bold hover:bg-stone-800 transition-all shadow-xl shadow-stone-900/10"
+                className="relative z-10 w-full lg:w-auto flex items-center justify-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
-                <Plus size={18} />
-                <span>Create New Announcement</span>
+                <Plus size={20} />
+                <span>New Announcement</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 gap-8">
               {notifications.map((n: any) => (
-                <div key={n.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all">
-                  <div className="flex flex-col md:flex-row justify-between gap-4">
-                    <div className="flex space-x-4">
+                <motion.div 
+                  layout
+                  key={n.id} 
+                  className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/20 border border-stone-100 group hover:border-primary/30 transition-all relative overflow-hidden"
+                >
+                  <div className={cn(
+                    "absolute top-0 left-0 w-1.5 h-full transition-colors",
+                    n.priority === 'high' ? 'bg-red-500' :
+                    n.priority === 'medium' ? 'bg-amber-500' : 'bg-blue-500'
+                  )} />
+                  
+                  <div className="flex flex-col md:flex-row justify-between gap-8">
+                    <div className="flex space-x-6">
                       <div className={cn(
-                        "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
+                        "w-16 h-16 rounded-[1.5rem] flex items-center justify-center shrink-0 shadow-lg transition-transform group-hover:scale-110",
                         n.priority === 'high' ? 'bg-red-50 text-red-500' :
                         n.priority === 'medium' ? 'bg-amber-50 text-amber-500' : 'bg-blue-50 text-blue-500'
                       )}>
-                        {n.type === 'alert' ? <AlertTriangle size={24} /> : <Bell size={24} />}
+                        {n.type === 'alert' ? <ShieldAlert size={32} /> : <Bell size={32} />}
                       </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-3">
-                          <h4 className="text-lg font-black text-stone-900">{n.title}</h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-4">
+                          <h4 className="text-2xl font-black text-stone-900 tracking-tight">{n.title}</h4>
                           <span className={cn(
-                            "text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border",
+                            "text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border-2",
                             n.priority === 'high' ? 'bg-red-50 text-red-600 border-red-100' :
                             n.priority === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'
                           )}>
-                            {n.priority} Priority
+                            {n.priority}
                           </span>
                         </div>
-                        <p className="text-sm text-stone-500 max-w-2xl">{n.message}</p>
-                        <div className="flex flex-wrap items-center gap-4 mt-2">
-                           <div className="flex items-center space-x-1.5 text-[10px] font-bold text-stone-400">
-                             <Users size={12} />
-                             <span>Targets: {n.target_role || 'All Users'}</span>
+                        <div 
+                          className="prose prose-stone prose-sm max-w-2xl text-stone-600 font-medium leading-relaxed"
+                          dangerouslySetInnerHTML={{ __html: n.message }}
+                        />
+                        <div className="flex flex-wrap items-center gap-6 mt-6 pt-6 border-t border-stone-50">
+                           <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-stone-400">
+                             <Users size={14} className="text-primary" />
+                             <span>Audience: <span className="text-stone-600">{n.target_role || 'All'}</span></span>
                            </div>
-                           <div className="flex items-center space-x-1.5 text-[10px] font-bold text-stone-400">
-                             <Clock size={12} />
-                             <span>Sent: {new Date(n.created_at).toLocaleString('en-IN')}</span>
+                           <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-stone-400">
+                             <Calendar size={14} className="text-primary" />
+                             <span>Dispatched: {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                            </div>
                            {n.expires_at && (
-                             <div className="flex items-center space-x-1.5 text-[10px] font-bold text-red-400">
-                               <AlertTriangle size={12} />
-                               <span>Expires: {new Date(n.expires_at).toLocaleString('en-IN')}</span>
+                             <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-red-400 bg-red-50 px-3 py-1 rounded-lg">
+                               <Clock size={14} />
+                               <span>Expires: {new Date(n.expires_at).toLocaleDateString('en-IN')}</span>
                              </div>
                            )}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-start">
+                    <div className="flex flex-row md:flex-col items-center justify-center md:items-end gap-3 shrink-0">
                       <button 
                         onClick={() => handleDeleteNotification(n.id)}
-                        className="p-2 text-stone-400 hover:text-red-500 transition-colors"
+                        className="w-12 h-12 flex items-center justify-center bg-stone-50 text-stone-400 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all shadow-sm border border-stone-100"
+                        title="Delete Announcement"
                       >
-                        <Trash2 size={18} />
+                        <Trash2 size={20} />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setNewNotification({
+                            title: n.title,
+                            message: n.message,
+                            type: n.type,
+                            priority: n.priority,
+                            target_role: n.target_role,
+                            expires_at: n.expires_at || ''
+                          });
+                          setNotificationModal({ open: true });
+                        }}
+                        className="w-12 h-12 flex items-center justify-center bg-stone-50 text-stone-400 hover:bg-primary/10 hover:text-primary rounded-2xl transition-all shadow-sm border border-stone-100"
+                        title="Clone & Re-send"
+                      >
+                        <RefreshCw size={20} />
                       </button>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
               {notifications.length === 0 && (
-                <div className="bg-stone-50 rounded-3xl p-20 text-center border-2 border-dashed border-stone-200">
-                  <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4 text-stone-300">
-                    <Bell size={32} />
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-stone-50 rounded-[3rem] p-24 text-center border-4 border-dashed border-stone-200"
+                >
+                  <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-6 text-stone-200 shadow-sm">
+                    <Bell size={48} />
                   </div>
-                  <h3 className="text-xl font-bold text-stone-900">No active announcements</h3>
-                  <p className="text-stone-500 max-w-sm mx-auto mt-2">Use the button above to dispatch your first formal platform announcement.</p>
-                </div>
+                  <h3 className="text-2xl font-black text-stone-900">Silence is Golden</h3>
+                  <p className="text-stone-500 max-w-sm mx-auto mt-4 font-medium">Capture the attention of your customers with a well-crafted broadcast announcement.</p>
+                </motion.div>
               )}
             </div>
           </div>
@@ -2889,7 +3007,7 @@ export default function AdminDashboard() {
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
                 <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1">Conversion Rate</p>
                 <h3 className="text-3xl font-black">
-                  {analyticsData.conversionData?.length > 0 
+                  {analyticsData.conversionData?.length > 0 && analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) > 0
                     ? (analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.orders, 0) / 
                        analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) * 100).toFixed(1) 
                     : '0.0'}%
@@ -2919,7 +3037,7 @@ export default function AdminDashboard() {
                   <h4 className="font-black text-emerald-900">Growth Insight</h4>
                 </div>
                 <p className="text-sm text-emerald-800 leading-relaxed">
-                  Your revenue has grown by <strong>15%</strong> this month. The <strong>{analyticsData.salesByCategory[0]?.name || 'top'}</strong> category is driving most of your sales.
+                  Your revenue has grown by <strong>15%</strong> this month. The <strong>{analyticsData.salesByCategory?.[0]?.name || 'top'}</strong> category is driving most of your sales.
                 </p>
               </div>
               <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
@@ -3653,9 +3771,30 @@ export default function AdminDashboard() {
                 <h2 className="text-3xl font-black">Security & Audit Logs</h2>
                 <p className="text-stone-500 mt-1">Detailed history of all administrative actions and security events.</p>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-3">
+                <select 
+                  className="bg-stone-50 text-stone-900 px-4 py-3 rounded-2xl border border-stone-100 text-xs font-bold outline-none"
+                  value={auditLogType}
+                  onChange={(e) => setAuditLogType(e.target.value)}
+                >
+                  <option value="all">All Types</option>
+                  <option value="product">Products</option>
+                  <option value="order">Orders</option>
+                  <option value="user">Users</option>
+                  <option value="settings">Settings</option>
+                  <option value="auth">Security</option>
+                </select>
+                <select 
+                  className="bg-stone-50 text-stone-900 px-4 py-3 rounded-2xl border border-stone-100 text-xs font-bold outline-none"
+                  value={auditLogLimit}
+                  onChange={(e) => setAuditLogLimit(Number(e.target.value))}
+                >
+                  <option value={100}>Last 100</option>
+                  <option value={500}>Last 500</option>
+                  <option value={1000}>Last 1000</option>
+                </select>
                 <button 
-                  onClick={() => fetchAuditLogs()}
+                  onClick={() => fetchAuditLogs(auditLogType, auditLogLimit)}
                   className="p-3 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl border border-stone-100 transition-all"
                 >
                   <RefreshCw size={20} className={isFetchingAudit ? "animate-spin" : ""} />
@@ -4058,7 +4197,7 @@ export default function AdminDashboard() {
               </div>
               ) : (
                 <div className="p-6 bg-stone-100/50 overflow-x-auto min-h-[600px] flex gap-6">
-                  {['pending', 'processing', 'shipped', 'delivered'].map((statusColumn) => (
+                  {['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'failed'].map((statusColumn) => (
                     <div key={statusColumn} className="w-80 flex-shrink-0 bg-stone-100/80 rounded-2xl p-4 flex flex-col border border-stone-200">
                       <div className="flex justify-between items-center mb-4 px-2">
                         <h4 className="font-bold text-stone-700 capitalize flex items-center space-x-2">
@@ -4840,6 +4979,35 @@ export default function AdminDashboard() {
                           >
                             <ShoppingBag size={16} />
                           </button>
+                          <button 
+                             onClick={async () => {
+                               const title = window.prompt('Enter Alert Title (e.g. Account Verification)');
+                               if (!title) return;
+                               const message = window.prompt('Enter Main Message');
+                               if (!message) return;
+                               const details = window.prompt('Enter technical explanation (optional)');
+                               
+                               try {
+                                 const res = await fetch(`/api/admin/users/${u.id}/alert`, {
+                                   method: 'POST',
+                                   headers: { 'Content-Type': 'application/json' },
+                                   body: JSON.stringify({ 
+                                     title, message, details, 
+                                     type: 'info', 
+                                     duration: 6000, 
+                                     is_unskippable: true 
+                                   })
+                                 });
+                                 if (res.ok) toast.success(`Alert queued for ${u.name}`);
+                               } catch (e) {
+                                 toast.error('Failed to send alert');
+                               }
+                             }}
+                             className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-amber-500 transition-all"
+                             title="Flash Account Alert"
+                           >
+                             <Bell size={16} />
+                           </button>
                           <a 
                             href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`}
                             target="_blank"
@@ -5174,6 +5342,92 @@ export default function AdminDashboard() {
 
         {activeTab === 'Store Settings' && (
           <div className="max-w-4xl space-y-8">
+            {/* Broadcast System Alert */}
+            <div className="bg-gradient-to-br from-red-500 to-red-600 p-8 rounded-3xl shadow-xl shadow-red-200 text-white space-y-6">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-white/20 rounded-2xl">
+                  <ShieldAlert size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black">Emergency System Broadcast</h3>
+                  <p className="text-red-100 text-sm">Send an unskippable full-screen message to all online users.</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input 
+                  id="broadcast-title"
+                  type="text" 
+                  placeholder="Alert Title (e.g. Server Maintenance)"
+                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder:text-red-200 outline-none focus:bg-white/20 transition-all font-bold"
+                />
+                <select 
+                  id="broadcast-type"
+                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white outline-none focus:bg-white/20 transition-all font-bold"
+                >
+                  <option value="critical" className="text-stone-900">Critical (Red)</option>
+                  <option value="warning" className="text-stone-900">Warning (Amber)</option>
+                  <option value="info" className="text-stone-900">Info (Blue)</option>
+                  <option value="success" className="text-stone-900">Success (Green)</option>
+                </select>
+                <textarea 
+                  id="broadcast-message"
+                  placeholder="Main Message (e.g. We are performing a quick update...)"
+                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder:text-red-200 outline-none focus:bg-white/20 transition-all font-bold md:col-span-2 h-24"
+                />
+                <input 
+                  id="broadcast-details"
+                  type="text" 
+                  placeholder="Technical Context / Why (Optional)"
+                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder:text-red-200 outline-none focus:bg-white/20 transition-all font-bold md:col-span-2 text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-4">
+                <div className="flex items-center space-x-2 text-xs font-bold bg-white/10 px-4 py-2 rounded-full">
+                  <span>Display Duration: 8 seconds</span>
+                </div>
+                <button 
+                  onClick={async () => {
+                    const title = (document.getElementById('broadcast-title') as HTMLInputElement).value;
+                    const message = (document.getElementById('broadcast-message') as HTMLTextAreaElement).value;
+                    const details = (document.getElementById('broadcast-details') as HTMLInputElement).value;
+                    const type = (document.getElementById('broadcast-type') as HTMLSelectElement).value;
+                    
+                    if (!title || !message) {
+                      toast.error('Title and message are required');
+                      return;
+                    }
+                    
+                    if (!window.confirm('This will show an unskippable full-screen popup to ALL users. Continue?')) return;
+                    
+                    try {
+                      const res = await fetch('/api/admin/broadcast-alert', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                          title, message, details, type, 
+                          duration: 8000, 
+                          is_unskippable: true 
+                        })
+                      });
+                      if (res.ok) {
+                        toast.success('Broadcast sent successfully!');
+                        (document.getElementById('broadcast-title') as HTMLInputElement).value = '';
+                        (document.getElementById('broadcast-message') as HTMLTextAreaElement).value = '';
+                        (document.getElementById('broadcast-details') as HTMLInputElement).value = '';
+                      }
+                    } catch (e) {
+                      toast.error('Failed to send broadcast');
+                    }
+                  }}
+                  className="bg-white text-red-600 px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-stone-50 transition-colors shadow-lg"
+                >
+                  Blast Broadcast
+                </button>
+              </div>
+            </div>
+
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
               <h3 className="text-xl font-bold">System Settings</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

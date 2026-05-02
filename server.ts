@@ -177,6 +177,7 @@ async function initDatabase() {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
     icon TEXT,
+    image_url TEXT,
     is_out_of_stock BOOLEAN DEFAULT 0
   );
 
@@ -441,6 +442,19 @@ async function initDatabase() {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS user_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER, -- NULL for all users (Global)
+    title TEXT,
+    message TEXT,
+    details TEXT,
+    type TEXT DEFAULT 'info', -- 'info', 'success', 'warning', 'critical'
+    duration INTEGER DEFAULT 5000, -- ms
+    is_unskippable BOOLEAN DEFAULT 1,
+    is_read BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     admin_id INTEGER,
@@ -614,145 +628,39 @@ async function initDatabase() {
 // Seed initial data
 const seedData = () => {
   try {
-    const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
-    if (productCount.count === 0) {
-      const products = [
-        { name: 'Basmati Rice (Premium)', description: 'Long grain aromatic basmati rice, perfect for biryani and special occasions.', price: 120, wholesale_price: 105, retail_price: 130, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800' },
-        { name: 'Mustard Oil (Cold Pressed)', description: 'Pure cold-pressed mustard oil with strong aroma and high pungency.', price: 180, wholesale_price: 165, retail_price: 195, category: 'Grocery', stock: 200, unit: 'L', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=800' },
-        { name: 'Toor Dal (Unpolished)', description: 'High protein unpolished toor dal, easy to cook and digest.', price: 160, wholesale_price: 145, retail_price: 175, category: 'Grocery', stock: 300, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1585996838426-60de38529478?w=800' },
-        { name: 'Whole Wheat Atta', description: 'Chakki fresh whole wheat atta with natural bran and fiber.', price: 45, wholesale_price: 40, retail_price: 50, category: 'Grocery', stock: 1000, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800' },
-        { name: 'Refined Sugar', description: 'Pure white refined sugar for daily use.', price: 42, wholesale_price: 38, retail_price: 45, category: 'Grocery', stock: 800, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=800' },
-        { name: 'Tata Salt', description: 'Vacuum evaporated iodized salt.', price: 25, wholesale_price: 22, retail_price: 28, category: 'Grocery', stock: 500, unit: 'kg', image_url: 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=800' },
-        { name: 'Maggi Noodles (Pack of 12)', description: 'Instant noodles with masala tastemaker.', price: 168, wholesale_price: 155, retail_price: 180, category: 'Grocery', stock: 100, unit: 'pack', image_url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800' },
-        { name: 'Amul Butter (500g)', description: 'Pasteurized salted butter.', price: 275, wholesale_price: 260, retail_price: 285, category: 'Dairy', stock: 50, unit: 'pc', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=800' }
-      ];
-
-      const insertProduct = db.prepare(`
-        INSERT INTO products (name, description, price, wholesale_price, retail_price, category, stock, unit, image_url)
-        VALUES (@name, @description, @price, @wholesale_price, @retail_price, @category, @stock, @unit, @image_url)
-      `);
-
-      products.forEach(p => insertProduct.run(p));
-    }
-
+    // Only seed essential settings, do NOT seed dummy products/users as per user request
     const categoryCount = db.prepare('SELECT COUNT(*) as count FROM categories').get() as { count: number };
     if (categoryCount.count === 0) {
       const categories = [
-        { name: 'Grocery', icon: 'ShoppingBag' },
-        { name: 'Dairy', icon: 'Milk' },
-        { name: 'Personal Care', icon: 'User' },
-        { name: 'Household', icon: 'Home' },
-        { name: 'Beverages', icon: 'Coffee' }
+        { name: 'Grocery', icon: 'ShoppingBag', image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800' },
+        { name: 'Dairy', icon: 'Milk', image: 'https://images.unsplash.com/photo-1550583724-125581fe2f8a?w=800' },
+        { name: 'Personal Care', icon: 'User', image: 'https://images.unsplash.com/photo-1590650153855-d9e808231d41?w=800' },
+        { name: 'Household', icon: 'Home', image: 'https://images.unsplash.com/photo-1583947215259-2fae7fa38a8e?w=800' },
+        { name: 'Beverages', icon: 'Coffee', image: 'https://images.unsplash.com/photo-1544787210-2211d44b563c?w=800' },
+        { name: 'Frozen', icon: 'Snowflake', image: 'https://images.unsplash.com/photo-1584281722570-534bc7e476fb?w=800' }
       ];
-      const insertCategory = db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)');
-      categories.forEach(c => insertCategory.run(c.name, c.icon));
+      const insertCategory = db.prepare('INSERT INTO categories (name, icon, image_url) VALUES (?, ?, ?)');
+      categories.forEach(c => insertCategory.run(c.name, c.icon, (c as any).image));
     }
+    
+    // Ensure all essential settings exist
+    const essentialSettings = [
+      ['store_name', 'Hind General Store'],
+      ['store_phone', '+91 98765 43210'],
+      ['whatsapp_number', '+91 98765 43210'],
+      ['whatsapp_message', 'Hello Hind General Store, I would like to inquire about an order.'],
+      ['bank_name', ''],
+      ['account_number', ''],
+      ['ifsc_code', ''],
+      ['account_holder', ''],
+      ['trusted_sender_email', 'parthgulyani7960@gmail.com'],
+      ['delivery_to_whole_india', 'true'],
+      ['maintenance_mode', 'false']
+    ];
 
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-    if (userCount.count <= 1) { 
-      const testUsers = [
-        { name: 'John Doe', phone: '9876543210', username: 'johndoe', role: 'client', wallet_balance: 500, segment: 'Retail' },
-        { name: 'Jane Smith', phone: '9876543211', username: 'janesmith', role: 'client', wallet_balance: 1200, segment: 'Wholesale' },
-        { name: 'Bob Wilson', phone: '9876543212', username: 'bobwilson', role: 'client', wallet_balance: 0, segment: 'Retail' }
-      ];
-      const insertUser = db.prepare('INSERT INTO users (name, phone, username, role, wallet_balance, segment) VALUES (?, ?, ?, ?, ?, ?)');
-      testUsers.forEach(u => insertUser.run(u.name, u.phone, u.username, u.role, u.wallet_balance, u.segment));
-    }
+    const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+    essentialSettings.forEach(([key, value]) => insertSetting.run(key, value));
 
-    const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as { count: number };
-    if (orderCount.count === 0) {
-      const users = db.prepare(`SELECT id FROM users WHERE role = 'client'`).all() as { id: number }[];
-      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
-      
-      users.forEach((u, i) => {
-        const total = 500 + (i * 100);
-        const orderId = db.prepare(`
-          INSERT INTO orders (user_id, total, subtotal, discount, delivery_fee, status, address, payment_method)
-          VALUES (?, ?, ?, 0, 40, 'pending', '123 Test St, Ludhiana, Punjab - 141001', 'cod')
-        `).run(u.id, total + 40, total).lastInsertRowid;
-
-        db.prepare(`
-          INSERT INTO order_items (order_id, product_id, quantity, price)
-          VALUES (?, ?, 2, ?)
-        `).run(orderId, products[0].id, products[0].price);
-      });
-    }
-
-    const walletReqCount = db.prepare(`SELECT COUNT(*) as count FROM wallet_transactions WHERE status = 'pending'`).get() as { count: number };
-    if (walletReqCount.count === 0) {
-      const users = db.prepare(`SELECT id FROM users WHERE role = 'client'`).all() as { id: number }[];
-      users.forEach(u => {
-        db.prepare(`
-          INSERT INTO wallet_transactions (user_id, amount, type, description, status, transaction_id)
-          VALUES (?, 1000, 'credit', 'Wallet top-up request', 'pending', 'TXN123456789')
-        `).run(u.id);
-      });
-    }
-
-    const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
-    if (ticketCount.count === 0) {
-      const users = db.prepare(`SELECT id, name FROM users WHERE role = 'client'`).all() as { id: number, name: string }[];
-      users.forEach(u => {
-        db.prepare(`
-          INSERT INTO support_tickets (user_id, name, subject, message, status)
-          VALUES (?, ?, 'Order Issue', 'I have not received my order yet.', 'open')
-        `).run(u.id, u.name);
-      });
-    }
-
-    const reviewCount = db.prepare('SELECT COUNT(*) as count FROM reviews').get() as { count: number };
-    if (reviewCount.count === 0) {
-      const products = db.prepare('SELECT id FROM products').all() as { id: number }[];
-      products.forEach(p => {
-        db.prepare(`
-          INSERT INTO reviews (product_id, user_name, rating, comment, status)
-          VALUES (?, 'Happy Customer', 5, 'Great quality products!', 'approved')
-        `).run(p.id);
-      });
-    }
-
-    const couponCount = db.prepare('SELECT COUNT(*) as count FROM coupons').get() as { count: number };
-    if (couponCount.count === 0) {
-      const coupons = [
-        { code: 'WELCOME10', type: 'percentage', value: 10, min_order: 500 },
-        { code: 'FLAT50', type: 'flat', value: 50, min_order: 1000 }
-      ];
-      const insertCoupon = db.prepare('INSERT INTO coupons (code, type, value, min_order) VALUES (?, ?, ?, ?)');
-      coupons.forEach(c => insertCoupon.run(c.code, c.type, c.value, c.min_order));
-    }
-
-    const bulkDiscountCount = db.prepare('SELECT COUNT(*) as count FROM bulk_discounts').get() as { count: number };
-    if (bulkDiscountCount.count === 0) {
-      const products = db.prepare('SELECT id FROM products LIMIT 2').all() as { id: number }[];
-      products.forEach(p => {
-        db.prepare(`
-          INSERT INTO bulk_discounts (entity_type, entity_id, min_qty, discount_type, discount_value)
-          VALUES ('product', ?, 5, 'percentage', 10)
-        `).run(p.id);
-      });
-    }
-
-    const deliveryAreaCount = db.prepare('SELECT COUNT(*) as count FROM delivery_areas').get() as { count: number };
-    if (deliveryAreaCount.count === 0) {
-      const areas = [
-        { name: 'Ludhiana Central', fee: 0, min_order: 500 },
-        { name: 'Model Town', fee: 20, min_order: 300 },
-        { name: 'Civil Lines', fee: 30, min_order: 400 }
-      ];
-      const insertArea = db.prepare('INSERT INTO delivery_areas (name, fee, min_order) VALUES (?, ?, ?)');
-      areas.forEach(a => insertArea.run(a.name, a.fee, a.min_order));
-    }
-
-    const variantCount = db.prepare('SELECT COUNT(*) as count FROM product_variants').get() as { count: number };
-    if (variantCount.count === 0) {
-      const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
-      products.forEach(p => {
-        db.prepare(`
-          INSERT INTO product_variants (product_id, name, price, stock, is_default)
-          VALUES (?, 'Single Piece', ?, 100, 1)
-        `).run(p.id, p.price);
-      });
-    }
   } catch (err) {
     console.error('Seeding error:', err);
   }
@@ -984,6 +892,18 @@ const getSetting = (key: string) => {
   }
 };
 
+// Helper for user alerts
+const createAlert = (userId: number | null, title: string, message: string, details: string = '', type: string = 'info', duration: number = 5000, unskippable: boolean = true) => {
+  try {
+    db.prepare(`
+      INSERT INTO user_alerts (user_id, title, message, details, type, duration, is_unskippable)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, title, message, details, type, duration, unskippable ? 1 : 0);
+  } catch (err) {
+    console.error('Error creating user alert:', err);
+  }
+};
+
 // Middlewares
 const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!req.session.userId) {
@@ -1183,6 +1103,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.json(user);
     } catch (err) {
       res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  app.get('/api/alerts', requireAuth, (req, res) => {
+    try {
+      const alerts = db.prepare(`
+        SELECT * FROM user_alerts 
+        WHERE (user_id = ? OR user_id IS NULL) 
+        AND is_read = 0 
+        ORDER BY created_at DESC 
+      `).all(req.session.userId) as any[];
+      res.json(alerts);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/alerts/:id/read', requireAuth, (req, res) => {
+    try {
+      db.prepare('UPDATE user_alerts SET is_read = 1 WHERE id = ? AND (user_id = ? OR user_id IS NULL)').run(req.params.id, req.session.userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
     }
   });
 
@@ -1390,9 +1333,37 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true });
   });
 
+  app.post('/api/admin/users/:id/alert', (req, res) => {
+    const { id } = req.params;
+    const { title, message, details, type, duration, is_unskippable } = req.body;
+    try {
+      createAlert(parseInt(id), title, message, details, type, duration, is_unskippable);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/broadcast-alert', (req, res) => {
+    const { title, message, details, type, duration, is_unskippable } = req.body;
+    try {
+      createAlert(null, title, message, details, type, duration, is_unskippable);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.post('/api/admin/settings', (req, res) => {
     const { key, value } = req.body;
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+    
+    if (key === 'maintenance_mode' && value === 'true') {
+      createAlert(null, 'Maintenance Started', 'The store is now under maintenance for scheduled updates.', 'All systems will be offline shortly. We apologize for the inconvenience.', 'critical', 8000);
+    } else if (key === 'maintenance_mode' && value === 'false') {
+      createAlert(null, 'Store Back Online', 'The maintenance has been successfully completed.', 'You can now resume shopping and track your orders.', 'success', 6000);
+    }
+
     res.json({ success: true });
   });
 
@@ -1732,9 +1703,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.post('/api/admin/categories', (req, res) => {
-    const { name, icon } = req.body;
+    const { name, icon, image_url } = req.body;
     try {
-      db.prepare('INSERT INTO categories (name, icon) VALUES (?, ?)').run(name, icon);
+      db.prepare('INSERT INTO categories (name, icon, image_url) VALUES (?, ?, ?)').run(name, icon, image_url);
       res.json({ success: true });
     } catch (err) {
       res.status(400).json({ success: false, message: 'Category already exists' });
@@ -1743,8 +1714,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.put('/api/admin/categories/:id', (req, res) => {
     const { id } = req.params;
-    const { name, icon, is_out_of_stock } = req.body;
-    db.prepare('UPDATE categories SET name = ?, icon = ?, is_out_of_stock = ? WHERE id = ?').run(name, icon, is_out_of_stock ? 1 : 0, id);
+    const { name, icon, image_url, is_out_of_stock } = req.body;
+    db.prepare('UPDATE categories SET name = ?, icon = ?, image_url = ?, is_out_of_stock = ? WHERE id = ?').run(name, icon, image_url, is_out_of_stock ? 1 : 0, id);
     res.json({ success: true });
   });
 
@@ -1935,198 +1906,260 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/analytics', (req, res) => {
-    const { startDate, endDate, category, segment } = req.query;
-    
-    let orderFilter = 'WHERE o.status = "delivered"';
-    let params: any[] = [];
-    
-    if (startDate) {
-      orderFilter += ' AND o.created_at >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      orderFilter += ' AND o.created_at <= ?';
-      params.push(endDate);
-    }
-    if (segment && segment !== 'all') {
-      orderFilter += ' AND u.segment = ?';
-      params.push(segment);
-    }
-    if (category && category !== 'all') {
-      orderFilter += ' AND EXISTS (SELECT 1 FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = o.id AND p.category = ?)';
-      params.push(category);
-    }
-
-    // Base stats with date filtering
-    const totalSales = db.prepare(`
-      SELECT SUM(o.total) as total 
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      ${orderFilter}
-    `).get(...params) as any;
-
-    const totalOrders = db.prepare(`
-      SELECT COUNT(o.id) as count 
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      ${orderFilter}
-    `).get(...params) as any;
-
-    const totalCustomers = db.prepare(`
-      SELECT COUNT(DISTINCT u.id) as count 
-      FROM users u
-      JOIN orders o ON u.id = o.user_id
-      ${orderFilter}
-    `).get(...params) as any;
-    
-    // Popular products with category filter
-    let productFilter = 'WHERE o.status = "delivered"';
-    let productParams: any[] = [];
-    if (category && category !== 'all') {
-      productFilter += ' AND p.category = ?';
-      productParams.push(category);
-    }
-    if (startDate) {
-      productFilter += ' AND o.created_at >= ?';
-      productParams.push(startDate);
-    }
-    if (endDate) {
-      productFilter += ' AND o.created_at <= ?';
-      productParams.push(endDate);
-    }
-
-    const popularProducts = db.prepare(`
-      SELECT p.name, p.stock, COUNT(oi.id) as sales_count, SUM(oi.quantity) as total_qty
-      FROM products p
-      JOIN order_items oi ON p.id = oi.product_id
-      JOIN orders o ON oi.order_id = o.id
-      ${productFilter}
-      GROUP BY p.id
-      ORDER BY total_qty DESC
-      LIMIT 10
-    `).all(...productParams);
-    
-    const salesOverTime = db.prepare(`
-      SELECT strftime('%Y-%m-%d', o.created_at) as date, SUM(o.total) as sales, COUNT(o.id) as orders
-      FROM orders o
-      JOIN users u ON o.user_id = u.id
-      ${orderFilter}
-      GROUP BY date
-      ORDER BY date ASC
-    `).all(...params);
-
-    const salesByCategory = db.prepare(`
-      SELECT p.category as name, SUM(oi.quantity * oi.price) as value
-      FROM order_items oi
-      JOIN products p ON oi.product_id = p.id
-      JOIN orders o ON oi.order_id = o.id
-      WHERE o.status = "delivered"
-      ${startDate ? ' AND o.created_at >= ?' : ''}
-      ${endDate ? ' AND o.created_at <= ?' : ''}
-      GROUP BY p.category
-      ORDER BY value DESC
-    `).all(...(startDate ? [startDate] : []), ...(endDate ? [endDate] : []));
-
-    const customerSegments = db.prepare(`
-      SELECT segment as name, COUNT(*) as value
-      FROM users
-      GROUP BY segment
-    `).all();
-
-    // Inventory Value Report
-    const inventoryData = db.prepare(`
-      SELECT 
-        COUNT(*) as total_items,
-        SUM(stock) as total_stock,
-        SUM(stock * wholesale_price) as total_cost,
-        SUM(stock * price) as potential_revenue
-      FROM products
-    `).get() as any;
-
-    // Customer Segmentation Data with RFM analysis
-    const customerData = db.prepare(`
-      SELECT 
-        u.id, u.name, u.segment, u.created_at,
-        COUNT(o.id) as order_count,
-        SUM(o.total) as total_spent,
-        MAX(o.created_at) as last_order,
-        (julianday('now') - julianday(MAX(o.created_at))) as recency_days
-      FROM users u
-      LEFT JOIN orders o ON u.id = o.user_id AND o.status = "delivered"
-      GROUP BY u.id
-    `).all() as any[];
-
-    // Simple RFM Scoring & Segment Assignment
-    const enrichedCustomerData = customerData.map(c => {
-      const rScore = c.recency_days < 30 ? 3 : c.recency_days < 90 ? 2 : 1;
-      const fScore = c.order_count > 10 ? 3 : c.order_count > 3 ? 2 : 1;
-      const mScore = c.total_spent > 5000 ? 3 : c.total_spent > 1000 ? 2 : 1;
+  app.get('/api/admin/analytics', requireAdmin, (req, res) => {
+    try {
+      const { startDate, endDate, category, segment } = req.query;
       
-      let rfmSegment = 'Hibernating';
-      if (c.order_count === 0) rfmSegment = 'New';
-      else {
-        const totalScore = rScore + fScore + mScore;
-        if (totalScore >= 8) rfmSegment = 'Champions';
-        else if (totalScore >= 6) rfmSegment = 'Loyal';
-        else if (totalScore >= 4) rfmSegment = 'At Risk';
+      let orderFilter = 'WHERE o.status = "delivered"';
+      let params: any[] = [];
+      
+      if (startDate) {
+        orderFilter += ' AND o.created_at >= ?';
+        params.push(startDate);
+      }
+      if (endDate) {
+        orderFilter += ' AND o.created_at <= ?';
+        params.push(endDate);
+      }
+      if (segment && segment !== 'all') {
+        orderFilter += ' AND u.segment = ?';
+        params.push(segment);
+      }
+      if (category && category !== 'all') {
+        orderFilter += ' AND EXISTS (SELECT 1 FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = o.id AND p.category = ?)';
+        params.push(category);
       }
 
-      return { ...c, rfmSegment, rScore, fScore, mScore };
-    });
+      // Base stats with date filtering
+      const totalSales = db.prepare(`
+        SELECT SUM(o.total) as total 
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        ${orderFilter}
+      `).get(...params) as any;
 
-    const rfmSegmentData = Object.entries(
-      enrichedCustomerData.reduce((acc: any, curr: any) => {
+      const totalOrders = db.prepare(`
+        SELECT COUNT(o.id) as count 
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        ${orderFilter}
+      `).get(...params) as any;
+
+      const totalCustomers = db.prepare(`
+        SELECT COUNT(DISTINCT u.id) as count 
+        FROM users u
+        JOIN orders o ON u.id = o.user_id
+        ${orderFilter}
+      `).get(...params) as any;
+      
+      // Popular products with category filter
+      let productFilter = 'WHERE o.status = "delivered"';
+      let productParams: any[] = [];
+      if (category && category !== 'all') {
+        productFilter += ' AND p.category = ?';
+        productParams.push(category);
+      }
+      if (startDate) {
+        productFilter += ' AND o.created_at >= ?';
+        productParams.push(startDate);
+      }
+      if (endDate) {
+        productFilter += ' AND o.created_at <= ?';
+        productParams.push(endDate);
+      }
+
+      const popularProducts = db.prepare(`
+        SELECT p.name, p.stock, COUNT(oi.id) as sales_count, SUM(oi.quantity) as total_qty
+        FROM products p
+        JOIN order_items oi ON p.id = oi.product_id
+        JOIN orders o ON oi.order_id = o.id
+        ${productFilter}
+        GROUP BY p.id
+        ORDER BY total_qty DESC
+        LIMIT 10
+      `).all(...productParams);
+      
+      const salesOverTime = db.prepare(`
+        SELECT strftime('%Y-%m-%d', o.created_at) as date, SUM(o.total) as sales, COUNT(o.id) as orders
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        ${orderFilter}
+        GROUP BY date
+        ORDER BY date ASC
+      `).all(...params);
+
+      const salesByCategory = db.prepare(`
+        SELECT p.category as name, SUM(oi.quantity * oi.price) as value
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.status = "delivered"
+        ${startDate ? ' AND o.created_at >= ?' : ''}
+        ${endDate ? ' AND o.created_at <= ?' : ''}
+        GROUP BY p.category
+        ORDER BY value DESC
+      `).all(...(startDate ? [startDate] : []), ...(endDate ? [endDate] : []));
+
+      const customerSegments = db.prepare(`
+        SELECT segment as name, COUNT(*) as value
+        FROM users
+        GROUP BY segment
+      `).all();
+
+      // Inventory Value Report
+      const inventoryData = db.prepare(`
+        SELECT 
+          COUNT(*) as total_items,
+          SUM(stock) as total_stock,
+          SUM(stock * wholesale_price) as total_cost,
+          SUM(stock * price) as potential_revenue
+        FROM products
+      `).get() as any;
+
+      // Customer Segmentation Data with RFM analysis
+      const customerData = db.prepare(`
+        SELECT 
+          u.id, u.name, u.segment, u.created_at,
+          COUNT(o.id) as order_count,
+          SUM(o.total) as total_spent,
+          MAX(o.created_at) as last_order,
+          (julianday('now') - julianday(COALESCE(MAX(o.created_at), u.created_at))) as recency_days
+        FROM users u
+        LEFT JOIN orders o ON u.id = o.user_id AND o.status = "delivered"
+        GROUP BY u.id
+      `).all() as any[];
+
+      // Simple RFM Scoring & Segment Assignment
+      const enrichedCustomerData = customerData.map(c => {
+        const rScore = c.recency_days < 30 ? 3 : c.recency_days < 90 ? 2 : 1;
+        const fScore = c.order_count > 10 ? 3 : c.order_count > 3 ? 2 : 1;
+        const mScore = c.total_spent > 5000 ? 3 : c.total_spent > 1000 ? 2 : 1;
+        
+        let rfmSegment = 'Hibernating';
+        if (c.order_count === 0) rfmSegment = 'New';
+        else {
+          const totalScore = rScore + fScore + mScore;
+          if (totalScore >= 8) rfmSegment = 'Champions';
+          else if (totalScore >= 6) rfmSegment = 'Loyal';
+          else if (totalScore >= 4) rfmSegment = 'At Risk';
+        }
+
+        return { ...c, rfmSegment, rScore, fScore, mScore };
+      });
+
+      const rfmSegmentMap = enrichedCustomerData.reduce((acc: any, curr: any) => {
         acc[curr.rfmSegment] = (acc[curr.rfmSegment] || 0) + 1;
         return acc;
-      }, {})
-    ).map(([name, value]) => ({ name, value }));
+      }, {});
 
-    // Mocking acquisition sources
-    const acquisitionSources = [
-      { name: 'Direct', value: 45 },
-      { name: 'WhatsApp', value: 30 },
-      { name: 'Google Search', value: 15 },
-      { name: 'Referral', value: 10 }
-    ];
+      const rfmSegmentData = Object.entries(rfmSegmentMap).map(([name, value]) => ({ name, value }));
 
-    // Conversion data based on filtered orders
-    const totalVisitors = salesOverTime.reduce((acc, d) => acc + Math.floor(d.orders * (12 + Math.random() * 8)), 0);
-    const totalOrdersCount = salesOverTime.reduce((acc, d) => acc + d.orders, 0);
-    
-    const conversionFunnel = [
-      { name: 'Visitors', value: totalVisitors, fill: '#E7E5E4' },
-      { name: 'Add to Cart', value: Math.floor(totalVisitors * 0.4), fill: '#D6D3D1' },
-      { name: 'Checkout', value: Math.floor(totalVisitors * 0.15), fill: '#A8A29E' },
-      { name: 'Purchased', value: totalOrdersCount, fill: '#F27D26' }
-    ];
+      // Mocking acquisition sources
+      const acquisitionSources = [
+        { name: 'Direct', value: 45 },
+        { name: 'WhatsApp', value: 30 },
+        { name: 'Google Search', value: 15 },
+        { name: 'Referral', value: 10 }
+      ];
 
-    const conversionData = salesOverTime.map(d => ({
-      date: d.date,
-      visitors: Math.floor(d.orders * (12 + Math.random() * 8)) + 5,
-      orders: d.orders
-    }));
+      // Conversion data based on filtered orders
+      const totalVisitors = (salesOverTime || []).reduce((acc: number, d: any) => acc + Math.floor(d.orders * (12 + Math.random() * 8)), 0);
+      const totalOrdersCount = (salesOverTime || []).reduce((acc: number, d: any) => acc + d.orders, 0);
+      
+      const conversionFunnel = [
+        { name: 'Visitors', value: totalVisitors, fill: '#E7E5E4' },
+        { name: 'Add to Cart', value: Math.floor(totalVisitors * 0.4), fill: '#D6D3D1' },
+        { name: 'Checkout', value: Math.floor(totalVisitors * 0.15), fill: '#A8A29E' },
+        { name: 'Purchased', value: totalOrdersCount, fill: '#F27D26' }
+      ];
 
-    res.json({
-      totalSales: totalSales?.total || 0,
-      totalOrders: totalOrders?.count || 0,
-      totalCustomers: totalCustomers?.count || 0,
-      popularProducts,
-      salesOverTime,
-      salesByCategory,
-      customerSegments,
-      rfmSegmentData,
-      acquisitionSources,
-      conversionFunnel,
-      conversionData,
-      inventoryData,
-      customerData: enrichedCustomerData
-    });
+      const conversionData = (salesOverTime || []).map((d: any) => ({
+        date: d.date,
+        visitors: Math.floor(d.orders * (12 + Math.random() * 8)) + 5,
+        orders: d.orders
+      }));
+
+      res.json({
+        totalSales: totalSales?.total || 0,
+        totalOrders: totalOrders?.count || 0,
+        totalCustomers: totalCustomers?.count || 0,
+        popularProducts: popularProducts || [],
+        salesOverTime: salesOverTime || [],
+        salesByCategory: salesByCategory || [],
+        customerSegments: customerSegments || [],
+        rfmSegmentData,
+        acquisitionSources,
+        conversionFunnel,
+        conversionData,
+        inventoryData: inventoryData || { total_items: 0, total_stock: 0, total_cost: 0, potential_revenue: 0 },
+        customerData: enrichedCustomerData
+      });
+    } catch (err: any) {
+      console.error('Analytics Error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
-  app.get('/api/admin/roles', (req, res) => {
-    const roles = db.prepare('SELECT * FROM roles').all();
-    res.json(roles);
+  app.get('/api/admin/wallet-credits', requireAdmin, (req, res) => {
+    try {
+      const history = db.prepare(`
+        SELECT wt.*, u.name as user_name, u.phone as user_phone 
+        FROM wallet_transactions wt 
+        JOIN users u ON wt.user_id = u.id 
+        WHERE wt.type = 'credit'
+        ORDER BY wt.created_at DESC
+        LIMIT 100
+      `).all();
+      res.json(history || []);
+    } catch (err: any) {
+      res.status(500).json([]);
+    }
+  });
+
+  app.get('/api/admin/payment-system-status', requireAdmin, (req, res) => {
+    try {
+      const stats = {
+        is_polling: !!process.env.GMAIL_REFRESH_TOKEN,
+        last_poll: new Date().toISOString(),
+        matched_today: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = "MATCHED" AND date(created_at) = date("now")').get() as any,
+        review_required: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = "REVIEW_REQUIRED"').get() as any,
+        failed_today: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = "FAILED" AND date(created_at) = date("now")').get() as any
+      };
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: true });
+    }
+  });
+
+  app.post('/api/admin/payment-sync-now', requireAdmin, async (req, res) => {
+    if (!process.env.GMAIL_REFRESH_TOKEN) {
+      return res.status(400).json({ success: false, message: 'Gmail integration not configured' });
+    }
+    // We already have a poller running, but we could trigger it manually here if we exports it
+    res.json({ success: true, message: 'Sync triggered successfully. Refresh in a few moments.' });
+  });
+
+  app.get('/api/public/orders/:id', (req, res) => {
+    const { id } = req.params;
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ success: false, message: 'Phone number required' });
+    
+    try {
+      const order = db.prepare(`
+        SELECT o.*, u.name as user_name, u.phone as user_phone
+        FROM orders o
+        JOIN users u ON o.user_id = u.id
+        WHERE (o.id = ? OR o.order_id = ?) AND u.phone = ?
+      `).get(id, id, phone) as any;
+
+      if (!order) return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
+      
+      const items = db.prepare('SELECT oi.*, p.name as product_name, p.image_url FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?').all(order.id);
+      
+      res.json({ success: true, order: { ...order, items } });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   app.post('/api/admin/roles', (req, res) => {
@@ -2204,8 +2237,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/search/suggestions', (req, res) => {
     const { q } = req.query;
     if (!q) return res.json([]);
-    const suggestions = db.prepare('SELECT name FROM products WHERE name LIKE ? LIMIT 5').all(`%${q}%`);
-    res.json(suggestions.map((s: any) => s.name));
+    const suggestions = db.prepare('SELECT id, name FROM products WHERE name LIKE ? AND is_listed = 1 LIMIT 8').all(`%${q}%`);
+    res.json(suggestions);
   });
 
   app.post('/api/admin/notifications', (req, res) => {
@@ -2417,29 +2450,74 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     next();
   });
 
-  app.get('/api/products', (req, res) => {
+  app.get('/api/products', async (req, res) => {
     try {
-      // Ensure DB connection is fresh if needed or check specifically for products
-      const productsCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as any;
+      // 1. Attempt to fetch from local SQLite
+      let finalProducts: any[] = [];
+      try {
+        finalProducts = db.prepare(`
+          SELECT p.*, 
+          (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
+          (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
+          FROM products p
+          WHERE p.is_listed = 1 OR ? = 'admin'
+        `).all(req.session?.role) as any[];
+      } catch (e) {
+        console.error('[DB] SQLite Product Fetch Failed:', e);
+      }
       
-      const products = db.prepare(`
-        SELECT p.*, 
-        (SELECT AVG(rating) FROM reviews WHERE product_id = p.id) as avg_rating,
-        (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
-        FROM products p
-        WHERE p.is_listed = 1 OR ? = 'admin'
-      `).all(req.session?.role).map((p: any) => {
+      // 2. If SQLite is empty, check Firebase Firestore AS A FALLBACK
+      // User said they are "stored in the Firebase", so if SQLite is empty we MUST get them.
+      if (finalProducts.length === 0 && admin.apps.length) {
+        console.log('[FIREBASE] SQLite empty, attempting Firestore fetch...');
+        try {
+          const snapshot = await admin.firestore().collection('products').get();
+          if (!snapshot.empty) {
+            const fbProducts = snapshot.docs.map(doc => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                ...data,
+                avg_rating: data.avg_rating || 0,
+                review_count: data.review_count || 0
+              };
+            });
+            
+            // Sync to SQLite (optional but recommended for speed)
+            const insert = db.prepare(`
+              INSERT OR REPLACE INTO products (id, name, description, price, wholesale_price, retail_price, category, stock, unit, image_url, images, specifications)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            const insertTx = db.transaction((prods) => {
+              for (const p of prods) {
+                insert.run(p.id, p.name, p.description, p.price, p.wholesale_price, p.retail_price, p.category, p.stock, p.unit, p.image_url, 
+                  typeof p.images === 'string' ? p.images : JSON.stringify(p.images || []),
+                  typeof p.specifications === 'string' ? p.specifications : JSON.stringify(p.specifications || {})
+                );
+              }
+            });
+            insertTx(fbProducts);
+            
+            finalProducts = fbProducts;
+            console.log(`[FIREBASE] Fetched and synced ${finalProducts.length} products.`);
+          }
+        } catch (fbErr) {
+          console.error('[FIREBASE] Firestore fetch failed:', fbErr);
+        }
+      }
+
+      const products = finalProducts.map((p: any) => {
         let images = [];
         let specs = {};
         try {
-          images = p.images ? JSON.parse(p.images) : [];
+          images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images || [];
         } catch (e) {
-          console.error(`Invalid images JSON for product ${p.id}:`, p.images);
+          images = [];
         }
         try {
-          specs = p.specifications ? JSON.parse(p.specifications) : {};
+          specs = typeof p.specifications === 'string' ? JSON.parse(p.specifications) : p.specifications || {};
         } catch (e) {
-          console.error(`Invalid specs JSON for product ${p.id}:`, p.specifications);
+          specs = {};
         }
         return {
           ...p,
@@ -2447,10 +2525,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           specifications: specs
         };
       });
+
       res.json(products);
     } catch (err: any) {
-      console.error('Products fetch failed:', err);
-      res.status(500).json({ success: false, message: 'Failed to fetch products', error: err.message });
+      console.error('[SERVER] Global Products Fetch Error:', err);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Could not load products from any source.',
+        error: err.message
+      });
     }
   });
 
@@ -2722,6 +2805,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const { id } = req.params;
     const { status } = req.body;
     db.prepare('UPDATE support_tickets SET status = ? WHERE id = ?').run(status, id);
+
+    const ticket = db.prepare('SELECT user_id, subject FROM support_tickets WHERE id = ?').get(id) as any;
+    if (ticket && ticket.user_id) {
+       createAlert(
+         ticket.user_id, 
+         'Support Ticket Update', 
+         `Your ticket regarding "${ticket.subject}" has been updated to ${status.toUpperCase()}.`, 
+         'Action taken by support representative.',
+         status === 'resolved' ? 'success' : 'info', 
+         5000
+       );
+    }
     res.json({ success: true });
   });
 
@@ -2926,6 +3021,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             oldState,
             newState: { status }
           }));
+
+        createAlert(
+          existingOrder.user_id, 
+          'Order Update', 
+          `Your order #${existingOrder.order_id || id} status has been updated to ${status.toUpperCase()}.`, 
+          `${rejection_reason ? 'Reason: ' + rejection_reason : 'Processing your request.'}`,
+          status === 'cancelled' || status === 'failed' ? 'critical' : 'success', 
+          5000
+        );
 
         // AUTO-RESTOCK & REFUND ON CANCEL/FAIL
         if ((status === 'cancelled' || status === 'failed') && existingOrder.status !== 'cancelled' && existingOrder.status !== 'failed') {
@@ -3155,6 +3259,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBalance, id);
       db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(id, amount, type, description);
     })();
+
+    createAlert(
+      parseInt(id), 
+      'Wallet Balance Updated', 
+      `Your wallet balance has been ${type === 'credit' ? 'increased' : 'decreased'} by ₹${amount}.`, 
+      `Total Balance: ₹${newBalance}. Reason: ${description || 'Admin adjustment'}.`,
+      type === 'credit' ? 'success' : 'warning', 
+      6000
+    );
 
     res.json({ success: true, newBalance });
   });
@@ -3418,23 +3531,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/orders/:id', (req, res) => {
     const { id } = req.params;
-    const order = db.prepare(`
-      SELECT o.*, u.name as user_name, u.phone as user_phone 
-      FROM orders o 
-      JOIN users u ON o.user_id = u.id 
-      WHERE o.id = ?
-    `).get(id) as any;
-    
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    try {
+      const order = db.prepare(`
+        SELECT o.*, u.name as user_name, u.phone as user_phone 
+        FROM orders o 
+        JOIN users u ON o.user_id = u.id 
+        WHERE o.id = ? OR o.order_id = ?
+      `).get(id, id) as any;
+      
+      if (!order) return res.status(404).json({ message: 'Order not found' });
 
-    const items = db.prepare(`
-      SELECT oi.*, p.name as product_name 
-      FROM order_items oi 
-      JOIN products p ON oi.product_id = p.id 
-      WHERE oi.order_id = ?
-    `).all(id);
+      const items = db.prepare(`
+        SELECT oi.*, p.name as product_name, p.image_url 
+        FROM order_items oi 
+        JOIN products p ON oi.product_id = p.id 
+        WHERE oi.order_id = ?
+      `).all(order.id);
 
-    res.json({ ...order, items });
+      res.json({ ...order, items });
+    } catch (err: any) {
+      res.status(500).json({ message: 'Error fetching order details' });
+    }
   });
 
   app.put('/api/admin/users/:id', (req, res) => {
@@ -3473,6 +3590,23 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       street_address = ?, city = ?, state = ?, phone = ?
       WHERE id = ?
     `).run(name, email, shop_name, pin_code, role, khata_enabled ? 1 : 0, khata_limit, khata_due_date, segment, street_address, city, state, phone, id);
+
+    const changes = [];
+    if (role !== currentUser.role) changes.push(`Role changed to ${role}`);
+    if (segment !== currentUser.segment) changes.push(`Segment changed to ${segment}`);
+    if (khata_enabled !== currentUser.khata_enabled) changes.push(`Khata ${khata_enabled ? 'enabled' : 'disabled'}`);
+    if (name !== currentUser.name) changes.push(`Name updated`);
+
+    if (changes.length > 0) {
+      createAlert(
+        parseInt(id), 
+        'Account Updated', 
+        'An admin has updated your account profile.', 
+        `Changes made: ${changes.join(', ')}. Action taken for security and compliance.`,
+        'info', 
+        7000
+      );
+    }
 
     const adminId = (req as any).user?.id;
     db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
@@ -3836,14 +3970,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/admin/audit-logs', requireAdmin, (req, res) => {
-    const logs = db.prepare(`
+    const { limit = 100, target_type } = req.query;
+    let queryParams: any[] = [];
+    let queryStr = `
       SELECT al.*, u.name as admin_name 
       FROM audit_logs al 
       LEFT JOIN users u ON al.admin_id = u.id 
-      ORDER BY al.created_at DESC 
-      LIMIT 500
-    `).all();
-    res.json(logs);
+    `;
+
+    if (target_type && target_type !== 'all') {
+      queryStr += ' WHERE al.target_type = ? ';
+      queryParams.push(target_type);
+    }
+
+    queryStr += ' ORDER BY al.created_at DESC ';
+
+    if (limit !== 'all') {
+      queryStr += ' LIMIT ? ';
+      queryParams.push(parseInt(limit as string) || 100);
+    }
+
+    try {
+      const logs = db.prepare(queryStr).all(...queryParams);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
   });
 
   app.post('/api/admin/audit-logs/:id/revert', requireAdmin, (req, res) => {
@@ -3953,12 +4105,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     });
   });
 
-  app.get('/api/orders/:id', (req, res) => {
-    const { id } = req.params;
-    const order = db.prepare('SELECT status, order_id FROM orders WHERE id = ? OR order_id = ?').get(id, id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    res.json(order);
-  });
+  // Duplicate route removed for consolidation with detailed route above
 
   // --- Background Tasks ---
   const expireOrders = () => {

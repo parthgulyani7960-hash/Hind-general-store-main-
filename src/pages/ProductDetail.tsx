@@ -5,12 +5,12 @@ import {
   ShoppingCart, Share2, ArrowLeft, ShieldCheck, Truck, Info, Star, 
   MessageSquare, Plus, Minus, Clock, Camera, Image as ImageIcon,
   ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag,
-  CheckCircle2, ThumbsUp, Filter
+  CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2
 } from 'lucide-react';
 import { Product, Review, cn } from '../types';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
-import { Tag } from 'lucide-react';
+import { triggerFeedback } from '../App';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -30,9 +30,20 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole } = useStore();
+  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t } = useStore();
   const navigate = useNavigate();
   const activeRole = simulatedRole || user?.role;
+  const isInWishlist = wishlist.includes(product?.id);
+
+  const handleToggleWishlist = () => {
+    if (!user) {
+      toast.error('Please login to manage wishlist');
+      navigate('/login');
+      return;
+    }
+    triggerFeedback('medium');
+    toggleWishlist(product.id);
+  };
 
   const getActivePrice = (p: any) => {
     if (!p) return 0;
@@ -572,7 +583,7 @@ export default function ProductDetail() {
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-4 flex-1">
               <div className="flex items-center justify-between xl:justify-center bg-stone-50 rounded-2xl p-2 border border-stone-200">
                 <button 
@@ -598,7 +609,7 @@ export default function ProductDetail() {
                     addToCart(product, selectedVariant, quantity);
                     toast.success('Added to cart!');
                   }}
-                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5 min-h-[56px]"
+                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5 min-h-[56px] mobile-active-state"
                 >
                   <ShoppingCart size={22} />
                   <span>Add to Cart</span>
@@ -608,21 +619,36 @@ export default function ProductDetail() {
                     addToCart(product, selectedVariant, quantity);
                     navigate('/cart');
                   }}
-                  className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg min-h-[56px]"
+                  className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg min-h-[56px] mobile-active-state"
                 >
                   <ShoppingBag size={22} />
                   <span>Buy Now</span>
                 </button>
               </div>
             </div>
-            <button 
-              onClick={handleShare}
-              className="px-6 py-4 bg-stone-100 text-stone-600 rounded-xl hover:bg-stone-200 transition-all flex items-center justify-center space-x-2 font-bold min-h-[56px] xl:w-auto w-full"
-              title="Share Product"
-            >
-              <Share2 size={20} />
-              <span>Share</span>
-            </button>
+            
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button 
+                onClick={handleShare}
+                className="flex-1 px-6 py-4 bg-stone-100 text-stone-600 rounded-xl hover:bg-stone-200 transition-all flex items-center justify-center space-x-2 font-bold min-h-[56px] mobile-active-state"
+                title="Share Product"
+              >
+                <Share2 size={20} />
+                <span>Share</span>
+              </button>
+              
+              <button 
+                onClick={handleToggleWishlist}
+                className={cn(
+                  "flex-1 px-6 py-4 rounded-xl transition-all flex items-center justify-center space-x-2 font-bold min-h-[56px] mobile-active-state",
+                  isInWishlist ? "bg-red-50 text-red-500 border border-red-200 hover:bg-red-100" : "bg-stone-100 text-stone-600 border border-transparent hover:bg-stone-200"
+                )}
+                title={isInWishlist ? "Remove from Wishlist" : "Add to Wishlist"}
+              >
+                <Heart size={20} className={isInWishlist ? "fill-current" : ""} />
+                <span>{isInWishlist ? "Wishlisted" : "Wishlist"}</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-8 border-t border-stone-100">
@@ -688,6 +714,20 @@ export default function ProductDetail() {
                       {p.discount}% OFF
                     </div>
                   )}
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleWishlist(p.id);
+                    }}
+                    className={cn(
+                      "absolute top-2 right-2 p-2 rounded-lg backdrop-blur shadow-sm transition-all z-20",
+                      wishlist.includes(p.id) 
+                        ? "bg-red-500 text-white" 
+                        : "bg-white/90 text-stone-400 hover:text-red-500"
+                    )}
+                  >
+                    <Heart size={16} fill={wishlist.includes(p.id) ? "currentColor" : "none"} />
+                  </button>
                 </Link>
                 <div className="p-4 space-y-2">
                   <div className="flex justify-between items-start">

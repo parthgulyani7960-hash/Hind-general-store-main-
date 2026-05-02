@@ -20,7 +20,8 @@ export default function Invoice() {
   }, [id]);
 
   const handlePrint = () => {
-    window.print();
+    toast.success('Opening document for PDF / Print...', { icon: '📄' });
+    setTimeout(() => window.print(), 500);
   };
 
   if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;

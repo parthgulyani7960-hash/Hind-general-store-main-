@@ -52,12 +52,17 @@ interface StoreContextType {
   isTablet: boolean;
   lastAddedId: number | null;
   logActivity: (type: string, details: string, severity?: 'low' | 'medium' | 'high') => Promise<void>;
+  currentAlert: any;
+  setCurrentAlert: (alert: any) => void;
+  markAlertAsRead: (id: number) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isMaintenance, setIsMaintenance] = useState(false);
+  const [currentAlert, setCurrentAlert] = useState<any>(null);
+  const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
   const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');
   const [user, setUser] = useState<User | null>(() => {
     try {
@@ -72,6 +77,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
     checkMaintenance();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchAlerts();
+      const interval = setInterval(fetchAlerts, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  const fetchAlerts = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/alerts');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.length > 0) {
+          setPendingAlerts(data);
+          if (!currentAlert) {
+            setCurrentAlert(data[0]);
+          }
+        }
+      }
+    } catch (err) {}
+  };
+
+  const markAlertAsRead = async (id: number) => {
+    try {
+      await fetch(`/api/alerts/${id}/read`, { method: 'POST' });
+      setPendingAlerts(prev => prev.filter(a => a.id !== id));
+      if (currentAlert?.id === id) {
+        setCurrentAlert(null);
+      }
+    } catch (err) {}
+  };
 
   const checkAuth = async () => {
     try {
@@ -524,7 +563,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => setLastAddedId(null), 2000);
     
     const displayName = `${product.name}${variant ? ` (${variant.name})` : ''}`;
-    toast.success(`${displayName} added to cart`);
+    toast.success(`${displayName} added to bag`, {
+      icon: '🛍️',
+      position: 'bottom-center',
+      className: 'bg-stone-900 text-white rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] px-6 py-4 border border-stone-800'
+    });
     logActivity('CART_ADD', `Added ${quantity}x ${displayName} to cart`);
   };
 
@@ -539,11 +582,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setLastAddedId(productId);
       setTimeout(() => setLastAddedId(null), 2000);
     }
+    
     setCart(prev => {
       const item = prev.find(i => 
         i.id === productId && (variantId ? i.selectedVariant?.id === variantId : !i.selectedVariant)
       );
+      
       if (item && item.quantity + delta <= 0) {
+        toast.error('Item removed from bag', {
+          icon: '🗑️',
+          position: 'bottom-center',
+          className: 'bg-stone-900 text-white rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] px-6 py-4 border border-stone-800'
+        });
         return prev.filter(i => 
           !(i.id === productId && (variantId ? i.selectedVariant?.id === variantId : !i.selectedVariant))
         );
@@ -633,7 +683,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
       isOnline, isProfileComplete,
       isMobile, isTablet, lastAddedId,
-      logActivity
+      logActivity,
+      currentAlert, setCurrentAlert, markAlertAsRead
     }}>
       {children}
     </StoreContext.Provider>

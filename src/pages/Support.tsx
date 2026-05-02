@@ -28,8 +28,19 @@ export default function Support() {
         const faq = data.config?.find((s: any) => s.key === 'faq_content');
         if (faq) setFaqHtml(faq.value);
       });
+
+    const params = new URLSearchParams(window.location.search);
+    const subjectParam = params.get('subject');
+    const messageParam = params.get('message');
+
     if (user) {
-      setForm(prev => ({ ...prev, name: user.name || '', email: user.email || '' }));
+      setForm(prev => ({ 
+        ...prev, 
+        name: user.name || '', 
+        email: user.email || '',
+        subject: subjectParam || prev.subject,
+        message: messageParam || prev.message
+      }));
       refreshUser();
       fetch('/api/admin/orders')
         .then(res => res.json())
@@ -38,8 +49,14 @@ export default function Support() {
       fetch('/api/admin/support/tickets')
         .then(res => res.json())
         .then(data => setTickets(data.filter((t: any) => t.user_id === user.id)));
+    } else if (subjectParam || messageParam) {
+      setForm(prev => ({
+        ...prev,
+        subject: subjectParam || prev.subject,
+        message: messageParam || prev.message
+      }));
     }
-  }, []);
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,7 +163,12 @@ export default function Support() {
               </div>
               <div className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl border border-stone-100">
                 <span className="text-3xl font-bold text-primary">₹{user.wallet_balance}</span>
-                <button className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-lg">Add Money</button>
+                <Link 
+                  to="/profile?tab=wallet"
+                  className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-lg hover:bg-primary/20 transition-colors"
+                >
+                  Add Money
+                </Link>
               </div>
             </div>
             

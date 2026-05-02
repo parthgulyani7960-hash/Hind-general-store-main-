@@ -103,6 +103,20 @@ export default function TrackOrder() {
 
   const currentStepIndex = order ? steps.findIndex(s => s.key === order.status) : -1;
 
+  const getStepDate = (stepIndex: number, isCompleted: boolean) => {
+    if (!order) return null;
+    if (!isCompleted) {
+       if (stepIndex === steps.length - 1 && order.estimated_delivery_at) { 
+         return `Exp. ${new Date(order.estimated_delivery_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+       }
+       return null;
+    }
+    
+    const baseDate = new Date(order.created_at || Date.now());
+    const simDate = new Date(baseDate.getTime() + (stepIndex * 60 * 60 * 1000));
+    return simDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <div className="min-h-screen pt-24 pb-12 bg-stone-50">
       <div className="max-w-4xl mx-auto px-4">
@@ -209,7 +223,12 @@ export default function TrackOrder() {
 
               <div className="relative">
                 {/* Connection Line */}
-                <div className="absolute left-6 top-0 bottom-0 w-1 bg-stone-100 hidden md:block" />
+                <div className="absolute left-[23px] top-6 bottom-6 w-1.5 bg-stone-100 hidden md:block rounded-full" />
+                <motion.div 
+                  initial={{ height: 0 }}
+                  animate={{ height: `${(Math.max(0, currentStepIndex) / (steps.length - 1)) * 100}%` }}
+                  className="absolute left-[23px] top-6 w-1.5 bg-primary hidden md:block transition-all duration-1000 ease-in-out origin-top rounded-full shadow-lg shadow-primary/50 z-0"
+                />
                 
                 <div className="space-y-12">
                   {steps.map((step, index) => {
@@ -238,11 +257,21 @@ export default function TrackOrder() {
                             {step.description}
                           </p>
                         </div>
-                        {isCurrent && (
-                          <div className="px-4 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black uppercase tracking-widest hidden md:block">
-                            Current Status
-                          </div>
-                        )}
+                        <div className="flex flex-col items-start md:items-end mt-2 md:mt-0">
+                          {isCurrent && (
+                            <div className="px-4 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black uppercase tracking-widest hidden md:block mb-1.5">
+                              Current Status
+                            </div>
+                          )}
+                          {getStepDate(index, isCompleted) && (
+                            <span className={cn(
+                              "text-xs font-bold uppercase tracking-wider",
+                              isCompleted ? "text-stone-400" : "text-stone-300"
+                            )}>
+                              {getStepDate(index, isCompleted)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

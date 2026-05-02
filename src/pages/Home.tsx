@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { ArrowRight, ShieldCheck, Truck, Clock, PhoneCall, ShoppingBag } from 'lucide-react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
@@ -8,6 +9,18 @@ import { cn } from '../lib/utils';
 export default function Home() {
   const { user, simulatedRole, t } = useStore();
   const activeRole = simulatedRole || user?.role;
+  const [categories, setCategories] = React.useState<any[]>([]);
+  const [loadingCats, setLoadingCats] = React.useState(true);
+
+  React.useEffect(() => {
+    fetch('/api/categories')
+      .then(res => res.json())
+      .then(data => {
+        setCategories(data);
+        setLoadingCats(false);
+      })
+      .catch(() => setLoadingCats(false));
+  }, []);
 
   return (
     <div className="space-y-20 pb-20">
@@ -171,24 +184,39 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
-          {['Grocery', 'Oils', 'Dairy', 'Personal Care'].map((cat, i) => (
-            <Link 
-              key={i}
-              to={`/products?category=${encodeURIComponent(cat)}`}
-              className="relative h-36 md:h-48 rounded-2xl overflow-hidden group block"
-            >
-              <img 
-                src={`https://picsum.photos/seed/${cat}/400/300`} 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                alt={cat}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                <h3 className="text-white text-2xl font-bold">{cat}</h3>
+          {loadingCats ? (
+            [...Array(4)].map((_, i) => (
+              <div key={i} className="h-36 md:h-48 rounded-2xl bg-stone-100 animate-pulse" />
+            ))
+          ) : categories.length > 0 ? (
+            categories.slice(0, 4).map((cat, i) => (
+              <Link 
+                key={i}
+                to={`/products?category=${encodeURIComponent(cat.name)}`}
+                className="relative h-36 md:h-48 rounded-2xl overflow-hidden group block shadow-lg shadow-stone-200/50"
+              >
+                <img 
+                  src={cat.image_url || `https://picsum.photos/seed/${cat.name}/400/300`} 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                  alt={cat.name}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-stone-900/80 via-stone-900/20 to-transparent flex items-end p-6">
+                  <div>
+                    <h3 className="text-white text-xl md:text-2xl font-black">{cat.name}</h3>
+                    <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest mt-1">Explore Collection</p>
+                  </div>
+                </div>
+              </Link>
+            ))
+          ) : (
+            ['Grocery', 'Oils', 'Dairy', 'Personal Care'].map((name, i) => (
+              <div key={i} className="h-36 md:h-48 rounded-2xl bg-stone-50 border border-stone-100 flex items-center justify-center">
+                 <span className="text-stone-300 font-bold">{name}</span>
               </div>
-            </Link>
-          ))}
+            ))
+          )}
         </div>
       </section>
       {/* Download App Section */}
