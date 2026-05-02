@@ -907,14 +907,48 @@ const createAlert = (userId: number | null, title: string, message: string, deta
 
 // Middlewares
 const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (!req.session.userId) {
-    console.warn(`[AUTH FAIL] Path: ${req.path}, IP: ${req.ip}, User-Agent: ${req.headers['user-agent']}`);
-    return res.status(401).json({ success: false, message: 'Authentication required' });
+  // Check session
+  if (req.session.userId) {
+    return next();
   }
-  next();
+  
+  // Also check Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+        const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+        if (decoded && decoded.userId) {
+            req.session.userId = decoded.userId;
+            req.session.role = decoded.role;
+            return next();
+        }
+    } catch (e) {
+        console.error('Invalid token in Authorization header', e);
+    }
+  }
+
+  console.warn(`[AUTH FAIL] Path: ${req.path}, IP: ${req.ip}, User-Agent: ${req.headers['user-agent']}`);
+  return res.status(401).json({ success: false, message: 'Authentication required' });
 };
 
 const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!req.session.userId) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        try {
+            const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+            if (decoded && decoded.userId) {
+                req.session.userId = decoded.userId;
+                req.session.role = decoded.role;
+            }
+        } catch (e) {
+            console.error('Invalid token in Authorization header', e);
+        }
+    }
+  }
+
   if (!req.session.userId) {
     console.warn(`[AUTH] Admin access denied: No session userId. IP: ${req.ip}`);
     return res.status(401).json({ success: false, message: 'Authentication required' });
@@ -949,10 +983,13 @@ const requireAdmin = (req: express.Request, res: express.Response, next: express
 
 // Middleware for auditing admin actions
 const auditAdminAction = (req: any, res: any, next: any) => {
-  if (req.session.userId && req.session.role === 'admin') {
+  if (req.session.userId) {
     const logData = {
       admin_id: req.session.userId,
       action: `${req.method} ${req.path}`,
+      resource: req.path,
+      target_type: 'ROUTE',
+      target_id: null,
       details: JSON.stringify({ body: req.body, query: req.query }),
       ip_address: req.ip,
       user_agent: req.headers['user-agent'],
@@ -960,11 +997,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     };
     try {
       db.prepare(`
-        INSERT INTO audit_logs (admin_id, action, details, ip_address, user_agent, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(logData.admin_id, logData.action, logData.details, logData.ip_address, logData.user_agent, logData.created_at);
+        INSERT INTO audit_logs (admin_id, action, resource, target_type, target_id, details, ip_address, user_agent, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(logData.admin_id, logData.action, logData.resource, logData.target_type, logData.target_id, logData.details, logData.ip_address, logData.user_agent, logData.created_at);
     } catch (err) {
-      console.error('Audit log failed:', err);
+      console.error('Failed to log admin action:', err);
     }
   }
   next();
