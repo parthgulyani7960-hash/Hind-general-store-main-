@@ -73,11 +73,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
+        if (data.token) localStorage.setItem('hgs_token', data.token);
         setUser(data.user);
       } else {
         // If session is invalid, clear local user
         setUser(null);
         localStorage.removeItem('hgs_user');
+        localStorage.removeItem('hgs_token');
       }
     } catch (err) {
       console.error('Auth check failed');
@@ -516,6 +518,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     setUser(null);
     localStorage.removeItem('hgs_user');
+    localStorage.removeItem('hgs_token');
     toast.success('Logged out successfully');
   };
 

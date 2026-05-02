@@ -4,33 +4,43 @@ import Navbar from './components/Navbar';
 import MobileBottomNav from './components/MobileBottomNav';
 import BackToTop from './components/BackToTop';
 import { useStore } from './StoreContext';
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, Suspense, lazy, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from './types';
 import LoadingFallback from './components/LoadingFallback';
 import ErrorBoundary from './components/ErrorBoundary';
 
-// Lazy loaded pages for better caching and performance
-const Home = lazy(() => import('./pages/Home'));
-const Products = lazy(() => import('./pages/Products'));
-const ProductDetail = lazy(() => import('./pages/ProductDetail'));
-const Cart = lazy(() => import('./pages/Cart'));
-const Checkout = lazy(() => import('./pages/Checkout'));
-const Invoice = lazy(() => import('./pages/Invoice'));
-const Login = lazy(() => import('./pages/Login'));
-const CompleteProfile = lazy(() => import('./pages/CompleteProfile'));
-const Support = lazy(() => import('./pages/Support'));
-const Wishlist = lazy(() => import('./pages/Wishlist'));
-const Profile = lazy(() => import('./pages/Profile'));
-const Promotions = lazy(() => import('./pages/Promotions'));
-const TermsAndConditions = lazy(() => import('./pages/TermsAndConditions'));
-const LegalPage = lazy(() => import('./pages/LegalPage'));
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const AdminPayments = lazy(() => import('./pages/AdminPayments'));
-const DeliveryDashboard = lazy(() => import('./pages/DeliveryDashboard'));
-const MaintenancePage = lazy(() => import('./pages/MaintenancePage'));
-const TrackOrder = lazy(() => import('./pages/TrackOrder'));
+function ScrollToTopOnNavigate() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pathname]);
+
+  return null;
+}
+
+// Standard imports to avoid Suspense blanking issues with AnimatePresence
+import Home from './pages/Home';
+import Products from './pages/Products';
+import ProductDetail from './pages/ProductDetail';
+import Cart from './pages/Cart';
+import Checkout from './pages/Checkout';
+import Invoice from './pages/Invoice';
+import Login from './pages/Login';
+import CompleteProfile from './pages/CompleteProfile';
+import Support from './pages/Support';
+import Wishlist from './pages/Wishlist';
+import Profile from './pages/Profile';
+import Promotions from './pages/Promotions';
+import TermsAndConditions from './pages/TermsAndConditions';
+import LegalPage from './pages/LegalPage';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminPayments from './pages/AdminPayments';
+import DeliveryDashboard from './pages/DeliveryDashboard';
+import MaintenancePage from './pages/MaintenancePage';
+import TrackOrder from './pages/TrackOrder';
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
   const { user } = useStore();
@@ -66,11 +76,12 @@ function AnimatedRoutes() {
   }
 
   return (
-    <Suspense fallback={<LoadingFallback />}>
+    <>
       <AnimatePresence mode="wait">
-        <Routes location={location}>
+        {/* @ts-ignore */}
+        <Routes location={location} key={location.pathname}>
           <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
-          <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
+            <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
           <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
           <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
           <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
@@ -90,7 +101,7 @@ function AnimatedRoutes() {
           <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
         </Routes>
       </AnimatePresence>
-    </Suspense>
+    </>
   );
 }
 
@@ -121,6 +132,7 @@ export default function App() {
 
   return (
     <Router>
+      <ScrollToTopOnNavigate />
       <div className={cn("min-h-screen flex flex-col", adminTheme)}>
         <Toaster position="top-center" />
         <Navbar />

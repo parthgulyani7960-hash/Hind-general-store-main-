@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingCart, Share2, ArrowLeft, ShieldCheck, Truck, Info, Star, 
   MessageSquare, Plus, Minus, Clock, Camera, Image as ImageIcon,
-  ChevronLeft, ChevronRight, X, MapPin, Trash2, List
+  ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag
 } from 'lucide-react';
 import { Product, Review, cn } from '../types';
 import { useStore } from '../StoreContext';
@@ -564,16 +564,28 @@ export default function ProductDetail() {
                 </button>
               </div>
 
-              <button 
-                onClick={() => {
-                  addToCart(product, selectedVariant, quantity);
-                  toast.success('Added to cart!');
-                }}
-                className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg"
-              >
-                <ShoppingCart size={22} />
-                <span>Add to Cart</span>
-              </button>
+              <div className="flex items-center space-x-4 flex-1">
+                <button 
+                  onClick={() => {
+                    addToCart(product, selectedVariant, quantity);
+                    toast.success('Added to cart!');
+                  }}
+                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5"
+                >
+                  <ShoppingCart size={22} />
+                  <span>Add to Cart</span>
+                </button>
+                <button 
+                  onClick={() => {
+                    addToCart(product, selectedVariant, quantity);
+                    navigate('/cart');
+                  }}
+                  className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg"
+                >
+                  <ShoppingBag size={22} />
+                  <span>Buy Now</span>
+                </button>
+              </div>
             </div>
             <button 
               onClick={handleShare}

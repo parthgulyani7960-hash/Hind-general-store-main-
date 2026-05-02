@@ -171,11 +171,11 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          {['Grains', 'Oils', 'Pulses', 'Essentials'].map((cat, i) => (
-            <motion.div 
+          {['Grocery', 'Oils', 'Dairy', 'Personal Care'].map((cat, i) => (
+            <Link 
               key={i}
-              whileHover={{ scale: 1.02 }}
-              className="relative h-48 rounded-2xl overflow-hidden group cursor-pointer"
+              to={`/products?category=${encodeURIComponent(cat)}`}
+              className="relative h-48 rounded-2xl overflow-hidden group block"
             >
               <img 
                 src={`https://picsum.photos/seed/${cat}/400/300`} 
@@ -187,7 +187,7 @@ export default function Home() {
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                 <h3 className="text-white text-2xl font-bold">{cat}</h3>
               </div>
-            </motion.div>
+            </Link>
           ))}
         </div>
       </section>

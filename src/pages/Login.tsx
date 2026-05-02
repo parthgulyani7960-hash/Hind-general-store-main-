@@ -50,6 +50,9 @@ export default function Login() {
       console.log('Backend response:', data);
 
       if (data.success) {
+        if (data.token) {
+          localStorage.setItem('hgs_token', data.token);
+        }
         setUser(data.user);
         toast.success('Welcome!');
         if (data.isNewUser) {

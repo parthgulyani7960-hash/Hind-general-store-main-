@@ -597,7 +597,7 @@ const seedData = () => {
 
     const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get() as { count: number };
     if (orderCount.count === 0) {
-      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
+      const users = db.prepare(`SELECT id FROM users WHERE role = 'client'`).all() as { id: number }[];
       const products = db.prepare('SELECT id, price FROM products').all() as { id: number, price: number }[];
       
       users.forEach((u, i) => {
@@ -614,9 +614,9 @@ const seedData = () => {
       });
     }
 
-    const walletReqCount = db.prepare('SELECT COUNT(*) as count FROM wallet_transactions WHERE status = "pending"').get() as { count: number };
+    const walletReqCount = db.prepare(`SELECT COUNT(*) as count FROM wallet_transactions WHERE status = 'pending'`).get() as { count: number };
     if (walletReqCount.count === 0) {
-      const users = db.prepare('SELECT id FROM users WHERE role = "client"').all() as { id: number }[];
+      const users = db.prepare(`SELECT id FROM users WHERE role = 'client'`).all() as { id: number }[];
       users.forEach(u => {
         db.prepare(`
           INSERT INTO wallet_transactions (user_id, amount, type, description, status, transaction_id)
@@ -627,7 +627,7 @@ const seedData = () => {
 
     const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
     if (ticketCount.count === 0) {
-      const users = db.prepare('SELECT id, name FROM users WHERE role = "client"').all() as { id: number, name: string }[];
+      const users = db.prepare(`SELECT id, name FROM users WHERE role = 'client'`).all() as { id: number, name: string }[];
       users.forEach(u => {
         db.prepare(`
           INSERT INTO support_tickets (user_id, name, subject, message, status)
@@ -724,7 +724,7 @@ try { db.prepare('ALTER TABLE users ADD COLUMN khata_enabled BOOLEAN DEFAULT 0')
 try { db.prepare('ALTER TABLE users ADD COLUMN khata_limit REAL DEFAULT 0').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN khata_balance REAL DEFAULT 0').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN khata_due_date DATETIME').run(); } catch (e) {}
-try { db.prepare('ALTER TABLE users ADD COLUMN segment TEXT DEFAULT "Regular"').run(); } catch (e) {}
+try { db.prepare("ALTER TABLE users ADD COLUMN segment TEXT DEFAULT 'Regular'").run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN profile_photo TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE support_tickets ADD COLUMN name TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE support_tickets ADD COLUMN email TEXT').run(); } catch (e) {}
@@ -786,7 +786,7 @@ try { db.prepare('ALTER TABLE products ADD COLUMN lead_time_days INTEGER DEFAULT
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_id TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_screenshot TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN rejection_reason TEXT').run(); } catch (e) {}
-try { db.prepare('ALTER TABLE orders ADD COLUMN delivery_type TEXT DEFAULT "home"').run(); } catch (e) {}
+try { db.prepare("ALTER TABLE orders ADD COLUMN delivery_type TEXT DEFAULT 'home'").run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN notes TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN admin_notes TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN delivery_boy_id INTEGER').run(); } catch (e) {}
@@ -986,7 +986,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 };
 
 
-  app.set('trust proxy', 1);
+  app.set('trust proxy', true);
+  app.use((req, res, next) => {
+    req.headers['x-forwarded-proto'] = 'https';
+    next();
+  });
   app.use(express.json());
   app.use(cookieParser());
   app.use(session({
@@ -1007,6 +1011,24 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     }
   }));
+
+  // Token-based fallback for iframe / cross-site environments
+  app.use((req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const payload = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+        if (payload && payload.userId) {
+          req.session.userId = payload.userId;
+          req.session.role = payload.role;
+        }
+      } catch (e) {
+        // Invalid token
+      }
+    }
+    next();
+  });
 
   // Apply global middlewares
   app.use('/api/admin', requireAdmin, auditAdminAction);
@@ -1454,7 +1476,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (!user) {
       return res.status(401).json({ success: false, message: 'User not found' });
     }
-    res.json({ success: true, user });
+    
+    const tokenPayload = { userId: user.id, role: user.role, timestamp: Date.now() };
+    const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+    
+    res.json({ success: true, user, token });
   });
 
   app.post('/api/auth/logout', (req, res) => {
@@ -1542,7 +1568,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           console.error('[AUTH] Session save error:', err);
           return res.status(500).json({ success: false, message: 'Session initialization failed' });
         }
-        res.json({ success: true, user, isNewUser: !user.phone });
+        
+        // Generate a simple token for fallback auth
+        const tokenPayload = { userId: user.id, role: user.role, timestamp: Date.now() };
+        const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+        
+        res.json({ success: true, user, isNewUser: !user.phone, token });
       });
     } catch (e: any) {
       console.error('Firebase login error details:', {
@@ -2441,7 +2472,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     // Check total usage limit
     if (coupon.usage_limit !== null) {
-      const totalUsage = db.prepare('SELECT COUNT(*) as count FROM orders WHERE coupon_code = ? AND status != "failed"').get(code) as any;
+      const totalUsage = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE coupon_code = ? AND status != 'failed'`).get(code) as any;
       if (totalUsage.count >= coupon.usage_limit) {
         return res.json({ success: false, message: 'Coupon usage limit reached' });
       }
@@ -2449,7 +2480,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     // Check per-user limit
     if (user_id && coupon.limit_per_user !== null) {
-      const userUsage = db.prepare('SELECT COUNT(*) as count FROM orders WHERE coupon_code = ? AND user_id = ? AND status != "failed"').get(code, user_id) as any;
+      const userUsage = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE coupon_code = ? AND user_id = ? AND status != 'failed'`).get(code, user_id) as any;
       if (userUsage.count >= coupon.limit_per_user) {
         return res.json({ success: false, message: 'You have reached the usage limit for this coupon' });
       }
@@ -3448,7 +3479,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
         if (extractedAmount) {
           if (extractedOrderId) {
-            const order = db.prepare('SELECT * FROM orders WHERE order_id = ? AND status = "pending"').get(extractedOrderId) as any;
+            const order = db.prepare(`SELECT * FROM orders WHERE order_id = ? AND status = 'pending'`).get(extractedOrderId) as any;
             if (order) {
                 const amountTolerance = Math.abs(order.total - extractedAmount) < 0.05;
                 const timeDiff = Math.abs(new Date(order.created_at).getTime() - timestamp.getTime()) / (1000 * 60);
@@ -3459,7 +3490,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                     matchedOrderId = order.order_id;
 
                     db.transaction(() => {
-                        db.prepare('UPDATE orders SET status = "paid", last_status_update = ?, system_payment_matched = 1 WHERE order_id = ?').run(new Date().toISOString(), extractedOrderId);
+                        db.prepare('UPDATE orders SET status = \'paid\', last_status_update = ?, system_payment_matched = 1 WHERE order_id = ?').run(new Date().toISOString(), extractedOrderId);
                         db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(order.total, order.user_id);
                         db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(order.user_id, order.total, 'credit', `Auto UPI Credit: ${extractedOrderId}`);
                         db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (NULL, ?, ?, ?, ?)')
@@ -3477,7 +3508,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             }
           } else {
             // Amount found but NO Order ID in note
-            const potentialOrders = db.prepare('SELECT * FROM orders WHERE ABS(total - ?) < 0.05 AND status = "pending" AND created_at > ?')
+            const potentialOrders = db.prepare(`SELECT * FROM orders WHERE ABS(total - ?) < 0.05 AND status = 'pending' AND created_at > ?`)
               .all(extractedAmount, new Date(Date.now() - 1000 * 60 * 180).toISOString()) as any[];
             
             if (potentialOrders.length === 1) {
@@ -3573,7 +3604,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   const expireOrders = () => {
     try {
       const now = new Date().toISOString();
-      const expiredCount = db.prepare('UPDATE orders SET status = "EXPIRED", last_status_update = ? WHERE status = "pending" AND expires_at < ?').run(now, now).changes;
+      const expiredCount = db.prepare('UPDATE orders SET status = \'EXPIRED\', last_status_update = ? WHERE status = \'pending\' AND expires_at < ?').run(now, now).changes;
       if (expiredCount > 0) {
         console.log(`[TASKS] Expired ${expiredCount} pending orders.`);
       }
@@ -3595,7 +3626,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     
     try {
       db.transaction(() => {
-          db.prepare('UPDATE orders SET status = "paid", last_status_update = ?, admin_notes = ? WHERE id = ?').run(new Date().toISOString(), notes || 'Approved manually by admin', id);
+          db.prepare('UPDATE orders SET status = \'paid\', last_status_update = ?, admin_notes = ? WHERE id = ?').run(new Date().toISOString(), notes || 'Approved manually by admin', id);
           db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(order.total, order.user_id);
           db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(order.user_id, order.total, 'credit', `Manual Credit (Admin): ORD-${order.id}`);
           

@@ -15,6 +15,7 @@ export default function Products() {
   const [minPrice, setMinPrice] = useState('0');
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('relevance');
+  const [onSaleOnly, setOnSaleOnly] = useState(false);
   const { addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole } = useStore();
   const activeRole = simulatedRole || user?.role;
 
@@ -38,7 +39,8 @@ export default function Products() {
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
       const matchesMinPrice = activePrice >= Number(minPrice);
       const matchesMaxPrice = maxPrice === '' || activePrice <= Number(maxPrice);
-      return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && p.is_listed;
+      const matchesSale = !onSaleOnly || p.discount > 0;
+      return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && p.is_listed;
     })
     .sort((a, b) => {
       const priceA = getProductPrice(a, user?.role);
@@ -46,8 +48,9 @@ export default function Products() {
       if (sortBy === 'price-low') return priceA - priceB;
       if (sortBy === 'price-high') return priceB - priceA;
       if (sortBy === 'rating') return (b.avg_rating || 0) - (a.avg_rating || 0);
+      if (sortBy === 'popularity') return ((b as any).review_count || 0) - ((a as any).review_count || 0);
       if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-      return 0; // Relevance (default order from API)
+      return 0; // Relevance
     });
 
   const categories = ['All', ...new Set(products.map(p => p.category))];
@@ -240,17 +243,42 @@ export default function Products() {
                 <button
                   key={rating}
                   onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
-                  className={`flex items-center space-x-2 w-full p-2 rounded-lg text-sm ${selectedRating === rating ? 'bg-amber-100 text-amber-900 shadow-sm' : 'text-stone-600 hover:bg-stone-50'}`}
+                  className={`flex items-center space-x-2 w-full p-2 rounded-lg text-sm transition-all ${selectedRating === rating ? 'bg-amber-100 text-amber-900 shadow-sm' : 'text-stone-600 hover:bg-stone-50'}`}
                 >
                   <Star size={16} fill={selectedRating && selectedRating >= rating ? "currentColor" : "none"} className="text-amber-400" />
                   <span>{rating}+ Stars</span>
                 </button>
               ))}
             </div>
+
+            {/* Special Filter */}
+            <div className="pt-2 border-t border-stone-100">
+               <button
+                 onClick={() => setOnSaleOnly(!onSaleOnly)}
+                 className={`flex items-center justify-between w-full p-3 rounded-xl border transition-all ${
+                   onSaleOnly 
+                     ? 'bg-accent/10 border-accent text-accent font-bold' 
+                     : 'border-stone-100 text-stone-600 hover:border-stone-200'
+                 }`}
+               >
+                 <span className="text-sm">Only Discounted</span>
+                 <div className={`w-10 h-6 rounded-full relative transition-colors ${onSaleOnly ? 'bg-accent' : 'bg-stone-200'}`}>
+                   <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${onSaleOnly ? 'left-5' : 'left-1'}`} />
+                 </div>
+               </button>
+            </div>
             
             <button 
-              onClick={() => { setSearchTerm(''); setSelectedCategory('All'); setSelectedRating(null); setMinPrice('0'); setMaxPrice(''); }} 
-              className="w-full btn-outline py-2 border-red-200 text-red-600 hover:bg-red-50"
+              onClick={() => { 
+                setSearchTerm(''); 
+                setSelectedCategory('All'); 
+                setSelectedRating(null); 
+                setMinPrice('0'); 
+                const maxP = Math.max(...products.map(p => getProductPrice(p, user?.role)));
+                setMaxPrice(maxP.toString());
+                setOnSaleOnly(false);
+              }} 
+              className="w-full btn-outline py-2 border-red-200 text-red-600 hover:bg-red-50 transition-colors"
             >
               Clear Filters
             </button>
@@ -258,25 +286,67 @@ export default function Products() {
         </aside>
 
         {/* Product Grid */}
-        <div className="flex-1 space-y-8">
-          <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-2xl border border-stone-100 shadow-sm gap-4">
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search products..."
-                className="input-field pl-10 pr-4 w-full"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+        <div className="flex-1 space-y-6">
+          <div className="flex flex-col space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-2xl border border-stone-100 shadow-sm gap-4">
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Search products..."
+                  className="input-field pl-10 pr-4 w-full"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <span className="text-xs font-bold text-stone-400 uppercase tracking-wider hidden sm:block">Sort By</span>
+                <select className="input-field w-full sm:w-48 font-bold" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                  <option value="relevance">Relevance</option>
+                  <option value="popularity">Popularity (Most Reviewed)</option>
+                  <option value="price-low">Price: Low to High</option>
+                  <option value="price-high">Price: High to Low</option>
+                  <option value="rating">Top Rated</option>
+                  <option value="newest">Newest First</option>
+                </select>
+              </div>
             </div>
-            <select className="input-field w-full sm:w-40 font-bold" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              <option value="relevance">Sort: Relevance</option>
-              <option value="price-low">Price: Low to High</option>
-              <option value="price-high">Price: High to Low</option>
-              <option value="rating">Top Rated</option>
-              <option value="newest">Newest First</option>
-            </select>
+
+            {/* Active Filters Chips */}
+            <div className="flex flex-wrap gap-2 items-center min-h-[32px]">
+               {selectedCategory !== 'All' && (
+                 <div className="flex items-center space-x-1 bg-stone-100 px-3 py-1 rounded-full text-xs font-bold text-stone-600 border border-stone-200">
+                    <span>Category: {selectedCategory}</span>
+                    <button onClick={() => setSelectedCategory('All')} className="text-stone-400 hover:text-stone-600"><X size={14} /></button>
+                 </div>
+               )}
+               {selectedRating !== null && (
+                 <div className="flex items-center space-x-1 bg-stone-100 px-3 py-1 rounded-full text-xs font-bold text-stone-600 border border-stone-200">
+                    <span>Rating: {selectedRating}+ Stars</span>
+                    <button onClick={() => setSelectedRating(null)} className="text-stone-400 hover:text-stone-600"><X size={14} /></button>
+                 </div>
+               )}
+               {onSaleOnly && (
+                 <div className="flex items-center space-x-1 bg-accent/10 px-3 py-1 rounded-full text-xs font-bold text-accent border border-accent/20">
+                    <span>On Sale Only</span>
+                    <button onClick={() => setOnSaleOnly(false)} className="text-accent/60 hover:text-accent"><X size={14} /></button>
+                 </div>
+               )}
+               {searchTerm && (
+                 <div className="flex items-center space-x-1 bg-stone-100 px-3 py-1 rounded-full text-xs font-bold text-stone-600 border border-stone-200">
+                    <span>Search: {searchTerm}</span>
+                    <button onClick={() => setSearchTerm('')} className="text-stone-400 hover:text-stone-600"><X size={14} /></button>
+                 </div>
+               )}
+               {(selectedCategory !== 'All' || selectedRating !== null || onSaleOnly || searchTerm) && (
+                 <button 
+                  onClick={() => { setSearchTerm(''); setSelectedCategory('All'); setSelectedRating(null); setOnSaleOnly(false); }}
+                  className="text-xs font-bold text-stone-400 hover:text-primary transition-colors underline underline-offset-2 ml-2"
+                 >
+                   Reset All
+                 </button>
+               )}
+            </div>
           </div>
 
 
@@ -307,22 +377,37 @@ export default function Products() {
               }}
               className="bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-md transition-all flex flex-col"
             >
-              <Link to={`/product/${product.id}`} className="relative h-48 overflow-hidden block">
+              <Link to={`/product/${product.id}`} className="relative h-48 overflow-hidden block group/image">
                 <img 
                   src={product.image_url} 
                   alt={product.name}
                   loading="lazy"
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover group-hover/image:scale-105 transition-transform duration-500"
                 />
-                <div className="absolute top-2 left-2 flex flex-col space-y-2">
+                
+                {/* Improved Quick View Overlay */}
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10">
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setQuickViewProduct(product);
+                    }}
+                    className="bg-white text-stone-900 px-6 py-2 rounded-full font-bold flex items-center space-x-2 pointer-events-auto hover:bg-stone-50 hover:scale-105 transition-all shadow-xl"
+                  >
+                    <Search size={16} />
+                    <span>Quick View</span>
+                  </button>
+                </div>
+
+                <div className="absolute top-2 left-2 flex flex-col space-y-2 z-20">
                     {product.discount > 0 && (
                       <div className="bg-accent text-white px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-lg">
                         {product.discount}% OFF
                       </div>
                     )}
                 </div>
-                <div className="absolute top-2 right-2 flex flex-col space-y-2">
+                <div className="absolute top-2 right-2 flex flex-col space-y-2 z-20">
                     <div className={cn(
                       "bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-xs font-bold shadow-sm flex flex-col items-end",
                       getProductPrice(product, user?.role) < product.price ? "text-accent" : "text-primary"
@@ -355,16 +440,6 @@ export default function Products() {
                     )}
                   >
                     <Heart size={16} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
-                  </button>
-                  <button 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setQuickViewProduct(product);
-                    }}
-                    className="p-2 bg-white/90 text-stone-400 hover:text-primary rounded-lg backdrop-blur shadow-sm transition-all"
-                    title="Quick View"
-                  >
-                    <Search size={16} />
                   </button>
                 </div>
               </Link>

@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
 
+html, body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+a, button, input, select, textarea {
+  touch-action: manipulation;
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Cormorant Garamond", serif;
@@ -79,6 +88,14 @@
 
 .btn-primary {
   @apply bg-primary text-white px-6 py-2 rounded-xl font-medium transition-all hover:bg-secondary active:scale-95 disabled:opacity-50;
+}
+
+.btn-outline {
+  @apply border-2 border-stone-200 text-stone-700 px-6 py-2 rounded-xl font-medium transition-all hover:bg-stone-50 active:scale-95 disabled:opacity-50;
+}
+
+input, textarea, select {
+  font-size: 16px !important;
 }
 
 .input-field {
