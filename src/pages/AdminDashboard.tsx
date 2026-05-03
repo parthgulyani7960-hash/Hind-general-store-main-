@@ -49,6 +49,34 @@ export default function AdminDashboard() {
     images: [] as string[],
     specifications: {} as Record<string, string>
   });
+  const [stats, setStats] = useState<any>(null);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [walletModal, setWalletModal] = useState<{ open: boolean; userId: number | null }>({ open: false, userId: null });
+  const [walletAmount, setWalletAmount] = useState('');
+  const [walletType, setWalletType] = useState<'credit' | 'debit'>('credit');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
+  const [orderUserIdFilter, setOrderUserIdFilter] = useState<string>('');
+  const [orderDateStart, setOrderDateStart] = useState<string>('');
+  const [orderDateEnd, setOrderDateEnd] = useState<string>('');
+  const [orderSearchTerm, setOrderSearchTerm] = useState('');
+  const [ordersViewMode, setOrdersViewMode] = useState<'table' | 'kanban'>('table');
+  const [orderSortBy, setOrderSortBy] = useState<string>('date');
+  const [orderSortOrder, setOrderSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [coupons, setCoupons] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [productModal, setProductModal] = useState({ open: false, mode: 'add' as 'add' | 'edit' });
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock'>('name');
+  const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
+  const [newBatchCategory, setNewBatchCategory] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [imageModal, setImageModal] = useState({ open: false, productId: null as number | null, images: [] as string[] });
   const [couponModal, setCouponModal] = useState({ open: false });
   const [expenseModal, setExpenseModal] = useState({ open: false });
@@ -8397,6 +8425,39 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                <div className="bg-stone-50 p-6 rounded-2xl">
+                  <h4 className="font-bold text-stone-900 mb-4">Estimated Delivery</h4>
+                  <input
+                    type="datetime-local"
+                    className="w-full p-4 bg-white border border-stone-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-sm"
+                    defaultValue={orderModal.order.estimated_delivery_at ? new Date(orderModal.order.estimated_delivery_at).toISOString().slice(0, 16) : ''}
+                    onBlur={async (e) => {
+                      const value = e.target.value;
+                      if (!value || value === (orderModal.order.estimated_delivery_at ? new Date(orderModal.order.estimated_delivery_at).toISOString().slice(0, 16) : '')) return;
+                      
+                      try {
+                        const res = await fetch(`/api/admin/orders/${orderModal.order.id}/estimated-delivery`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ estimated_delivery_at: value })
+                        });
+                        if (res.ok) {
+                          toast.success('Estimated delivery time updated');
+                          setOrderModal({ 
+                            ...orderModal, 
+                            order: { ...orderModal.order, estimated_delivery_at: value } 
+                          });
+                          fetchOrders();
+                        } else {
+                          toast.error('Failed to update estimated delivery time');
+                        }
+                      } catch (err) {
+                        toast.error('Failed to update. Check your connection.');
+                      }
+                    }}
+                  />
+                </div>
+                
                 <div className="bg-stone-50 p-6 rounded-2xl">
                   <h4 className="font-bold text-stone-900 mb-4">Internal Admin Notes</h4>
                   <textarea 

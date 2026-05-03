@@ -3076,13 +3076,24 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(notifications);
   });
 
+  app.post('/api/admin/orders/:id/estimated-delivery', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { estimated_delivery_at } = req.body;
+    try {
+      db.prepare('UPDATE orders SET estimated_delivery_at = ? WHERE id = ?').run(estimated_delivery_at, id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.post('/api/admin/orders/:id/status', (req, res) => {
     const { id } = req.params;
     const { status, rejection_reason } = req.body;
     const adminId = req.session.userId;
     
     try {
-      const existingOrder = db.prepare('SELECT status, order_id, user_id, wallet_used, total, payment_method FROM orders WHERE id = ?').get(id) as any;
+      const existingOrder = db.prepare('SELECT status, order_id, user_id, wallet_used, total, payment_method, assigned_runner_id FROM orders WHERE id = ?').get(id) as any;
       if (!existingOrder) return res.status(404).json({ message: 'Order not found' });
 
       const oldState = { status: existingOrder.status };
@@ -3103,6 +3114,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           }));
 
         db.prepare('INSERT INTO order_status_history (order_id, status) VALUES (?, ?)').run(id, status);
+        
+        // Log to logistics_events if a runner is assigned
+        if (existingOrder.assigned_runner_id) {
+          db.prepare('INSERT INTO logistics_events (order_id, runner_id, status, notes) VALUES (?, ?, ?, ?)')
+            .run(id, existingOrder.assigned_runner_id, status, `Order status updated to ${status}`);
+        }
 
         createAlert(
           existingOrder.user_id, 
