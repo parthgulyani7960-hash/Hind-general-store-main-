@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { User } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../StoreContext';
+import { handleAppError } from '../lib/errorUtils';
 import toast from 'react-hot-toast';
 
 import { signInWithGoogle } from '../firebase';
@@ -22,7 +23,7 @@ export default function Login() {
       const { token: idToken } = await signInWithGoogle();
       token = idToken;
     } catch (err: any) {
-      toast.error(err.message || 'Firebase Auth failed');
+      handleAppError(err, 'Firebase Auth failed', 'firebaseLogin', false);
       setLoading(false);
       return;
     }
@@ -62,7 +63,7 @@ export default function Login() {
         toast.error(data.message || 'Login API failed');
       }
     } catch (err: any) {
-      toast.error('Backend connection failed: ' + err.message);
+      handleAppError(err, 'Backend Authentication failed', 'backendLogin', false);
     } finally {
       setLoading(false);
     }

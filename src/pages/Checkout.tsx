@@ -10,6 +10,7 @@ import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn, calculateBulkDiscount } from '../lib/utils';
+import { handleAppError } from '../lib/errorUtils';
 import { QRCodeCanvas } from 'qrcode.react';
 import InfoButton from '../components/InfoButton';
 
@@ -229,7 +230,7 @@ export default function Checkout() {
       }
 
     } catch (err: any) {
-      toast.error(err.message || 'Failed to place order');
+      handleAppError(err, 'Failed to place order', 'placeOrder', user?.role === 'admin');
     } finally {
       setIsProcessing(false);
     }
@@ -253,7 +254,7 @@ export default function Checkout() {
             setStep('payment_method');
           }
         } catch (err) {
-          console.error('Polling error:', err);
+          handleAppError(err, 'Failed to update payment status', 'pollPayment', user?.role === 'admin');
         }
       }, 5000);
     }
