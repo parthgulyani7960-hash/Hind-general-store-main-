@@ -46,9 +46,16 @@ export default function ProductDetail() {
     toggleWishlist(product.id);
   };
 
-  const getActivePrice = (p: any) => {
+  const getActivePrice = (p: any, variant?: any) => {
     if (!p) return 0;
-    const basePrice = getProductPrice(p, activeRole);
+    
+    let basePrice;
+    if (variant) {
+      basePrice = variant.price;
+    } else {
+      basePrice = getProductPrice(p, activeRole);
+    }
+    
     if (p.discount > 0) {
       return Math.round(basePrice * (1 - p.discount / 100));
     }
@@ -461,11 +468,9 @@ export default function ProductDetail() {
               <div className="flex items-baseline space-x-3 mt-2">
                 <p className={cn(
                   "text-4xl font-black",
-                  getActivePrice(product) < product.price ? "text-emerald-600" : "text-primary"
+                  getActivePrice(product, selectedVariant) < (selectedVariant ? selectedVariant.price : product.price) ? "text-emerald-600" : "text-primary"
                 )}>
-                  ₹{selectedVariant 
-                    ? (product.discount > 0 ? Math.round(selectedVariant.price * (1 - product.discount / 100)) : selectedVariant.price)
-                    : getActivePrice(product)}
+                  ₹{getActivePrice(product, selectedVariant)}
                 </p>
                 {(product.discount > 0 || (selectedVariant ? selectedVariant.price : getProductPrice(product, user?.role)) < (selectedVariant ? selectedVariant.price : product.price)) && (
                   <p className="text-xl text-stone-400 line-through font-medium">

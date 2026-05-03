@@ -278,6 +278,13 @@ async function initDatabase() {
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
 
+  CREATE TABLE IF NOT EXISTS order_status_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders (id)
+  );
   CREATE TABLE IF NOT EXISTS delivery_areas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -777,6 +784,23 @@ try { db.prepare('ALTER TABLE products ADD COLUMN lead_time_days INTEGER DEFAULT
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_id TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_screenshot TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN rejection_reason TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE orders ADD COLUMN cancellation_reason TEXT').run(); } catch (e) {}
+
+  app.post('/api/orders/:id/cancel', (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    try {
+      const order = db.prepare('SELECT status FROM orders WHERE order_id = ? OR id = ?').get(id, id) as any;
+      if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+      if (order.status !== 'pending' && order.status !== 'processing') {
+        return res.status(400).json({ success: false, message: 'Order cannot be cancelled' });
+      }
+      db.prepare('UPDATE orders SET status = ?, cancellation_reason = ? WHERE order_id = ? OR id = ?').run('cancelled', reason, id, id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
 try { db.prepare("ALTER TABLE orders ADD COLUMN delivery_type TEXT DEFAULT 'home'").run(); } catch (e) {}
 try { db.prepare('ALTER TABLE audit_logs ADD COLUMN user_agent TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN notes TEXT').run(); } catch (e) {}
@@ -1928,12 +1952,25 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true });
   });
 
+  app.post('/api/admin/make-admin', requireAdmin, (req, res) => {
+    const { email } = req.body;
+    try {
+      const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+      db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.post('/api/admin/orders/bulk-update', (req, res) => {
     const { ids, action, value } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'No IDs provided' });
     }
-
     const placeholders = ids.map(() => '?').join(',');
     let query = '';
     let params = [];
@@ -3065,6 +3102,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             newState: { status }
           }));
 
+        db.prepare('INSERT INTO order_status_history (order_id, status) VALUES (?, ?)').run(id, status);
+
         createAlert(
           existingOrder.user_id, 
           'Order Update', 
@@ -3107,6 +3146,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
       
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/orders/:id/status-history', requireAdmin, (req, res) => {
+    try {
+      const history = db.prepare('SELECT status, timestamp FROM order_status_history WHERE order_id = ? ORDER BY timestamp DESC').all(req.params.id);
+      res.json({ success: true, history });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }
@@ -3319,6 +3367,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const { id } = req.params;
     const history = db.prepare('SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC').all(id);
     res.json(history);
+  });
+
+  app.get('/api/admin/runners', requireAdmin, (req, res) => {
+    try {
+      const runners = db.prepare('SELECT id, name, current_lat, current_lng, status FROM runners WHERE status = ?').all('active') as any[];
+      res.json({ success: true, runners });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/orders/:id/runner-location', (req, res) => {
+    const { id } = req.params;
+    try {
+      const order = db.prepare(`
+        SELECT r.current_lat, r.current_lng, r.name, r.phone
+        FROM orders o 
+        JOIN runners r ON o.assigned_runner_id = r.id
+        WHERE o.order_id = ? OR o.id = ?
+      `).get(id, id) as any;
+      
+      if (!order) return res.status(404).json({ success: false, message: 'Order or Runner location not found' });
+      res.json({ success: true, location: { lat: order.current_lat, lng: order.current_lng }, runner: { name: order.name, phone: order.phone } });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
   });
 
   app.post('/api/orders', (req, res) => {

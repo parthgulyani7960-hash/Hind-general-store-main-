@@ -5,6 +5,17 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn } from '../types';
 import { useStore } from '../StoreContext';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default marker icon
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 export default function TrackOrder() {
   const { t } = useStore();
@@ -12,6 +23,48 @@ export default function TrackOrder() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [runnerLocation, setRunnerLocation] = useState<any>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  useEffect(() => {
+    if (order && (order.status === 'shipped' || order.status === 'dispatched')) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/orders/${order.order_id}/runner-location`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.location) setRunnerLocation(data);
+          }
+        } catch (e) {}
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [order]);
+
+  const handleCancelOrder = async () => {
+    if (!cancellationReason.trim()) { toast.error('Please enter a reason'); return; }
+    setIsCancelling(true);
+    try {
+      const res = await fetch(`/api/orders/${order.order_id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: cancellationReason })
+      });
+      if (res.ok) {
+        toast.success('Order cancelled successfully');
+        setOrder({...order, status: 'cancelled'});
+        setShowCancelModal(false);
+      } else {
+        toast.error('Failed to cancel order');
+      }
+    } catch (err: any) {
+      toast.error('Error cancelling order');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -182,6 +235,24 @@ export default function TrackOrder() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-8"
           >
+            {runnerLocation && (
+              <div className="bg-white p-6 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100 mb-8 overflow-hidden">
+                <h4 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Truck size={20} className="text-primary" />
+                  Live Delivery Tracking
+                </h4>
+                <div className="h-64 rounded-2xl overflow-hidden">
+                  <MapContainer center={[runnerLocation.location.lat, runnerLocation.location.lng]} zoom={13} className="h-full w-full">
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <Marker position={[runnerLocation.location.lat, runnerLocation.location.lng]}>
+                      <Popup>Runner: {runnerLocation.runner.name}</Popup>
+                    </Marker>
+                  </MapContainer>
+                </div>
+                <p className="mt-4 text-sm font-bold text-stone-700">Runner: {runnerLocation.runner.name} - {runnerLocation.runner.phone}</p>
+              </div>
+            )}
+
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
               <div className="flex justify-between items-center mb-12">
                 <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
@@ -332,7 +403,34 @@ export default function TrackOrder() {
                   <ArrowRight size={20} />
                 </Link>
               </div>
+              
+              {(order.status === 'pending' || order.status === 'processing') && (
+                <button 
+                  onClick={() => setShowCancelModal(true)}
+                  className="md:col-span-2 w-full bg-red-50 text-red-600 py-4 rounded-2xl font-bold hover:bg-red-100 transition-all"
+                >
+                  Cancel Order
+                </button>
+              )}
             </div>
+
+            {showCancelModal && (
+              <div className="fixed inset-0 bg-stone-900/50 z-50 flex items-center justify-center p-4">
+                <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-xl space-y-4">
+                  <h3 className="text-lg font-bold">Cancel Order</h3>
+                  <textarea 
+                    placeholder="Enter reason for cancellation..."
+                    value={cancellationReason}
+                    onChange={(e) => setCancellationReason(e.target.value)}
+                    className="w-full p-3 border rounded-xl"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowCancelModal(false)} className="flex-1 py-2 font-bold text-stone-500">Back</button>
+                    <button onClick={handleCancelOrder} disabled={isCancelling} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-xl">{isCancelling ? 'Cancelling...' : 'Confirm Cancel'}</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </div>

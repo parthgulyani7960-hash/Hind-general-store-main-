@@ -22,6 +22,18 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import FeatureToggles from '../components/admin/FeatureToggles';
 import ProductImageManager from '../components/admin/ProductImageManager';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import AdminSidebar from '../components/admin/AdminSidebar';
+
+// Fix for default marker icon
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
 
@@ -30,35 +42,7 @@ export default function AdminDashboard() {
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarHidden, setSidebarHidden] = useState(false);
-  const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
-  const [newBatchCategory, setNewBatchCategory] = useState('');
-  const [stats, setStats] = useState<any>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
-  const [walletModal, setWalletModal] = useState<{ open: boolean; userId: number | null }>({ open: false, userId: null });
-  const [walletAmount, setWalletAmount] = useState('');
-  const [walletType, setWalletType] = useState<'credit' | 'debit'>('credit');
-  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
-  const [orderUserIdFilter, setOrderUserIdFilter] = useState<string>('');
-  const [orderDateStart, setOrderDateStart] = useState<string>('');
-  const [orderDateEnd, setOrderDateEnd] = useState<string>('');
-  const [orderSearchTerm, setOrderSearchTerm] = useState('');
-  const [ordersViewMode, setOrdersViewMode] = useState<'table' | 'kanban'>('table');
-  const [orderSortBy, setOrderSortBy] = useState<string>('date');
-  const [orderSortOrder, setOrderSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [coupons, setCoupons] = useState<any[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [reviews, setReviews] = useState<any[]>([]);
-  const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
-  const [allProducts, setAllProducts] = useState<any[]>([]);
-  const [productModal, setProductModal] = useState({ open: false, mode: 'add' as 'add' | 'edit' });
-  const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [productSearchTerm, setProductSearchTerm] = useState('');
-  const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock'>('name');
+
   const [newProduct, setNewProduct] = useState({ 
     name: '', description: '', price: '', stock: '', category: 'Grocery', image: '', 
     retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
@@ -84,6 +68,7 @@ export default function AdminDashboard() {
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [customerModal, setCustomerModal] = useState({ open: false, user: null as any });
   const [orderModal, setOrderModal] = useState({ open: false, order: null as any });
+  const [orderHistory, setOrderHistory] = useState([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationModal, setNotificationModal] = useState({ open: false });
   const [newNotification, setNewNotification] = useState({ 
@@ -1029,6 +1014,12 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error('Order not found');
       const orderDetails = await res.json();
       setOrderModal({ open: true, order: orderDetails });
+
+      const histRes = await fetch(`/api/admin/orders/${order.id}/status-history`);
+      if (histRes.ok) {
+        const histData = await histRes.json();
+        setOrderHistory(histData.history || []);
+      }
     } catch (err: any) {
       console.error('Failed to fetch order details:', err);
       // Fallback
@@ -1932,6 +1923,7 @@ export default function AdminDashboard() {
 
   return (
     <div className={cn("min-h-screen bg-stone-50 flex", adminTheme)}>
+      <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} logout={logout} />
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-stone-200 h-16 flex items-center justify-between px-4 z-50">
         <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
@@ -3378,7 +3370,25 @@ export default function AdminDashboard() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Live Fleet Map */}
+             <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm mb-8">
+               <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest mb-6">Live Fleet Map</h3>
+               <div className="h-[400px] rounded-2xl overflow-hidden">
+                 <MapContainer center={[12.9716, 77.5946]} zoom={11} className="h-full w-full">
+                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                   {runners.filter(r => r.current_lat && r.current_lng).map(runner => (
+                     <Marker key={runner.id} position={[runner.current_lat, runner.current_lng]}>
+                       <Popup>
+                         <div className="font-bold">{runner.name}</div>
+                         <div className="text-xs">{runner.status}</div>
+                       </Popup>
+                     </Marker>
+                   ))}
+                 </MapContainer>
+               </div>
+             </div>
+
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="h-[300px]">
                   <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Segment Distribution</p>
                   <ResponsiveContainer width="100%" height="100%">
@@ -4116,6 +4126,7 @@ export default function AdminDashboard() {
                       <th className="px-6 py-4">Order ID</th>
                       <th className="px-6 py-4">Customer</th>
                       <th className="px-6 py-4">Amount</th>
+                      <th className="px-6 py-4">Total Items</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4">Date</th>
                       <th className="px-6 py-4">Quick View</th>
@@ -4165,6 +4176,7 @@ export default function AdminDashboard() {
                           </p>
                         </td>
                         <td className="px-6 py-4 font-bold text-sm">₹{order.total}</td>
+                        <td className="px-6 py-4 font-bold text-sm">{order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0) || 0}</td>
                         <td className="px-6 py-4">
                           <span className={cn(
                             "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
@@ -4717,6 +4729,46 @@ export default function AdminDashboard() {
 
         {activeTab === 'Roles' && (
           <div className="space-y-6">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold">Admin Management</h2>
+                <p className="text-sm text-stone-500">Grant admin privileges via email</p>
+              </div>
+              <div className="flex gap-2">
+                <input 
+                  type="email"
+                  placeholder="Enter email..."
+                  className="input-field w-64"
+                  id="admin-email-input"
+                />
+                <button 
+                  onClick={async () => {
+                    const email = (document.getElementById('admin-email-input') as HTMLInputElement).value;
+                    if (!email) return;
+                    try {
+                      const res = await fetch('/api/admin/make-admin', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email })
+                      });
+                      if (res.ok) {
+                        toast.success('Admin role granted');
+                        (document.getElementById('admin-email-input') as HTMLInputElement).value = '';
+                      } else {
+                        const data = await res.json();
+                        toast.error(data.message);
+                      }
+                    } catch (e) {
+                      toast.error('Failed to grant admin role');
+                    }
+                  }}
+                  className="btn-primary py-2 px-6 text-sm"
+                >
+                  Grant Admin
+                </button>
+              </div>
+            </div>
+
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold">User Roles & Permissions</h2>
               <button 
@@ -7832,6 +7884,9 @@ export default function AdminDashboard() {
                 <div>
                   <h3 className="text-2xl font-bold">{customerModal.user.name}</h3>
                   <p className="text-stone-500">{customerModal.user.phone}</p>
+                  <p className="text-xs text-primary font-bold mt-1">
+                    {customerModal.user.lat && customerModal.user.lng ? `Lat: ${customerModal.user.lat.toFixed(4)}, Lng: ${customerModal.user.lng.toFixed(4)}` : 'Location unknown'}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setCustomerModal({ open: false, user: null })} className="p-2 hover:bg-stone-100 rounded-full">
@@ -8167,6 +8222,18 @@ export default function AdminDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-6">
+                <div className="bg-stone-50 p-6 rounded-2xl">
+                  <h4 className="font-bold text-stone-900 mb-4">Status History</h4>
+                  <div className="space-y-3">
+                    {orderHistory.map((h: any, i: number) => (
+                      <div key={i} className="flex justify-between text-sm">
+                        <span className="font-medium capitalize">{h.status}</span>
+                        <span className="text-stone-500">{new Date(h.timestamp).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="bg-stone-50 p-6 rounded-2xl">
                   <h4 className="font-bold text-stone-900 mb-4">Order Items</h4>
                   <div className="space-y-3">

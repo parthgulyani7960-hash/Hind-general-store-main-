@@ -103,9 +103,10 @@ export default function Products() {
       const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
       
       const matchesSearch = searchTerms.length === 0 || searchTerms.every(term => 
-        p.name.toLowerCase().includes(term) || 
-        p.description.toLowerCase().includes(term) ||
-        p.category.toLowerCase().includes(term)
+        (p.name?.toLowerCase() || '').includes(term) || 
+        (p.description?.toLowerCase() || '').includes(term) ||
+        (p.category?.toLowerCase() || '').includes(term) ||
+        (p.variants?.some(v => v.name?.toLowerCase().includes(term)) || false)
       );
 
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
