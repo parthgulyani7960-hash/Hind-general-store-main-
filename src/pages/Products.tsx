@@ -46,15 +46,19 @@ export default function Products() {
     setError(null);
     try {
       // 1. Try local API
+      console.log('Fetching products from /api/products...');
       const res = await fetch('/api/products');
       if (res.ok) {
         const data = await res.json();
+        console.log('Fetched products:', data.length);
         setProducts(data);
         if (data.length > 0) {
           const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
           setMaxPrice(maxP.toString());
         }
         return;
+      } else {
+        console.warn('API returned non-ok status:', res.status);
       }
       
       // 2. If API fails, try direct Firestore fallback (User request: "stored in the Firebase")
@@ -72,6 +76,7 @@ export default function Products() {
         }
         
         const fbData = snapshot!.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        console.log('Fetched products from Firestore:', fbData.length);
         
         if (fbData.length > 0) {
           setProducts(fbData);
@@ -132,6 +137,7 @@ export default function Products() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [showFloatingButtons, setShowFloatingButtons] = useState(false);
 
   // Body scroll lock
   useEffect(() => {
@@ -142,6 +148,14 @@ export default function Products() {
     }
     return () => { document.body.style.overflow = 'unset'; };
   }, [isFilterOpen, quickViewProduct]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowFloatingButtons(window.scrollY > 300);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -910,23 +924,30 @@ export default function Products() {
       )}
 
       {/* Floating Buttons */}
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3">
-        <button 
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="p-4 bg-primary text-white rounded-full shadow-lg hover:scale-110 transition-transform"
-          aria-label="Scroll to top"
+      {showFloatingButtons && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-40 flex flex-col gap-3"
         >
-          <ArrowUpNarrowWide size={24} />
-        </button>
-        <a 
-          href="tel:+919876543210" 
-          className="p-4 bg-accent text-white rounded-full shadow-lg hover:scale-110 transition-transform"
-          aria-label="Call Support"
-        >
-          <span className="sr-only">Call Support</span>
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-        </a>
-      </div>
+          <button 
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="p-4 bg-primary text-white rounded-full shadow-lg hover:scale-110 transition-transform"
+            aria-label="Scroll to top"
+          >
+            <ArrowUpNarrowWide size={24} />
+          </button>
+          <a 
+            href="tel:+919876543210" 
+            className="p-4 bg-accent text-white rounded-full shadow-lg hover:scale-110 transition-transform"
+            aria-label="Call Support"
+          >
+            <span className="sr-only">Call Support</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+          </a>
+        </motion.div>
+      )}
       </div>
     </div>
   );

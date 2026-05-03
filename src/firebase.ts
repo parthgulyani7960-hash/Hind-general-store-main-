@@ -53,8 +53,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error('Firestore Error Detail: ', JSON.stringify(errInfo));
+  
+  // Throw a user-friendly message, while the detailed info is logged above
+  throw new Error('A system error occurred. Please try again later.');
 }
 
 export const signInWithGoogle = async () => {

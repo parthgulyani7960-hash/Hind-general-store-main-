@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
+import { handleAppError } from '../lib/errorUtils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -88,13 +90,11 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/stats');
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to fetch stats: ${res.status}`);
+        throw new Error('Failed to fetch stats');
       }
       setStats(await res.json());
     } catch (err: any) {
-      console.error('Stats fetch error:', err);
-      toast.error(`Unable to load dashboard stats: ${err.message}`);
+      handleAppError(err, 'Unable to load dashboard stats', 'fetchStats');
     } finally {
       setLoading(false);
     }
