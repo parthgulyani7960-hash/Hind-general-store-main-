@@ -19,7 +19,7 @@ type Step = 'address' | 'payment_method' | 'awaiting_payment' | 'confirmation';
 export default function Checkout() {
   const { 
     cart, user, appliedCoupon, clearCart, 
-    fetchUser, bulkDiscounts, config,
+    fetchUser, bulkDiscounts, config, promotions,
     addresses, fetchAddresses,
     updateQuantity, removeFromCart,
     isProfileComplete,
@@ -130,11 +130,31 @@ export default function Checkout() {
   const cartWithDiscounts = cart.map(item => {
     const basePrice = item.price;
     const bulkDiscountAmount = calculateBulkDiscount(item, item.quantity, bulkDiscounts);
+    
+    // Apply promotions
+    let promoDiscountAmount = 0;
+    promotions.forEach(promo => {
+      if (promo.active) {
+        if (promo.type === 'percentage') {
+          if ((promo.category && item.category === promo.category) || (promo.product_id && item.id === promo.product_id)) {
+            promoDiscountAmount += (basePrice * promo.value / 100);
+          }
+        } else if (promo.type === 'bogo' && item.quantity >= 2) {
+           if (promo.product_id && item.id === promo.product_id) {
+             // Buy 1 Get 1 free: discount = number of free items * basePrice
+             const freeItems = Math.floor(item.quantity / 2);
+             promoDiscountAmount = (basePrice * freeItems) / item.quantity;
+           }
+        }
+      }
+    });
+
     return {
       ...item,
       basePrice,
       bulkDiscountAmount,
-      finalPrice: basePrice - bulkDiscountAmount
+      promoDiscountAmount,
+      finalPrice: Math.max(0, basePrice - bulkDiscountAmount - promoDiscountAmount)
     };
   });
 
@@ -144,6 +164,10 @@ export default function Checkout() {
 
   const totalBulkDiscount = cartWithDiscounts.reduce((acc, item) => {
     return acc + item.bulkDiscountAmount * item.quantity;
+  }, 0);
+
+  const totalPromoDiscount = cartWithDiscounts.reduce((acc, item) => {
+    return acc + item.promoDiscountAmount * item.quantity;
   }, 0);
   
   const couponDiscount = appliedCoupon 
@@ -201,9 +225,10 @@ export default function Checkout() {
             price: item.finalPrice
           })),
           total,
-          subtotal: subtotal + totalBulkDiscount,
-          discount: couponDiscount + totalBulkDiscount,
+          subtotal: subtotal + totalBulkDiscount + totalPromoDiscount,
+          discount: couponDiscount + totalBulkDiscount + totalPromoDiscount,
           bulk_discount: totalBulkDiscount,
+          promo_discount: totalPromoDiscount,
           coupon_discount: couponDiscount,
           delivery_fee: deliveryFee,
           payment_method: method,

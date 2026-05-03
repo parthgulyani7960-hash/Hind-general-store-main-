@@ -146,6 +146,16 @@ export interface Coupon {
   };
 }
 
+export interface PromotionRule {
+  id: number;
+  name: string;
+  type: 'bogo' | 'percentage';
+  value: number; // For percentage discount, or free quantity for BOGO
+  category?: string;
+  product_id?: number;
+  active: boolean;
+}
+
 export interface Expense {
   id: number;
   description: string;

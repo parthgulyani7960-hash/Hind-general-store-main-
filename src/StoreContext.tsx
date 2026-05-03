@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, CartItem, Product, UserAddress } from './types';
+import { User, CartItem, Product, UserAddress, PromotionRule } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
 
@@ -33,6 +33,8 @@ interface StoreContextType {
   setAdminTheme: (theme: string) => void;
   appliedCoupon: any;
   setAppliedCoupon: (coupon: any) => void;
+  promotions: PromotionRule[];
+  fetchPromotions: () => Promise<void>;
   bulkDiscounts: any[];
   fetchBulkDiscounts: () => Promise<void>;
   getProductPrice: (product: Product, userRole?: string) => number;
@@ -243,6 +245,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [promotions, setPromotions] = useState<PromotionRule[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
   const [language, setLanguage] = useState<Language>(() => {
@@ -374,6 +377,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('hgs_lang', language);
   }, [language]);
+
+  const fetchPromotions = async () => {
+    try {
+      const res = await fetch('/api/promotions-rules');
+      if (res.ok) {
+        const data = await res.json();
+        setPromotions(data.filter((p: PromotionRule) => p.active));
+      }
+    } catch (err) {
+      // Silently fail
+    }
+  };
+
+  useEffect(() => {
+    fetchPromotions();
+  }, []);
 
   const fetchBulkDiscounts = async () => {
     try {
@@ -678,6 +697,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sound, setSound,
       adminTheme, setAdminTheme,
       appliedCoupon, setAppliedCoupon,
+      promotions, fetchPromotions,
       bulkDiscounts, fetchBulkDiscounts,
       getProductPrice,
       simulatedRole, setSimulatedRole,
