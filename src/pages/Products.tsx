@@ -887,10 +887,46 @@ export default function Products() {
       </motion.div>
 
       {filteredProducts.length === 0 && (
-        <div className="text-center py-20">
-          <p className="text-stone-500 text-lg">No products found matching your criteria.</p>
+        <div className="flex flex-col items-center justify-center py-20 px-4">
+          <div className="bg-stone-50 p-8 rounded-[2rem] text-center border border-stone-100 max-w-sm">
+            <h3 className="text-xl font-black text-stone-900 mb-2">No products found</h3>
+            <p className="text-stone-500 mb-6">We couldn't find any products matching the current filters.</p>
+            <button 
+              onClick={() => {
+                setSearchTerm('');
+                setSelectedCategory('All');
+                setSelectedRating(null);
+                setMinPrice('0');
+                setMaxPrice('');
+                setOnSaleOnly(false);
+                setSortBy('relevance');
+              }}
+              className="px-8 py-3 bg-primary text-white rounded-xl font-bold hover:scale-105 transition-transform"
+            >
+              Clear Filters
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Floating Buttons */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3">
+        <button 
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="p-4 bg-primary text-white rounded-full shadow-lg hover:scale-110 transition-transform"
+          aria-label="Scroll to top"
+        >
+          <ArrowUpNarrowWide size={24} />
+        </button>
+        <a 
+          href="tel:+919876543210" 
+          className="p-4 bg-accent text-white rounded-full shadow-lg hover:scale-110 transition-transform"
+          aria-label="Call Support"
+        >
+          <span className="sr-only">Call Support</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+        </a>
+      </div>
       </div>
     </div>
   );

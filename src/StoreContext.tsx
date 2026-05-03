@@ -666,8 +666,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toast.success('Logged out successfully');
   };
 
-  return (
-    <StoreContext.Provider value={{ 
+  const contextValue = React.useMemo(() => ({ 
       user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
       isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance,
       authMode,
@@ -688,7 +687,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       isMobile, isTablet, lastAddedId,
       logActivity,
       currentAlert, setCurrentAlert, markAlertAsRead
-    }}>
+    }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts]);
+
+  return (
+    <StoreContext.Provider value={contextValue}>
       {children}
     </StoreContext.Provider>
   );

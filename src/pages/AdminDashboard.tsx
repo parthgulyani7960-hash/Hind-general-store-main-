@@ -42,7 +42,6 @@ export default function AdminDashboard() {
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
-
   const [newProduct, setNewProduct] = useState({ 
     name: '', description: '', price: '', stock: '', category: 'Grocery', image: '', 
     retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
@@ -52,50 +51,6 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-
-  const fetchStats = async () => {
-    try {
-      const res = await fetch('/api/admin/stats');
-      if (res.ok) setStats(await res.json());
-    } catch (err) { console.error(err); }
-  };
-
-  const fetchOrders = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (orderStatusFilter !== 'All') params.append('status', orderStatusFilter);
-      if (orderSearchTerm) params.append('search', orderSearchTerm);
-      const res = await fetch(`/api/admin/orders?${params.toString()}`);
-      if (res.ok) setOrders(await res.json());
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
-  };
-
-  const fetchProducts = async () => {
-    try {
-      const res = await fetch('/api/products');
-      if (res.ok) {
-        const data = await res.json();
-        setAllProducts(data);
-        setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-      }
-    } catch (err) { console.error(err); }
-  };
-
-  useEffect(() => {
-    if (user?.role !== 'admin') return;
-    
-    if (activeTab === 'Overview') {
-      fetchStats();
-      fetchProducts();
-    } else if (activeTab === 'Orders') {
-      fetchOrders();
-    } else if (activeTab === 'Products') {
-      fetchProducts();
-    }
-  }, [activeTab, user]);
-
   const [config, setConfig] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [walletModal, setWalletModal] = useState<{ open: boolean; userId: number | null }>({ open: false, userId: null });
@@ -119,6 +74,90 @@ export default function AdminDashboard() {
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock'>('name');
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
+
+  // Verify auth and role
+  if (!user) {
+    return <div className="p-8 text-center">Please log in to access the admin dashboard.</div>;
+  }
+  if (user.role !== 'admin') {
+    return <div className="p-8 text-center text-red-500">Access denied. You do not have permission to view this page.</div>;
+  }
+
+  const fetchStats = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/stats');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to fetch stats: ${res.status}`);
+      }
+      setStats(await res.json());
+    } catch (err: any) {
+      console.error('Stats fetch error:', err);
+      toast.error(`Unable to load dashboard stats: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchOrders = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (orderStatusFilter !== 'All') params.append('status', orderStatusFilter.toLowerCase());
+      if (orderDateStart) params.append('startDate', orderDateStart);
+      if (orderDateEnd) params.append('endDate', orderDateEnd);
+      if (orderSearchTerm) params.append('search', orderSearchTerm);
+      if (orderUserIdFilter) params.append('userId', orderUserIdFilter);
+      params.append('sortBy', orderSortBy);
+      params.append('sortOrder', orderSortOrder);
+      
+      const res = await fetch(`/api/admin/orders?${params.toString()}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to fetch orders: ${res.status}`);
+      }
+      setOrders(await res.json());
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to fetch orders: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/products');
+      if (res.ok) {
+        const data = await res.json();
+        setAllProducts(data);
+        setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+      } else {
+        throw new Error('Failed to fetch products');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load products');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.role !== 'admin') return;
+    
+    if (activeTab === 'Overview') {
+      fetchStats();
+      fetchProducts();
+    } else if (activeTab === 'Orders') {
+      fetchOrders();
+    } else if (activeTab === 'Products') {
+      fetchProducts();
+    }
+  }, [activeTab, user]);
+
   const [newBatchCategory, setNewBatchCategory] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [imageModal, setImageModal] = useState({ open: false, productId: null as number | null, images: [] as string[] });
@@ -773,38 +812,10 @@ export default function AdminDashboard() {
   const [bugReports, setBugReports] = useState<any[]>([]);
 
   useEffect(() => {
-    if (activeTab === 'Bug Reports') {
-      fetch('/api/admin/bugs')
-        .then(res => res.json())
-        .then(data => setBugReports(data))
-        .catch(console.error);
-    }
-    if (activeTab === 'System Status') {
-      fetchSystemLogs();
-      fetchSuspiciousActivities();
-    }
-    if (activeTab === 'Store Settings' || activeTab === 'Payment Settings') {
-      fetchConfig();
-    }
-    if (activeTab === 'Customers') {
-      fetchUsers();
-    }
-    if (activeTab === 'Newsletter') {
-      fetchNewsletter();
-    }
-    if (activeTab === 'Logistics') {
-      fetchRunners();
-      fetchOrders();
-    }
-    if (activeTab === 'Wallet Requests') {
-      fetchWalletRequests();
-    }
-    if (activeTab === 'Support') {
-      fetchTickets();
-    }
     if (activeTab === 'Orders' || activeTab === 'Analytics') {
       fetchOrders();
     }
+    // Remove other fetches here that are covered by loadData or unnecessary
   }, [activeTab]);
 
   const fetchConfig = async () => {
@@ -1035,29 +1046,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchOrders = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (orderStatusFilter !== 'All') params.append('status', orderStatusFilter.toLowerCase());
-      if (orderDateStart) params.append('startDate', orderDateStart);
-      if (orderDateEnd) params.append('endDate', orderDateEnd);
-      if (orderSearchTerm) params.append('search', orderSearchTerm);
-      if (orderUserIdFilter) params.append('userId', orderUserIdFilter);
-      params.append('sortBy', orderSortBy);
-      params.append('sortOrder', orderSortOrder);
-      
-      const res = await fetch(`/api/admin/orders?${params.toString()}`);
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to fetch orders: ${res.status}`);
-      }
-      const data = await res.json();
-      setOrders(data);
-    } catch (err: any) {
-      console.error('Orders fetch error:', err);
-      toast.error(`Unable to load orders: ${err.message}`);
-    }
-  };
 
   useEffect(() => {
     if (activeTab === 'Orders') {
@@ -1065,20 +1053,6 @@ export default function AdminDashboard() {
     }
   }, [orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, orderSearchTerm, orderSortBy, orderSortOrder, activeTab]);
 
-  const fetchStats = async () => {
-    try {
-      const res = await fetch('/api/admin/stats');
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to fetch stats: ${res.status}`);
-      }
-      const data = await res.json();
-      setStats(data);
-    } catch (err: any) {
-      console.error('Stats fetch error:', err);
-      toast.error(`Unable to load dashboard stats: ${err.message}`);
-    }
-  };
 
   const fetchOrderDetailsModal = async (order: any) => {
     try {

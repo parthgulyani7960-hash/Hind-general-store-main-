@@ -640,6 +640,11 @@ async function initDatabase() {
   `);
 
   // Seed Support Tickets
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+  if (userCount.count === 0) {
+    db.prepare('INSERT INTO users (name, email, role, phone) VALUES (?, ?, ?, ?)').run('Admin Default', 'admin@example.com', 'admin', '0000000000');
+  }
+
   const ticketCount = db.prepare('SELECT COUNT(*) as count FROM support_tickets').get() as { count: number };
   if (ticketCount.count === 0) {
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Order Delay', 'My order #ORD-1 is delayed by 2 days.', 'open');

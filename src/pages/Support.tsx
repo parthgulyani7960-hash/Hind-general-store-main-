@@ -92,51 +92,29 @@ export default function Support() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pb-32 md:pb-12 space-y-16">
-      <div className="text-center max-w-3xl mx-auto space-y-4">
-        <h1 className="text-4xl font-black text-stone-900">Support & Contact</h1>
-        <p className="text-stone-500 text-lg">
-          Have a question or need assistance? We're here to help you with anything from order tracking to product inquiries.
+      <div className="bg-stone-900 rounded-[3rem] p-12 text-center text-white space-y-4">
+        <h1 className="text-5xl font-black tracking-tight">Need Assistance?</h1>
+        <p className="text-stone-400 text-lg max-w-2xl mx-auto">
+          We're here to help you with anything from order tracking to product inquiries. Reach out through any of our channels below.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-        <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm flex flex-col items-center text-center space-y-3">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
-            <MessageCircle size={24} />
-          </div>
-          <h3 className="font-bold">WhatsApp</h3>
-          <p className="text-xs text-stone-500">Fastest way to get help</p>
-          <a 
-            href={`https://wa.me/${(config.find(c => c.key === 'whatsapp_number')?.value || '919876543210').replace(/\D/g, '')}?text=${encodeURIComponent(user ? `Hello, I need support for my account (User ID: ${user.id}, Name: ${user.name}, Phone: ${user.phone}).` : "Hello, I need support.")}`}
-            target="_blank" 
-            className="text-primary font-bold text-sm hover:underline"
-          >
-            Chat Now
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        {[
+          { title: 'WhatsApp', icon: MessageCircle, color: 'bg-emerald-50 text-emerald-600', text: 'Chat Now', action: `https://wa.me/${(config.find(c => c.key === 'whatsapp_number')?.value || '919876543210').replace(/\D/g, '')}?text=${encodeURIComponent(user ? `Hello, I need support for my account (User ID: ${user.id}, Name: ${user.name}, Phone: ${user.phone}).` : "Hello, I need support.")}` },
+          { title: 'Call Us', icon: Phone, color: 'bg-blue-50 text-blue-600', text: config.find(c => c.key === 'store_phone')?.value || '+91 98765 43210', action: `tel:${config.find(c => c.key === 'store_phone')?.value || '+919876543210'}` },
+          { title: 'Email', icon: Mail, color: 'bg-amber-50 text-amber-600', text: 'support@hindstore.com', action: `mailto:support@hindstore.com?subject=${encodeURIComponent("Support Request")}&body=${encodeURIComponent(user ? `I need help for my account.\n\nUser ID: ${user.id}\nName: ${user.name}\nPhone: ${user.phone}\n\nDetails:` : "I need help.")}` },
+        ].map((item, i) => (
+          <a key={i} href={item.action} target={item.title === 'WhatsApp' ? "_blank" : undefined} className="group bg-white p-8 rounded-[2rem] border border-stone-100 shadow-sm hover:shadow-xl transition-all flex flex-col items-center text-center space-y-4">
+            <div className={cn("w-16 h-16 rounded-3xl flex items-center justify-center transition-transform group-hover:scale-110", item.color)}>
+              <item.icon size={32} />
+            </div>
+            <div>
+              <h3 className="font-black text-lg">{item.title}</h3>
+              <p className="text-sm font-bold text-primary mt-1 group-hover:underline">{item.text}</p>
+            </div>
           </a>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm flex flex-col items-center text-center space-y-3">
-          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-            <Phone size={24} />
-          </div>
-          <h3 className="font-bold">Call Us</h3>
-          <p className="text-xs text-stone-500">Available 9 AM - 9 PM</p>
-          <a href={`tel:${config.find(c => c.key === 'store_phone')?.value || '+919876543210'}`} className="text-primary font-bold text-sm hover:underline">
-            {config.find(c => c.key === 'store_phone')?.value || '+91 98765 43210'}
-          </a>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm flex flex-col items-center text-center space-y-3">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
-            <Mail size={24} />
-          </div>
-          <h3 className="font-bold">Email</h3>
-          <p className="text-xs text-stone-500">For detailed inquiries</p>
-          <a 
-            href={`mailto:support@hindstore.com?subject=${encodeURIComponent("Support Request")}&body=${encodeURIComponent(user ? `I need help for my account.\n\nUser ID: ${user.id}\nName: ${user.name}\nPhone: ${user.phone}\n\nDetails:` : "I need help.")}`}
-            className="text-primary font-bold text-sm hover:underline"
-          >
-            support@hindstore.com
-          </a>
-        </div>
+        ))}
       </div>
 
       {user && (

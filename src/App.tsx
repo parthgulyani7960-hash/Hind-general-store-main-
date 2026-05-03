@@ -60,6 +60,7 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
   const location = useLocation();
 
   if (!user) {
+    toast.error('Please log in to use these services');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
