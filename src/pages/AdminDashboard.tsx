@@ -40,7 +40,7 @@ type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' |
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout } = useStore();
+  const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const [newProduct, setNewProduct] = useState({ 
@@ -77,11 +77,18 @@ export default function AdminDashboard() {
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
 
   // Verify auth and role
+  useEffect(() => {
+    console.log("Admin Dashboard Auth Check: user =", user);
+    if (user) {
+        console.log("User Role:", user.role);
+    }
+  }, [user]);
+
   if (!user) {
     return <div className="p-8 text-center">Please log in to access the admin dashboard.</div>;
   }
   if (user.role !== 'admin') {
-    return <div className="p-8 text-center text-red-500">Access denied. You do not have permission to view this page.</div>;
+    return <div className="p-8 text-center text-red-500">Access denied. Your role is {user.role}. Admin privileges are required.</div>;
   }
 
   const fetchStats = async () => {
@@ -1910,7 +1917,14 @@ export default function AdminDashboard() {
 
   return (
     <div className={cn("min-h-screen bg-stone-50 flex", adminTheme)}>
-      <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} logout={logout} />
+      <AdminSidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        user={user} 
+        logout={logout} 
+        isOpen={sidebarOpen} 
+        setIsOpen={setSidebarOpen} 
+      />
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-stone-200 h-16 flex items-center justify-between px-4 z-50">
         <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
@@ -2214,28 +2228,28 @@ export default function AdminDashboard() {
 
         <main className="p-4 lg:p-8 pt-20 lg:pt-8">
         {activeTab === 'Overview' && (
-          <div className="space-y-8">
+          <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="text-3xl font-bold text-stone-900">Welcome back, {user.name.split(' ')[0]}!</h2>
-                <p className="text-stone-500 mt-1">Here's what's happening with your store today.</p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-stone-900">Welcome back, {user.name.split(' ')[0]}!</h2>
+                <p className="text-stone-500 mt-1 text-sm sm:text-base">Here's what's happening with your store today.</p>
               </div>
               <div className="flex items-center space-x-3">
-                <div className="bg-white px-4 py-2 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-2">
-                  <Calendar size={16} className="text-stone-400" />
-                  <span className="text-sm font-bold text-stone-600">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                <div className="bg-white px-3 sm:px-4 py-2 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-2">
+                  <Calendar size={14} className="text-stone-400" />
+                  <span className="text-xs sm:text-sm font-bold text-stone-600">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                 </div>
                 <button 
                   onClick={() => fetchStats()}
                   className="p-2 bg-white border border-stone-200 rounded-xl text-stone-400 hover:text-primary hover:border-primary transition-all shadow-sm"
                 >
-                  <RefreshCw size={18} />
+                  <RefreshCw size={16} />
                 </button>
               </div>
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Total Revenue', value: `₹${stats?.revenue || 0}`, icon: <TrendingUp className="text-emerald-600" />, trend: '+12.5%', color: 'bg-emerald-50', iconBg: 'bg-emerald-100', sparklineData: stats?.revenueByDay || [], sparklineKey: 'revenue', sparklineColor: '#059669' },
                 { label: 'Total Orders', value: stats?.orders || 0, icon: <ShoppingBag className="text-blue-600" />, trend: '+5.2%', color: 'bg-blue-50', iconBg: 'bg-blue-100', sparklineData: stats?.revenueByDay || [], sparklineKey: 'orders', sparklineColor: '#2563EB' },
@@ -2278,13 +2292,13 @@ export default function AdminDashboard() {
               className="grid grid-cols-2 lg:grid-cols-6 gap-4"
             >
               {[
-                { label: 'Add Product', icon: <Plus size={18} />, action: () => { setActiveTab('Product Catalog'); setProductModal({ open: true, mode: 'add' }); }, color: 'text-primary bg-primary/10 hover:bg-primary hover:text-white' },
-                { label: 'Review Orders', icon: <ShoppingBag size={18} />, action: () => setActiveTab('Orders'), color: 'text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white' },
+                { label: 'Add Product', icon: <Plus size={18} />, action: () => { setActiveTab('Product Catalog'); setProductModal({ open: true, mode: 'add' }); }, color: 'text-primary bg-primary/10 hover:bg-primary hover:text-white', permission: 'manage_products' },
+                { label: 'Review Orders', icon: <ShoppingBag size={18} />, action: () => setActiveTab('Orders'), color: 'text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white', permission: 'manage_orders' },
                 { label: 'Coupons', icon: <Tag size={18} />, action: () => setActiveTab('Coupons'), color: 'text-amber-600 bg-amber-50 hover:bg-amber-600 hover:text-white' },
                 { label: 'Payments', icon: <IndianRupee size={18} />, action: () => navigate('/admin/payments'), color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white' },
-                { label: 'Customers', icon: <Users size={18} />, action: () => setActiveTab('User Management'), color: 'text-purple-600 bg-purple-50 hover:bg-purple-600 hover:text-white' },
+                { label: 'Customers', icon: <Users size={18} />, action: () => setActiveTab('Customers'), color: 'text-purple-600 bg-purple-50 hover:bg-purple-600 hover:text-white', permission: 'manage_users' },
                 { label: 'Health', icon: <Activity size={18} />, action: () => setActiveTab('System Status'), color: 'text-stone-600 bg-stone-100 hover:bg-stone-600 hover:text-white' }
-              ].map((action, i) => (
+              ].filter(action => !action.permission || hasPermission(action.permission as any)).map((action, i) => (
                 <button
                   key={`quick-action-${i}`}
                   onClick={action.action}
@@ -8875,22 +8889,29 @@ export default function AdminDashboard() {
 
               <div>
                 <label className="block text-[10px] font-bold text-stone-400 uppercase mb-3 tracking-wider">Permissions</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {['Orders', 'Product Catalog', 'Categories', 'Customers', 'Analytics', 'Reviews', 'Coupons', 'Roles', 'Settings'].map((perm) => (
-                    <label key={perm} className="flex items-center space-x-3 p-3 bg-stone-50 rounded-xl cursor-pointer hover:bg-stone-100 transition-colors">
+                  <div className="grid grid-cols-1 gap-3">
+                  {[
+                    { label: 'View Dashboard', value: 'view_dashboard' },
+                    { label: 'Manage Orders', value: 'manage_orders' },
+                    { label: 'Manage Products', value: 'manage_products' },
+                    { label: 'Manage Users', value: 'manage_users' },
+                    { label: 'View Analytics', value: 'view_analytics' },
+                    { label: 'Manage Settings', value: 'manage_settings' },
+                  ].map((perm) => (
+                    <label key={perm.value} className="flex items-center space-x-3 p-3 bg-stone-50 rounded-xl cursor-pointer hover:bg-stone-100 transition-colors">
                       <input 
                         type="checkbox" 
                         className="rounded border-stone-300 text-primary focus:ring-primary"
-                        checked={newRole.permissions.includes(perm)}
+                        checked={newRole.permissions.includes(perm.value as any)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setNewRole({ ...newRole, permissions: [...newRole.permissions, perm] });
+                            setNewRole({ ...newRole, permissions: [...newRole.permissions, perm.value as any] });
                           } else {
-                            setNewRole({ ...newRole, permissions: newRole.permissions.filter(p => p !== perm) });
+                            setNewRole({ ...newRole, permissions: newRole.permissions.filter(p => p !== perm.value) });
                           }
                         }}
                       />
-                      <span className="text-xs font-bold text-stone-700">{perm}</span>
+                      <span className="text-xs font-bold text-stone-700">{perm.label}</span>
                     </label>
                   ))}
                 </div>

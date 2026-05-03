@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, CartItem, Product, UserAddress, PromotionRule } from './types';
+import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
 
@@ -57,6 +57,7 @@ interface StoreContextType {
   currentAlert: any;
   setCurrentAlert: (alert: any) => void;
   markAlertAsRead: (id: number) => Promise<void>;
+  hasPermission: (permission: Permission) => boolean;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -685,6 +686,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toast.success('Logged out successfully');
   };
 
+  const hasPermission = (permission: Permission) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return user.permissions?.includes(permission) ?? false;
+  };
+
   const contextValue = React.useMemo(() => ({ 
       user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
       isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance,
@@ -706,7 +713,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       isOnline, isProfileComplete,
       isMobile, isTablet, lastAddedId,
       logActivity,
-      currentAlert, setCurrentAlert, markAlertAsRead
+      currentAlert, setCurrentAlert, markAlertAsRead,
+      hasPermission
     }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts]);
 
   return (

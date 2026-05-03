@@ -23,7 +23,8 @@ export default function Login() {
       const { token: idToken } = await signInWithGoogle();
       token = idToken;
     } catch (err: any) {
-      handleAppError(err, 'Firebase Auth failed', 'firebaseLogin', false);
+      console.error('Full Auth Error:', err);
+      handleAppError(err, 'Firebase Auth failed', 'firebaseLogin', true); // Changed to true to see details
       setLoading(false);
       return;
     }

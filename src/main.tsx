@@ -16,7 +16,14 @@ try {
         if (token) {
           headers.set('Authorization', `Bearer ${token}`);
         }
-        return originalFetch(input, { ...init, headers });
+        return originalFetch(input, { ...init, headers }).then(async (response) => {
+          if (!response.ok) {
+            const error = new Error(`HTTP error! status: ${response.status}`);
+            (error as any).response = response;
+            throw error;
+          }
+          return response;
+        });
       },
       configurable: true,
       writable: true

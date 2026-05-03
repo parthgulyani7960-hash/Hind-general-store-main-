@@ -11,6 +11,7 @@ import { Product, Review, cn } from '../types';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
 import { triggerFeedback } from '../App';
+import { handleAppError } from '../lib/errorUtils';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -152,6 +153,22 @@ export default function ProductDetail() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    // Validation
+    const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!validTypes.includes(file.type)) {
+            toast.error(`File ${file.name} is not a supported image type.`);
+            return;
+        }
+        if (file.size > MAX_SIZE) {
+            toast.error(`File ${file.name} exceeds 5MB limit.`);
+            return;
+        }
+    }
+
     setUploading(true);
     const uploadedUrls: string[] = [];
 
@@ -177,10 +194,10 @@ export default function ProductDetail() {
         fetchProduct();
         setShowUploadModal(false);
       } else {
-        toast.error('Failed to upload images');
+        throw new Error('Failed to upload images');
       }
-    } catch (err) {
-      toast.error('Error uploading images');
+    } catch (err: any) {
+        handleAppError(err, 'Upload failed', 'uploadProductImage', true);
     } finally {
       setUploading(false);
     }

@@ -59,18 +59,25 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
   const { user } = useStore();
   const location = useLocation();
 
+  useEffect(() => {
+    if (!user) {
+      toast.error('Please log in to use these services');
+    } else if (adminOnly && user.role !== 'admin') {
+      toast.error('Access denied. Admin privileges required.');
+    } else if (runnerOnly && user.role !== 'delivery' && user.role !== 'admin') {
+      toast.error('Access denied. Delivery runner privileges required.');
+    }
+  }, [user, adminOnly, runnerOnly]);
+
   if (!user) {
-    toast.error('Please log in to use these services');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (adminOnly && user.role !== 'admin') {
-    toast.error('Access denied. Admin privileges required.');
     return <Navigate to="/" replace />;
   }
 
   if (runnerOnly && user.role !== 'delivery' && user.role !== 'admin') {
-    toast.error('Access denied. Delivery runner privileges required.');
     return <Navigate to="/" replace />;
   }
 

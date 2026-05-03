@@ -14,7 +14,7 @@ import { handleAppError } from '../lib/errorUtils';
 import { QRCodeCanvas } from 'qrcode.react';
 import InfoButton from '../components/InfoButton';
 
-type Step = 'address' | 'payment_method' | 'awaiting_payment' | 'confirmation';
+type Step = 'address' | 'payment_method' | 'review' | 'awaiting_payment' | 'confirmation';
 
 export default function Checkout() {
   const { 
@@ -59,6 +59,9 @@ export default function Checkout() {
   // Address State
   const [useCustomAddress, setUseCustomAddress] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
+
+  // Payment State
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cod' | 'wallet' | 'upi' | 'khata' | null>(null);
 
   const [addressData, setAddressData] = useState({
     name: user?.name || '',
@@ -133,21 +136,29 @@ export default function Checkout() {
     
     // Apply promotions
     let promoDiscountAmount = 0;
+    const itemDiscounts: number[] = [];
+
     promotions.forEach(promo => {
-      if (promo.active) {
-        if (promo.type === 'percentage') {
+      if (!promo.active) return;
+      if (promo.type === 'percentage') {
           if ((promo.category && item.category === promo.category) || (promo.product_id && item.id === promo.product_id)) {
-            promoDiscountAmount += (basePrice * promo.value / 100);
+            // Validate percentage: ensure it's between 0 and 100
+            const validPercentage = Math.max(0, Math.min(100, promo.value));
+            itemDiscounts.push((basePrice * validPercentage) / 100);
           }
-        } else if (promo.type === 'bogo' && item.quantity >= 2) {
+      } else if (promo.type === 'bogo' && item.quantity >= 2) {
            if (promo.product_id && item.id === promo.product_id) {
-             // Buy 1 Get 1 free: discount = number of free items * basePrice
              const freeItems = Math.floor(item.quantity / 2);
-             promoDiscountAmount = (basePrice * freeItems) / item.quantity;
+             // Safety check: don't discount more than total item cost
+             const bogoDiscount = Math.min((basePrice * item.quantity), (basePrice * freeItems));
+             itemDiscounts.push(bogoDiscount / item.quantity); // Discount applied per unit
            }
-        }
       }
     });
+
+    // Sum discounts and cap total item discount at basePrice per item
+    promoDiscountAmount = itemDiscounts.reduce((sum, d) => sum + d, 0);
+    promoDiscountAmount = Math.min(promoDiscountAmount, basePrice);
 
     return {
       ...item,
@@ -185,7 +196,7 @@ export default function Checkout() {
     }
   }, [cart, navigate, step]);
 
-  const placeOrder = async (method: 'cod' | 'wallet' | 'upi') => {
+  const placeOrder = async (method: 'cod' | 'wallet' | 'upi' | 'khata') => {
     if (!isLoggedIn && method !== 'cod') {
       toast.error('Please login to use this payment method');
       navigate('/login');
@@ -296,6 +307,7 @@ export default function Checkout() {
           {[
             { id: 'address', label: 'Address', icon: MapPin },
             { id: 'payment_method', label: 'Payment', icon: CreditCard },
+            { id: 'review', label: 'Review', icon: ShieldCheck },
             { id: 'confirmation', label: 'Done', icon: CheckCircle2 },
           ].map((s, i) => (
             <div key={s.id} className="flex items-center">
@@ -311,10 +323,12 @@ export default function Checkout() {
                 </div>
                 <span className="text-[10px] font-bold uppercase tracking-widest">{s.label}</span>
               </div>
-              {i < 2 && (
+              {i < 3 && (
                 <div className={cn(
-                  "w-20 h-0.5 mx-4 rounded-full",
-                  i === 0 && (['payment_method', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200"
+                  "w-12 h-0.5 mx-2 rounded-full",
+                  i === 0 && (['payment_method', 'review', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200",
+                  i === 1 && (['review', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200",
+                  i === 2 && (['confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200"
                 )} />
               )}
             </div>
@@ -551,7 +565,7 @@ export default function Checkout() {
                       {/* UPI QR - Recommended */}
                       <div className="relative group">
                         <button 
-                          onClick={() => isLoggedIn && placeOrder('upi')}
+                          onClick={() => { isLoggedIn && setSelectedPaymentMethod('upi'); isLoggedIn && setStep('review'); }}
                           disabled={isProcessing || !isLoggedIn}
                           className={cn(
                             "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
@@ -588,7 +602,7 @@ export default function Checkout() {
                       {/* Wallet */}
                       <div className="relative group">
                         <button 
-                          onClick={() => isLoggedIn && placeOrder('wallet')}
+                          onClick={() => { isLoggedIn && setSelectedPaymentMethod('wallet'); isLoggedIn && setStep('review'); }}
                           disabled={isProcessing || !isLoggedIn || (user?.wallet_balance || 0) < total}
                           className={cn(
                             "w-full p-6 rounded-3xl border-2 transition-all flex items-center justify-between",
@@ -627,7 +641,7 @@ export default function Checkout() {
                       {(!isLoggedIn || user?.khata_enabled) && (
                         <div className="relative group">
                           <button 
-                            onClick={() => isLoggedIn && placeOrder('khata' as any)}
+                            onClick={() => { isLoggedIn && setSelectedPaymentMethod('khata'); isLoggedIn && setStep('review'); }}
                             disabled={isProcessing || !isLoggedIn || (user?.khata_balance || 0) + total > (user?.credit_limit || 0)}
                             className={cn(
                               "w-full p-6 rounded-3xl border-2 transition-all flex items-center justify-between",
@@ -665,7 +679,7 @@ export default function Checkout() {
 
                       {/* COD */}
                       <button 
-                        onClick={() => placeOrder('cod')}
+                        onClick={() => { setSelectedPaymentMethod('cod'); setStep('review'); }}
                         disabled={isProcessing}
                         className="w-full p-6 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group"
                       >
@@ -702,6 +716,36 @@ export default function Checkout() {
                   >
                     <ArrowLeft size={18} />
                     <span>Back to Address</span>
+                  </button>
+                </motion.div>
+              )}
+
+              {step === 'review' && (
+                <motion.div 
+                  key="review"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6"
+                >
+                  <h2 className="text-2xl font-bold">Review Order</h2>
+                  <div className="space-y-4 text-sm text-stone-600">
+                    <p>Total: <strong>₹{total}</strong></p>
+                    <p>Payment Method: <strong className="uppercase">{selectedPaymentMethod}</strong></p>
+                  </div>
+                  
+                  <button 
+                    onClick={() => selectedPaymentMethod && placeOrder(selectedPaymentMethod)}
+                    disabled={isProcessing}
+                    className="w-full btn-primary py-4"
+                  >
+                    {isProcessing ? 'Placing Order...' : 'Confirm and Pay'}
+                  </button>
+                  <button 
+                    onClick={() => setStep('payment_method')}
+                    className="w-full py-4 border border-stone-200 rounded-2xl font-bold text-stone-500 hover:bg-stone-100"
+                  >
+                    Back
                   </button>
                 </motion.div>
               )}

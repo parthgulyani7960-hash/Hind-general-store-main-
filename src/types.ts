@@ -5,6 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export type Permission = 
+  | 'view_dashboard' 
+  | 'manage_orders' 
+  | 'manage_products' 
+  | 'manage_users' 
+  | 'view_analytics'
+  | 'manage_settings';
+
+export interface RoleDefinition {
+  name: string;
+  permissions: Permission[];
+}
+
 export interface User {
   id: number;
   phone: string;
@@ -14,6 +27,7 @@ export interface User {
   shop_name?: string;
   pin_code?: string;
   role: 'customer' | 'admin' | 'retailer' | 'wholesaler';
+  permissions?: Permission[]; // Added permissions field
   wallet_balance: number;
   khata_enabled: boolean;
   khata_limit: number;

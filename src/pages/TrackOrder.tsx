@@ -4,6 +4,7 @@ import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, Us
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn } from '../types';
+import { handleAppError } from '../lib/errorUtils';
 import { useStore } from '../StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -18,15 +19,22 @@ L.Icon.Default.mergeOptions({
 });
 
 export default function TrackOrder() {
-  const { t } = useStore();
+  const { t, user } = useStore();
   const [orderId, setOrderId] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(user?.phone || '');
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [runnerLocation, setRunnerLocation] = useState<any>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
+
+  useEffect(() => {
+    // If user is logged in, use their phone number automatically if not already set
+    if (user?.phone && !phoneNumber) {
+      setPhoneNumber(user.phone);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (order && (order.status === 'shipped' || order.status === 'dispatched')) {
@@ -60,7 +68,7 @@ export default function TrackOrder() {
         toast.error('Failed to cancel order');
       }
     } catch (err: any) {
-      toast.error('Error cancelling order');
+      handleAppError(err, 'Error cancelling order', 'cancelOrder', user?.role === 'admin');
     } finally {
       setIsCancelling(false);
     }
@@ -140,7 +148,7 @@ export default function TrackOrder() {
         setOrder(null);
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to fetch order status');
+      handleAppError(err, 'Failed to fetch order status', 'fetchOrderStatus', user?.role === 'admin');
     } finally {
       setLoading(false);
     }

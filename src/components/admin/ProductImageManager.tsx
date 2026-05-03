@@ -1,8 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, FileRejection } from 'react-dropzone';
 import { Trash2, Star, Camera, Upload, Loader } from 'lucide-react';
 import { uploadFile } from '../../services/storageService';
 import toast from 'react-hot-toast';
+import { handleAppError } from '../../lib/errorUtils';
 
 interface Props {
   allImages: string[];
@@ -15,7 +16,20 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
   const [primary, setPrimary] = useState<string>(primaryImage);
   const [uploading, setUploading] = useState(false);
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  const onDrop = useCallback(async (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+    if (fileRejections.length > 0) {
+      toast.error(`${fileRejections[0].file.name}: Unsupported file type.`);
+      return;
+    }
+
+    // Size validation - 5MB limit
+    const MAX_SIZE = 5 * 1024 * 1024;
+    const oversized = acceptedFiles.find(f => f.size > MAX_SIZE);
+    if (oversized) {
+      toast.error(`File ${oversized.name} exceeds 5MB limit.`);
+      return;
+    }
+
     setUploading(true);
     try {
       const uploadPromises = acceptedFiles.map(file => 
@@ -30,9 +44,9 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
       setImages(updatedImages);
       setPrimary(newPrimary);
       onUpdate(updatedImages, newPrimary);
-      toast.success('Images uploaded');
+      toast.success('Images uploaded successfully');
     } catch (err: any) {
-      toast.error(err.message || 'Upload failed');
+      handleAppError(err, 'Upload failed', 'uploadProductImage', true);
     } finally {
       setUploading(false);
     }
@@ -40,9 +54,10 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop, 
-    accept: { 'image/*': [] },
+    accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [] },
+    maxSize: 5 * 1024 * 1024,
     disabled: uploading 
-  } as any);
+  });
 
   const handleDelete = (urlToDelete: string) => {
     const updated = images.filter(url => url !== urlToDelete);
