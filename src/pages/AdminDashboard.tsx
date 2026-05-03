@@ -51,7 +51,51 @@ export default function AdminDashboard() {
   });
   const [stats, setStats] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch('/api/admin/stats');
+      if (res.ok) setStats(await res.json());
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchOrders = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (orderStatusFilter !== 'All') params.append('status', orderStatusFilter);
+      if (orderSearchTerm) params.append('search', orderSearchTerm);
+      const res = await fetch(`/api/admin/orders?${params.toString()}`);
+      if (res.ok) setOrders(await res.json());
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch('/api/products');
+      if (res.ok) {
+        const data = await res.json();
+        setAllProducts(data);
+        setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  useEffect(() => {
+    if (user?.role !== 'admin') return;
+    
+    if (activeTab === 'Overview') {
+      fetchStats();
+      fetchProducts();
+    } else if (activeTab === 'Orders') {
+      fetchOrders();
+    } else if (activeTab === 'Products') {
+      fetchProducts();
+    }
+  }, [activeTab, user]);
+
   const [config, setConfig] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [walletModal, setWalletModal] = useState<{ open: boolean; userId: number | null }>({ open: false, userId: null });
@@ -1087,56 +1131,22 @@ export default function AdminDashboard() {
   }, [activeTab, analyticsStartDate, analyticsEndDate, analyticsCategory, analyticsSegment]);
 
   useEffect(() => {
-    if (user?.role !== 'admin') return;
+    if (user?.role !== 'admin') {
+      setLoading(false);
+      return;
+    }
 
     const loadData = async () => {
       setLoading(true);
       try {
-        const safeFetch = async (url: string, defaultValue: any = []) => {
-          try {
-            const res = await fetch(url);
-            if (res.status === 401 || res.status === 403) {
-              const data = await res.json().catch(() => ({}));
-              toast.error(`Access Denied for ${url}: ${data.message || 'Please log in again'}`);
-              return defaultValue;
-            }
-            if (!res.ok) {
-              console.warn(`Fetch failed for ${url}: ${res.status}`);
-              return defaultValue;
-            }
-            const data = await res.json();
-            return data;
-          } catch (e) {
-            console.error(`Fetch error for ${url}:`, e);
-            return defaultValue;
-          }
-        };
-
-        const [
-          statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes,
-          ticketsRes, newsletterRes, notificationsRes, couponsRes, expensesRes,
-          reviewsRes, promotionsRes, areasRes, analyticsRes, rolesRes, runnersRes, auditLogsRes
-        ] = await Promise.all([
-          safeFetch('/api/admin/stats', { revenue: 0, orders: 0, users: 0, lowStock: 0, revenueByDay: [], topCategories: [] }),
-          safeFetch('/api/admin/orders'),
-          safeFetch('/api/admin/config'),
-          safeFetch('/api/admin/users'),
-          safeFetch('/api/products'),
-          safeFetch('/api/categories'),
-          safeFetch('/api/admin/support/tickets'),
-          safeFetch('/api/admin/newsletter'),
-          safeFetch('/api/notifications'),
-          safeFetch('/api/admin/coupons'),
-          safeFetch('/api/admin/expenses'),
-          safeFetch('/api/admin/reviews'),
-          safeFetch('/api/promotions'),
-          safeFetch('/api/delivery-areas'),
-          safeFetch('/api/admin/analytics', { dailyRevenue: [], categorySales: [], statusDistribution: [] }),
-          safeFetch('/api/admin/roles'),
-          safeFetch('/api/admin/runners'),
-          safeFetch('/api/admin/audit-logs')
+        const [statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes] = await Promise.all([
+          fetch('/api/admin/stats').then(r => r.json()),
+          fetch('/api/admin/orders').then(r => r.json()),
+          fetch('/api/admin/config').then(r => r.json()),
+          fetch('/api/admin/users').then(r => r.json()),
+          fetch('/api/products').then(r => r.json()),
+          fetch('/api/categories').then(r => r.json()),
         ]);
-
         setStats(statsRes);
         setOrders(ordersRes);
         setConfig(configRes);
@@ -1144,32 +1154,8 @@ export default function AdminDashboard() {
         setAllProducts(productsRes);
         setLowStockProducts(productsRes.filter((p: any) => p.stock <= (p.reorder_point || 5)));
         setCategories(categoriesRes);
-        setTickets(ticketsRes);
-        setNewsletter(newsletterRes);
-        setNotifications(notificationsRes);
-        setCoupons(couponsRes);
-        setExpenses(expensesRes);
-        setReviews(reviewsRes);
-        setPromotions(promotionsRes);
-        setDeliveryAreas(areasRes);
-        setAnalyticsData(analyticsRes);
-        setRoles(rolesRes);
-        setRunners(runnersRes || []);
-        setAuditLogs(auditLogsRes || []);
-        
-        if (Array.isArray(configRes)) {
-          const tnc = configRes.find((c: any) => c.key === 'terms_and_conditions');
-          if (tnc) setTncContent(tnc.value);
-          const faq = configRes.find((c: any) => c.key === 'faq_content');
-          if (faq) setFaqContent(faq.value);
-          const df = configRes.find((c: any) => c.key === 'delivery_fee');
-          if (df) setDeliveryFee(df.value);
-          const fdt = configRes.find((c: any) => c.key === 'free_delivery_threshold');
-          if (fdt) setFreeDeliveryThreshold(fdt.value);
-        }
       } catch (err) {
-        console.error('Failed to load admin data', err);
-        toast.error('Some data failed to load');
+        console.error('Failed to load initial admin data', err);
       } finally {
         setLoading(false);
       }
