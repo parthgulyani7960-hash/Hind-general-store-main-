@@ -2007,6 +2007,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
+  app.get('/api/admin/sales-analytics', requireAdmin, (req, res) => {
+    try {
+      const dailySales = db.prepare(`
+        SELECT date(created_at) as date, SUM(total) as total
+        FROM orders
+        WHERE status = 'completed'
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT 30
+      `).all();
+      
+      const topProducts = db.prepare(`
+        SELECT p.name, SUM(oi.quantity) as sold
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        GROUP BY p.name
+        ORDER BY sold DESC
+        LIMIT 5
+      `).all();
+      
+      res.json({ dailySales, topProducts });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch sales analytics', error: err.message });
+    }
+  });
+
   app.get('/api/delivery-areas', (req, res) => {
     const areas = db.prepare('SELECT * FROM delivery_areas').all();
     res.json(areas);
@@ -2859,6 +2885,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/products/:id/reviews', (req, res) => {
     const { id } = req.params;
     const reviews = db.prepare('SELECT * FROM reviews WHERE product_id = ? ORDER BY created_at DESC').all(id);
+    res.json(reviews);
+  });
+
+  app.get('/api/products/:id/reviews', (req, res) => {
+    const { id } = req.params;
+    const reviews = db.prepare('SELECT * FROM reviews WHERE product_id = ? AND status = "approved" ORDER BY created_at DESC').all(id);
     res.json(reviews);
   });
 

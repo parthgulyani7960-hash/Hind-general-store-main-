@@ -41,7 +41,12 @@ export default function NotificationBell() {
   return (
     <div className="relative" onMouseEnter={() => setIsOpen(true)} onMouseLeave={() => setIsOpen(false)}>
       <button className="relative p-2 text-stone-600 hover:text-primary transition-colors block">
-        <Bell size={24} />
+        <motion.div
+          animate={unreadCount > 0 ? { scale: [1, 1.1, 1] } : {}}
+          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+        >
+          <Bell size={24} />
+        </motion.div>
         {unreadCount > 0 && (
           <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
             {unreadCount}

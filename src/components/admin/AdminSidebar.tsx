@@ -42,9 +42,10 @@ interface AdminSidebarProps {
   logout: () => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  lowStockCount?: number;
 }
 
-export default function AdminSidebar({ activeTab, setActiveTab, user, logout, isOpen, setIsOpen }: AdminSidebarProps) {
+export default function AdminSidebar({ activeTab, setActiveTab, user, logout, isOpen, setIsOpen, lowStockCount = 0 }: AdminSidebarProps) {
   return (
     <>
       <button 
@@ -65,12 +66,19 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
               key={item.name}
               onClick={() => { setActiveTab(item.name); if (window.innerWidth < 768) setIsOpen(false); }}
               className={cn(
-                "flex w-full items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
+                "flex w-full items-center justify-between space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
                 activeTab === item.name ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-stone-400 hover:bg-stone-800 hover:text-white"
               )}
             >
-              <item.icon size={18} />
-              <span>{item.name}</span>
+              <div className="flex items-center space-x-3">
+                <item.icon size={18} />
+                <span>{item.name}</span>
+              </div>
+              {item.name === 'Product Catalog' && lowStockCount > 0 && (
+                <span className="bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse">
+                  {lowStockCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>

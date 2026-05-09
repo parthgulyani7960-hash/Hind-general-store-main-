@@ -453,8 +453,8 @@ export default function Checkout() {
                           onChange={(e) => setAddressData({...addressData, city: e.target.value})}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Pin Code</label>
+                      <div className="space-y-2 col-span-2 md:col-span-1">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Postcode</label>
                         <div className="relative">
                           <input 
                             type="text" 
@@ -522,14 +522,14 @@ export default function Checkout() {
                           </button>
                         </div>
                       </div>
-                      <div className="md:col-span-2 space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Delivery Zone</label>
+                      <div className="col-span-2 space-y-2">
+                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Delivery Area</label>
                         <select 
                           className="input-field" 
                           value={addressData.delivery_area}
                           onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
                         >
-                          <option value="">Select your delivery zone...</option>
+                          <option value="">Select your delivery area...</option>
                           {deliveryAreas.map(area => (
                             <option key={area.id} value={area.name}>
                                {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})

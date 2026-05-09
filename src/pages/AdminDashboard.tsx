@@ -1102,6 +1102,8 @@ export default function AdminDashboard() {
     setTicketMessages(data);
   };
 
+  const [salesAnalytics, setSalesAnalytics] = useState<{ dailySales: any[], topProducts: any[] } | null>(null);
+
   const fetchAnalytics = async () => {
     setIsFetchingAnalytics(true);
     try {
@@ -1111,9 +1113,14 @@ export default function AdminDashboard() {
       if (analyticsCategory !== 'all') params.append('category', analyticsCategory);
       if (analyticsSegment !== 'all') params.append('segment', analyticsSegment);
       
-      const res = await fetch(`/api/admin/analytics?${params.toString()}`);
+      const [res, salesRes] = await Promise.all([
+        fetch(`/api/admin/analytics?${params.toString()}`),
+        fetch('/api/admin/sales-analytics')
+      ]);
       const data = await res.json();
+      const salesData = await salesRes.json();
       setAnalyticsData(data);
+      setSalesAnalytics(salesData);
     } catch (err) {
       console.error('Failed to fetch analytics:', err);
     } finally {
@@ -2007,6 +2014,7 @@ export default function AdminDashboard() {
         logout={logout} 
         isOpen={sidebarOpen} 
         setIsOpen={setSidebarOpen} 
+        lowStockCount={lowStockProducts.length}
       />
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-stone-200 h-16 flex items-center justify-between px-4 z-50">
@@ -3168,7 +3176,41 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Inventory Value Report */}
+            {/* New Charts */}
+            {salesAnalytics && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
+                  <h3 className="text-xl font-black mb-6">Daily Sales Trend (Last 30 Days)</h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={salesAnalytics.dailySales}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="date" />
+                        <YAxis />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="total" stroke="#3b82f6" fill="#bfdbfe" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
+                  <h3 className="text-xl font-black mb-6">Top Selling Products</h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={salesAnalytics.topProducts} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={100} />
+                        <Tooltip />
+                        <Bar dataKey="sold" fill="#10b981" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Existing Analytics */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
               <div className="flex items-center justify-between mb-8">
                 <div>
