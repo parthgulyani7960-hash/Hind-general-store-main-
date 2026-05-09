@@ -11,7 +11,7 @@ export default function MaintenancePage() {
   }, []);
 
   const whatsappNumber = config.find(c => c.key === 'whatsapp_number')?.value || '+91 98765 43210';
-  const whatsappMessage = config.find(c => c.key === 'whatsapp_message')?.value || 'Hello Hind General Store, I would like to inquire about an order.';
+  const whatsappMessage = config.find(c => c.key === 'whatsapp_message')?.value || 'Hello General Store Karyana, I would like to inquire about an order.';
   const maintenanceTime = config.find(c => c.key === 'maintenance_time')?.value || '2 Hours';
 
   const handleWhatsApp = () => {
@@ -34,7 +34,7 @@ export default function MaintenancePage() {
         <div className="space-y-2">
           <h1 className="text-3xl font-bold text-stone-900">Under Maintenance</h1>
           <p className="text-stone-500">
-            Hind General Store is currently updating to serve you better. We'll be back online shortly!
+            General Store Karyana Shop is currently updating to serve you better. We'll be back online shortly!
           </p>
         </div>
 
@@ -62,7 +62,7 @@ export default function MaintenancePage() {
 
         <div className="pt-4 space-y-2">
           <p className="text-[10px] text-stone-300">
-            Hind General Store is currently under maintenance.
+            General Store Karyana Shop is currently under maintenance.
           </p>
         </div>
       </motion.div>

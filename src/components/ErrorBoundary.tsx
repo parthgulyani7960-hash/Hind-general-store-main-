@@ -58,7 +58,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
         <div className="flex flex-col items-center justify-center h-screen p-4 text-center">
             <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
             <p className="mb-4">We're working on fixing it.</p>
-            <button onClick={() => window.location.reload()} className="btn-primary">Refresh Page</button>
+            <button onClick={() => window.location.href = '/'} className="btn-primary">Return to Home</button>
         </div>
       );
     }

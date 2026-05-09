@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, ShoppingBag, ShoppingCart, User, Heart, Check } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, User, Heart, Check, ArrowRight } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { cn } from '../types';
@@ -7,7 +7,7 @@ import { cn } from '../types';
 export default function MobileBottomNav() {
   const location = useLocation();
   const { cart, wishlist, lastAddedId } = useStore();
-  
+
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: ShoppingBag, label: 'Shop', path: '/products' },
@@ -17,11 +17,11 @@ export default function MobileBottomNav() {
   ];
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-safe pt-2 pointer-events-none mb-4">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-safe pt-2 pointer-events-none mb-4 flex flex-col gap-2">
       <motion.div 
         initial={{ y: 100 }}
         animate={{ y: 0 }}
-        className="bg-white/95 backdrop-blur-2xl border border-stone-200/50 shadow-[0_-8px_40px_rgb(0,0,0,0.12)] rounded-3xl py-3 px-4 flex items-center justify-around pointer-events-auto max-w-lg mx-auto"
+        className="bg-white/95 backdrop-blur-2xl border border-stone-200/50 shadow-[0_-8px_40px_rgb(0,0,0,0.12)] rounded-3xl py-3 px-4 flex items-center justify-around pointer-events-auto max-w-lg mx-auto w-full"
       >
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;

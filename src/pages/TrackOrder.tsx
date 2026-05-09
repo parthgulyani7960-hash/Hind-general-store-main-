@@ -26,8 +26,11 @@ export default function TrackOrder() {
   const [loading, setLoading] = useState(false);
   const [runnerLocation, setRunnerLocation] = useState<any>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancellationReason, setCancellationReason] = useState('');
-  const [isCancelling, setIsCancelling] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItem, setReturnItem] = useState<any>(null);
+  const [returnQuantity, setReturnQuantity] = useState(1);
+  const [returnReason, setReturnReason] = useState('');
+  const [isReturning, setIsReturning] = useState(false);
 
   useEffect(() => {
     // If user is logged in, use their phone number automatically if not already set
@@ -71,6 +74,33 @@ export default function TrackOrder() {
       handleAppError(err, 'Error cancelling order', 'cancelOrder', user?.role === 'admin');
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  const handleReturnItem = async () => {
+    if (!returnReason.trim()) { toast.error('Please enter a reason'); return; }
+    if (returnQuantity < 1 || returnQuantity > returnItem?.quantity) { toast.error('Invalid quantity'); return; }
+    
+    setIsReturning(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}/return`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: returnItem.product_id, quantity: returnQuantity, reason: returnReason })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Return requested successfully');
+        setShowReturnModal(false);
+        // Refresh order data (could use original id, but autoTrack handles formatting)
+        handleTrackAuto(orderId || order.id, phoneNumber || order.user_phone || phone);
+      } else {
+        toast.error(data.message || 'Failed to request return');
+      }
+    } catch (err: any) {
+      handleAppError(err, 'Error requesting return', 'returnItem', user?.role === 'admin');
+    } finally {
+      setIsReturning(false);
     }
   };
 
@@ -366,7 +396,7 @@ export default function TrackOrder() {
                </h4>
                <div className="space-y-4">
                  {order.items && order.items.map((item: any) => (
-                   <div key={item.id} className="flex items-center justify-between py-3 border-b border-stone-50 last:border-0">
+                   <div key={item.id} className="flex flex-col md:flex-row md:items-center justify-between py-3 border-b border-stone-50 last:border-0 gap-4">
                      <div className="flex items-center space-x-4">
                         <div className="w-12 h-12 bg-stone-100 rounded-xl overflow-hidden shrink-0">
                            <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
@@ -374,9 +404,50 @@ export default function TrackOrder() {
                         <div>
                           <p className="font-bold text-stone-900 text-sm">{item.name}</p>
                           <p className="text-xs text-stone-400">Qty: {item.quantity}</p>
+                          {item.return_status && (
+                            <span className={cn(
+                              "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mt-1 inline-block",
+                              item.return_status === 'pending' ? "bg-amber-100 text-amber-700" :
+                              item.return_status === 'approved' ? "bg-emerald-100 text-emerald-700" :
+                              item.return_status === 'rejected' ? "bg-red-100 text-red-700" :
+                              "bg-blue-100 text-blue-700"
+                            )}>
+                              Return {item.return_status}
+                            </span>
+                          )}
                         </div>
                      </div>
-                     <p className="font-bold text-stone-900 text-sm">₹{item.price * item.quantity}</p>
+                     <div className="flex flex-col items-end">
+                       <p className="font-bold text-stone-900 text-sm md:text-base">₹{item.price * item.quantity}</p>
+                       {order.status === 'delivered' && !item.return_status && user && (
+                         (() => {
+                           const orderDate = new Date(order.created_at);
+                           const daysSinceOrder = (Date.now() - orderDate.getTime()) / (1000 * 3600 * 24);
+                           const isReturnEligible = daysSinceOrder <= 7;
+                           
+                           return isReturnEligible ? (
+                             <button 
+                               onClick={() => {
+                                 setReturnItem(item);
+                                 setReturnQuantity(1);
+                                 setReturnReason('');
+                                 setShowReturnModal(true);
+                               }}
+                               className="text-xs md:text-sm font-bold text-primary hover:bg-primary/10 mt-2 px-3 py-1.5 md:px-5 md:py-2 rounded-full transition-all border border-primary/20 bg-primary/5 active:scale-95"
+                             >
+                               Return Item
+                             </button>
+                           ) : (
+                             <Link 
+                               to="/profile?tab=support"
+                               className="text-[10px] md:text-xs font-medium text-stone-500 hover:text-stone-700 hover:bg-stone-50 mt-2 px-3 py-1.5 md:px-4 md:py-2 rounded-full transition-all border border-stone-200 bg-white active:scale-95 whitespace-nowrap"
+                             >
+                               Contact Support to Return
+                             </Link>
+                           );
+                         })()
+                       )}
+                     </div>
                    </div>
                  ))}
                  <div className="pt-4 border-t border-stone-100 flex justify-between items-center">
@@ -412,7 +483,7 @@ export default function TrackOrder() {
                 </Link>
               </div>
               
-              {(order.status === 'pending' || order.status === 'processing') && (
+              {(order.status === 'pending' || order.status === 'confirmed') && (
                 <button 
                   onClick={() => setShowCancelModal(true)}
                   className="md:col-span-2 w-full bg-red-50 text-red-600 py-4 rounded-2xl font-bold hover:bg-red-100 transition-all"
@@ -432,10 +503,70 @@ export default function TrackOrder() {
                     onChange={(e) => setCancellationReason(e.target.value)}
                     className="w-full p-3 border rounded-xl"
                   />
-                  <div className="flex gap-2">
-                    <button onClick={() => setShowCancelModal(false)} className="flex-1 py-2 font-bold text-stone-500">Back</button>
-                    <button onClick={handleCancelOrder} disabled={isCancelling} className="flex-1 py-2 bg-red-600 text-white font-bold rounded-xl">{isCancelling ? 'Cancelling...' : 'Confirm Cancel'}</button>
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                    <button onClick={() => setShowCancelModal(false)} className="flex-1 py-3 md:py-4 font-bold text-stone-500 hover:bg-stone-50 rounded-xl transition-all">Back</button>
+                    <button onClick={handleCancelOrder} disabled={isCancelling} className="flex-1 py-3 md:py-4 bg-red-600 text-white font-bold rounded-xl active:scale-95 transition-all shadow-lg shadow-red-600/20">{isCancelling ? 'Cancelling...' : 'Confirm Cancel'}</button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {showReturnModal && returnItem && (
+              <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white p-6 md:p-8 rounded-[2rem] w-full max-w-lg shadow-2xl space-y-6 md:space-y-8 animate-in fade-in zoom-in duration-200">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xl md:text-2xl font-black text-stone-900">Return Item</h3>
+                    <button onClick={() => setShowReturnModal(false)} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
+                      <XCircle size={24} className="text-stone-400" />
+                    </button>
+                  </div>
+                  
+                  <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-6 p-4 border border-stone-100 rounded-2xl bg-stone-50">
+                    <div className="w-20 h-20 md:w-24 md:h-24 bg-white rounded-xl overflow-hidden shrink-0 shadow-sm">
+                      <img src={returnItem.image_url} alt={returnItem.name} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="text-center md:text-left flex-1">
+                      <p className="font-bold text-stone-900 text-sm md:text-base leading-tight">{returnItem.name}</p>
+                      <p className="text-stone-500 text-sm md:text-base mt-1 font-mono">₹{returnItem.price}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 md:space-y-6">
+                    <div>
+                      <label className="block text-xs md:text-sm font-bold text-stone-500 uppercase tracking-wider mb-2">Quantity to Return</label>
+                      <input 
+                        type="number"
+                        min="1"
+                        max={returnItem.quantity}
+                        value={returnQuantity}
+                        onChange={(e) => setReturnQuantity(parseInt(e.target.value) || 1)}
+                        className="w-full px-4 py-3 md:py-4 bg-stone-50 border border-stone-200 rounded-2xl text-stone-900 font-bold text-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                      />
+                      <p className="text-xs text-stone-400 mt-2">Maximum: {returnItem.quantity}</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs md:text-sm font-bold text-stone-500 uppercase tracking-wider mb-2">Reason for Return</label>
+                      <textarea 
+                        placeholder="Please explain why you want to return this item..."
+                        value={returnReason}
+                        onChange={(e) => setReturnReason(e.target.value)}
+                        className="w-full p-4 md:p-5 bg-stone-50 border border-stone-200 rounded-2xl text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none"
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleReturnItem} 
+                    disabled={isReturning || !returnReason.trim()}
+                    className={cn(
+                      "w-full py-4 md:py-5 rounded-2xl font-black text-sm md:text-base uppercase tracking-wider transition-all active:scale-95",
+                      isReturning || !returnReason.trim() ? "bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200" : "bg-primary text-white hover:bg-primary/90 shadow-xl shadow-primary/30"
+                    )}
+                  >
+                    {isReturning ? 'Submitting Request...' : 'Submit Request'}
+                  </button>
                 </div>
               </div>
             )}

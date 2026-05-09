@@ -1,11 +1,13 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star, Camera } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star, Camera, Store } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { cn } from '../types';
 
 import UserAvatar from './UserAvatar';
+import SearchOverlay from './SearchOverlay';
+import NotificationBell from './NotificationBell';
 
 const MiniCart = ({ cart, isOpen, showImages }: { cart: any[], isOpen: boolean, showImages: boolean }) => {
   const { t } = useStore();
@@ -83,8 +85,7 @@ export default function Navbar() {
   const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const navigate = useNavigate();
   const { addToCart, updateQuantity } = useStore();
 
@@ -93,38 +94,14 @@ export default function Navbar() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (searchQuery.trim().length < 2) {
-        setSuggestions([]);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSuggestions(data);
-          setShowSuggestions(true);
-        }
-      } catch (err) {
-        console.error('Failed to fetch suggestions');
-      }
-    };
-    const timer = setTimeout(fetchSuggestions, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
 
-  useEffect(() => {
-    const handleClickOutside = () => setShowSuggestions(false);
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const wishlistCount = wishlist.length;
 
   const navLinks = [
     { to: '/', label: t('home') },
+    { to: '/about', label: 'About Us' },
     { to: '/products', label: t('products') },
     { to: '/support', label: t('support') },
     { to: '/track-order', label: 'Track Order' },
@@ -139,122 +116,37 @@ export default function Navbar() {
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
-          <Link to="/" className="flex items-center space-x-3 group">
-            <div className="relative">
-              <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center transform group-hover:rotate-6 transition-all duration-700 shadow-2xl shadow-primary/30 overflow-hidden border border-white/10 ring-1 ring-white/5">
-                <span className="text-white font-black text-xl relative z-10 tracking-tighter group-hover:scale-110 transition-transform duration-500 italic">HG</span>
-                <div className="absolute inset-0 bg-gradient-to-br from-accent/40 via-transparent to-transparent group-hover:opacity-100 transition-opacity duration-700" />
-                <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          <Link to="/" className="flex items-center space-x-3 group mr-4">
+            <div className="relative shrink-0">
+              <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center transform group-hover:-rotate-3 transition-all duration-700 shadow-xl overflow-hidden border border-stone-200 ring-1 ring-stone-100">
+                <Store className="text-emerald-600" size={24} />
+                <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 via-transparent to-transparent group-hover:opacity-100 transition-opacity duration-700" />
               </div>
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-accent rounded-lg border-2 border-white shadow-sm flex items-center justify-center">
-                <Star size={8} className="text-white fill-white" />
+              <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-white shadow-sm flex items-center justify-center">
+                <ShoppingCart size={10} className="text-white" />
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="text-2xl font-black text-stone-900 hidden sm:block leading-none tracking-tight group-hover:text-primary transition-colors">
-                <span className="text-primary">Hind</span> General
+              <span className="text-lg font-black text-stone-900 hidden lg:block leading-none tracking-tight group-hover:text-emerald-700 transition-colors">
+                {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'}
               </span>
-              <div className="flex items-center space-x-1.5 text-[9px] font-black uppercase tracking-[0.3em] hidden sm:flex mt-1.5">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent"></span>
-                </span>
-                <span className="text-stone-400">Premium Quality</span>
+              <div className="flex items-center space-x-1.5 text-[8px] font-black uppercase tracking-[0.2em] hidden lg:flex mt-1">
+                <span className="text-stone-500">{config.find(c => c.key === 'store_address')?.value?.split(',')[0] || 'Nayagaon'} • Daily Essentials</span>
               </div>
             </div>
           </Link>
 
-          <div className="relative flex-grow max-w-lg w-full mx-2 md:mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="relative flex-grow max-w-lg w-full mx-2 md:mx-4">
             <div className="relative">
-              <Search className="absolute left-3 top-2.5 text-stone-400" size={18} />
+              <Search className="absolute left-3 top-2.5 text-stone-400 pointer-events-none" size={18} />
               <input
                 type="text"
+                readOnly
                 placeholder={t('search_placeholder')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setShowSuggestions(true)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && searchQuery.trim()) {
-                    setShowSuggestions(false);
-                    navigate(`/products?search=${encodeURIComponent(searchQuery)}`);
-                  }
-                }}
-                className="w-full pl-10 pr-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                onClick={() => setIsSearchModalOpen(true)}
+                className="w-full pl-10 pr-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-stone-100/80 cursor-pointer text-sm focus:outline-none hover:bg-stone-200 transition-colors"
               />
             </div>
-            {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 overflow-hidden z-50">
-                {suggestions.map((suggestion: any) => {
-                  const itemInCart = cart.find((c: any) => c.id === suggestion.id);
-                  return (
-                    <div
-                      key={suggestion.id}
-                      className="w-full px-4 py-3 min-h-[44px] hover:bg-stone-50 text-sm transition-colors flex items-center justify-between group"
-                    >
-                      <button
-                        onClick={() => {
-                          setSearchQuery(suggestion.name);
-                          setShowSuggestions(false);
-                          navigate(`/product/${suggestion.id}`);
-                        }}
-                        className="flex-grow flex items-center gap-3 text-left"
-                      >
-                        {showImages ? (
-                          <img src={suggestion.image_url} alt={suggestion.name} className="w-10 h-10 rounded-md object-cover" />
-                        ) : (
-                          <div className="w-10 h-10 flex items-center justify-center bg-stone-100 text-stone-400 rounded-md">
-                            <Camera size={16} />
-                          </div>
-                        )}
-                        <div className="flex flex-col">
-                          <span className="font-medium text-stone-700 group-hover:text-primary transition-colors">{suggestion.name}</span>
-                          <span className="text-[10px] text-stone-400 uppercase tracking-wider">{suggestion.category} - ₹{suggestion.price}</span>
-                        </div>
-                      </button>
-                      
-                      <div className="flex items-center gap-2">
-                        {itemInCart ? (
-                          <div className="flex items-center gap-2 bg-stone-100 rounded-lg p-1">
-                            <button onClick={() => updateQuantity(suggestion.id, itemInCart.quantity - 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded-md shadow-sm hover:bg-stone-50">-</button>
-                            <span className="text-xs font-bold w-4 text-center">{itemInCart.quantity}</span>
-                            <button onClick={() => updateQuantity(suggestion.id, itemInCart.quantity + 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded-md shadow-sm hover:bg-stone-50">+</button>
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={() => addToCart(suggestion)}
-                            className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-lg hover:bg-primary/20 transition-colors"
-                          >
-                            Add
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {showSuggestions && searchQuery.trim().length >= 2 && suggestions.length === 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg border border-stone-100 p-4 z-50 overflow-hidden">
-                <div className="flex flex-col items-center text-center space-y-3">
-                  <div className="w-12 h-12 bg-stone-50 rounded-2xl flex items-center justify-center">
-                    <ShoppingBag size={24} className="text-stone-300" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-stone-900">Product not found</p>
-                    <p className="text-[10px] text-stone-400 font-medium">We couldn't find what you're looking for</p>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setShowSuggestions(false);
-                      navigate(`/support?subject=${encodeURIComponent(`Product Request: ${searchQuery}`)}&message=${encodeURIComponent(`I couldn't find the product "${searchQuery}" in your store. Could you please check if it is available or if you can order it?`)}`);
-                    }}
-                    className="w-full py-2 bg-primary text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary/90 transition-all"
-                  >
-                    Submit a Request
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="hidden md:flex items-center space-x-8">
@@ -342,6 +234,8 @@ export default function Navbar() {
                 </span>
               )}
             </Link>
+
+            <NotificationBell />
 
             <div 
               className="relative hidden md:block"
@@ -437,6 +331,12 @@ export default function Navbar() {
           )}
         </motion.div>
       )}
+
+      <SearchOverlay 
+        isOpen={isSearchModalOpen} 
+        onClose={() => setIsSearchModalOpen(false)} 
+        initialSearchQuery={searchQuery}
+      />
     </nav>
   );
 }

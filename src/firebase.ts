@@ -56,8 +56,9 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   }
   console.error('Firestore Error Detail: ', JSON.stringify(errInfo));
   
-  // Throw a user-friendly message, while the detailed info is logged above
-  throw new Error('A system error occurred. Please try again later.');
+  // Re-throw the error with the internal message so we can see it in the dev server logs,
+  // but also present it to the user.
+  throw new Error(`Firestore operation failed: ${errInfo.error} at ${path}`);
 }
 
 export const signInWithGoogle = async () => {
@@ -77,7 +78,7 @@ export const signInWithGoogle = async () => {
     } else if (error.code === 'auth/popup-blocked') {
       throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
     } else {
-        throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please ensure Firebase Google Auth is enabled.`);
+        throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please check that Google Auth is ENABLED in your Firebase Console (Authentication > Sign-in method > Google).`);
     }
   }
 };

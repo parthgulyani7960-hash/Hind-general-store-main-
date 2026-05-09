@@ -4,8 +4,11 @@ import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle } from 'lucide-react';
 
+import { StoreProvider, useStore } from '../StoreContext';
+
 export default function Invoice() {
   const { id } = useParams();
+  const { config } = useStore();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -120,10 +123,12 @@ export default function Invoice() {
 
         <div className="flex justify-between items-start mb-12">
           <div>
-            <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-white font-bold text-2xl mb-4">H</div>
-            <h1 className="text-2xl font-bold text-primary">Hind General Store</h1>
-            <p className="text-stone-500 text-sm">Main Market, Ludhiana, Punjab</p>
-            <p className="text-stone-500 text-sm">+91 98765 43210</p>
+            <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center text-white font-bold text-2xl mb-4">
+              {(config.find(c => c.key === 'store_name')?.value || 'H')[0]?.toUpperCase()}
+            </div>
+            <h1 className="text-2xl font-bold text-primary">{config.find(c => c.key === 'store_name')?.value || 'Hind General Store'}</h1>
+            <p className="text-stone-500 text-sm whitespace-pre-line">{config.find(c => c.key === 'store_address')?.value || 'Main Market, Nayagaon'}</p>
+            <p className="text-stone-500 text-sm">{config.find(c => c.key === 'store_phone')?.value || '+91 98765 43210'}</p>
           </div>
           <div className="text-right">
             <h2 className="text-4xl font-bold text-stone-900 uppercase tracking-tighter">Invoice</h2>

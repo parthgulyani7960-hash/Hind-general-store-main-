@@ -793,14 +793,46 @@ try { db.prepare('ALTER TABLE orders ADD COLUMN cancellation_reason TEXT').run()
 
   app.post('/api/orders/:id/cancel', (req, res) => {
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason, restock, refund } = req.body;
     try {
-      const order = db.prepare('SELECT status FROM orders WHERE order_id = ? OR id = ?').get(id, id) as any;
+      const order = db.prepare('SELECT id, status, user_id, payment_method, wallet_used, total FROM orders WHERE order_id = ? OR id = ?').get(id, id) as any;
       if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-      if (order.status !== 'pending' && order.status !== 'processing') {
+      
+      const isAdmin = (req.session as any)?.role === 'admin';
+      
+      if (!isAdmin && order.status !== 'pending' && order.status !== 'processing') {
         return res.status(400).json({ success: false, message: 'Order cannot be cancelled' });
       }
-      db.prepare('UPDATE orders SET status = ?, cancellation_reason = ? WHERE order_id = ? OR id = ?').run('cancelled', reason, id, id);
+
+      db.transaction(() => {
+        db.prepare('UPDATE orders SET status = ?, cancellation_reason = ? WHERE order_id = ? OR id = ?').run('cancelled', reason, id, id);
+        
+        if (isAdmin) {
+          // Admin cancellation options
+          if (restock) {
+            const items = db.prepare('SELECT product_id, variant_id, quantity FROM order_items WHERE order_id = ?').all(order.id) as any[];
+            for (const item of items) {
+              db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(item.quantity, item.product_id);
+              if (item.variant_id) {
+                db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?').run(item.quantity, item.variant_id);
+              }
+            }
+          }
+          
+          if (refund) {
+            if (order.payment_method === 'wallet' && order.wallet_used > 0) {
+              db.prepare('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?').run(order.wallet_used, order.user_id);
+              db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description, status) VALUES (?, ?, ?, ?, ?)')
+                .run(order.user_id, order.wallet_used, 'credit', `Refund for Cancelled Order #${order.id}`, 'approved');
+            } else if (order.payment_method === 'khata') {
+              db.prepare('UPDATE users SET khata_balance = khata_balance - ? WHERE id = ?').run(order.total, order.user_id);
+              db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description, status) VALUES (?, ?, ?, ?, ?)')
+                .run(order.user_id, order.total, 'credit', `Khata Reversal for Cancelled Order #${order.id}`, 'approved');
+            }
+          }
+        }
+      })();
+
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
@@ -828,12 +860,20 @@ try { db.prepare('ALTER TABLE users ADD COLUMN state TEXT').run(); } catch (e) {
 try { db.prepare('ALTER TABLE users ADD COLUMN zip_code TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN address TEXT').run(); } catch (e) {}
 
+try { db.prepare('ALTER TABLE promotions ADD COLUMN target_role TEXT DEFAULT \'all\'').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE promotions ADD COLUMN start_time DATETIME').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE promotions ADD COLUMN end_time DATETIME').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE promotions ADD COLUMN is_default BOOLEAN DEFAULT 0').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE promotions ADD COLUMN views INTEGER DEFAULT 0').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE promotions ADD COLUMN clicks INTEGER DEFAULT 0').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE promotions ADD COLUMN banner_type TEXT DEFAULT \'standard\'').run(); } catch(e) {}
+
 // Advanced Enterprise Tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS promotional_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT,
-    type TEXT, -- 'bogo', 'percent_off', 'fixed_off'
+    type TEXT, -- 'bogo', 'percent_off', 'fixed_off', 'fixed', 'percentage'
     target_type TEXT, -- 'category', 'product', 'all'
     target_id TEXT, -- category name or product id
     condition_qty INTEGER,
@@ -842,6 +882,9 @@ db.exec(`
     active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+  
+  INSERT OR IGNORE INTO promotional_rules (id, title, type, target_type, target_id, condition_qty, discount_value, active)
+  VALUES (1, 'Fixed discount 50 off on 5 of product 101', 'fixed', 'product', '101', 5, 50, 1);
 
   CREATE TABLE IF NOT EXISTS serviceable_pincodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1933,6 +1976,37 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
+  app.get('/api/user/khata/history/:userId', requireAuth, (req, res) => {
+    const { userId } = req.params;
+    if (parseInt(userId) !== req.session.userId && req.session.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    try {
+      const history = db.prepare(`
+        SELECT * FROM wallet_transactions 
+        WHERE user_id = ? AND description LIKE '%Khata%' 
+        ORDER BY created_at DESC
+      `).all(userId) as any[];
+      res.json(history);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch Khata history', error: err.message });
+    }
+  });
+
+  app.post('/api/admin/khata/adjust', requireAdmin, (req, res) => {
+    const { userId, amount, description } = req.body;
+    try {
+      db.transaction(() => {
+        db.prepare('UPDATE users SET khata_balance = khata_balance - ? WHERE id = ?').run(amount, userId);
+        db.prepare('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(userId, amount, 'credit', description);
+      })();
+      res.json({ success: true, message: 'Khata balance updated successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to adjust Khata balance', error: err.message });
+    }
+  });
+
   app.get('/api/delivery-areas', (req, res) => {
     const areas = db.prepare('SELECT * FROM delivery_areas').all();
     res.json(areas);
@@ -2405,26 +2479,137 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
+  app.get('/api/promotions-rules', (req, res) => {
+    try {
+      const records = db.prepare('SELECT * FROM promotional_rules').all();
+      const rules = records.map((r: any) => ({
+        id: r.id,
+        name: r.title,
+        description: r.title, // Map title to description 
+        type: r.type,
+        value: r.discount_value,
+        min_qty: r.condition_qty,
+        target_type: r.target_type,
+        target_id: r.target_id,
+        active: r.active === 1
+      }));
+      res.json(rules);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/promotions-rules', (req, res) => {
+    const { title, type, target_type, target_id, condition_qty, discount_value, active } = req.body;
+    db.prepare(`
+      INSERT INTO promotional_rules (title, type, target_type, target_id, condition_qty, discount_value, active) 
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(title, type, target_type, target_id, condition_qty, discount_value, active ? 1 : 0);
+    res.json({ success: true });
+  });
+
+  app.put('/api/admin/promotions-rules/:id', (req, res) => {
+    const { id } = req.params;
+    const { title, type, target_type, target_id, condition_qty, discount_value, active } = req.body;
+    db.prepare(`
+      UPDATE promotional_rules 
+      SET title = ?, type = ?, target_type = ?, target_id = ?, condition_qty = ?, discount_value = ?, active = ?
+      WHERE id = ?
+    `).run(title, type, target_type, target_id, condition_qty, discount_value, active ? 1 : 0, id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/promotions-rules/:id/toggle', (req, res) => {
+    const { id } = req.params;
+    db.prepare('UPDATE promotional_rules SET active = 1 - active WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/admin/promotions-rules/:id', (req, res) => {
+    const { id } = req.params;
+    db.prepare('DELETE FROM promotional_rules WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
   app.get('/api/promotions', (req, res) => {
     const isAdmin = req.query.admin === 'true';
-    const query = isAdmin 
-      ? 'SELECT * FROM promotions ORDER BY created_at DESC'
-      : 'SELECT * FROM promotions WHERE active = 1 ORDER BY created_at DESC';
-    const promotions = db.prepare(query).all();
-    res.json(promotions);
+    if (isAdmin) {
+      const query = 'SELECT * FROM promotions ORDER BY created_at DESC';
+      const promotions = db.prepare(query).all();
+      res.json(promotions);
+    } else {
+      const userRole = (req.session as any)?.role || 'customer';
+      const now = new Date().toISOString();
+      const query = `
+        SELECT * FROM promotions 
+        WHERE active = 1 
+        AND (target_role = 'all' OR target_role = ?)
+        AND (start_time IS NULL OR start_time <= ?)
+        AND (end_time IS NULL OR end_time >= ?)
+        AND banner_type != 'hidden'
+        ORDER BY is_default DESC, created_at DESC
+      `;
+      const promotions = db.prepare(query).all(userRole, now, now);
+      res.json(promotions);
+    }
+  });
+
+  app.post('/api/promotions/:id/view', (req, res) => {
+    try {
+      db.prepare('UPDATE promotions SET views = views + 1 WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch(e) { res.status(500).json({success:false}); }
+  });
+
+  app.post('/api/promotions/:id/click', (req, res) => {
+    try {
+      db.prepare('UPDATE promotions SET clicks = clicks + 1 WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch(e) { res.status(500).json({success:false}); }
   });
 
   app.post('/api/admin/promotions', (req, res) => {
-    const { title, description, image_url, link } = req.body;
-    db.prepare('INSERT INTO promotions (title, description, image_url, link) VALUES (?, ?, ?, ?)').run(title, description, image_url, link);
+    const { title, description, image_url, link, target_role, start_time, end_time, banner_type, is_default, active } = req.body;
+    db.prepare(`
+      INSERT INTO promotions 
+      (title, description, image_url, link, target_role, start_time, end_time, banner_type, is_default, active) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      title, 
+      description, 
+      image_url, 
+      link, 
+      target_role || 'all', 
+      start_time || null, 
+      end_time || null, 
+      banner_type || 'standard',
+      is_default ? 1 : 0,
+      active === undefined ? 1 : (active ? 1 : 0)
+    );
     res.json({ success: true });
   });
 
   app.put('/api/admin/promotions/:id', (req, res) => {
     const { id } = req.params;
-    const { title, description, image_url, link, active } = req.body;
-    db.prepare('UPDATE promotions SET title = ?, description = ?, image_url = ?, link = ?, active = ? WHERE id = ?')
-      .run(title, description, image_url, link, active ? 1 : 0, id);
+    const { title, description, image_url, link, active, target_role, start_time, end_time, banner_type, is_default } = req.body;
+    db.prepare(`
+      UPDATE promotions 
+      SET title = ?, description = ?, image_url = ?, link = ?, active = ?, 
+          target_role = ?, start_time = ?, end_time = ?, banner_type = ?, is_default = ?
+      WHERE id = ?
+    `).run(
+      title, 
+      description, 
+      image_url, 
+      link, 
+      active ? 1 : 0, 
+      target_role || 'all', 
+      start_time || null, 
+      end_time || null, 
+      banner_type || 'standard', 
+      is_default ? 1 : 0,
+      id
+    );
     res.json({ success: true });
   });
 
@@ -2586,8 +2771,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             finalProducts = fbProducts;
             console.log(`[FIREBASE] Fetched and synced ${finalProducts.length} products.`);
           }
-        } catch (fbErr) {
-          console.error('[FIREBASE] Firestore fetch failed:', fbErr);
+        } catch (fbErr: any) {
+          if (fbErr.code === 5 || fbErr.message?.includes('NOT_FOUND')) {
+            console.log('[FIREBASE] Firestore database not found or not initialized. Skipping.');
+          } else {
+            console.log('[FIREBASE] Firestore fetch failed:', fbErr.message || fbErr);
+          }
         }
       }
 
@@ -3254,12 +3443,56 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const users = db.prepare(`
         SELECT u.*, 
                COUNT(o.id) as total_orders, 
-               COALESCE(SUM(o.total), 0) as total_spent 
+               COALESCE(SUM(o.total), 0) as total_spent,
+               MAX(o.created_at) as last_order_date
         FROM users u 
         LEFT JOIN orders o ON u.id = o.user_id AND o.status != 'cancelled' AND o.status != 'failed' 
         GROUP BY u.id
-      `).all();
-      res.json(users);
+      `).all() as any[];
+
+      // RFM calculation
+      const now = new Date().getTime();
+      
+      const processedUsers = users.map(u => {
+         const recencyDays = u.last_order_date ? Math.floor((now - new Date(u.last_order_date).getTime()) / (1000 * 60 * 60 * 24)) : 999;
+         
+         // Scoring 1-5 (5 is best)
+         let rScore = 1;
+         if (recencyDays <= 7) rScore = 5;
+         else if (recencyDays <= 30) rScore = 4;
+         else if (recencyDays <= 90) rScore = 3;
+         else if (recencyDays <= 180) rScore = 2;
+
+         let fScore = 1;
+         if (u.total_orders >= 20) fScore = 5;
+         else if (u.total_orders >= 10) fScore = 4;
+         else if (u.total_orders >= 5) fScore = 3;
+         else if (u.total_orders >= 2) fScore = 2;
+
+         let mScore = 1;
+         if (u.total_spent >= 10000) mScore = 5;
+         else if (u.total_spent >= 5000) mScore = 4;
+         else if (u.total_spent >= 2000) mScore = 3;
+         else if (u.total_spent >= 500) mScore = 2;
+
+         const rfmScore = `${rScore}${fScore}${mScore}`;
+         let computedSegment = 'Standard';
+         
+         if (rScore >= 4 && fScore >= 4 && mScore >= 4) computedSegment = 'Champion';
+         else if (rScore >= 3 && fScore >= 3) computedSegment = 'Loyal';
+         else if (rScore >= 4 && fScore <= 2) computedSegment = 'Recent';
+         else if (rScore <= 2 && fScore >= 3) computedSegment = 'At Risk';
+         else if (rScore <= 2 && fScore <= 2) computedSegment = 'Lost';
+
+         return {
+           ...u,
+           rfm_score: rfmScore,
+           computed_segment: computedSegment,
+           recency_days: recencyDays
+         };
+      });
+
+      res.json(processedUsers);
     } catch (err) {
       console.error('Failed to fetch users for admin:', err);
       res.status(500).json({ error: 'Failed to fetch users' });
@@ -3447,6 +3680,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         const currentBalance = userData?.khata_balance || 0;
         const userLimit = userData?.khata_limit || userData?.credit_limit || 10000;
         
+        if (payment_method === 'khata' && !userData?.khata_enabled) {
+           throw new Error('Order Blocked: Khata (Credit) is not enabled for your account.');
+        }
+
         if (currentBalance >= userLimit) {
            throw new Error(`Order Blocked: You have reached your Khata credit limit (₹${userLimit}). Please clear your dues (Balance: ₹${currentBalance}) before placing new orders.`);
         }
@@ -3510,9 +3747,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           }
 
           const productData = db.prepare('SELECT name, stock, reorder_point FROM products WHERE id = ?').get(item.id) as any;
+          
+          broadcast({ 
+            type: 'INVENTORY_UPDATE', 
+            product_id: item.id, 
+            variant_id: item.variant_id, 
+            stock: productData.stock 
+          });
+
           const rp = productData.reorder_point !== null ? productData.reorder_point : 5;
           if (productData && productData.stock <= rp) {
             lowStockAlerts.push({ id: item.id, name: productData.name, stock: productData.stock });
+            broadcast({ type: 'LOW_STOCK', product_id: item.id, name: productData.name, stock: productData.stock });
           }
         }
 
@@ -3683,7 +3929,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       if (!order) return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
       
-      const items = db.prepare('SELECT oi.*, p.name as product_name, p.image_url FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?').all(order.id);
+      const items = db.prepare(`
+        SELECT oi.*, p.name as product_name, p.image_url, r.status as return_status
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        LEFT JOIN returns r ON r.order_id = oi.order_id AND r.product_id = oi.product_id
+        WHERE oi.order_id = ?
+      `).all(order.id);
       
       res.json({ success: true, order: { ...order, items } });
     } catch (err: any) {
@@ -3709,9 +3961,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
 
       const items = db.prepare(`
-        SELECT oi.*, p.name as product_name, p.image_url 
+        SELECT oi.*, p.name as product_name, p.image_url, r.status as return_status
         FROM order_items oi 
         JOIN products p ON oi.product_id = p.id 
+        LEFT JOIN returns r ON r.order_id = oi.order_id AND r.product_id = oi.product_id
         WHERE oi.order_id = ?
       `).all(order.id);
 

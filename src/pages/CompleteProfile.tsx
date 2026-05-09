@@ -84,7 +84,8 @@ export default function CompleteProfile() {
       const data = await res.json();
       if (data.success) {
         setUser(data.user);
-        toast.success('Profile completed successfully! Welcome to Hind General Store.');
+        const storeName = 'Hind General Store'; // fallback
+        toast.success(`Profile completed successfully! Welcome to ${storeName}.`);
         navigate('/');
       } else {
         toast.error(data.message || 'Failed to complete profile');

@@ -327,7 +327,7 @@ export default function Support() {
             <span>Got Questions?</span>
           </div>
           <h2 className="text-3xl font-black text-stone-900">Frequently Asked Questions</h2>
-          <p className="text-stone-500 mt-2">Everything you need to know about Hind General Store. Last Updated: {new Date().toLocaleDateString()}</p>
+          <p className="text-stone-500 mt-2">Everything you need to know about General Store Karyana Shop Nayagaon. Last Updated: {new Date().toLocaleDateString()}</p>
         </div>
 
         {faqHtml ? (
@@ -349,7 +349,7 @@ export default function Support() {
               {
                 cat: "Wallet, Payments & Khata",
                 q: [
-                  { q: "What is Hind Wallet and how does it work?", a: "Hind Wallet is our integrated digital payment system. You can pre-load balance for faster checkouts. All refunds are instantly credited to this wallet. You can pay via UPI to top up your balance by contacting your delivery runner or visiting the store." },
+                  { q: "What is General Store Karyana Shop Wallet and how does it work?", a: "General Store Karyana Shop Wallet is our integrated digital payment system. You can pre-load balance for faster checkouts. All refunds are instantly credited to this wallet. You can pay via UPI to top up your balance by contacting your delivery runner or visiting the store." },
                   { q: "Who is eligible for the 'Khata' credit system?", a: "Khata (Credit) is exclusively for our regular verified customers. After 10 successful delivered orders, you can apply for a Khata limit. This allows you to order groceries on 0% interest credit, payable weekly or monthly." },
                   { q: "Why did my payment fail but money was deducted?", a: "This is rare but happens due to bank server delays. If your order status is 'Failed', the amount will be automatically refunded to your source account by your bank within 3-5 business days. You can also send us a screenshot on WhatsApp for manual verification." }
                 ]
@@ -365,7 +365,7 @@ export default function Support() {
               {
                 cat: "Privacy, Security & Accounts",
                 q: [
-                  { q: "Is my personal data safe with Hind General Store?", a: "We prioritize your privacy above all. Your phone number and address are only shared with the assigned delivery runner during the active delivery phase. We use industry-standard encryption for all data storage. We never sell your data to third-party marketers." },
+                  { q: "Is my personal data safe with General Store Karyana Shop?", a: "We prioritize your privacy above all. Your phone number and address are only shared with the assigned delivery runner during the active delivery phase. We use industry-standard encryption for all data storage. We never sell your data to third-party marketers." },
                   { q: "Why is a profile photo mandatory?", a: "To maintain the integrity of our 'Khata' system and ensure the safety of our runners, we require a clear profile photo. This prevents identity theft and ensures that the delivery reaches the right person in high-density areas." },
                   { q: "Can I have multiple accounts?", a: "No. Our system detects multiple accounts linked to the same device or phone number. Fraudulent activities like coupon stacking via multiple accounts result in permanent bans and forfeiture of existing wallet balances." }
                 ]
@@ -485,8 +485,8 @@ export default function Support() {
           
           <div className="bg-primary/5 p-6 rounded-3xl border border-primary/10 space-y-2">
             <h3 className="font-bold text-primary">Store Location</h3>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Hind General Store, Main Bazaar, Near Clock Tower, City Center.
+            <p className="text-xs text-stone-600 leading-relaxed whitespace-pre-line">
+              {config.find(c => c.key === 'store_address')?.value || 'Main Market, Nayagaon'}
             </p>
             <a 
               href={config.find(c => c.key === 'store_location')?.value || '#'} 

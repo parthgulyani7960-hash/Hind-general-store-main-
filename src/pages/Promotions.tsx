@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Tag, ExternalLink, ShoppingBag, ArrowRight, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import SmartLink from '../components/SmartLink';
 import { cn } from '../types';
 
 import Navbar from '../components/Navbar';
@@ -53,7 +54,7 @@ export default function Promotions() {
             </motion.div>
             <h1 className="text-4xl md:text-5xl font-black text-stone-900">Promotions & Deals</h1>
             <p className="text-stone-500 max-w-2xl mx-auto">
-              Discover the best deals, seasonal offers, and exclusive discounts at Hind General Store. 
+              Discover the best deals, seasonal offers, and exclusive discounts at Hind General Store.
               Don't miss out on our latest promotions!
             </p>
           </div>
@@ -63,9 +64,9 @@ export default function Promotions() {
               <Tag size={48} className="mx-auto text-stone-300 mb-4" />
               <h3 className="text-xl font-bold text-stone-600">No active promotions right now</h3>
               <p className="text-stone-400">Check back later for exciting deals!</p>
-              <Link to="/products" className="btn-primary mt-6 inline-flex">
+              <SmartLink to="/products" className="btn-primary mt-6 inline-flex">
                 Browse Products
-              </Link>
+              </SmartLink>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -94,13 +95,13 @@ export default function Promotions() {
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
                         Added {new Date(promo.created_at).toLocaleDateString()}
                       </span>
-                      <Link 
+                      <SmartLink 
                         to={promo.link || '/products'} 
                         className="flex items-center space-x-2 text-primary font-bold hover:underline"
                       >
                         <span>View Deal</span>
-                        <ArrowRight size={16} />
-                      </Link>
+                        {promo.link?.startsWith('http') ? <ExternalLink size={16} /> : <ArrowRight size={16} />}
+                      </SmartLink>
                     </div>
                   </div>
                 </motion.div>
@@ -124,13 +125,13 @@ export default function Promotions() {
                   Stock up your kitchen with the finest quality products.
                 </p>
                 <div className="flex flex-wrap gap-4 pt-4">
-                  <Link to="/products" className="bg-primary text-white px-8 py-4 rounded-2xl font-bold hover:bg-primary/90 transition-all flex items-center space-x-2">
+                  <SmartLink to="/products" className="bg-primary text-white px-8 py-4 rounded-2xl font-bold hover:bg-primary/90 transition-all flex items-center space-x-2">
                     <ShoppingBag size={20} />
                     <span>Shop Essentials</span>
-                  </Link>
-                  <Link to="/support" className="bg-white/10 backdrop-blur text-white px-8 py-4 rounded-2xl font-bold hover:bg-white/20 transition-all">
+                  </SmartLink>
+                  <SmartLink to="/support" className="bg-white/10 backdrop-blur text-white px-8 py-4 rounded-2xl font-bold hover:bg-white/20 transition-all">
                     Contact Sales
-                  </Link>
+                  </SmartLink>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 w-full md:w-auto">

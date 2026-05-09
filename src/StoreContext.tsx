@@ -543,10 +543,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     checkAuth();
     checkMaintenance();
-    // Poll every 30 seconds for fast updates
+    // Poll every 60 seconds for fast updates
     const interval = setInterval(() => {
       checkMaintenance();
-    }, 30000);
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -692,6 +692,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return user.permissions?.includes(permission) ?? false;
   };
 
+  const calculateDiscount = (cart: CartItem[]) => {
+    let totalDiscount = 0;
+    promotions.forEach(promo => {
+      if (!promo.active) return;
+      
+      const eligibleItems = cart.filter(item => {
+        if (promo.target_type === 'all') return true;
+        if (promo.target_type === 'category') return item.category === promo.target_id;
+        if (promo.target_type === 'product') return String(item.id) === String(promo.target_id);
+        return false;
+      });
+
+      if (eligibleItems.length === 0) return;
+
+      const totalEligibleQty = eligibleItems.reduce((acc, item) => acc + item.quantity, 0);
+
+      if (promo.type === 'percentage') {
+        if (!promo.min_qty || totalEligibleQty >= promo.min_qty) {
+          eligibleItems.forEach(item => {
+            totalDiscount += (item.price * item.quantity * promo.value) / 100;
+          });
+        }
+      } else if (promo.type === 'fixed') {
+        if (!promo.min_qty || totalEligibleQty >= promo.min_qty) {
+          totalDiscount += promo.value; 
+        }
+      } else if (promo.type === 'bogo') {
+          eligibleItems.forEach(item => {
+             if (item.quantity >= (promo.min_qty || 2)) {
+                 const freeItems = Math.floor(item.quantity / (promo.min_qty || 2)) * (promo.value || 1);
+                 totalDiscount += freeItems * item.price;
+             }
+          });
+      }
+    });
+    return totalDiscount;
+  };
+
   const contextValue = React.useMemo(() => ({ 
       user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
       isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance,
@@ -714,8 +752,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       isMobile, isTablet, lastAddedId,
       logActivity,
       currentAlert, setCurrentAlert, markAlertAsRead,
-      hasPermission
-    }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts]);
+      hasPermission,
+      calculateDiscount
+    }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts, promotions]);
 
   return (
     <StoreContext.Provider value={contextValue}>

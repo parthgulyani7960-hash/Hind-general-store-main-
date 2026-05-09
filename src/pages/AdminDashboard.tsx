@@ -14,7 +14,7 @@ import {
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink, LogOut,
-  StickyNote, Truck, Home, Navigation, IndianRupee
+  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -36,7 +36,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -75,6 +75,7 @@ export default function AdminDashboard() {
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock'>('name');
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
+  const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
 
   // Verify auth and role
   useEffect(() => {
@@ -161,6 +162,9 @@ export default function AdminDashboard() {
       fetchOrders();
     } else if (activeTab === 'Products') {
       fetchProducts();
+    } else if (activeTab === 'Promotions') {
+      fetchPromotions();
+      fetchPromotionRules();
     }
   }, [activeTab, user]);
 
@@ -215,10 +219,13 @@ export default function AdminDashboard() {
   const [reviewResponseModal, setReviewResponseModal] = useState<{ open: boolean; review: any }>({ open: false, review: null });
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
-  const [promotionModal, setPromotionModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', promotion: null as any });
+  const [promotionRules, setPromotionRules] = useState<any[]>([]);
+  const [promotionRuleModal, setPromotionRuleModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
+  const [newPromotionRule, setNewPromotionRule] = useState({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
+  const [promotionModal, setPromotionModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
   const [promotionProductsModal, setPromotionProductsModal] = useState({ open: false, promotionId: null as number | null });
   const [linkedProductIds, setLinkedProductIds] = useState<number[]>([]);
-  const [newPromotion, setNewPromotion] = useState({ title: '', description: '', image_url: '', link: '', active: true });
+  const [newPromotion, setNewPromotion] = useState({ title: '', description: '', image_url: '', link: '', active: true, target_role: 'all', start_time: '', end_time: '', banner_type: 'standard', is_default: false });
   const [deliveryFee, setDeliveryFee] = useState('0');
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState('500');
   const [tncContent, setTncContent] = useState('');
@@ -877,8 +884,8 @@ export default function AdminDashboard() {
       return;
     }
     const emails = newsletter.map(sub => sub.email).join(',');
-    const subject = encodeURIComponent('Special Offers from Hind General Store');
-    const body = encodeURIComponent('Hello,\n\nCheck out our latest offers and fresh arrivals!\n\nRegards,\nHind General Store');
+    const subject = encodeURIComponent('Special Offers from General Store Karyana Shop Nayagaon');
+    const body = encodeURIComponent('Hello,\n\nCheck out our latest offers and fresh arrivals!\n\nRegards,\nGeneral Store Karyana Shop');
     window.open(`mailto:${emails}?subject=${subject}&body=${body}`);
   };
 
@@ -901,6 +908,16 @@ export default function AdminDashboard() {
       setPromotions(data);
     } catch (err) {
       console.error('Promotions fetch error:', err);
+    }
+  };
+
+  const fetchPromotionRules = async () => {
+    try {
+      const res = await fetch('/api/promotions-rules');
+      const data = await res.json();
+      setPromotionRules(data);
+    } catch (err) {
+      console.error('Promotion Rules fetch error:', err);
     }
   };
 
@@ -1209,8 +1226,24 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeletePromotion = async (id: number) => {
+    if (!window.confirm('Delete this promotion?')) return;
+    try {
+      const res = await fetch(`/api/admin/promotions/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete promotion');
+      toast.success('Promotion deleted');
+      fetchPromotions();
+    } catch (err: any) {
+      handleAppError(err, 'Failed to delete promotion', 'deletePromotion', true);
+    }
+  };
+
   const handlePromotionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newPromotion.title.trim()) {
+        toast.error('Title is required');
+        return;
+    }
     const url = promotionModal.mode === 'add' ? '/api/admin/promotions' : `/api/admin/promotions/${promotionModal.id}`;
     const method = promotionModal.mode === 'add' ? 'POST' : 'PUT';
     
@@ -1220,6 +1253,7 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newPromotion)
       });
+      if (!res.ok) throw new Error(`Failed to ${promotionModal.mode} promotion`);
       const data = await res.json();
       if (data.success) {
         toast.success(`Promotion ${promotionModal.mode === 'add' ? 'added' : 'updated'} successfully`);
@@ -1227,20 +1261,65 @@ export default function AdminDashboard() {
         setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true });
         fetchPromotions();
       }
-    } catch (err) {
-      toast.error('Failed to save promotion');
+    } catch (err: any) {
+      handleAppError(err, 'Failed to save promotion', 'savePromotion', true);
     }
   };
 
   const togglePromotionStatus = async (id: number) => {
     try {
       const res = await fetch(`/api/admin/promotions/${id}/toggle`, { method: 'POST' });
-      if (res.ok) {
-        toast.success('Promotion status updated');
-        fetchPromotions();
+      if (!res.ok) throw new Error('Failed to update promotion status');
+      toast.success('Promotion status updated');
+      fetchPromotions();
+    } catch (err: any) {
+      handleAppError(err, 'Failed to update status', 'togglePromotionStatus', true);
+    }
+  };
+
+  const handleDeletePromotionRule = async (id: number) => {
+    if (!window.confirm('Delete this rule?')) return;
+    try {
+      const res = await fetch(`/api/admin/promotions-rules/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete rule');
+      toast.success('Discount rule deleted');
+      fetchPromotionRules();
+    } catch (err: any) {
+      handleAppError(err, 'Failed to delete rule', 'deletePromotionRule', true);
+    }
+  };
+
+  const handlePromotionRuleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = promotionRuleModal.mode === 'add' ? '/api/admin/promotions-rules' : `/api/admin/promotions-rules/${promotionRuleModal.id}`;
+    const method = promotionRuleModal.mode === 'add' ? 'POST' : 'PUT';
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPromotionRule)
+      });
+      if (!res.ok) throw new Error(`Failed to ${promotionRuleModal.mode} rule`);
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Discount rule ${promotionRuleModal.mode === 'add' ? 'created' : 'updated'} successfully`);
+        setPromotionRuleModal({ open: false, mode: 'add', id: null });
+        setNewPromotionRule({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
+        fetchPromotionRules();
       }
-    } catch (err) {
-      toast.error('Failed to update status');
+    } catch (err: any) {
+      handleAppError(err, 'Failed to save rule', 'savePromotionRule', true);
+    }
+  };
+
+  const togglePromotionRuleStatus = async (id: number) => {
+    try {
+      const res = await fetch(`/api/admin/promotions-rules/${id}/toggle`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to update rule status');
+      toast.success('Rule status updated');
+      fetchPromotionRules();
+    } catch (err: any) {
+      handleAppError(err, 'Failed to update rule status', 'togglePromotionRuleStatus', true);
     }
   };
 
@@ -1759,6 +1838,7 @@ export default function AdminDashboard() {
         { name: 'Product Catalog' as Tab, icon: Package },
         { name: 'Categories' as Tab, icon: List },
         { name: 'Bulk Discounts' as Tab, icon: Tag },
+        { name: 'Suppliers' as Tab, icon: Truck },
       ]
     },
     {
@@ -1767,6 +1847,7 @@ export default function AdminDashboard() {
         { name: 'Orders' as Tab, icon: ShoppingBag },
         { name: 'Payment Automation' as any, icon: ShieldCheck, path: '/admin/payments' },
         { name: 'Logistics' as Tab, icon: Truck },
+        { name: 'Returns' as Tab, icon: Receipt },
         { name: 'Coupons' as Tab, icon: CreditCard },
         { name: 'Promotions' as Tab, icon: TrendingUp },
       ]
@@ -1783,7 +1864,7 @@ export default function AdminDashboard() {
     {
       title: 'Operations',
       items: [
-        { name: 'Support' as Tab, icon: MessageSquare },
+        { name: 'Support Tickets' as Tab, icon: MessageSquare },
         { name: 'Expenses' as Tab, icon: Receipt },
         { name: 'Audit Logs' as Tab, icon: History },
         { name: 'Roles' as Tab, icon: Shield },
@@ -1797,6 +1878,7 @@ export default function AdminDashboard() {
         { name: 'Suspicious Activities' as Tab, icon: AlertTriangle },
         { name: 'System Status' as Tab, icon: Activity },
         { name: 'Bug Reports' as Tab, icon: AlertTriangle },
+        { name: 'Feature Toggles' as Tab, icon: Settings },
       ]
     }
   ];
@@ -1830,9 +1912,10 @@ export default function AdminDashboard() {
   }
 
   const tabs: Tab[] = [
-    'Overview', 'Analytics', 'Orders', 'Returns', 'Product Catalog', 'Categories', 'Customers', 'Wallet Requests', 'Reviews', 
-    'Coupons', 'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Roles', 'Promotions', 'Support', 'Newsletter', 'Expenses', 'Store Settings', 
-    'Payment Settings', 'System Status'
+    'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 'Product Catalog', 'Categories', 
+    'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Roles', 'Support Tickets', 'Newsletter', 
+    'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'Suspicious Activities', 'Promotions', 
+    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Bug Reports'
   ];
 
   if (showPOPrint && poData) {
@@ -1852,7 +1935,7 @@ export default function AdminDashboard() {
                     <p className="text-stone-500 mt-1">Date: {new Date().toLocaleDateString()}</p>
                   </div>
                   <div className="text-right">
-                    <h2 className="text-lg font-bold text-stone-800">Hind General Store</h2>
+                    <h2 className="text-lg font-bold text-stone-800">General Store Karyana Shop</h2>
                     <p className="text-stone-500 text-sm">123 Market Road, Ludhiana</p>
                     <p className="text-stone-500 text-sm">Phone: {config.find(c => c.key === 'admin_phone')?.value || '7888422429'}</p>
                   </div>
@@ -1968,7 +2051,7 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
-                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Hind Store</p>
+                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">General Store Karyana Shop Store</p>
               </div>
             </div>
           )}
@@ -2227,6 +2310,14 @@ export default function AdminDashboard() {
         </header>
 
         <main className="p-4 lg:p-8 pt-20 lg:pt-8">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.2 }}
+          >
         {activeTab === 'Overview' && (
           <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -4030,47 +4121,14 @@ export default function AdminDashboard() {
             </div>
 
             {selectedOrders.length > 0 && (
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-primary/5 border border-primary/20 p-4 rounded-2xl flex items-center justify-between"
-              >
-                <div className="flex items-center space-x-4">
-                  <span className="text-sm font-bold text-primary">{selectedOrders.length} Orders Selected</span>
-                  <div className="h-4 w-px bg-primary/20" />
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase">Bulk Action:</span>
-                    <select 
-                      className="bg-white border border-stone-200 rounded-lg text-xs font-bold py-1.5 px-3 focus:ring-primary/20"
-                      onChange={(e) => {
-                        if (e.target.value === 'delete') {
-                          handleBulkOrderAction('delete');
-                        } else if (e.target.value === 'print_slips') {
-                          toast.success('Generated packing slips for ' + selectedOrders.length + ' orders. Preparing Print...', { icon: '🖨️' });
-                          setTimeout(() => window.print(), 1000);
-                        } else if (e.target.value) {
-                          handleBulkOrderAction('status', e.target.value);
-                        }
-                        e.target.value = '';
-                      }}
-                    >
-                      <option value="">Select Action...</option>
-                      <option value="print_slips">🖨️ Print Packing Slips</option>
-                      <option value="processing">Mark as Processing</option>
-                      <option value="shipped">Mark as Shipped</option>
-                      <option value="delivered">Mark as Delivered</option>
-                      <option value="cancelled">Mark as Cancelled</option>
-                      <option value="delete">Delete Selected</option>
-                    </select>
-                  </div>
-                </div>
+              <div className="flex justify-end pt-2">
                 <button 
                   onClick={() => setSelectedOrders([])}
-                  className="text-xs font-bold text-primary hover:underline"
+                  className="text-xs font-bold text-stone-400 hover:text-stone-600 underline"
                 >
-                  Clear Selection
+                  Clear Selection ({selectedOrders.length})
                 </button>
-              </motion.div>
+              </div>
             )}
 
             <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
@@ -4146,8 +4204,14 @@ export default function AdminDashboard() {
                           order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
                         return matchesStatus && matchesStart && matchesEnd && matchesSearch;
                       })
-                      .map((order) => (
-                      <tr key={order.id} className={cn(selectedOrders.includes(order.id) && "bg-primary/5")}>
+                      .map((order, idx) => (
+                      <motion.tr 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        key={order.id} 
+                        className={cn("group hover:bg-stone-50 transition-colors", selectedOrders.includes(order.id) && "bg-primary/5")}
+                      >
                         <td className="px-6 py-4">
                           <input 
                             type="checkbox" 
@@ -4164,7 +4228,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 font-mono text-sm">
                           <div className="flex items-center space-x-2">
-                            <span>#ORD-{order.id}</span>
+                            <span className="font-bold text-stone-700">#ORD-{order.id}</span>
                             {order.admin_notes && (
                               <StickyNote size={14} className="text-amber-500" title="Has internal notes" />
                             )}
@@ -4176,11 +4240,11 @@ export default function AdminDashboard() {
                             {order.user_phone || (order.address ? JSON.parse(order.address).phone : 'N/A')}
                           </p>
                         </td>
-                        <td className="px-6 py-4 font-bold text-sm">₹{order.total}</td>
-                        <td className="px-6 py-4 font-bold text-sm">{order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0) || 0}</td>
+                        <td className="px-6 py-4 font-black text-sm text-stone-900">₹{order.total}</td>
+                        <td className="px-6 py-4 font-bold text-sm text-stone-500">{order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0) || 0}</td>
                         <td className="px-6 py-4">
                           <span className={cn(
-                            "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
+                            "text-[10px] font-black px-2 py-1.5 rounded-lg uppercase tracking-wider",
                             order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600' : 
                             order.status === 'cancelled' ? 'bg-red-50 text-red-600' : 
                             order.status === 'failed' ? 'bg-stone-900 text-white' : 'bg-amber-50 text-amber-600'
@@ -4188,42 +4252,77 @@ export default function AdminDashboard() {
                             {order.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-xs text-stone-500">
+                        <td className="px-6 py-4 text-xs font-bold text-stone-500">
                           {new Date(order.created_at).toLocaleDateString()}
                         </td>
-                        <td className="px-6 py-4 flex items-center space-x-2">
-                          <div className="relative group">
-                            <select 
-                              className={cn(
-                                "text-[10px] font-bold uppercase tracking-tight border rounded-lg p-2 pr-8 appearance-none cursor-pointer transition-all focus:ring-2 focus:ring-primary/20",
-                                order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                                order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' : 
-                                order.status === 'failed' ? 'bg-stone-900 text-white border-stone-800' : 
-                                'bg-amber-50 text-amber-600 border-amber-100'
-                              )}
-                              value={order.status}
-                              onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="processing">Processing</option>
-                              <option value="shipped">Shipped</option>
-                              <option value="delivered">Delivered</option>
-                              <option value="cancelled">Cancelled</option>
-                              <option value="failed">Failed</option>
-                            </select>
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50">
-                              <ChevronRight size={12} className="rotate-90" />
-                            </div>
-                          </div>
+                        <td className="px-6 py-4">
                           <button 
                             onClick={() => fetchOrderDetailsModal(order)}
-                            className="p-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-stone-500 hover:text-primary transition-all shadow-sm"
+                            className="p-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-stone-500 hover:text-primary transition-all shadow-sm flex items-center space-x-2"
                             title="View Details"
                           >
                             <Eye size={16} />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">View</span>
                           </button>
                         </td>
-                      </tr>
+                        <td className="px-6 py-4 text-right relative">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveActionMenuId(activeActionMenuId === `order_${order.id}` ? null : `order_${order.id}`);
+                            }}
+                            className="p-2 hover:bg-stone-100 text-stone-400 hover:text-primary rounded-lg transition-colors"
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                          
+                          <AnimatePresence>
+                            {activeActionMenuId === `order_${order.id}` && (
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                className="absolute right-10 top-2 mt-2 w-56 bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-100 z-[60] overflow-hidden flex flex-col py-2"
+                                onMouseLeave={() => setActiveActionMenuId(null)}
+                              >
+                                <div className="px-4 py-2 text-[10px] font-black uppercase text-stone-400 tracking-wider">Update Status</div>
+                                {[ 
+                                  {val: 'pending', label: 'Pending'}, 
+                                  {val: 'processing', label: 'Processing'}, 
+                                  {val: 'shipped', label: 'Shipped'}, 
+                                  {val: 'delivered', label: 'Delivered'}, 
+                                  {val: 'cancelled', label: 'Cancelled'} 
+                                ].map(s => (
+                                  <button 
+                                    key={s.val}
+                                    onClick={() => {
+                                      updateOrderStatus(order.id, s.val);
+                                      setActiveActionMenuId(null);
+                                    }}
+                                    className={cn("flex items-center space-x-3 px-4 py-1.5 hover:bg-stone-50 text-left text-sm font-bold", order.status === s.val ? "text-primary bg-primary/5" : "text-stone-600")}
+                                  >
+                                    <div className={cn("w-2 h-2 rounded-full", order.status === s.val ? "bg-primary" : "bg-transparent")} />
+                                    <span>{s.label}</span>
+                                  </button>
+                                ))}
+                                <div className="h-px bg-stone-100 my-2 mx-4" />
+                                <button 
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                >
+                                  <Receipt size={16} className="text-stone-400" />
+                                  <span>Print Invoice</span>
+                                </button>
+                                <button 
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-red-50 text-left text-sm font-bold text-red-600"
+                                >
+                                  <Trash2 size={16} className="text-red-500" />
+                                  <span>Archive Order</span>
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </td>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
@@ -4296,6 +4395,73 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Bottom Contextual Action Bar for Bulk Management (Orders) */}
+            <AnimatePresence>
+              {selectedOrders.length > 0 && activeTab === 'Orders' && (
+                <motion.div 
+                  initial={{ y: 150, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 150, opacity: 0 }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-stone-900 text-white px-6 py-4 rounded-[2rem] shadow-2xl flex items-center space-x-6 w-[90%] max-w-4xl border border-stone-800"
+                >
+                  <div className="flex flex-col border-r border-stone-700 pr-6 mr-2">
+                    <span className="text-2xl font-black text-white">{selectedOrders.length}</span>
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-stone-400">Selected</span>
+                  </div>
+                  
+                  <div className="flex flex-1 items-center space-x-2 md:space-x-4 overflow-x-auto no-scrollbar">
+                      <button 
+                        onClick={() => handleBulkOrderAction('status', 'processing')}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                        <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Settings size={16} className="text-blue-400" /></div>
+                        <span className="font-bold text-sm">Processing</span>
+                      </button>
+                      <button 
+                        onClick={() => handleBulkOrderAction('status', 'shipped')}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Package size={16} className="text-purple-400" /></div>
+                        <span className="font-bold text-sm">Shipped</span>
+                      </button>
+                      <button 
+                        onClick={() => handleBulkOrderAction('status', 'delivered')}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><CheckCircle2 size={16} className="text-emerald-400" /></div>
+                        <span className="font-bold text-sm">Delivered</span>
+                      </button>
+                      <button 
+                        onClick={() => {
+                          toast.success('Generated packing slips for ' + selectedOrders.length + ' orders. Preparing Print...', { icon: '🖨️' });
+                          setTimeout(() => window.print(), 1000);
+                        }}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Receipt size={16} className="text-stone-300" /></div>
+                        <span className="font-bold text-sm">Print Slips</span>
+                      </button>
+                  </div>
+                  
+                  <button 
+                    onClick={() => handleBulkOrderAction('delete')}
+                    className="p-3 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all"
+                    title="Delete Selected"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  <button 
+                    onClick={() => setSelectedOrders([])}
+                    className="bg-stone-800 hover:bg-stone-700 p-2 rounded-full transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
           </div>
         )}
 
@@ -4341,57 +4507,12 @@ export default function AdminDashboard() {
 
               <div className="flex items-center space-x-3">
                 {selectedProducts.length > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center space-x-3 bg-primary/10 px-4 py-2 rounded-xl border border-primary/20"
+                  <button 
+                    onClick={() => setSelectedProducts([])}
+                    className="text-xs font-bold text-stone-400 hover:text-stone-600 underline mr-2"
                   >
-                    <span className="text-sm font-bold text-primary mr-2">{selectedProducts.length} Selected</span>
-                    <div className="flex items-center bg-white rounded-lg shadow-sm border border-primary/20 p-1">
-                      <button 
-                        onClick={() => bulkUnlist(false)}
-                        className="flex items-center space-x-1 px-3 py-1.5 hover:bg-stone-50 rounded-md text-primary transition-colors text-xs font-bold"
-                      >
-                        <Check size={14} />
-                        <span>List</span>
-                      </button>
-                      <button 
-                        onClick={() => bulkUnlist(true)}
-                        className="flex items-center space-x-1 px-3 py-1.5 hover:bg-stone-50 rounded-md text-primary transition-colors text-xs font-bold border-l border-stone-100"
-                      >
-                        <X size={14} />
-                        <span>Unlist</span>
-                      </button>
-                      <button 
-                        onClick={bulkUpdateStock}
-                        className="flex items-center space-x-1 px-3 py-1.5 hover:bg-stone-50 rounded-md text-primary transition-colors text-xs font-bold border-l border-stone-100"
-                      >
-                        <RefreshCw size={14} />
-                        <span>Stock</span>
-                      </button>
-                      <button 
-                        onClick={bulkUpdateCategory}
-                        className="flex items-center space-x-1 px-3 py-1.5 hover:bg-stone-50 rounded-md text-primary transition-colors text-xs font-bold border-l border-stone-100"
-                      >
-                        <Tag size={14} />
-                        <span>Category</span>
-                      </button>
-                      <button 
-                        onClick={bulkDelete}
-                        className="flex items-center space-x-1 px-3 py-1.5 hover:bg-red-50 rounded-md text-red-600 transition-colors text-xs font-bold border-l border-stone-100"
-                      >
-                        <Trash2 size={14} />
-                        <span>Delete</span>
-                      </button>
-                    </div>
-                    <div className="w-px h-4 bg-primary/20 mx-2" />
-                    <button 
-                      onClick={() => setSelectedProducts([])}
-                      className="text-xs font-bold text-primary hover:underline"
-                    >
-                      Clear
-                    </button>
-                  </motion.div>
+                    Clear Selection ({selectedProducts.length})
+                  </button>
                 )}
                 <div className="flex items-center space-x-2">
                   <button 
@@ -4592,9 +4713,14 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {filteredProducts.map((product) => (
-                      <tr key={product.id} className={cn(
-                        "hover:bg-stone-50 transition-colors",
+                    {filteredProducts.map((product, idx) => (
+                      <motion.tr 
+                        key={product.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className={cn(
+                        "hover:bg-stone-50 transition-colors group",
                         selectedProducts.includes(product.id) && "bg-primary/5"
                       )}>
                         <td className="px-6 py-4">
@@ -4621,7 +4747,7 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-xs bg-stone-100 px-2 py-1 rounded-md text-stone-600">
+                          <span className="text-xs bg-stone-100 px-2 py-1 rounded-md text-stone-600 font-bold tracking-wider uppercase">
                             {product.category}
                           </span>
                         </td>
@@ -4667,53 +4793,81 @@ export default function AdminDashboard() {
                             {product.is_listed ? 'Listed' : 'Unlisted'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end space-x-2">
-                            <button 
-                              onClick={() => {
-                                setVariantModal({ open: true, productId: product.id });
-                                fetchProductVariants(product.id);
-                              }}
-                              className="p-2 hover:bg-stone-100 text-stone-400 hover:text-primary rounded-lg transition-colors"
-                              title="Manage Variants"
-                            >
-                              <List size={16} />
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setEditingProduct(product);
-                                setNewProduct({
-                                  name: product.name,
-                                  description: product.description,
-                                  price: product.price.toString(),
-                                  stock: product.stock.toString(),
-                                  category: product.category,
-                                  image: product.image_url || product.image,
-                                  retail_price: product.retail_price?.toString() || '',
-                                  wholesale_price: product.wholesale_price?.toString() || '',
-                                  discount: product.discount?.toString() || '0',
-                                  reorder_point: product.reorder_point?.toString() || '10',
-                                  max_qty: product.max_qty?.toString() || '0',
-                                  is_listed: product.is_listed,
-                                  images: product.images || [],
-                                  specifications: product.specifications || {},
-                                  supplier_id: product.supplier_id?.toString() || ''
-                                } as any);
-                                setProductModal({ open: true, mode: 'edit' });
-                              }}
-                              className="p-2 hover:bg-primary/10 text-stone-400 hover:text-primary rounded-lg transition-colors"
-                            >
-                              <Settings size={16} />
-                            </button>
-                            <button 
-                              onClick={() => deleteProduct(product.id)}
-                              className="p-2 hover:bg-red-50 text-stone-400 hover:text-red-600 rounded-lg transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
+                        <td className="px-6 py-4 text-right relative">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveActionMenuId(activeActionMenuId === product.id ? null : product.id);
+                            }}
+                            className="p-2 hover:bg-stone-100 text-stone-400 hover:text-primary rounded-lg transition-colors"
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                          
+                          <AnimatePresence>
+                            {activeActionMenuId === product.id && (
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                className="absolute right-10 top-2 mt-2 w-48 bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-100 z-[60] overflow-hidden flex flex-col py-2"
+                                onMouseLeave={() => setActiveActionMenuId(null)}
+                              >
+                                <button 
+                                  onClick={() => {
+                                    setVariantModal({ open: true, productId: product.id });
+                                    fetchProductVariants(product.id);
+                                    setActiveActionMenuId(null);
+                                  }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                >
+                                  <List size={16} className="text-stone-400" />
+                                  <span>Manage Variants</span>
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    setEditingProduct(product);
+                                    setNewProduct({
+                                      name: product.name,
+                                      description: product.description,
+                                      price: product.price.toString(),
+                                      stock: product.stock.toString(),
+                                      category: product.category,
+                                      image: product.image_url || product.image,
+                                      retail_price: product.retail_price?.toString() || '',
+                                      wholesale_price: product.wholesale_price?.toString() || '',
+                                      discount: product.discount?.toString() || '0',
+                                      reorder_point: product.reorder_point?.toString() || '10',
+                                      max_qty: product.max_qty?.toString() || '0',
+                                      is_listed: product.is_listed,
+                                      images: product.images || [],
+                                      specifications: product.specifications || {},
+                                      supplier_id: product.supplier_id?.toString() || ''
+                                    } as any);
+                                    setProductModal({ open: true, mode: 'edit' });
+                                    setActiveActionMenuId(null);
+                                  }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                >
+                                  <Settings size={16} className="text-primary" />
+                                  <span>Edit Product</span>
+                                </button>
+                                <div className="h-px bg-stone-100 my-1 mx-2" />
+                                <button 
+                                  onClick={() => {
+                                     deleteProduct(product.id);
+                                     setActiveActionMenuId(null);
+                                  }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-red-50 text-left text-sm font-bold text-red-600"
+                                >
+                                  <Trash2 size={16} className="text-red-500" />
+                                  <span>Delete Item</span>
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
@@ -4725,6 +4879,69 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Bottom Contextual Action Bar for Bulk Management */}
+            <AnimatePresence>
+              {selectedProducts.length > 0 && activeTab === 'Product Catalog' && (
+                <motion.div 
+                  initial={{ y: 150, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 150, opacity: 0 }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-stone-900 text-white px-6 py-4 rounded-[2rem] shadow-2xl flex items-center space-x-6 w-[90%] max-w-4xl border border-stone-800"
+                >
+                  <div className="flex flex-col border-r border-stone-700 pr-6 mr-2">
+                    <span className="text-2xl font-black text-white">{selectedProducts.length}</span>
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-stone-400">Selected</span>
+                  </div>
+                  
+                  <div className="flex flex-1 items-center space-x-2 md:space-x-4 overflow-x-auto no-scrollbar">
+                      <button 
+                        onClick={() => bulkUnlist(false)}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                        <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Check size={16} className="text-emerald-400" /></div>
+                        <span className="font-bold text-sm">Make Active</span>
+                      </button>
+                      <button 
+                        onClick={() => bulkUnlist(true)}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><X size={16} className="text-amber-400" /></div>
+                        <span className="font-bold text-sm">Make Inactive</span>
+                      </button>
+                      <button 
+                        onClick={bulkUpdateStock}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><RefreshCw size={16} className="text-blue-400" /></div>
+                        <span className="font-bold text-sm">Update Stock</span>
+                      </button>
+                      <button 
+                        onClick={bulkUpdateCategory}
+                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                      >
+                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Tag size={16} className="text-purple-400" /></div>
+                        <span className="font-bold text-sm">Change Category</span>
+                      </button>
+                  </div>
+                  
+                  <button 
+                    onClick={bulkDelete}
+                    className="p-3 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all"
+                    title="Delete Selected"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  <button 
+                    onClick={() => setSelectedProducts([])}
+                    className="bg-stone-800 hover:bg-stone-700 p-2 rounded-full transition-all"
+                  >
+                    <X size={16} />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
@@ -4981,8 +5198,8 @@ export default function AdminDashboard() {
                 </select>
               </div>
             </div>
-            <div className="overflow-x-auto hidden md:block">
-              <table className="w-full text-left">
+            <div className="overflow-visible hidden md:block">
+              <table className="w-full text-left border-collapse">
                 <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
                   <tr>
                     <th className="px-6 py-4">Customer</th>
@@ -4994,8 +5211,14 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {filteredUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-stone-50 transition-colors">
+                  {filteredUsers.map((u, idx) => (
+                    <motion.tr 
+                      key={u.id} 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="hover:bg-stone-50 transition-colors group"
+                    >
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center overflow-hidden">
@@ -5012,9 +5235,23 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-stone-600 uppercase">{u.role}</span>
-                          <span className="text-[10px] text-stone-400">{u.segment}</span>
+                        <div className="flex flex-col space-y-1">
+                          <span className="text-xs font-bold text-stone-600 uppercase">Role: {u.role}</span>
+                          {u.computed_segment && (
+                             <div className="flex items-center space-x-1">
+                               <span className={cn(
+                                 "text-[10px] px-2 py-0.5 rounded-full font-bold",
+                                 u.computed_segment === 'Champion' ? "bg-emerald-100 text-emerald-700" :
+                                 u.computed_segment === 'Loyal' ? "bg-blue-100 text-blue-700" :
+                                 u.computed_segment === 'Recent' ? "bg-amber-100 text-amber-700" :
+                                 u.computed_segment === 'At Risk' ? "bg-orange-100 text-orange-700" :
+                                 u.computed_segment === 'Lost' ? "bg-red-100 text-red-700" :
+                                 "bg-stone-100 text-stone-700"
+                               )}>{u.computed_segment}</span>
+                               {u.rfm_score && <span className="text-[10px] text-stone-400 font-mono tracking-wider ml-1" title="Recency (1-5), Frequency (1-5), Monetary (1-5)">RFM:{u.rfm_score}</span>}
+                             </div>
+                          )}
+                          {!u.computed_segment && <span className="text-[10px] text-stone-400">{u.segment}</span>}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -5036,60 +5273,8 @@ export default function AdminDashboard() {
                           <span className="text-xs font-bold text-stone-300">Disabled</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-6 py-4 text-right relative">
                         <div className="flex justify-end items-center space-x-2">
-                          <button 
-                            onClick={() => setCustomerModal({ open: true, user: u })}
-                            className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-primary transition-all"
-                            title="View Details"
-                          >
-                            <Eye size={16} />
-                          </button>
-                          <button 
-                            onClick={() => fetchCustomerOrders(u.id)}
-                            className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-primary transition-all"
-                            title="Order History"
-                          >
-                            <ShoppingBag size={16} />
-                          </button>
-                          <button 
-                             onClick={async () => {
-                               const title = window.prompt('Enter Alert Title (e.g. Account Verification)');
-                               if (!title) return;
-                               const message = window.prompt('Enter Main Message');
-                               if (!message) return;
-                               const details = window.prompt('Enter technical explanation (optional)');
-                               
-                               try {
-                                 const res = await fetch(`/api/admin/users/${u.id}/alert`, {
-                                   method: 'POST',
-                                   headers: { 'Content-Type': 'application/json' },
-                                   body: JSON.stringify({ 
-                                     title, message, details, 
-                                     type: 'info', 
-                                     duration: 6000, 
-                                     is_unskippable: true 
-                                   })
-                                 });
-                                 if (res.ok) toast.success(`Alert queued for ${u.name}`);
-                               } catch (e) {
-                                 toast.error('Failed to send alert');
-                               }
-                             }}
-                             className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-amber-500 transition-all"
-                             title="Flash Account Alert"
-                           >
-                             <Bell size={16} />
-                           </button>
-                          <a 
-                            href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-2 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                            title="WhatsApp Customer"
-                          >
-                            <MessageCircle size={16} />
-                          </a>
                           <button 
                             onClick={() => setWalletModal({ open: true, userId: u.id })}
                             className="text-[10px] bg-primary text-white px-3 py-1.5 rounded-lg font-bold hover:bg-primary/90 transition-colors"
@@ -5097,15 +5282,91 @@ export default function AdminDashboard() {
                             Wallet
                           </button>
                           <button 
-                            onClick={() => fetchWalletHistory(u.id)}
-                            className="p-2 text-stone-400 hover:text-primary hover:bg-stone-100 rounded-lg transition-all"
-                            title="History"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveActionMenuId(activeActionMenuId === `user_${u.id}` ? null : `user_${u.id}`);
+                            }}
+                            className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-primary transition-all"
                           >
-                            <History size={16} />
+                            <MoreVertical size={16} />
                           </button>
+                          
+                          <AnimatePresence>
+                            {activeActionMenuId === `user_${u.id}` && (
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                className="absolute right-10 top-2 mt-2 w-56 bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-100 z-[60] overflow-hidden flex flex-col py-2"
+                                onMouseLeave={() => setActiveActionMenuId(null)}
+                              >
+                                <button 
+                                  onClick={() => { setCustomerModal({ open: true, user: u }); setActiveActionMenuId(null); }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                >
+                                  <Eye size={16} className="text-stone-400" />
+                                  <span>View Details</span>
+                                </button>
+                                <button 
+                                  onClick={() => { fetchCustomerOrders(u.id); setActiveActionMenuId(null); }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                >
+                                  <ShoppingBag size={16} className="text-stone-400" />
+                                  <span>Order History</span>
+                                </button>
+                                <button 
+                                  onClick={() => { fetchWalletHistory(u.id); setActiveActionMenuId(null); }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                >
+                                  <History size={16} className="text-stone-400" />
+                                  <span>Wallet History</span>
+                                </button>
+                                <a 
+                                  href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-emerald-50 text-left text-sm font-bold text-emerald-600"
+                                >
+                                  <MessageCircle size={16} className="text-emerald-500" />
+                                  <span>WhatsApp</span>
+                                </a>
+                                <div className="h-px bg-stone-100 my-1 mx-2" />
+                                <button 
+                                   onClick={async () => {
+                                     setActiveActionMenuId(null);
+                                     const title = window.prompt('Enter Alert Title (e.g. Account Verification)');
+                                     if (!title) return;
+                                     const message = window.prompt('Enter Main Message');
+                                     if (!message) return;
+                                     const details = window.prompt('Enter technical explanation (optional)');
+                                     
+                                     try {
+                                       const res = await fetch(`/api/admin/users/${u.id}/alert`, {
+                                         method: 'POST',
+                                         headers: { 'Content-Type': 'application/json' },
+                                         body: JSON.stringify({ 
+                                           title, message, details, 
+                                           type: 'info', 
+                                           duration: 6000, 
+                                           is_unskippable: true 
+                                         })
+                                       });
+                                       if (res.ok) toast.success(`Alert queued for ${u.name}`);
+                                     } catch (e) {
+                                       toast.error('Failed to send alert');
+                                     }
+                                   }}
+                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-amber-50 text-left text-sm font-bold text-amber-600"
+                                >
+                                  <Bell size={16} className="text-amber-500" />
+                                  <span>Flash Alert</span>
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
                 </tbody>
               </table>
@@ -5169,8 +5430,8 @@ export default function AdminDashboard() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-bold">Promotion Management</h2>
-                <p className="text-stone-500">Manage store-wide promotions and banners</p>
+                <h2 className="text-2xl font-bold">Promotion Banners</h2>
+                <p className="text-stone-500">Manage store-wide visual banners</p>
               </div>
               <button 
                 onClick={() => {
@@ -5180,24 +5441,50 @@ export default function AdminDashboard() {
                 className="btn-primary flex items-center space-x-2"
               >
                 <Plus size={18} />
-                <span>Add Promotion</span>
+                <span>Add Banner</span>
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {promotions.map((promo) => (
                 <div key={promo.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 group flex flex-col">
-                  <div className="h-40 relative">
-                    <img src={promo.image_url} alt="" className="w-full h-full object-cover" />
-                    <div className="absolute top-2 left-2">
+                  <div className="h-40 relative bg-stone-100 flex items-center justify-center">
+                    {promo.image_url ? (
+                      <img src={promo.image_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-stone-400 font-medium text-sm">No Image</span>
+                    )}
+                    <div className="absolute top-2 left-2 flex gap-2">
                       <span className={cn(
                         "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm",
                         promo.active ? "bg-emerald-500 text-white" : "bg-stone-500 text-white"
                       )}>
                         {promo.active ? 'Active' : 'Inactive'}
                       </span>
+                      {!!promo.is_default && (
+                        <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm bg-blue-500 text-white">
+                          Default
+                        </span>
+                      )}
                     </div>
                     <div className="absolute top-2 right-2 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => togglePromotionStatus(promo.id)}
+                        className="p-2 bg-white text-stone-600 rounded-full hover:text-emerald-500 shadow-lg"
+                        title={promo.active ? "Deactivate Banner" : "Activate Banner"}
+                      >
+                        {promo.active ? <Check size={14} /> : <AlertTriangle size={14} />}
+                      </button>
+                      <button 
+                        onClick={() => {
+                          // Simple preview functionality
+                          window.open(`/?preview_promo=${promo.id}`, '_blank');
+                        }}
+                        className="p-2 bg-white text-stone-600 rounded-full hover:text-primary shadow-lg"
+                        title="Preview Banner"
+                      >
+                        <Eye size={14} />
+                      </button>
                       <button 
                         onClick={() => {
                           setNewPromotion({ 
@@ -5205,7 +5492,12 @@ export default function AdminDashboard() {
                             description: promo.description, 
                             image_url: promo.image_url, 
                             link: promo.link,
-                            active: !!promo.active
+                            active: !!promo.active,
+                            target_role: promo.target_role || 'all',
+                            start_time: promo.start_time || '',
+                            end_time: promo.end_time || '',
+                            banner_type: promo.banner_type || 'standard',
+                            is_default: !!promo.is_default
                           });
                           setPromotionModal({ open: true, mode: 'edit', id: promo.id });
                         }}
@@ -5214,12 +5506,7 @@ export default function AdminDashboard() {
                         <Settings size={14} />
                       </button>
                       <button 
-                        onClick={async () => {
-                          if (confirm('Delete this promotion?')) {
-                            await fetch(`/api/admin/promotions/${promo.id}`, { method: 'DELETE' });
-                            fetchPromotions();
-                          }
-                        }}
+                        onClick={() => handleDeletePromotion(promo.id)}
                         className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-lg"
                       >
                         <Trash2 size={14} />
@@ -5227,8 +5514,35 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="p-6 space-y-2 flex-1 flex flex-col">
-                    <h3 className="font-bold">{promo.title}</h3>
+                    <div className="flex justify-between items-start">
+                      <h3 className="font-bold">{promo.title}</h3>
+                      <span className="text-[9px] font-black uppercase bg-stone-100 text-stone-600 px-2 py-0.5 rounded-md">{promo.banner_type}</span>
+                    </div>
                     <p className="text-xs text-stone-500 line-clamp-2 flex-1">{promo.description}</p>
+                    
+                    <div className="flex justify-between items-center bg-stone-50 p-2 text-xs rounded-lg mt-2 mb-2 text-stone-500 font-bold">
+                      <div className="flex items-center space-x-1">
+                        <Eye size={14} className="text-stone-400" />
+                        <span>{promo.views || 0}</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <MousePointer size={14} className="text-stone-400" />
+                        <span>{promo.clicks || 0}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mt-2 text-[10px] text-stone-500 font-bold uppercase tracking-wider">
+                      <div className="bg-stone-50 p-2 rounded-lg flex justify-between">
+                        <span>Role:</span> <span className="text-stone-900">{promo.target_role}</span>
+                      </div>
+                      <div className="bg-stone-50 p-2 rounded-lg flex justify-between">
+                        <span>Views:</span> <span className="text-primary">{promo.views || 0}</span>
+                      </div>
+                      <div className="bg-stone-50 p-2 rounded-lg flex justify-between">
+                        <span>Clicks:</span> <span className="text-accent">{promo.clicks || 0}</span>
+                      </div>
+                    </div>
+
                     <div className="pt-4 flex justify-between items-center">
                       <button 
                         onClick={() => togglePromotionStatus(promo.id)}
@@ -5261,6 +5575,114 @@ export default function AdminDashboard() {
                   <p className="text-stone-400 text-sm">Add banners or offers to show here</p>
                 </div>
               )}
+            </div>
+
+            <div className="mt-12 space-y-6">
+              <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-stone-100 shadow-sm">
+                <div>
+                  <h2 className="text-2xl font-bold">Discount Rules</h2>
+                  <p className="text-stone-500">Configure BOGO, Percentage, and Fixed discounts</p>
+                </div>
+                <button 
+                  onClick={() => {
+                    setNewPromotionRule({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
+                    setPromotionRuleModal({ open: true, mode: 'add', id: null });
+                  }}
+                  className="bg-stone-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center space-x-2"
+                >
+                  <Plus size={16} />
+                  <span>Create Rule</span>
+                </button>
+              </div>
+
+              <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-stone-50 border-b border-stone-100 uppercase text-[10px] font-black text-stone-500 tracking-wider">
+                        <th className="p-4">Status</th>
+                        <th className="p-4">Title</th>
+                        <th className="p-4">Type</th>
+                        <th className="p-4">Target</th>
+                        <th className="p-4">Min Qty</th>
+                        <th className="p-4">Discount Value</th>
+                        <th className="p-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {promotionRules.map((rule) => (
+                        <tr key={rule.id} className="hover:bg-stone-50 transition-colors">
+                          <td className="p-4">
+                            <span className={cn(
+                              "px-2 py-1 flex w-min items-center rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                              rule.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-500"
+                            )}>
+                              {rule.active ? 'Active' : 'Paused'}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold max-w-[200px] truncate">{rule.name}</td>
+                          <td className="p-4 uppercase text-[10px] font-black text-stone-500 tracking-widest">{rule.type}</td>
+                          <td className="p-4">
+                            <span className="bg-stone-100 px-2 py-1 rounded text-xs font-bold text-stone-600">
+                              {rule.target_type === 'all' ? 'Entire Store' : `${rule.target_type}: ${rule.target_id}`}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold">{rule.min_qty || 0}</td>
+                          <td className="p-4 font-bold text-emerald-600">
+                            {rule.type === 'percentage' && `${rule.value}%`}
+                            {rule.type === 'fixed' && `₹${rule.value}`}
+                            {rule.type === 'bogo' && `By ${rule.min_qty} Get ${rule.value}`}
+                          </td>
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end space-x-2">
+                              <button 
+                                onClick={() => togglePromotionRuleStatus(rule.id)}
+                                className={cn(
+                                  "p-2 rounded-xl transition-colors",
+                                  rule.active ? "text-amber-500 bg-amber-50" : "text-emerald-500 bg-emerald-50"
+                                )}
+                                title={rule.active ? "Pause Rule" : "Activate Rule"}
+                              >
+                                {rule.active ? <X size={16} /> : <Check size={16} />}
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setNewPromotionRule({
+                                    title: rule.name,
+                                    type: rule.type,
+                                    target_type: rule.target_type,
+                                    target_id: rule.target_id || '',
+                                    condition_qty: rule.min_qty || 1,
+                                    discount_value: rule.value,
+                                    active: rule.active
+                                  });
+                                  setPromotionRuleModal({ open: true, mode: 'edit', id: rule.id });
+                                }}
+                                className="p-2 text-stone-400 hover:text-primary hover:bg-stone-100 rounded-xl transition-colors"
+                              >
+                                <Settings size={16} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeletePromotionRule(rule.id)}
+                                className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {promotionRules.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-stone-400 font-bold">
+                            No discount rules configured yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
 
             <div className="mt-12 space-y-6">
@@ -5550,6 +5972,16 @@ export default function AdminDashboard() {
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
               <h3 className="text-xl font-bold">Contact & Location</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Name</label>
+                  <input 
+                    type="text" 
+                    className="input-field"
+                    placeholder="e.g. Hind General Store"
+                    defaultValue={config.find(c => c.key === 'store_name')?.value}
+                    onBlur={(e) => updateSetting('store_name', e.target.value)}
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Store Phone Number</label>
                   <input 
@@ -5578,6 +6010,16 @@ export default function AdminDashboard() {
                   />
                   <p className="text-xs text-stone-400 mt-1">This message will be pre-filled when customers click the WhatsApp link.</p>
                 </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Address</label>
+                  <input 
+                    type="text" 
+                    className="input-field"
+                    placeholder="e.g. Main Market, Nayagaon"
+                    defaultValue={config.find(c => c.key === 'store_address')?.value}
+                    onBlur={(e) => updateSetting('store_address', e.target.value)}
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Google Maps Link</label>
                   <input 
@@ -5586,6 +6028,16 @@ export default function AdminDashboard() {
                     placeholder="https://goo.gl/maps/..."
                     defaultValue={config.find(c => c.key === 'store_location')?.value}
                     onBlur={(e) => updateSetting('store_location', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Email</label>
+                  <input 
+                    type="email" 
+                    className="input-field"
+                    placeholder="e.g. support@store.com"
+                    defaultValue={config.find(c => c.key === 'store_email')?.value}
+                    onBlur={(e) => updateSetting('store_email', e.target.value)}
                   />
                 </div>
               </div>
@@ -5880,7 +6332,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {activeTab === 'Support' && (
+        {activeTab === 'Support Tickets' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
               <div className="p-6 border-b border-stone-100">
@@ -6712,6 +7164,8 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
 
@@ -7295,50 +7749,38 @@ export default function AdminDashboard() {
 
               {productModal.mode === 'edit' && editingProduct && (
                 <div className="p-6 bg-stone-50 rounded-2xl space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-bold text-stone-900">Product Variants</h4>
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <h4 className="font-bold text-stone-900">Product Variants</h4>
+                      <p className="text-[10px] text-stone-400 font-medium">Configure options natively above or manage dynamically.</p>
+                    </div>
                     <button 
                       type="button"
                       onClick={() => {
-                        setVariantModal({ open: true, mode: 'add', variant: null, productId: editingProduct.id });
-                        setNewVariant({ name: '', price: '', stock: '', unit_quantity: '1', is_default: false });
+                        setVariantModal({ open: true, mode: 'edit', variant: null, productId: editingProduct.id });
                       }}
-                      className="text-xs font-bold text-primary hover:underline flex items-center space-x-1"
+                      className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold transition-colors flex items-center space-x-2"
                     >
-                      <Plus size={14} />
-                      <span>Add Variant</span>
+                      <Settings size={14} />
+                      <span>Manage Variants</span>
                     </button>
                   </div>
                   <div className="space-y-2">
-                    {productVariants.map((v) => (
-                      <div key={v.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-stone-200 shadow-sm">
-                        <div>
-                          <p className="text-sm font-bold">{v.name} {v.is_default && <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded ml-2 uppercase">Default</span>}</p>
-                          <p className="text-[10px] text-stone-400 font-medium">₹{v.price} • Stock: {v.stock}</p>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              setVariantModal({ open: true, mode: 'edit', variant: v, productId: editingProduct.id });
-                              setNewVariant({ name: v.name, price: v.price.toString(), stock: v.stock.toString(), unit_quantity: v.unit_quantity.toString(), is_default: v.is_default === 1 });
-                            }}
-                            className="p-1.5 text-stone-400 hover:text-primary transition-colors"
-                          >
-                            <Settings size={14} />
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => handleDeleteVariant(v.id)}
-                            className="p-1.5 text-stone-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                    {productVariants.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {productVariants.map((v) => (
+                          <div key={v.id || v.name} className="flex items-center space-x-2 bg-white border border-stone-200 px-3 py-2 rounded-xl text-xs shadow-sm">
+                             <span className="font-bold text-stone-700">{v.name}</span>
+                             <span className="text-stone-300">•</span>
+                             <span className="text-stone-500 font-medium">₹{v.price}</span>
+                             {(v.is_default === 1 || v.is_default === true) && (
+                               <span className="ml-1 w-2 h-2 rounded-full bg-emerald-500" title="Default Variant"></span>
+                             )}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                    {productVariants.length === 0 && (
-                      <p className="text-xs text-stone-400 italic text-center py-2">No variants defined</p>
+                    ) : (
+                      <p className="text-xs text-stone-400 italic text-center py-4 bg-stone-50 rounded-2xl border border-dashed border-stone-200">No variants defined. The standard product price will be used.</p>
                     )}
                   </div>
                 </div>
@@ -7590,6 +8032,123 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* Promotion Rule Modal */}
+      {promotionRuleModal.open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl relative max-h-[90vh] overflow-y-auto"
+          >
+            <h3 className="text-2xl font-bold mb-6">
+              {promotionRuleModal.mode === 'add' ? 'Create Target Rule' : 'Edit Target Rule'}
+            </h3>
+            <form onSubmit={handlePromotionRuleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Rule Title</label>
+                <input 
+                  type="text" 
+                  required
+                  className="input-field"
+                  value={newPromotionRule.title}
+                  onChange={(e) => setNewPromotionRule({...newPromotionRule, title: e.target.value})}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Discount Type</label>
+                  <select 
+                    className="input-field"
+                    value={newPromotionRule.type}
+                    onChange={(e) => setNewPromotionRule({...newPromotionRule, type: e.target.value})}
+                  >
+                    <option value="percentage">Percentage OFF</option>
+                    <option value="fixed">Fixed Amount OFF</option>
+                    <option value="bogo">Buy X Get Y (BOGO)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Discount Value {newPromotionRule.type === 'bogo' && '(Y)'}</label>
+                  <input 
+                    type="number" 
+                    required
+                    min="1"
+                    className="input-field"
+                    value={newPromotionRule.discount_value}
+                    onChange={(e) => setNewPromotionRule({...newPromotionRule, discount_value: parseFloat(e.target.value)})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                 <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Target Scope</label>
+                  <select 
+                    className="input-field"
+                    value={newPromotionRule.target_type}
+                    onChange={(e) => setNewPromotionRule({...newPromotionRule, target_type: e.target.value})}
+                  >
+                    <option value="all">Entire Store</option>
+                    <option value="category">Specific Category</option>
+                    <option value="product">Specific Product</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Required Qty {newPromotionRule.type === 'bogo' && '(X)'}</label>
+                  <input 
+                    type="number" 
+                    required
+                    min="1"
+                    className="input-field"
+                    value={newPromotionRule.condition_qty}
+                    onChange={(e) => setNewPromotionRule({...newPromotionRule, condition_qty: parseInt(e.target.value)})}
+                  />
+                </div>
+              </div>
+              
+              {newPromotionRule.target_type !== 'all' && (
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Target Name / ID</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder={newPromotionRule.target_type === 'category' ? "e.g., Electronics" : "Product ID (e.g., 12)"}
+                    className="input-field"
+                    value={newPromotionRule.target_id}
+                    onChange={(e) => setNewPromotionRule({...newPromotionRule, target_id: e.target.value})}
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
+                <input 
+                  type="checkbox" 
+                  id="promorule_active"
+                  className="w-5 h-5 rounded border-stone-300 text-primary focus:ring-primary"
+                  checked={newPromotionRule.active}
+                  onChange={(e) => setNewPromotionRule({...newPromotionRule, active: e.target.checked})}
+                />
+                <label htmlFor="promorule_active" className="text-sm font-bold text-stone-700">Active</label>
+              </div>
+              <div className="flex space-x-3 pt-4">
+                <button 
+                  type="button"
+                  onClick={() => setPromotionRuleModal({ open: false, mode: 'add', id: null })}
+                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-colors"
+                >
+                  Save Rule
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
       {/* Promotion Modal */}
       {promotionModal.open && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -7622,11 +8181,10 @@ export default function AdminDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Image URL</label>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Image URL (Optional)</label>
                 <div className="flex space-x-2">
                   <input 
                     type="text" 
-                    required
                     className="input-field"
                     value={newPromotion.image_url}
                     onChange={(e) => setNewPromotion({...newPromotion, image_url: e.target.value})}
@@ -7663,6 +8221,52 @@ export default function AdminDashboard() {
                   onChange={(e) => setNewPromotion({...newPromotion, link: e.target.value})}
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Target Audience</label>
+                  <select 
+                    className="input-field"
+                    value={newPromotion.target_role}
+                    onChange={(e) => setNewPromotion({...newPromotion, target_role: e.target.value})}
+                  >
+                    <option value="all">All Users</option>
+                    <option value="customer">Retail Customers</option>
+                    <option value="wholesaler">Wholesale Buyers</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Banner Type</label>
+                  <select 
+                    className="input-field"
+                    value={newPromotion.banner_type}
+                    onChange={(e) => setNewPromotion({...newPromotion, banner_type: e.target.value})}
+                  >
+                    <option value="standard">Standard Banner</option>
+                    <option value="hero">Hero Slider (Top)</option>
+                    <option value="hidden">Hidden (No Banner)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Start Time (Optional)</label>
+                  <input 
+                    type="datetime-local" 
+                    className="input-field"
+                    value={newPromotion.start_time}
+                    onChange={(e) => setNewPromotion({...newPromotion, start_time: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">End Time (Optional)</label>
+                  <input 
+                    type="datetime-local" 
+                    className="input-field"
+                    value={newPromotion.end_time}
+                    onChange={(e) => setNewPromotion({...newPromotion, end_time: e.target.value})}
+                  />
+                </div>
+              </div>
+
               <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
                 <input 
                   type="checkbox" 
@@ -7672,6 +8276,16 @@ export default function AdminDashboard() {
                   onChange={(e) => setNewPromotion({...newPromotion, active: e.target.checked})}
                 />
                 <label htmlFor="promo_active" className="text-sm font-bold text-stone-700">Active (Visible on store)</label>
+              </div>
+              <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
+                <input 
+                  type="checkbox" 
+                  id="promo_default"
+                  className="w-5 h-5 rounded border-stone-300 text-primary focus:ring-primary"
+                  checked={newPromotion.is_default}
+                  onChange={(e) => setNewPromotion({...newPromotion, is_default: e.target.checked})}
+                />
+                <label htmlFor="promo_default" className="text-sm font-bold text-stone-700">Set as Default Banner</label>
               </div>
               <div className="flex space-x-3 pt-4">
                 <button 
@@ -8713,120 +9327,139 @@ export default function AdminDashboard() {
 
       {/* Variant Modal */}
       {variantModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 bg-stone-900/40 backdrop-blur-md">
           <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[32px] p-6 sm:p-10 max-w-4xl w-full shadow-2xl flex flex-col max-h-[90vh] border border-stone-100 relative"
           >
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-bold">Manage Product Variants</h3>
+            <div className="flex justify-between items-start mb-8">
+              <div>
+                <h3 className="text-3xl font-black text-stone-900 tracking-tight mb-2">Manage Variants</h3>
+                <p className="text-sm text-stone-500 font-medium tracking-wide">Configure distinct pricing, stock, and multiple options for this product.</p>
+              </div>
               <button 
                 onClick={() => setVariantModal({ ...variantModal, open: false })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
+                className="p-3 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-700 transition-colors bg-stone-50"
               >
-                <X size={24} />
+                <X size={20} className="stroke-[3]" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-2 space-y-6">
-              <div className="space-y-4">
-                {productVariants.map((v, i) => (
-                  <div key={i} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 grid grid-cols-2 sm:grid-cols-4 gap-4 items-end">
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field py-1 text-xs" 
-                        value={v.name}
-                        onChange={(e) => {
-                          const newVariants = [...productVariants];
-                          newVariants[i].name = e.target.value;
-                          setProductVariants(newVariants);
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Unit Qty</label>
-                      <input 
-                        type="number" 
-                        className="input-field py-1 text-xs" 
-                        value={v.unit_quantity}
-                        onChange={(e) => {
-                          const newVariants = [...productVariants];
-                          newVariants[i].unit_quantity = parseInt(e.target.value);
-                          setProductVariants(newVariants);
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Price (₹)</label>
-                      <input 
-                        type="number" 
-                        className="input-field py-1 text-xs" 
-                        value={v.price}
-                        onChange={(e) => {
-                          const newVariants = [...productVariants];
-                          newVariants[i].price = e.target.value;
-                          setProductVariants(newVariants);
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Stock</label>
-                      <input 
-                        type="number" 
-                        className="input-field py-1 text-xs" 
-                        value={v.stock}
-                        onChange={(e) => {
-                          const newVariants = [...productVariants];
-                          newVariants[i].stock = e.target.value;
-                          setProductVariants(newVariants);
-                        }}
-                      />
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button 
-                        onClick={() => {
-                          const newVariants = productVariants.filter((_, idx) => idx !== i);
-                          setProductVariants(newVariants);
-                        }}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <div className="flex items-center space-x-1">
-                        <input 
-                          type="checkbox" 
-                          checked={v.is_default}
-                          onChange={(e) => {
-                            const newVariants = productVariants.map((varnt, idx) => ({
-                              ...varnt,
-                              is_default: idx === i
-                            }));
-                            setProductVariants(newVariants);
-                          }}
-                        />
-                        <span className="text-[10px] font-bold text-stone-400 uppercase">Default</span>
+            <div className="flex-1 overflow-y-auto pr-2 -mr-2 space-y-4 rounded-xl">
+              {productVariants.length === 0 ? (
+                <div className="text-center py-16 bg-stone-50 rounded-[24px] border-2 border-dashed border-stone-200">
+                  <Layers size={48} className="mx-auto text-stone-300 mb-4" />
+                  <p className="text-stone-500 font-bold mb-2">No variants created</p>
+                  <p className="text-xs text-stone-400 max-w-sm mx-auto">Add a variant to configure specific pricing or independent stock counts for different sizes, colors, or bundles.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-5">
+                  {productVariants.map((v, i) => (
+                    <div key={i} className="group p-5 bg-white rounded-2xl border border-stone-200 shadow-sm hover:border-primary/30 transition-all focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 relative">
+                      <div className="flex flex-row sm:absolute sm:top-5 sm:right-5 mb-4 sm:mb-0 justify-between sm:justify-end items-center sm:space-x-4">
+                         <label className="flex items-center space-x-2 cursor-pointer group/cb">
+                           <input 
+                             type="checkbox" 
+                             checked={v.is_default === 1 || v.is_default === true}
+                             onChange={(e) => {
+                               const newVariants = productVariants.map((varnt, idx) => ({
+                                 ...varnt,
+                                 is_default: idx === i ? 1 : 0
+                               }));
+                               setProductVariants(newVariants);
+                             }}
+                             className="w-4 h-4 text-primary rounded ring-0 focus:ring-0 focus:outline-none border-stone-300 cursor-pointer" 
+                           />
+                           <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider group-hover/cb:text-stone-700 transition-colors">Default Variant</span>
+                         </label>
+                         <button 
+                           onClick={() => {
+                             const newVariants = productVariants.filter((_, idx) => idx !== i);
+                             setProductVariants(newVariants);
+                           }}
+                           className="p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all ml-2 sm:ml-0"
+                         >
+                           <Trash2 size={16} className="stroke-[2.5]" />
+                         </button>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-0 sm:mt-8">
+                         <div>
+                            <label className="block text-[10px] uppercase font-bold tracking-wider text-stone-400 mb-2 pl-1">Variant Name</label>
+                            <input 
+                              type="text" 
+                              placeholder="e.g. 500g, Red, Combo" 
+                              className="w-full bg-stone-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all shadow-inner shadow-stone-100" 
+                              value={v.name}
+                              onChange={(e) => {
+                                const newVariants = [...productVariants];
+                                newVariants[i].name = e.target.value;
+                                setProductVariants(newVariants);
+                              }}
+                            />
+                         </div>
+                         <div>
+                            <label className="block text-[10px] uppercase font-bold tracking-wider text-stone-400 mb-2 pl-1">Price (₹)</label>
+                            <input 
+                              type="number" 
+                              placeholder="0.00"
+                              className="w-full bg-stone-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all shadow-inner shadow-stone-100" 
+                              value={v.price}
+                              onChange={(e) => {
+                                const newVariants = [...productVariants];
+                                newVariants[i].price = e.target.value;
+                                setProductVariants(newVariants);
+                              }}
+                            />
+                         </div>
+                         <div>
+                            <label className="block text-[10px] uppercase font-bold tracking-wider text-stone-400 mb-2 pl-1">Unit Qty <span className="lowercase text-stone-300 font-medium">(multiplier)</span></label>
+                            <input 
+                              type="number" 
+                              placeholder="1"
+                              className="w-full bg-stone-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all shadow-inner shadow-stone-100" 
+                              value={v.unit_quantity}
+                              onChange={(e) => {
+                                const newVariants = [...productVariants];
+                                newVariants[i].unit_quantity = parseInt(e.target.value) || 1;
+                                setProductVariants(newVariants);
+                              }}
+                            />
+                         </div>
+                         <div>
+                            <label className="block text-[10px] uppercase font-bold tracking-wider text-stone-400 mb-2 pl-1">Available Stock</label>
+                            <input 
+                              type="number" 
+                              placeholder="0"
+                              className="w-full bg-stone-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all shadow-inner shadow-stone-100" 
+                              value={v.stock}
+                              onChange={(e) => {
+                                const newVariants = [...productVariants];
+                                newVariants[i].stock = e.target.value;
+                                setProductVariants(newVariants);
+                              }}
+                            />
+                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
               <button 
-                onClick={() => setProductVariants([...productVariants, { name: '', price: '', stock: '', unit_quantity: 1, is_default: productVariants.length === 0 }])}
-                className="w-full py-3 border-2 border-dashed border-stone-200 rounded-2xl text-stone-400 hover:border-primary hover:text-primary transition-all font-bold text-sm flex items-center justify-center space-x-2"
+                onClick={() => setProductVariants([...productVariants, { name: '', price: '', stock: '', unit_quantity: 1, is_default: productVariants.length === 0 ? 1 : 0 }])}
+                className="w-full py-5 border-2 border-dashed border-stone-200 rounded-[20px] text-stone-400 hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all font-bold text-sm flex items-center justify-center space-x-2 group mt-6"
               >
-                <Plus size={18} />
-                <span>Add Variant (e.g., Cartoon, Single Piece)</span>
+                <Plus size={18} className="transition-transform group-hover:scale-110 group-hover:rotate-90 duration-300" />
+                <span>Add Variant Option</span>
               </button>
             </div>
 
-            <div className="mt-8 pt-6 border-t border-stone-100 flex space-x-3">
+            <div className="mt-8 pt-6 border-t border-stone-100 flex space-x-4 shrink-0">
               <button 
                 onClick={() => setVariantModal({ ...variantModal, open: false })}
-                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+                className="flex-1 py-4 bg-stone-100 text-stone-600 rounded-2xl font-bold hover:bg-stone-200 transition-colors"
               >
                 Cancel
               </button>
@@ -8838,15 +9471,15 @@ export default function AdminDashboard() {
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ variants: productVariants })
                     });
-                    toast.success('Variants updated');
+                    toast.success('Variants fully updated');
                     setVariantModal({ ...variantModal, open: false });
                   } catch (err) {
                     toast.error('Failed to update variants');
                   }
                 }}
-                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-lg shadow-primary/20"
+                className="flex-[2] py-4 bg-stone-900 text-white rounded-2xl font-bold hover:bg-stone-800 transition-colors shadow-xl shadow-stone-200"
               >
-                Save Variants
+                Save All Variants
               </button>
             </div>
           </motion.div>

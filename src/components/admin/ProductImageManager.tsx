@@ -57,7 +57,7 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
     accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [] },
     maxSize: 5 * 1024 * 1024,
     disabled: uploading 
-  });
+  } as any);
 
   const handleDelete = (urlToDelete: string) => {
     const updated = images.filter(url => url !== urlToDelete);

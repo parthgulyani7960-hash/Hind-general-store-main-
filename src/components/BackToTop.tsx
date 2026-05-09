@@ -55,7 +55,7 @@ export default function BackToTop() {
                 <button
                   onClick={() => {
                     if (navigator.share) {
-                      navigator.share({ title: 'Hind Store', url: window.location.href });
+                      navigator.share({ title: 'General Store Karyana Shop Store', url: window.location.href });
                     }
                     setIsOpen(false);
                   }}

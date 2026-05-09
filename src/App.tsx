@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } f
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import MobileBottomNav from './components/MobileBottomNav';
+import FloatingCart from './components/FloatingCart';
 import BackToTop from './components/BackToTop';
 import FullScreenAlert from './components/FullScreenAlert';
 
@@ -47,6 +48,7 @@ import Support from './pages/Support';
 import Wishlist from './pages/Wishlist';
 import Profile from './pages/Profile';
 import Promotions from './pages/Promotions';
+import AboutUs from './pages/AboutUs';
 import TermsAndConditions from './pages/TermsAndConditions';
 import LegalPage from './pages/LegalPage';
 import AdminDashboard from './pages/AdminDashboard';
@@ -106,6 +108,7 @@ function AnimatedRoutes() {
           <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
           <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
           <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
+          <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
           <Route path="/checkout" element={<ProtectedRoute><PageWrapper><Checkout /></PageWrapper></ProtectedRoute>} />
           <Route path="/invoice/:id" element={<ProtectedRoute><PageWrapper><Invoice /></PageWrapper></ProtectedRoute>} />
           <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
@@ -141,7 +144,8 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { subscribeNewsletter, adminTheme, t } = useStore();
+  const store = useStore();
+  const { subscribeNewsletter, adminTheme, t, config = [] } = store;
   const [newsletterEmail, setNewsletterEmail] = useState('');
 
   useEffect(() => {
@@ -227,11 +231,12 @@ export default function App() {
           </ErrorBoundary>
         </main>
         <MobileBottomNav />
+        <FloatingCart />
         <BackToTop />
         <footer className="bg-stone-900 text-stone-400 py-12 pb-32 md:pb-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="space-y-4">
-              <h3 className="text-white font-bold text-lg">Hind General Store</h3>
+              <h3 className="text-white font-bold text-lg">General Store Karyana Shop</h3>
               <p className="text-sm">Your one-stop shop for all karyana and daily essentials. Quality and trust since 1995.</p>
             </div>
             <div className="space-y-4">
@@ -246,6 +251,7 @@ export default function App() {
             <div className="space-y-4">
               <h3 className="text-white font-bold text-lg">Customer Care</h3>
               <ul className="space-y-2 text-sm">
+                <li><Link to="/about" className="hover:text-white transition-colors">About Us</Link></li>
                 <li><Link to="/contact" className="hover:text-white transition-colors">Contact Us</Link></li>
                 <li><Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
                 <li><Link to="/terms-and-conditions" className="hover:text-white transition-colors">Terms & Conditions</Link></li>
@@ -268,7 +274,7 @@ export default function App() {
             </div>
           </div>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-8 border-t border-stone-800 text-center text-xs">
-            © {new Date().getFullYear()} Hind General Store. All rights reserved.
+            © {new Date().getFullYear()} {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'}. All rights reserved.
           </div>
         </footer>
       </div>

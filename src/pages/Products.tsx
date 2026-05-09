@@ -100,6 +100,29 @@ export default function Products() {
 
   useEffect(() => {
     fetchProducts();
+
+    // Real-Time Inventory Management WebSocket
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    const socket = new WebSocket(wsUrl);
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'INVENTORY_UPDATE') {
+          setProducts(prevProducts => prevProducts.map(p => {
+            if (p.id === data.product_id) {
+              return { ...p, stock: data.stock };
+            }
+            return p;
+          }));
+        }
+      } catch (e) {}
+    };
+
+    return () => {
+      socket.close();
+    };
   }, [user?.role]);
 
   const filteredProducts = products
@@ -236,9 +259,9 @@ export default function Products() {
                 <div className="md:w-1/2 h-[300px] md:h-[500px] relative">
                   {showImages ? (
                     <img 
-                      src={quickViewProduct.image_url} 
+                      src={quickViewProduct.image_url || `https://picsum.photos/seed/${quickViewProduct.id}/800/800`} 
                       alt={quickViewProduct.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover bg-stone-100"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
@@ -285,19 +308,43 @@ export default function Products() {
                   <p className="text-stone-600 leading-relaxed">{quickViewProduct.description}</p>
                   
                     <div className="pt-6 border-t border-stone-100 flex gap-4">
+                      {quickViewProduct.stock <= 0 ? (
+                        <div className="flex-1 bg-stone-100 text-stone-400 py-4 flex items-center justify-center rounded-2xl font-bold uppercase tracking-widest text-sm border-2 border-stone-200">
+                           Out of Stock
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => {
+                            addToCart(quickViewProduct);
+                            setQuickViewProduct(null);
+                          }}
+                          className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2"
+                        >
+                          <ShoppingCart size={20} />
+                          <span>{t('add_to_cart')}</span>
+                        </button>
+                      )}
+                      
                       <button 
-                        onClick={() => {
-                          addToCart(quickViewProduct);
-                          setQuickViewProduct(null);
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const url = `${window.location.origin}/product/${quickViewProduct.id}`;
+                          if (navigator.share) {
+                            navigator.share({ title: quickViewProduct.name, url });
+                          } else {
+                            navigator.clipboard.writeText(url);
+                            toast.success('Link copied');
+                          }
                         }}
-                        className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2"
+                        className="px-4 py-4 border border-stone-200 rounded-2xl text-stone-600 hover:text-primary hover:bg-stone-50 transition-colors flex items-center justify-center"
+                        title="Share Product"
                       >
-                        <ShoppingCart size={20} />
-                        <span>{t('add_to_cart')}</span>
+                        <Share2 size={20} />
                       </button>
+
                       <Link 
                         to={`/product/${quickViewProduct.id}`}
-                        className="px-6 py-4 border border-stone-200 rounded-2xl font-bold hover:bg-stone-50 transition-colors flex items-center justify-center"
+                        className="px-6 py-4 border border-stone-200 rounded-2xl font-bold hover:bg-stone-50 transition-colors flex items-center justify-center text-sm uppercase tracking-widest"
                       >
                         {t('view_details') || 'View Details'}
                       </Link>
@@ -327,7 +374,7 @@ export default function Products() {
             </div>
             
             <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto hide-scrollbar touch-pan-x">
-               {/* Quick Filters */}
+               {/* Quick Filters & Sorting */}
                <motion.button
                  whileTap={{ scale: 0.95 }}
                  onClick={() => setOnSaleOnly(!onSaleOnly)}
@@ -339,6 +386,20 @@ export default function Products() {
                  <Zap size={12} fill={onSaleOnly ? "currentColor" : "none"} />
                  <span>On Sale</span>
                </motion.button>
+               
+               <div className="relative">
+                 <select 
+                   value={sortBy}
+                   onChange={(e) => setSortBy(e.target.value)}
+                   className="appearance-none bg-stone-50 border-2 border-stone-100 text-stone-600 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap outline-none focus:border-primary/20"
+                 >
+                   <option value="relevance">Recommended</option>
+                   <option value="price-low">Price: Low to High</option>
+                   <option value="price-high">Price: High to Low</option>
+                   <option value="rating">Top Rated</option>
+                   <option value="popularity">Trending</option>
+                 </select>
+               </div>
                
                <motion.button
                  whileTap={{ scale: 0.95 }}
@@ -684,6 +745,7 @@ export default function Products() {
         {/* Product Grid Content */}
         <div className="flex-1">
       <motion.div 
+        layout
         initial="hidden"
         animate="visible"
         variants={{
@@ -691,12 +753,13 @@ export default function Products() {
           visible: {
             opacity: 1,
             transition: {
-              staggerChildren: 0.1
+              staggerChildren: 0.05
             }
           }
         }}
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
       >
+        <AnimatePresence mode="popLayout">
         {filteredProducts.map((product) => {
           const cartItem = cart.find(item => item.id === product.id);
           
@@ -704,22 +767,22 @@ export default function Products() {
             <motion.div 
               key={product.id}
               layout
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: -20, transition: { duration: 0.2 } }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
               onMouseEnter={() => setHoverQuickView(product.id)}
               onMouseLeave={() => setHoverQuickView(null)}
-              variants={{
-                hidden: { opacity: 0, y: 20 },
-                visible: { opacity: 1, y: 0 }
-              }}
-              className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-lg transition-all flex flex-col p-6"
+              className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col p-4 md:p-6"
             >
-              <Link to={`/product/${product.id}`} className="relative h-64 overflow-hidden block group/image mb-4 -mx-6 -mt-6">
+              <Link to={`/product/${product.id}`} className="relative h-56 sm:h-64 overflow-hidden block group/image mb-4 -mx-4 -mt-4 md:-mx-6 md:-mt-6">
                 {showImages ? (
                   <img 
-                    src={product.image_url} 
+                    src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
                     alt={product.name}
                     loading="lazy"
                     referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover/image:scale-105 transition-transform duration-500"
+                    className="w-full h-full object-cover group-hover/image:scale-105 transition-transform duration-500 bg-stone-100"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
@@ -734,16 +797,16 @@ export default function Products() {
                       e.preventDefault();
                       setQuickViewProduct(product);
                     }}
-                    className="bg-white text-stone-900 px-6 py-3 rounded-full font-black text-sm flex items-center space-x-2 pointer-events-auto hover:bg-stone-50 hover:scale-105 transition-all shadow-xl"
+                    className="bg-white text-stone-900 px-6 py-3 rounded-full font-black text-xs md:text-sm flex items-center space-x-2 pointer-events-auto hover:bg-stone-50 hover:scale-105 transition-all shadow-xl"
                   >
-                    <Search size={20} />
+                    <Search size={18} />
                     <span>Quick View</span>
                   </button>
                 </div>
 
                 <div className="absolute top-4 left-4 flex flex-col space-y-2 z-20">
                     {product.discount > 0 && (
-                      <div className="bg-accent text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider shadow-lg">
+                      <div className="bg-accent text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-lg">
                         {product.discount}% OFF
                       </div>
                     )}
@@ -774,7 +837,7 @@ export default function Products() {
                       toggleWishlist(product.id);
                     }}
                     className={cn(
-                      "p-3 rounded-xl backdrop-blur shadow-sm transition-all",
+                      "p-3 rounded-xl backdrop-blur shadow-sm transition-all pointer-events-auto",
                       wishlist.includes(product.id) 
                         ? "bg-red-500 text-white" 
                         : "bg-white/90 text-stone-400 hover:text-red-500"
@@ -782,6 +845,47 @@ export default function Products() {
                   >
                     <Heart size={20} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
                   </button>
+                </div>
+                
+                {/* Direct Add to Cart on Image */}
+                <div className="absolute bottom-4 right-4 z-20">
+                  {product.stock <= 0 ? (
+                    <div className="bg-stone-900/90 text-white text-[10px] uppercase font-black px-3 py-2 rounded-xl backdrop-blur shadow-xl">
+                      Out of Stock
+                    </div>
+                  ) : cartItem ? (
+                     <div className="flex flex-col items-center bg-white/90 backdrop-blur rounded-full shadow-xl border border-stone-100 pointer-events-auto">
+                        <button 
+                          onClick={(e) => { 
+                            e.preventDefault(); 
+                            if (cartItem.quantity >= product.stock) {
+                              toast.error(`Only ${product.stock} items left`);
+                              return;
+                            }
+                            updateQuantity(product.id, 1); 
+                          }} 
+                          className="p-3 hover:bg-stone-100 text-primary transition-colors rounded-t-full"
+                        >
+                          <Plus size={16} className="stroke-[3px]" />
+                        </button>
+                        <span className="font-bold text-sm py-1 font-mono">{cartItem.quantity}</span>
+                        <button 
+                          onClick={(e) => { e.preventDefault(); updateQuantity(product.id, -1); }} 
+                          className="p-3 hover:bg-stone-100 text-primary transition-colors rounded-b-full"
+                        >
+                          <Minus size={16} className="stroke-[3px]" />
+                        </button>
+                     </div>
+                  ) : (
+                    <button 
+                      onClick={(e) => { e.preventDefault(); addToCart(product); }}
+                      className="bg-primary hover:bg-primary/90 text-white rounded-full shadow-2xl flex items-center justify-center pointer-events-auto transition-transform active:scale-95 group/add"
+                    >
+                      <div className="p-4">
+                        <Plus size={24} className="stroke-[3px] group-hover/add:rotate-90 transition-transform duration-300" />
+                      </div>
+                    </button>
+                  )}
                 </div>
               </Link>
               
@@ -801,7 +905,11 @@ export default function Products() {
                 <p className="text-base md:text-lg text-stone-600 mb-6 line-clamp-3 leading-relaxed">{product.description}</p>
                 
                 <div className="mt-auto flex space-x-3">
-                  {cartItem ? (
+                  {product.stock <= 0 ? (
+                    <div className="flex-1 bg-stone-100 text-stone-500 font-black uppercase text-xs flex items-center justify-center rounded-xl p-3 border border-stone-200 cursor-not-allowed">
+                       Out of Stock
+                    </div>
+                  ) : cartItem ? (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -815,7 +923,13 @@ export default function Products() {
                       </button>
                       <span className="font-bold">{cartItem.quantity}</span>
                       <button 
-                        onClick={() => updateQuantity(product.id, 1)}
+                        onClick={() => {
+                          if (cartItem.quantity >= product.stock) {
+                            toast.error(`Only ${product.stock} items left in stock`);
+                            return;
+                          }
+                          updateQuantity(product.id, 1);
+                        }}
                         className="p-2 hover:bg-white rounded-lg transition-colors text-primary"
                       >
                         <Plus size={16} />
@@ -898,6 +1012,7 @@ export default function Products() {
             </motion.div>
           );
         })}
+        </AnimatePresence>
       </motion.div>
 
       {filteredProducts.length === 0 && (

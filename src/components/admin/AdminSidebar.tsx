@@ -1,15 +1,38 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X } from 'lucide-react';
+import { 
+  LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone,
+  CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
+  Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen
+} from 'lucide-react';
 import { cn } from '../../types';
 
 const menuItems = [
   { name: 'Overview', icon: LayoutDashboard },
-  { name: 'Orders', icon: ShoppingBag },
-  { name: 'Products', icon: Package },
-  { name: 'Customers', icon: Users },
-  { name: 'Logistics', icon: Truck },
   { name: 'Analytics', icon: TrendingUp },
+  { name: 'Announcements', icon: Megaphone },
+  { name: 'Orders', icon: ShoppingBag },
+  { name: 'Logistics', icon: Truck },
+  { name: 'Product Catalog', icon: Package },
+  { name: 'Categories', icon: BookOpen },
+  { name: 'Customers', icon: Users },
+  { name: 'Wallet Requests', icon: CreditCard },
+  { name: 'Reviews', icon: MessageSquare },
+  { name: 'Coupons', icon: Ticket },
+  { name: 'Roles', icon: UserCog },
+  { name: 'Support Tickets', icon: LifeBuoy },
+  { name: 'Newsletter', icon: Mail },
+  { name: 'Expenses', icon: DollarSign },
   { name: 'Store Settings', icon: Settings },
+  { name: 'Payment Settings', icon: CreditCard },
+  { name: 'System Status', icon: Activity },
+  { name: 'Suspicious Activities', icon: ShieldAlert },
+  { name: 'Promotions', icon: Megaphone },
+  { name: 'Bulk Discounts', icon: Percent },
+  { name: 'Feature Toggles', icon: ToggleLeft },
+  { name: 'Suppliers', icon: Briefcase },
+  { name: 'Returns', icon: RotateCcw },
+  { name: 'Audit Logs', icon: ClipboardList },
+  { name: 'Bug Reports', icon: Bug },
 ];
 
 interface AdminSidebarProps {

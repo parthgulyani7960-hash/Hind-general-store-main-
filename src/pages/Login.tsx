@@ -81,8 +81,8 @@ export default function Login() {
           <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <User className="text-primary" size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-stone-900">Welcome to Hind General Store</h1>
-          <p className="text-stone-500 mt-2">Continue with Google to start shopping</p>
+          <h1 className="text-2xl font-bold text-stone-900">Welcome to General Store Karyana</h1>
+          <p className="text-stone-500 mt-2">Sign in securely with Google to access your account.</p>
         </div>
 
         <button 
@@ -94,6 +94,10 @@ export default function Login() {
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
           <span>{loading ? 'Signing in...' : 'Continue with Google'}</span>
         </button>
+
+        <p className="text-[10px] text-stone-400 mt-8 pt-6 border-t border-stone-100 italic">
+          General Store Karyana uses secure authentication via Google. We never store your Google password. Your account information is kept safely and privately.
+        </p>
       </motion.div>
     </div>
   );

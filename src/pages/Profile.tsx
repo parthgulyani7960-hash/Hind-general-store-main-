@@ -61,7 +61,7 @@ export default function Profile() {
   }, []);
 
   const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
-  const upiName = config.find(c => c.key === 'upi_name')?.value || 'Hind General Store';
+  const upiName = config.find(c => c.key === 'upi_name')?.value || 'General Store Karyana Shop Nayagaon';
   const upiQr = config.find(c => c.key === 'upi_qr')?.value;
   
   const bankName = config.find(c => c.key === 'bank_name')?.value;
@@ -209,13 +209,13 @@ export default function Profile() {
     }
   };
 
-  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet'>('history');
+  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet' | 'khata'>('history');
   
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     const action = params.get('action');
-    if (tab && ['history', 'wishlist', 'addresses', 'insights', 'wallet'].includes(tab)) {
+    if (tab && ['history', 'wishlist', 'addresses', 'insights', 'wallet', 'khata'].includes(tab)) {
       setActiveProfileTab(tab as any);
     }
     if (action === 'add-money') {
@@ -223,6 +223,29 @@ export default function Profile() {
       setShowAddMoney(true);
     }
   }, []);
+
+  const [khataHistory, setKhataHistory] = useState<any[]>([]);
+  const [loadingKhata, setLoadingKhata] = useState(false);
+
+  const fetchKhataHistory = async () => {
+    if (!user) return;
+    setLoadingKhata(true);
+    try {
+      const res = await fetch(`/api/user/khata/history/${user.id}`);
+      const data = await res.json();
+      setKhataHistory(data);
+    } catch (err) {
+      console.error('Failed to fetch Khata history');
+    } finally {
+      setLoadingKhata(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeProfileTab === 'khata') {
+      fetchKhataHistory();
+    }
+  }, [activeProfileTab]);
 
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [addAmount, setAddAmount] = useState('');
@@ -683,6 +706,7 @@ export default function Profile() {
               { id: 'addresses', label: 'Addresses', icon: Home },
               ...(activeRole === 'wholesaler' || activeRole === 'retailer' ? [{ id: 'insights', label: 'Insights', icon: Activity }] : []),
               { id: 'wallet', label: 'Wallet', icon: Wallet },
+              { id: 'khata', label: 'Khata', icon: Clock },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -702,6 +726,40 @@ export default function Profile() {
 
           {/* Tab Content */}
           <AnimatePresence mode="wait">
+            {activeProfileTab === 'khata' && (
+              <motion.div 
+                key="khata"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden"
+              >
+                <div className="p-6 border-b border-stone-100 bg-stone-50/50">
+                  <h3 className="font-bold text-lg">Khata Transaction History</h3>
+                </div>
+                <div className="p-6">
+                  {loadingKhata ? (
+                    <div className="text-center py-8">Loading...</div>
+                  ) : khataHistory.length === 0 ? (
+                    <div className="text-center py-8 text-stone-400">No Khata transactions found</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {khataHistory.map(tx => (
+                        <div key={tx.id} className="flex justify-between items-center p-4 bg-stone-50 rounded-xl">
+                          <div>
+                            <p className="font-bold">{tx.description}</p>
+                            <p className="text-xs text-stone-500">{new Date(tx.created_at).toLocaleDateString()}</p>
+                          </div>
+                          <p className={cn("font-black", tx.type === 'debit' ? 'text-red-600' : 'text-emerald-600')}>
+                            {tx.type === 'debit' ? '-' : '+'}₹{tx.amount}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
             {activeProfileTab === 'insights' && (activeRole === 'wholesaler' || activeRole === 'retailer') && (
               <WholesaleInsights key="insights" />
             )}
@@ -1183,7 +1241,7 @@ export default function Profile() {
           <div className="bg-primary/5 rounded-3xl p-8 border border-primary/10">
             <div className="flex flex-col md:flex-row items-center justify-between gap-6">
               <div className="text-center md:text-left">
-                <h3 className="text-xl font-black text-primary mb-2">Join the Hind Store Community</h3>
+                <h3 className="text-xl font-black text-primary mb-2">Join the General Store Karyana Shop Store Community</h3>
                 <p className="text-sm text-stone-600">Get exclusive offers, new arrivals and shopping tips directly in your inbox.</p>
               </div>
               <div className="flex w-full md:w-auto bg-white p-1.5 rounded-2xl shadow-sm border border-stone-100">
@@ -1694,7 +1752,7 @@ export default function Profile() {
                       className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                     />
                   </div>
-                  <div className="col-span-2 sm:col-span-1">
+                  <div className="col-span-2 md:col-span-1">
                     <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Code</label>
                     <div className="relative">
                       <input 
@@ -1758,6 +1816,36 @@ export default function Profile() {
                         <Navigation2 size={16} />
                       </button>
                     </div>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Street Address</label>
+                    <input name="street_address" required defaultValue={editingAddress?.street_address} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+                  </div>
+                  
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
+                    <input name="city" required defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+                  </div>
+                  
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
+                    <input name="state" required defaultValue={editingAddress?.state} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Area</label>
+                    <select
+                      name="delivery_area"
+                      required
+                      defaultValue={editingAddress?.delivery_area}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                    >
+                      <option value="">Select Area</option>
+                      {deliveryAreas.map(area => (
+                        <option key={area.id} value={area.name}>{area.name}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

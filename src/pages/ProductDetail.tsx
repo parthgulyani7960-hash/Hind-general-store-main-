@@ -133,9 +133,10 @@ export default function ProductDetail() {
     fetchVariants();
     fetchRelatedProducts();
     setQuantity(1);
+    window.scrollTo(0, 0);
   }, [id]);
 
-  const allImages = product ? [product.image_url, ...(product.images || [])].filter(Boolean) : [];
+  const allImages = product ? [product.image_url || `https://picsum.photos/seed/${product.id}/800/800`, ...(product.images || [])].filter(Boolean) : [];
 
   const getDeliveryEstimate = () => {
     if (!user?.pin_code) return "3-5 business days";

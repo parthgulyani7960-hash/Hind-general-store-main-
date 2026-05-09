@@ -64,7 +64,7 @@ export default function TermsAndConditions() {
                           Acceptance of Terms
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p>By accessing, browsing, or using the Hind General Store (HGS) platform, you acknowledge that you have read, understood, and agreed to be bound by these Terms and Conditions. These terms constitute a legally binding agreement between you and HGS regarding your use of our services, including our web portal, mobile app, and physical store interactions.</p>
+                          <p>By accessing, browsing, or using the {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'} platform, you acknowledge that you have read, understood, and agreed to be bound by these Terms and Conditions. These terms constitute a legally binding agreement between you and the store regarding your use of our services, including our web portal, mobile app, and physical store interactions.</p>
                           <p>We reserve the right to update or modify these terms at any time without prior notice. Any changes will be effective immediately upon posting. Your continued use of the platform after such changes signifies your acceptance of the revised terms.</p>
                         </div>
                       </section>
@@ -89,7 +89,7 @@ export default function TermsAndConditions() {
                           Pricing, Product Info & Availability
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p>While we strive for 100% accuracy, Hind General Store does not warrant that product descriptions, pricing, or other content is error-free. In the event of a pricing error, we reserve the right to cancel any orders placed for that item.</p>
+                          <p>While we strive for 100% accuracy, {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'} does not warrant that product descriptions, pricing, or other content is error-free. In the event of a pricing error, we reserve the right to cancel any orders placed for that item.</p>
                           <p>All items are subject to stock availability. We may place limits on the quantity of items purchased per person or per order to ensure fair distribution during high-demand periods.</p>
                         </div>
                       </section>
@@ -100,7 +100,7 @@ export default function TermsAndConditions() {
                           Wallet & 'Khata' (Credit) Policy
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p><strong>Hind Wallet:</strong> Pre-paid balance used for instant checkouts. Refilling can be done via UPI or Cash-at-Store. Wallet balance is non-transferable and non-refundable to bank accounts except in extreme circumstances.</p>
+                          <p><strong>General Store Karyana Shop Wallet:</strong> Pre-paid balance used for instant checkouts. Refilling can be done via UPI or Cash-at-Store. Wallet balance is non-transferable and non-refundable to bank accounts except in extreme circumstances.</p>
                           <p><strong>The Khata System:</strong> Approved customers can avail of interest-free credit. Khata limits are calculated based on your purchase history and return rate. Failure to settle Khata balances within the agreed timeframe (weekly/monthly) will result in immediate suspension of ordering privileges and possible legal recovery efforts.</p>
                         </div>
                       </section>
@@ -125,7 +125,7 @@ export default function TermsAndConditions() {
                         <div class="space-y-4 text-stone-600 leading-relaxed">
                           <p><strong>Perishables (Dairy, Veg, Fruit):</strong> Must be checked in the presence of the runner. Returns are not accepted once the runner departs. If the item is poor quality, hand it back immediately for a full refund to your wallet.</p>
                           <p><strong>Staples & Groceries:</strong> Unopened items can be returned within 48 hours for store credit. Items with broken seals or signs of use cannot be returned unless there is a clear manufacturing defect.</p>
-                          <p><strong>Refund Timing:</strong> Approved refunds to Hind Wallet are instantaneous. Refunds to original payment methods (Bank/Card) can take 5-7 business days as per banking standards.</p>
+                          <p><strong>Refund Timing:</strong> Approved refunds to General Store Karyana Shop Wallet are instantaneous. Refunds to original payment methods (Bank/Card) can take 5-7 business days as per banking standards.</p>
                         </div>
                       </section>
 
@@ -148,11 +148,12 @@ export default function TermsAndConditions() {
                       <section class="border-l-4 border-stone-100 pl-8 transition-all hover:border-primary/40 group">
                         <h3 class="text-2xl font-black text-stone-900 mb-6 uppercase tracking-tight flex items-center">
                           <span class="w-8 h-8 bg-stone-100 text-stone-400 group-hover:bg-primary group-hover:text-white rounded-lg flex items-center justify-center text-sm mr-4 transition-colors">08</span>
-                          Data Privacy & Communication
+                          Data Privacy & Security
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p>We collect and use your personal information as described in our Privacy Policy. By using the service, you consent to receive order updates, promotional offers, and logistical notifications via SMS, WhatsApp, and Email.</p>
-                          <p>Your delivery runner is provided with your phone number and location solely for the duration of the active delivery. They are prohibited from contacting you for any other reason.</p>
+                          <p>Your privacy and the security of your personal data are our top priorities. We collect and use your information exclusively to enhance your shopping experience as detailed in our Privacy Policy. By continuing to use our services, you consent to receive crucial order updates, relevant offers, and logistical communications via SMS, WhatsApp, and Email.</p>
+                          <p>Rest assured, we employ industry-standard encryption to protect your communications and personal data.</p>
+                          <p>Note: Your delivery runner is provided with your phone number and location solely for the duration of the active delivery. They are strictly prohibited from storing or contacting you for any other purpose.</p>
                         </div>
                       </section>
 

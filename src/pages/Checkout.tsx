@@ -46,7 +46,7 @@ export default function Checkout() {
     if (canvas) {
       const url = canvas.toDataURL("image/png");
       const link = document.createElement('a');
-      link.download = `HindStore_Order_${pendingOrder.order_id}.png`;
+      link.download = `General Store Karyana ShopStore_Order_${pendingOrder.order_id}.png`;
       link.href = url;
       link.click();
       toast.success('QR Code saved to gallery!');
@@ -54,7 +54,7 @@ export default function Checkout() {
   };
 
   const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
-  const upiName = config.find(c => c.key === 'upi_name')?.value || 'Hind General Store';
+  const upiName = config.find(c => c.key === 'upi_name')?.value || 'General Store Karyana Shop';
   
   // Address State
   const [useCustomAddress, setUseCustomAddress] = useState(false);
@@ -140,19 +140,31 @@ export default function Checkout() {
 
     promotions.forEach(promo => {
       if (!promo.active) return;
-      if (promo.type === 'percentage') {
-          if ((promo.category && item.category === promo.category) || (promo.product_id && item.id === promo.product_id)) {
-            // Validate percentage: ensure it's between 0 and 100
-            const validPercentage = Math.max(0, Math.min(100, promo.value));
-            itemDiscounts.push((basePrice * validPercentage) / 100);
+      
+      const isEligible = 
+        promo.target_type === 'all' || 
+        (promo.target_type === 'category' && item.category === promo.target_id) || 
+        (promo.target_type === 'product' && String(item.id) === String(promo.target_id)) ||
+        // fallback for older properties if still somehow set 
+        (promo.category && item.category === promo.category) ||
+        (promo.product_id && item.id === promo.product_id);
+
+      if (isEligible) {
+        if (promo.type === 'percentage') {
+          const validPercentage = Math.max(0, Math.min(100, promo.value));
+          itemDiscounts.push((basePrice * validPercentage) / 100);
+        } else if (promo.type === 'bogo') {
+          const minQ = promo.min_qty || 2;
+          if (item.quantity >= minQ) {
+            const freeItems = Math.floor(item.quantity / minQ) * (promo.value || 1);
+            const bogoDiscount = Math.min((basePrice * item.quantity), (basePrice * freeItems));
+            itemDiscounts.push(bogoDiscount / item.quantity);
           }
-      } else if (promo.type === 'bogo' && item.quantity >= 2) {
-           if (promo.product_id && item.id === promo.product_id) {
-             const freeItems = Math.floor(item.quantity / 2);
-             // Safety check: don't discount more than total item cost
-             const bogoDiscount = Math.min((basePrice * item.quantity), (basePrice * freeItems));
-             itemDiscounts.push(bogoDiscount / item.quantity); // Discount applied per unit
-           }
+        } else if (promo.type === 'fixed') {
+          if (!promo.min_qty || item.quantity >= promo.min_qty) {
+            itemDiscounts.push(promo.value / item.quantity);
+          }
+        }
       }
     });
 
@@ -729,20 +741,51 @@ export default function Checkout() {
                   className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6"
                 >
                   <h2 className="text-2xl font-bold">Review Order</h2>
-                  <div className="space-y-4 text-sm text-stone-600">
-                    <p>Total: <strong>₹{total}</strong></p>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                        {cartWithDiscounts.map(item => (
+                            <div key={item.id} className="flex justify-between text-sm text-stone-600">
+                                <span>{item.name} x {item.quantity}</span>
+                                <span>₹{item.finalPrice * item.quantity}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="border-t border-stone-100 pt-4 space-y-2 text-stone-600">
+                        <div className="flex justify-between">
+                            <span>Subtotal</span>
+                            <span>₹{subtotal}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Delivery Fee</span>
+                            <span>₹{deliveryFee}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-lg text-stone-900 border-t pt-2">
+                            <span>Total</span>
+                            <span>₹{total}</span>
+                        </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-sm text-stone-600">
                     <p>Payment Method: <strong className="uppercase">{selectedPaymentMethod}</strong></p>
                   </div>
                   
                   <button 
                     onClick={() => selectedPaymentMethod && placeOrder(selectedPaymentMethod)}
                     disabled={isProcessing}
-                    className="w-full btn-primary py-4"
+                    className="w-full btn-primary py-4 flex items-center justify-center gap-2"
                   >
-                    {isProcessing ? 'Placing Order...' : 'Confirm and Pay'}
+                    {isProcessing ? (
+                        <>
+                            <Loader2 className="animate-spin" size={18} />
+                            Placing Order...
+                        </>
+                    ) : 'Confirm and Pay'}
                   </button>
                   <button 
                     onClick={() => setStep('payment_method')}
+                    disabled={isProcessing}
                     className="w-full py-4 border border-stone-200 rounded-2xl font-bold text-stone-500 hover:bg-stone-100"
                   >
                     Back
@@ -774,7 +817,7 @@ export default function Checkout() {
                             <span className="text-white font-black text-xl">H</span>
                           </div>
                           <div className="text-left">
-                            <p className="text-sm font-black text-stone-900 leading-tight">Hind General Store</p>
+                            <p className="text-sm font-black text-stone-900 leading-tight">General Store Karyana Shop</p>
                             <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Official Payment QR</p>
                           </div>
                         </div>
@@ -910,7 +953,7 @@ export default function Checkout() {
                   </div>
                   <div className="space-y-2">
                     <h2 className="text-3xl font-bold">Order Confirmed!</h2>
-                    <p className="text-stone-500">Thank you for shopping with Hind General Store.</p>
+                    <p className="text-stone-500">Thank you for shopping with General Store Karyana Shop.</p>
                   </div>
                   <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 inline-block text-left">
                     <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">{t('order_details') || 'Order Details'}</p>
@@ -1011,11 +1054,13 @@ export default function Checkout() {
                   <ShieldCheck size={24} />
                 </div>
                 <div>
-                  <p className="text-sm font-bold">Secure Checkout</p>
-                  <p className="text-[10px] text-stone-400">SSL Encrypted Transactions</p>
+                  <p className="text-sm font-bold">100% Safe Payments</p>
+                  <p className="text-[10px] text-stone-400">Your transaction is completely safe and private.</p>
                 </div>
               </div>
-              <p className="text-[10px] text-stone-500 italic">By placing this order, you agree to our policies regarding returns and cancellations. All UPI payments are processed via automated verification.</p>
+              <p className="text-[10px] text-stone-500 italic">
+                  Your order is protected by 100% secure, SSL-encrypted transactions. Your privacy and safety are paramount. By placing this order, you agree to our policies regarding returns and cancellations. All UPI payments are processed via secure automated verification.
+                </p>
             </div>
           </div>
         </div>
