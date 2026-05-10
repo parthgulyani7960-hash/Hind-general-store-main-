@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { NetworkBanner } from './components/NetworkBanner';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import MobileBottomNav from './components/MobileBottomNav';
@@ -223,6 +224,7 @@ export default function App() {
       <ScrollToTopOnNavigate />
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
+        <NetworkBanner />
         <Toaster position="top-center" />
         <Navbar />
         <main className="flex-1 pb-24 md:pb-0">

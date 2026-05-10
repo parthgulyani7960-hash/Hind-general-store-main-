@@ -27,6 +27,8 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import AdminSidebar from '../components/admin/AdminSidebar';
+import { EmptyState } from '../components/EmptyState';
+
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -2945,7 +2947,18 @@ export default function AdminDashboard() {
                               <ShoppingBag size={20} />
                             </div>
                             <div>
-                              <p className="font-bold text-sm">#ORD-{order.id} <span className="text-xs font-normal text-stone-400">• {order.user_name}</span></p>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(`#ORD-${order.id}`);
+                                  toast.success('Order ID copied!');
+                                }}
+                                className="font-bold text-sm hover:text-primary transition-colors flex items-center gap-1"
+                              >
+                                #ORD-{order.id}
+                                <Copy size={12} />
+                              </button>
+                               <span className="text-xs font-normal text-stone-400"> • {order.user_name}</span>
+
                               <p className="text-[10px] text-stone-400">{order.address?.slice(0, 40)}...</p>
                             </div>
                           </div>

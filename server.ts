@@ -1298,9 +1298,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/user/generate-export', requireAuth, (req, res) => {
     try {
+      console.log('Generating export for user:', req.session.userId);
       const exportRequest = db.prepare('SELECT * FROM data_exports WHERE user_id = ? AND status = "APPROVED" ORDER BY approved_at DESC LIMIT 1').get(req.session.userId) as any;
       
-      if (!exportRequest) return res.status(403).json({ message: 'Export not approved or not found' });
+      if (!exportRequest) {
+        console.log('Export not approved or not found for user:', req.session.userId);
+        return res.status(403).json({ message: 'Export not approved or not found' });
+      }
       
       const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
       const orders = db.prepare('SELECT o.*, GROUP_CONCAT(oi.variant_name || " x" || oi.quantity, ", ") as items FROM orders o LEFT JOIN order_items oi ON o.id = oi.order_id WHERE user_id = ? GROUP BY o.id').all(req.session.userId);
@@ -1310,6 +1314,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       
       res.json({ user, orders, wallet, generatedAt: new Date().toISOString() });
     } catch (err: any) {
+      console.error('Error generating export:', err);
       handleAppError(err, 'Failed to generate export data', 'generateExportData');
       res.status(500).json({ success: false, message: 'Failed to generate export data' });
     }

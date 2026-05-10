@@ -738,6 +738,7 @@ export default function Profile() {
               ...(activeRole === 'wholesaler' || activeRole === 'retailer' ? [{ id: 'insights', label: 'Insights', icon: Activity }] : []),
               { id: 'wallet', label: 'Wallet', icon: Wallet },
               { id: 'khata', label: 'Khata', icon: Clock },
+              { id: 'settings', label: 'Settings', icon: Settings },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -757,6 +758,31 @@ export default function Profile() {
 
           {/* Tab Content */}
           <AnimatePresence mode="wait">
+            {activeProfileTab === 'settings' && (
+                <motion.div
+                    key="settings"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="bg-white rounded-3xl shadow-sm border border-stone-100 p-6 space-y-6"
+                >
+                    <h3 className="font-bold text-lg">Notification Settings</h3>
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <span>Order Status Updates</span>
+                            <div className="w-12 h-6 bg-stone-200 rounded-full cursor-pointer relative" onClick={() => toast.success('Preference updated')}>
+                                <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div>
+                            </div>
+                        </div>
+                         <div className="flex items-center justify-between">
+                            <span>Promotions</span>
+                            <div className="w-12 h-6 bg-primary rounded-full cursor-pointer relative" onClick={() => toast.success('Preference updated')}>
+                                <div className="absolute top-1 left-7 w-4 h-4 bg-white rounded-full"></div>
+                            </div>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
             {activeProfileTab === 'khata' && (
               <motion.div 
                 key="khata"
