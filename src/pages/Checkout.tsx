@@ -115,7 +115,7 @@ export default function Checkout() {
 
   const selectedArea = deliveryAreas.find(a => a.name === addressData.delivery_area);
 
-  const handleNextStep = () => {
+    const handleNextStep = async () => {
     if (!validateAddress()) {
       toast.error('Please fill all address fields, select a delivery zone, and confirm accuracy.');
       return;
