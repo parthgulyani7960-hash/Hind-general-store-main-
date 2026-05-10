@@ -95,7 +95,7 @@ export default function TrackOrder() {
         toast.success('Return requested successfully');
         setShowReturnModal(false);
         // Refresh order data (could use original id, but autoTrack handles formatting)
-        handleTrackAuto(orderId || order.id, phoneNumber || order.user_phone || phone);
+        handleTrackAuto(orderId || order.id, phoneNumber || order.user_phone);
       } else {
         toast.error(data.message || 'Failed to request return');
       }

@@ -34,20 +34,51 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [showDataModal, setShowDataModal] = useState<{ open: boolean; type: 'export' | 'delete' | null }>({ open: false, type: null });
+  const [exportStatus, setExportStatus] = useState<{ status: string; created_at: string } | null>(null);
+
+  const fetchExportStatus = async () => {
+    try {
+      const res = await fetch('/api/user/export-status');
+      if (res.ok) {
+        const data = await res.json();
+        setExportStatus(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch export status');
+    }
+  };
+
+  useEffect(() => {
+    fetchExportStatus();
+  }, []);
 
   const handleDataRequest = async (type: 'export' | 'delete') => {
     if (!window.confirm(t('confirm_action'))) return;
-    
-    // Simulate data request
-    toast.promise(
-      new Promise(resolve => setTimeout(resolve, 2000)),
-      {
-        loading: `${type === 'export' ? 'Preparing your data...' : 'Processing deletion request...'}`,
-        success: t(type === 'export' ? 'data_exported_success' : 'data_deleted_success'),
-        error: 'Failed to process request'
+
+    if (type === 'export') {
+      try {
+        const res = await fetch('/api/user/export-data', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          toast.success('Export requested. Admin will review soon.');
+          fetchExportStatus();
+        } else {
+          toast.error(data.message || 'Failed to request export');
+        }
+      } catch (err) {
+        toast.error('Failed to request export');
       }
-    );
+    } else {
+      // Simulate data request
+      toast.promise(
+        new Promise(resolve => setTimeout(resolve, 2000)),
+        {
+          loading: 'Processing deletion request...',
+          success: t('data_deleted_success'),
+          error: 'Failed to process request'
+        }
+      );
+    }
   };
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [editingAddress, setEditingAddress] = useState<any>(null);
@@ -1408,28 +1439,29 @@ export default function Profile() {
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    <button onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        const res = await fetch('/api/user/export-data', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.success) toast.success(data.message);
-                        else toast.error('Failed to request export');
-                      } catch (err) {
-                        toast.error('Failed to request export');
-                      }
-                    }} className="bg-primary text-white p-2 rounded-xl text-[10px] font-bold uppercase">Request</button>
-                    <button onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        const res = await fetch('/api/user/generate-export');
-                        if (!res.ok) throw new Error('Not approved or not ready');
-                        const data = await res.json();
-                        import('../services/pdfService').then(mod => mod.generateUserExportPDF(data));
-                      } catch (err) {
-                        toast.error('Failed to download PDF. Please ensure your request was approved.');
-                      }
-                    }} className="bg-emerald-600 text-white p-2 rounded-xl text-[10px] font-bold uppercase">Download</button>
+                    { (!exportStatus || exportStatus.status === 'NONE') && (
+                      <button onClick={async (e) => {
+                        e.stopPropagation();
+                        await handleDataRequest('export');
+                      }} className="bg-primary text-white p-2 rounded-xl text-[10px] font-bold uppercase">Request Export</button>
+                    )}
+                    { exportStatus?.status === 'PENDING_REVIEW' && (
+                      <button className="bg-amber-500 text-white p-2 rounded-xl text-[10px] font-bold uppercase cursor-not-allowed" disabled>Pending Review</button>
+                    )}
+                    { exportStatus?.status === 'APPROVED' && (
+                      <button onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          const res = await fetch('/api/user/generate-export');
+                          if (!res.ok) throw new Error('Not ready');
+                          const data = await res.json();
+                          import('../services/pdfService').then(mod => mod.generateUserExportPDF(data));
+                          toast.success('PDF Generated!');
+                        } catch (err) {
+                           toast.error('Failed to generate PDF');
+                        }
+                      }} className="bg-emerald-600 text-white p-2 rounded-xl text-[10px] font-bold uppercase">Download</button>
+                    )}
                   </div>
                 </div>
               </div>

@@ -1247,11 +1247,25 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/user/export-data', requireAuth, (req, res) => {
     try {
+      const pending = db.prepare('SELECT count(*) as count FROM data_exports WHERE user_id = ? AND status = "PENDING_REVIEW"').get(req.session.userId) as any;
+      if (pending && pending.count > 0) {
+        return res.status(400).json({ success: false, message: 'You already have a pending export request.' });
+      }
       db.prepare('INSERT INTO data_exports (user_id) VALUES (?)').run(req.session.userId);
       res.json({ success: true, message: 'Export requested. Admin will review soon.' });
     } catch (err: any) {
       handleAppError(err, 'Failed to request data export', 'exportDataRequest');
       res.status(500).json({ success: false, message: 'Failed to request export' });
+    }
+  });
+
+  app.get('/api/user/export-status', requireAuth, (req, res) => {
+    try {
+      const status = db.prepare('SELECT status, created_at, approved_at FROM data_exports WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(req.session.userId);
+      res.json(status || { status: 'NONE' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to fetch export status', 'fetchExportStatus');
+      res.status(500).json({ success: false, message: 'Failed to fetch status' });
     }
   });
 
@@ -1268,7 +1282,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/admin/data-exports/:id/approve', requireAdmin, (req, res) => {
       try {
           const { id } = req.params;
-          db.prepare('UPDATE data_exports SET status = "APPROVED", approved_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+          const exportRequest = db.prepare('SELECT user_id FROM data_exports WHERE id = ?').get(id) as any;
+          db.prepare('UPDATE data_exports SET status = "APPROVED", approved_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);                
+          db.prepare('INSERT INTO notifications (user_id, message, link) VALUES (?, ?, ?)').run(
+              exportRequest.user_id,
+              'Your data export request has been approved!',
+              '/profile'
+          );                
           res.json({ success: true });
       } catch (err: any) {
           handleAppError(err, 'Failed to approve export', 'approveExport');

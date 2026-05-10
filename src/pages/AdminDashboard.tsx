@@ -49,7 +49,13 @@ export default function AdminDashboard() {
     const [exports, setExports] = useState<any[]>([]);
     
     useEffect(() => {
-        fetch('/api/admin/data-exports').then(res => res.json()).then(setExports);
+        fetch('/api/admin/data-exports')
+          .then(res => {
+            if (!res.ok) throw new Error('Failed to fetch exports');
+            return res.json();
+          })
+          .then(setExports)
+          .catch(err => console.error('Error fetching data exports:', err));
     }, []);
     
     const approve = async (id: number) => {
@@ -122,7 +128,7 @@ export default function AdminDashboard() {
   const [productModal, setProductModal] = useState({ open: false, mode: 'add' as 'add' | 'edit' });
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [productSearchTerm, setProductSearchTerm] = useState('');
-  const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock'>('name');
+  const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock' | 'created_at'>('name');
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
   const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
 
@@ -185,16 +191,19 @@ export default function AdminDashboard() {
   const fetchProducts = async () => {
     setLoading(true);
     try {
+      console.log('Fetching products...');
       const res = await fetch('/api/products');
       if (res.ok) {
         const data = await res.json();
+        console.log('Products fetched:', data);
         setAllProducts(data);
         setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
       } else {
+        console.error('Failed to fetch products:', res.status, res.statusText);
         throw new Error('Failed to fetch products');
       }
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching products:', err);
       toast.error('Failed to load products');
     } finally {
       setLoading(false);
@@ -860,6 +869,7 @@ export default function AdminDashboard() {
     if (productSortBy === 'name') return a.name.localeCompare(b.name);
     if (productSortBy === 'price') return a.price - b.price;
     if (productSortBy === 'stock') return a.stock - b.stock;
+    if (productSortBy === 'created_at') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     return 0;
   });
 
@@ -4776,6 +4786,7 @@ export default function AdminDashboard() {
                   <option value="name">Name</option>
                   <option value="price">Price</option>
                   <option value="stock">Stock</option>
+                  <option value="created_at">Creation Date</option>
                 </select>
               </div>
 
@@ -7190,7 +7201,12 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 text-xs font-mono">{bug.path}</td>
                         <td className="px-6 py-4 max-w-xs md:max-w-md whitespace-normal">
-                          <p className="font-bold text-red-600 line-clamp-1">{bug.message}</p>
+                          <p className="font-bold text-red-600 line-clamp-1">
+                             {bug.message}
+                             {(bug.why?.toLowerCase().includes('auto') || bug.message?.toLowerCase().includes('auto')) && (
+                                <span className="ml-2 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase">Auto-Generated</span>
+                             )}
+                          </p>
                           <p className="text-xs text-stone-500 mt-1 line-clamp-2 font-mono bg-stone-100 p-1 rounded">
                             {bug.why}
                           </p>

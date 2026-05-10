@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bell, X } from 'lucide-react';
 import { useStore } from '../StoreContext';
+import { Link } from 'react-router-dom';
 
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -18,8 +19,11 @@ export default function NotificationBell() {
       fetch('/api/notifications')
         .then(res => res.json())
         .then(data => {
-          // Filter by activeRole
-          const visible = data.filter((n: any) => !n.target_role || n.target_role === 'all' || n.target_role === activeRole);
+            // Filter by user_id and activeRole
+            const visible = data.filter((n: any) => 
+                (n.user_id === user?.id || !n.user_id) && 
+                (!n.target_role || n.target_role === 'all' || n.target_role === activeRole)
+            );
           setNotifications(visible);
         })
         .catch(() => {});
@@ -28,11 +32,16 @@ export default function NotificationBell() {
     fetchNotifs();
     const interval = setInterval(fetchNotifs, 10000);
     return () => clearInterval(interval);
-  }, [activeRole]);
+  }, [activeRole, user?.id]);
 
   const unreadCount = notifications.filter(n => !readIds.includes(n.id)).length;
 
-  const markAsRead = (id: number) => {
+  const markAsRead = (id: number, createdAt: string) => {
+    const now = new Date().getTime();
+    const created = new Date(createdAt).getTime();
+    if (now - created < 5000) {
+        return; // Don't allow dismissal for 5 seconds
+    }
     const next = [...readIds, id];
     setReadIds(next);
     localStorage.setItem('read_notifications', JSON.stringify(next));
@@ -73,21 +82,24 @@ export default function NotificationBell() {
                   <p className="text-sm font-bold text-stone-400">All caught up!</p>
                 </div>
               ) : (
-                notifications.filter(n => !readIds.includes(n.id)).map(n => (
-                  <div key={n.id} className="bg-stone-50 rounded-2xl p-4 border border-stone-100 flex items-start space-x-3 relative group">
-                    <div className="flex-1">
-                      <h4 className="text-sm font-bold text-stone-900">{n.title}</h4>
-                      <p className="text-xs text-stone-500 mt-1 line-clamp-2">{n.message}</p>
-                    </div>
-                    <button 
-                      onClick={() => markAsRead(n.id)}
-                      className="text-stone-300 hover:text-red-500 transition-colors"
-                      title="Dismiss"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ))
+                notifications.filter(n => !readIds.includes(n.id)).map(n => {
+                    const content = (
+                      <div className="bg-stone-50 rounded-2xl p-4 border border-stone-100 flex items-start space-x-3 relative group">
+                        <div className="flex-1">
+                          <h4 className="text-sm font-bold text-stone-900">{n.title || 'Notification'}</h4>
+                          <p className="text-xs text-stone-500 mt-1 line-clamp-2">{n.message}</p>
+                        </div>
+                        <button 
+                          onClick={(e) => { e.preventDefault(); markAsRead(n.id, n.created_at); }}
+                          className="text-stone-300 hover:text-red-500 transition-colors"
+                          title="Dismiss"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    );
+                    return n.link ? <Link key={n.id} to={n.link} onClick={() => markAsRead(n.id, n.created_at)}>{content}</Link> : <div key={n.id}>{content}</div>;
+                })
               )}
             </div>
           </motion.div>
