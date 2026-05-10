@@ -24,7 +24,10 @@ export default function Login() {
       token = idToken;
     } catch (err: any) {
       console.error('Full Auth Error:', err);
-      handleAppError(err, 'Firebase Auth failed', 'firebaseLogin', true); // Changed to true to see details
+      // Privacy-conscious and reassuring error message
+      const friendlyMessage = "We're experiencing a temporary issue signing in. Our team is already looking into it, and we'll have it fixed soon. Please check back shortly.";
+      // Still log the technical error to Firestore for the admin
+      handleAppError(err, friendlyMessage, 'firebaseLogin', false); 
       setLoading(false);
       return;
     }

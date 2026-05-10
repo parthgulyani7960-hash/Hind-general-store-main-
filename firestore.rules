@@ -56,5 +56,10 @@ service cloud.firestore {
         allow create: if isSignedIn() && isValidOrder(incoming()) && incoming().userId == request.auth.uid;
         allow update: if (isOwner(resource.data.userId) || isAdmin()) && isValidOrder(incoming());
     }
+
+    // Error Logs - Allow anyone to log errors
+    match /error_logs/{logId} {
+      allow create: if true;
+    }
   }
 }

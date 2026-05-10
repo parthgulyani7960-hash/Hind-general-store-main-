@@ -36,13 +36,62 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports' | 'Data Exports';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  
+  const DataExportsView = () => {
+    const [exports, setExports] = useState<any[]>([]);
+    
+    useEffect(() => {
+        fetch('/api/admin/data-exports').then(res => res.json()).then(setExports);
+    }, []);
+    
+    const approve = async (id: number) => {
+        const res = await fetch(`/api/admin/data-exports/${id}/approve`, { method: 'POST' });
+        if (res.ok) {
+            setExports(exports.map(e => e.id === id ? {...e, status: 'APPROVED'} : e));
+            toast.success('Approved');
+        } else {
+            toast.error('Failed to approve');
+        }
+    };
+
+    return (
+        <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm">
+            <h2 className="text-2xl font-bold mb-6">Data Export Requests</h2>
+            <table className="w-full text-left">
+                <thead className="text-[10px] uppercase font-black tracking-widest text-stone-400">
+                    <tr>
+                        <th className="py-2">User</th>
+                        <th className="py-2">Date Requested</th>
+                        <th className="py-2">Status</th>
+                        <th className="py-2">Action</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                    {exports.map((e: any) => (
+                        <tr key={e.id}>
+                            <td className="py-4 text-sm font-bold">{e.user_name}</td>
+                            <td className="py-4 text-xs">{new Date(e.created_at).toLocaleString()}</td>
+                            <td className="py-4 text-xs font-black">{e.status}</td>
+                            <td className="py-4">
+                                {e.status === 'PENDING_REVIEW' && (
+                                    <button onClick={() => approve(e.id)} className="bg-primary text-white p-2 rounded text-[10px] font-bold">Approve</button>
+                                )}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
   const [newProduct, setNewProduct] = useState({ 
     name: '', description: '', price: '', stock: '', category: 'Grocery', image: '', 
     retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
@@ -188,7 +237,7 @@ export default function AdminDashboard() {
   const [newCategory, setNewCategory] = useState({ name: '', icon: 'Package' });
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [customerModal, setCustomerModal] = useState({ open: false, user: null as any });
-  const [orderModal, setOrderModal] = useState({ open: false, order: null as any });
+  const [orderModal, setOrderModal] = useState({ open: false, order: null as any, statusHistory: [] as any[] });
   const [orderHistory, setOrderHistory] = useState([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationModal, setNotificationModal] = useState({ open: false });
@@ -245,8 +294,23 @@ export default function AdminDashboard() {
     : users.filter(u => getCustomerSegment(u) === selectedSegment);
   const segments = ['All', ...Array.from(new Set(users.map(u => getCustomerSegment(u))))];
 
-  // Global Search State
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const fetchOrderStatusHistory = async (orderId: number) => {
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/status-history`);
+      if (res.ok) {
+        const data = await res.json();
+        setOrderModal(prev => ({ ...prev, statusHistory: data.history }));
+      }
+    } catch (err: any) {
+      handleAppError(err, 'Failed to fetch status history', 'fetchOrderStatusHistory');
+    }
+  };
+
+  useEffect(() => {
+    if (orderModal.open && orderModal.order) {
+      fetchOrderStatusHistory(orderModal.order.id);
+    }
+  }, [orderModal.open, orderModal.order?.id]);
   const [globalSearchResults, setGlobalSearchResults] = useState<{ products: any[], orders: any[], users: any[], suspicious?: any[] } | null>(null);
   const [isGlobalSearching, setIsGlobalSearching] = useState(false);
   const [customerActivities, setCustomerActivities] = useState<any[]>([]);
@@ -1922,7 +1986,7 @@ export default function AdminDashboard() {
     'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 'Product Catalog', 'Categories', 
     'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Roles', 'Support Tickets', 'Newsletter', 
     'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'Suspicious Activities', 'Promotions', 
-    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Bug Reports'
+    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Bug Reports', 'Data Exports'
   ];
 
   if (showPOPrint && poData) {
@@ -7095,6 +7159,10 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {activeTab === 'Data Exports' && (
+          <DataExportsView />
+        )}
+
         {activeTab === 'Bug Reports' && (
           <div className="space-y-6">
             <h3 className="text-xl font-bold">Auto-Reported Bugs & Errors</h3>
@@ -9022,7 +9090,18 @@ export default function AdminDashboard() {
 
                   <div className="mt-6 pt-6 border-t border-stone-100">
                     <h4 className="font-bold text-stone-900 mb-2">Delivery Info</h4>
-                    <p className="text-sm font-bold text-stone-600 mb-2">{orderModal.order.delivery_type === 'pickup' ? '🏢 Self Pickup' : '🚚 Home Delivery'}</p>
+                    {/* Status History */}
+                  <div className="bg-stone-50 p-4 rounded-2xl mb-6">
+                    <h4 className="font-bold text-stone-900 mb-3 text-sm">Status Update History</h4>
+                    <div className="space-y-2">
+                      {orderModal.statusHistory.map((h: any, i: number) => (
+                        <div key={i} className="flex justify-between items-center text-xs">
+                          <span className="font-medium text-stone-700 capitalize">{h.status}</span>
+                          <span className="text-stone-400">{new Date(h.timestamp).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                     
                     {orderModal.order.address && (
                       <div className="text-sm text-stone-600 space-y-1 mb-4 bg-white p-4 rounded-xl border border-stone-100">
@@ -9035,6 +9114,11 @@ export default function AdminDashboard() {
                                 <p>{addr.phone}</p>
                                 <p className="mt-1">{addr.address}</p>
                                 <p>{addr.city}, {addr.state} {addr.pincode}</p>
+                                {(orderModal.order.lat || addr.lat) && (
+                                  <p className="text-xs text-primary font-mono mt-2">
+                                    GPS: {(orderModal.order.lat || addr.lat).toFixed(4)}, {(orderModal.order.lng || addr.lng).toFixed(4)}
+                                  </p>
+                                )}
                               </>
                             );
                           } catch (e) {

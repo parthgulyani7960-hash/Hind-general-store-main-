@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy, Share2 } from 'lucide-react';
+import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy, Share2, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn } from '../types';
@@ -26,6 +26,8 @@ export default function TrackOrder() {
   const [loading, setLoading] = useState(false);
   const [runnerLocation, setRunnerLocation] = useState<any>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnItem, setReturnItem] = useState<any>(null);
   const [returnQuantity, setReturnQuantity] = useState(1);

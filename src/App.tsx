@@ -62,11 +62,11 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
   const location = useLocation();
 
   useEffect(() => {
-    if (!user) {
+    if (!user && window.location.pathname !== '/login') {
       toast.error('Please log in to use these services');
-    } else if (adminOnly && user.role !== 'admin') {
+    } else if (adminOnly && user && user.role !== 'admin') {
       toast.error('Access denied. Admin privileges required.');
-    } else if (runnerOnly && user.role !== 'delivery' && user.role !== 'admin') {
+    } else if (runnerOnly && user && user.role !== 'delivery' && user.role !== 'admin') {
       toast.error('Access denied. Delivery runner privileges required.');
     }
   }, [user, adminOnly, runnerOnly]);

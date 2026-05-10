@@ -803,54 +803,54 @@ export default function Profile() {
                           <div 
                             key={addr.id} 
                             className={cn(
-                              "relative p-6 rounded-2xl border-2 transition-all",
+                              "relative p-5 rounded-2xl border-2 transition-all",
                               addr.is_default ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
                             )}
                           >
                             <div className="flex justify-between items-start">
                               <div className="space-y-1">
                                 <div className="flex items-center space-x-2">
-                                  <span className="font-black text-stone-900">{addr.name}</span>
+                                  <span className="font-bold text-stone-900 text-sm">{addr.name}</span>
                                   {addr.is_default && (
-                                    <span className="bg-primary text-white text-[8px] font-bold uppercase px-2 py-0.5 rounded-full">Default</span>
+                                    <span className="bg-primary text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full">Default</span>
                                   )}
                                 </div>
-                                <p className="text-sm text-stone-600">{addr.phone}</p>
-                                <p className="text-sm text-stone-500 mt-2 leading-relaxed">
-                                  {addr.address}, {addr.city}, {addr.state} - {addr.pin_code}
+                                <p className="text-xs text-stone-600 font-medium">{addr.phone}</p>
+                                <p className="text-xs text-stone-500 mt-2 leading-relaxed">
+                                  {addr.house_number ? `${addr.house_number}, ` : ''}{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}
                                 </p>
-                                <div className="mt-2 text-[10px] font-bold text-primary uppercase tracking-widest bg-white px-3 py-1 rounded-full border border-primary/20 inline-block">
+                                <span className="inline-block mt-2 text-[10px] font-bold text-primary uppercase tracking-widest bg-white px-2 py-1 rounded-full border border-primary/20">
                                   Zone: {addr.delivery_area}
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <button 
-                                  onClick={() => {
-                                    setEditingAddress(addr);
-                                    setShowAddressModal(true);
-                                  }}
-                                  className="p-2 text-stone-400 hover:text-primary transition-colors hover:bg-white rounded-lg border border-transparent hover:border-stone-100"
-                                >
-                                  <Settings size={16} />
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    if(window.confirm('Delete this address?')) deleteAddress(addr.id);
-                                  }}
-                                  className="p-2 text-stone-400 hover:text-red-500 transition-colors hover:bg-white rounded-lg border border-transparent hover:border-stone-100"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                                </span>
                               </div>
                             </div>
-                            {!addr.is_default && (
+                            <div className="flex items-center justify-end mt-4 pt-4 border-t border-stone-100 space-x-2">
+                              {!addr.is_default && (
+                                <button
+                                  onClick={() => setDefaultAddress(addr.id)}
+                                  className="text-[10px] font-bold text-stone-400 hover:text-primary uppercase tracking-widest transition-colors flex-1 text-left"
+                                >
+                                  {t('set_as_default')}
+                                </button>
+                              )}
                               <button 
-                                onClick={() => setDefaultAddress(addr.id)}
-                                className="mt-4 text-[10px] font-bold text-stone-400 hover:text-primary uppercase tracking-widest transition-colors"
+                                onClick={() => {
+                                  setEditingAddress(addr);
+                                  setShowAddressModal(true);
+                                }}
+                                className="p-2 text-stone-400 hover:text-primary transition-colors hover:bg-stone-100 rounded-lg"
                               >
-                                {t('set_as_default')}
+                                <Settings size={14} />
                               </button>
-                            )}
+                              <button 
+                                onClick={() => {
+                                  if(window.confirm('Delete this address?')) deleteAddress(addr.id);
+                                }}
+                                className="p-2 text-stone-400 hover:text-red-500 transition-colors hover:bg-stone-100 rounded-lg"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1395,19 +1395,42 @@ export default function Profile() {
                   logActivity('DATA_EXPORT', 'User exported personal data (profile, orders, wallet)');
                   toast.success('Your data has been compiled and downloaded.');
                 }}
-                className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
+                className="p-6 transition-colors"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                    <div className="p-3 bg-stone-100 rounded-2xl text-stone-500">
                       <Download size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-stone-700">Export My Data</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Download all your profile and history data</p>
+                      <p className="font-bold text-stone-700">Export My Data (PDF)</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Request export or download approved PDF</p>
                     </div>
                   </div>
-                  <ChevronRight size={18} className="text-stone-300 group-hover:text-primary transition-colors" />
+                  <div className="flex space-x-2">
+                    <button onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const res = await fetch('/api/user/export-data', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) toast.success(data.message);
+                        else toast.error('Failed to request export');
+                      } catch (err) {
+                        toast.error('Failed to request export');
+                      }
+                    }} className="bg-primary text-white p-2 rounded-xl text-[10px] font-bold uppercase">Request</button>
+                    <button onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const res = await fetch('/api/user/generate-export');
+                        if (!res.ok) throw new Error('Not approved or not ready');
+                        const data = await res.json();
+                        import('../services/pdfService').then(mod => mod.generateUserExportPDF(data));
+                      } catch (err) {
+                        toast.error('Failed to download PDF. Please ensure your request was approved.');
+                      }
+                    }} className="bg-emerald-600 text-white p-2 rounded-xl text-[10px] font-bold uppercase">Download</button>
+                  </div>
                 </div>
               </div>
               <div 
@@ -1733,15 +1756,38 @@ export default function Profile() {
                 }}
                 className="p-6 space-y-4 max-h-[70vh] overflow-y-auto"
               >
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Name</label>
-                    <input 
-                      name="name"
-                      required
-                      defaultValue={editingAddress?.name}
-                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                    />
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Name</label>
+                      <input 
+                        name="name"
+                        required
+                        defaultValue={editingAddress?.name}
+                        className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                      />
+                    </div>
+                    <div className="col-span-2 flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Location</label>
+                      <LocationPicker onLocationFound={(lat, lng) => {
+                          const latInput = document.querySelector('input[name="lat"]') as HTMLInputElement;
+                          const lngInput = document.querySelector('input[name="lng"]') as HTMLInputElement;
+                          if (latInput) latInput.value = lat.toString();
+                          if (lngInput) lngInput.value = lng.toString();
+                          toast.success('Location pin updated');
+                      }} />
+                      <input type="hidden" name="lat" defaultValue={editingAddress?.lat} />
+                      <input type="hidden" name="lng" defaultValue={editingAddress?.lng} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">House / Flat / Apt Number</label>
+                      <input 
+                        name="house_number"
+                        required
+                        defaultValue={editingAddress?.house_number}
+                        className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Phone Number</label>

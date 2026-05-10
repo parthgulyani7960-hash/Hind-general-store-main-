@@ -773,7 +773,8 @@ export default function Products() {
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
               onMouseEnter={() => setHoverQuickView(product.id)}
               onMouseLeave={() => setHoverQuickView(null)}
-              className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col p-4 md:p-6"
+              className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-xl transition-all duration-300 flex flex-col p-4 md:p-6"
+              whileHover={{ y: -5, scale: 1.02 }}
             >
               <Link to={`/product/${product.id}`} className="relative h-56 sm:h-64 overflow-hidden block group/image mb-4 -mx-4 -mt-4 md:-mx-6 md:-mt-6">
                 {showImages ? (

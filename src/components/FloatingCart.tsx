@@ -22,14 +22,14 @@ export default function FloatingCart() {
             exit={{ opacity: 0, y: 30 }}
             className="pointer-events-auto w-full max-w-lg"
           >
-             <Link to="/checkout" className="bg-stone-900 border border-stone-800 text-white rounded-[2rem] p-4 px-6 flex items-center justify-between shadow-2xl shadow-stone-900/40 active:scale-95 transition-all group hover:bg-black">
+             <Link to="/checkout" className="bg-stone-900 border border-stone-800 text-white rounded-[2rem] p-3 px-5 flex items-center justify-between shadow-2xl shadow-stone-900/40 active:scale-95 transition-all group hover:bg-black">
               <div className="flex flex-col">
-                <span className="text-xs text-stone-400 font-medium">{cart.length} item{cart.length > 1 ? 's' : ''} in cart</span>
-                <span className="text-xl font-black font-mono tracking-tight">₹{cartTotal.toFixed(2)}</span>
+                <span className="text-[10px] text-stone-400 font-medium">{cart.length} item{cart.length > 1 ? 's' : ''} in cart</span>
+                <span className="text-lg font-black font-mono tracking-tight">₹{cartTotal.toFixed(2)}</span>
               </div>
-              <div className="flex items-center space-x-2 bg-primary px-5 py-3 rounded-2xl group-hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
-                <span className="text-sm font-bold uppercase tracking-wider text-white">Checkout</span>
-                <ArrowRight size={18} className="text-white group-hover:translate-x-1 transition-transform" />
+              <div className="flex items-center space-x-1.5 bg-primary px-4 py-2 rounded-xl group-hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
+                <span className="text-xs font-bold uppercase tracking-wider text-white">Checkout</span>
+                <ArrowRight size={14} className="text-white group-hover:translate-x-1 transition-transform" />
               </div>
             </Link>
           </motion.div>

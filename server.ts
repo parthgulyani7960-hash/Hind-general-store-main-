@@ -82,6 +82,10 @@ const connectDatabase = (path: string): Database.Database => {
 db = connectDatabase(dbPath);
 console.log('Database connected at:', dbPath);
 
+const handleAppError = (err: any, message: string, context: string) => {
+  console.error(`[AppError][${context}]:`, err);
+};
+
 const app = express();
 
 // Security Headers
@@ -240,6 +244,8 @@ async function initDatabase() {
     last_status_update TEXT,
     order_id TEXT UNIQUE,
     system_payment_matched BOOLEAN DEFAULT 0,
+    lat REAL,
+    lng REAL,
     expires_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id),
@@ -909,6 +915,15 @@ db.exec(`
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 
+  CREATE TABLE IF NOT EXISTS data_exports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    status TEXT DEFAULT 'PENDING_REVIEW',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    approved_at DATETIME,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
   CREATE TABLE IF NOT EXISTS user_addresses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -1227,6 +1242,56 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.json(user);
     } catch (err) {
       res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/user/export-data', requireAuth, (req, res) => {
+    try {
+      db.prepare('INSERT INTO data_exports (user_id) VALUES (?)').run(req.session.userId);
+      res.json({ success: true, message: 'Export requested. Admin will review soon.' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to request data export', 'exportDataRequest');
+      res.status(500).json({ success: false, message: 'Failed to request export' });
+    }
+  });
+
+  app.get('/api/admin/data-exports', requireAdmin, (req, res) => {
+    try {
+      const exports = db.prepare('SELECT de.*, u.name as user_name FROM data_exports de JOIN users u ON de.user_id = u.id ORDER BY de.created_at DESC').all();
+      res.json(exports);
+    } catch (err: any) {
+      handleAppError(err, 'Failed to fetch export requests', 'fetchExportRequests');
+      res.status(500).json({ success: false, message: 'Failed to fetch export requests' });
+    }
+  });
+
+  app.post('/api/admin/data-exports/:id/approve', requireAdmin, (req, res) => {
+      try {
+          const { id } = req.params;
+          db.prepare('UPDATE data_exports SET status = "APPROVED", approved_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+          res.json({ success: true });
+      } catch (err: any) {
+          handleAppError(err, 'Failed to approve export', 'approveExport');
+          res.status(500).json({ success: false, message: 'Failed to approve export' });
+      }
+  });
+
+  app.get('/api/user/generate-export', requireAuth, (req, res) => {
+    try {
+      const exportRequest = db.prepare('SELECT * FROM data_exports WHERE user_id = ? AND status = "APPROVED" ORDER BY approved_at DESC LIMIT 1').get(req.session.userId) as any;
+      
+      if (!exportRequest) return res.status(403).json({ message: 'Export not approved or not found' });
+      
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
+      const orders = db.prepare('SELECT o.*, GROUP_CONCAT(oi.variant_name || " x" || oi.quantity, ", ") as items FROM orders o LEFT JOIN order_items oi ON o.id = oi.order_id WHERE user_id = ? GROUP BY o.id').all(req.session.userId);
+      const wallet = db.prepare('SELECT * FROM wallet_transactions WHERE user_id = ?').all(req.session.userId);
+      
+      delete user.password;
+      
+      res.json({ user, orders, wallet, generatedAt: new Date().toISOString() });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to generate export data', 'generateExportData');
+      res.status(500).json({ success: false, message: 'Failed to generate export data' });
     }
   });
 
