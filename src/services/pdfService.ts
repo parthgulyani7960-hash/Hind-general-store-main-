@@ -44,14 +44,15 @@ export const generateUserExportPDF = (data: any) => {
   doc.text('2. Order History', 14, 45);
   (doc as any).autoTable({
     startY: 50,
-    head: [['Order ID', 'Total', 'Payment', 'Status', 'Date']],
+    head: [['Order ID', 'Total', 'Method', 'Pay Ref', 'Status', 'Date']],
     body: (data.orders && data.orders.length > 0) ? data.orders.map((o: any) => [
       formatValue(o.order_id || `ORD-${o.id}`),
       `₹${formatValue(o.total)}`,
       formatValue(o.payment_method),
+      formatValue(o.payment_id || o.payment_utr || 'N/A'),
       formatValue(o.status),
       new Date(o.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', day: 'numeric' })
-    ]) : [['No records', 'null', 'null', 'null', 'null']],
+    ]) : [['No records', 'null', 'null', 'null', 'null', 'null']],
     theme: 'grid',
     headStyles: { fillColor: secondaryColor }
   });
