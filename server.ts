@@ -3130,6 +3130,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true });
   });
 
+  app.put('/api/admin/coupons/:id', (req, res) => {
+    const { id } = req.params;
+    const { code, type, value, min_order, usage_limit, limit_per_user } = req.body;
+    db.prepare(`
+      UPDATE coupons 
+      SET code = ?, type = ?, value = ?, min_order = ?, usage_limit = ?, limit_per_user = ? 
+      WHERE id = ?
+    `).run(code, type, value, min_order, usage_limit, limit_per_user, id);
+    res.json({ success: true });
+  });
+
   app.get('/api/coupons/validate', (req, res) => {
     const { code, total, user_id } = req.query;
     const coupon = db.prepare('SELECT * FROM coupons WHERE code = ? AND active = 1').get(code) as any;
@@ -3311,6 +3322,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
+  app.delete('/api/admin/bugs/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM bug_reports WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post('/api/admin/orders/:id/tracking', (req, res) => {
   const { id } = req.params;
   const { tracking_id } = req.body;
@@ -3324,70 +3344,95 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
 app.get('/api/admin/stats', (req, res) => {
     try {
-      const totalOrders = db.prepare('SELECT COUNT(*) as count FROM orders').get() as any;
-      const totalRevenue = db.prepare('SELECT SUM(total) as sum FROM orders').get() as any;
-      const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
-      const lowStock = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point').get() as any;
-      
-      const pendingOrders = db.prepare('SELECT COUNT(*) as count FROM orders WHERE status = "pending"').get() as any;
-      const totalRefunds = db.prepare('SELECT SUM(refund_amount) as sum FROM returns WHERE status = "approved"').get() as any;
+      const stats: any = {
+        orders: 0,
+        revenue: 0,
+        users: 0,
+        lowStock: 0,
+        pendingOrders: 0,
+        totalRefunds: 0,
+        netRevenue: 0,
+        newUserCount: 0,
+        revenueByDay: [],
+        topCategories: [],
+        topProducts: [],
+        recentActivities: [],
+        activeUsers: 0
+      };
 
-      const newUserCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at >= date("now")').get() as any;
+      const executeQuery = (sql: string, params: any[] = [], type: 'get' | 'all' = 'get') => {
+        try {
+          const stmt = db.prepare(sql);
+          return type === 'get' ? stmt.get(...params) : stmt.all(...params);
+        } catch (e) {
+          console.error(`Error executing stats query [${sql}]:`, e);
+          return null;
+        }
+      };
 
-      // Revenue by day for the last 7 days
-      const revenueByDay = db.prepare(`
+      const totalOrders: any = executeQuery('SELECT COUNT(*) as count FROM orders');
+      const totalRevenue: any = executeQuery('SELECT SUM(total) as sum FROM orders');
+      const totalUsers: any = executeQuery('SELECT COUNT(*) as count FROM users');
+      const lowStock: any = executeQuery('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point');
+      const pendingOrdersCount: any = executeQuery('SELECT COUNT(*) as count FROM orders WHERE status = "pending"');
+      const refundsSum: any = executeQuery('SELECT SUM(refund_amount) as sum FROM returns WHERE status = "approved"');
+      const newUserCountRes: any = executeQuery('SELECT COUNT(*) as count FROM users WHERE created_at >= date("now")');
+
+      stats.orders = totalOrders?.count || 0;
+      stats.revenue = totalRevenue?.sum || 0;
+      stats.users = totalUsers?.count || 0;
+      stats.lowStock = lowStock?.count || 0;
+      stats.pendingOrders = pendingOrdersCount?.count || 0;
+      stats.totalRefunds = refundsSum?.sum || 0;
+      stats.newUserCount = newUserCountRes?.count || 0;
+      stats.netRevenue = stats.revenue - stats.totalRefunds;
+
+      stats.revenueByDay = executeQuery(`
         SELECT strftime('%Y-%m-%d', created_at) as date, SUM(total) as revenue, COUNT(*) as orders
         FROM orders
         WHERE created_at >= date('now', '-7 days')
         GROUP BY date
         ORDER BY date
-      `).all();
+      `, [], 'all') || [];
 
-      // Top selling categories
-      const topCategories = db.prepare(`
+      stats.topCategories = executeQuery(`
         SELECT p.category as name, SUM(oi.quantity) as sales
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         GROUP BY p.category
         ORDER BY sales DESC
         LIMIT 5
-      `).all();
+      `, [], 'all') || [];
 
-      // Top selling products
-      const topProducts = db.prepare(`
+      stats.topProducts = executeQuery(`
         SELECT p.name, SUM(oi.quantity) as sold
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         GROUP BY p.id
         ORDER BY sold DESC
         LIMIT 5
-      `).all();
+      `, [], 'all') || [];
 
-      // Recent System Logs (Activities)
-      const recentActivities = db.prepare(`
+      stats.recentActivities = executeQuery(`
         SELECT id, level, message, created_at
         FROM system_logs
         ORDER BY created_at DESC
         LIMIT 5
-      `).all();
+      `, [], 'all') || [];
 
-      const activeUsers = io ? io.engine.clientsCount : 1;
+      // Improved active users count
+      let currentActive = 0;
+      try {
+        if (io) {
+          // Socket.IO v4 approach
+          currentActive = io.sockets.sockets.size;
+        }
+      } catch (e) {
+        currentActive = 1; // Fallback
+      }
+      stats.activeUsers = currentActive;
 
-      res.json({
-        orders: totalOrders.count,
-        revenue: totalRevenue.sum || 0,
-        users: totalUsers.count,
-        lowStock: lowStock.count,
-        pendingOrders: pendingOrders.count,
-        totalRefunds: totalRefunds.sum || 0,
-        netRevenue: (totalRevenue.sum || 0) - (totalRefunds.sum || 0),
-        newUserCount: newUserCount.count,
-        revenueByDay,
-        topCategories,
-        topProducts,
-        recentActivities,
-        activeUsers
-      });
+      res.json(stats);
     } catch (error) {
       console.error('Admin stats error:', error);
       res.status(500).json({ message: 'Internal server error fetching stats', error: String(error) });

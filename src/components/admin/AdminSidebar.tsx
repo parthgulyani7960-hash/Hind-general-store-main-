@@ -9,50 +9,50 @@ import { cn } from '../../types';
 
 const menuGroups = [
   {
-    label: 'Store Management',
+    label: 'Overview',
     items: [
-      { name: 'Overview', label: 'Dashboard Overview', icon: LayoutDashboard },
-      { name: 'Analytics', label: 'Business Analytics', icon: TrendingUp },
-      { name: 'Announcements', label: 'Store Announcements', icon: Megaphone },
+      { name: 'Overview', label: 'Dashboard', icon: LayoutDashboard },
+      { name: 'Analytics', label: 'Sales Reports', icon: TrendingUp },
+      { name: 'Announcements', label: 'Announcements', icon: Megaphone },
     ]
   },
   {
-    label: 'Inventory & Orders',
+    label: 'Store Operations',
     items: [
-      { name: 'Orders', label: 'Order Management', icon: ShoppingBag },
-      { name: 'Product Catalog', label: 'Product Catalog', icon: Package },
-      { name: 'Categories', label: 'Product Categories', icon: BookOpen },
-      { name: 'Logistics', label: 'Delivery & Shipping', icon: Truck },
-      { name: 'Suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
-      { name: 'Returns', label: 'Returns & Refunds', icon: RotateCcw },
+      { name: 'Orders', label: 'Orders', icon: ShoppingBag },
+      { name: 'Product Catalog', label: 'Products', icon: Package },
+      { name: 'Categories', label: 'Categories', icon: BookOpen },
+      { name: 'Logistics', label: 'Delivery', icon: Truck },
+      { name: 'Suppliers', label: 'Suppliers', icon: Briefcase },
+      { name: 'Returns', label: 'Returns', icon: RotateCcw },
     ]
   },
   {
-    label: 'Accounts & Finance',
+    label: 'Finance',
     items: [
       { name: 'Wallet Requests', label: 'Wallet Top-ups', icon: CreditCard },
-      { name: 'Coupons', label: 'Discount Coupons', icon: Ticket },
-      { name: 'Bulk Discounts', label: 'Bulk Price Rules', icon: Percent },
-      { name: 'Expenses', label: 'Shop Expenses', icon: DollarSign },
+      { name: 'Coupons', label: 'Coupons', icon: Ticket },
+      { name: 'Bulk Discounts', label: 'Bulk Pricing', icon: Percent },
+      { name: 'Expenses', label: 'Expenses', icon: DollarSign },
     ]
   },
   {
-    label: 'Customers & Support',
+    label: 'Support',
     items: [
-      { name: 'Customers', label: 'Customer Base', icon: Users },
-      { name: 'Reviews', label: 'Customer Reviews', icon: MessageSquare },
-      { name: 'Support Tickets', label: 'Support Center', icon: LifeBuoy },
-      { name: 'Newsletter', label: 'Newsletter Hub', icon: Mail },
+      { name: 'Customers', label: 'Customers', icon: Users },
+      { name: 'Reviews', label: 'Reviews', icon: MessageSquare },
+      { name: 'Support Tickets', label: 'Support', icon: LifeBuoy },
+      { name: 'Newsletter', label: 'Newsletter', icon: Mail },
     ]
   },
   {
-    label: 'Settings & System',
+    label: 'System',
     items: [
-      { name: 'Store Settings', label: 'Store Configuration', icon: Settings },
+      { name: 'Store Settings', label: 'Settings', icon: Settings },
       { name: 'System Status', label: 'System Health', icon: Activity },
-      { name: 'Suspicious Activities', label: 'Security Alerts', icon: ShieldAlert },
+      { name: 'Suspicious Activities', label: 'Security', icon: ShieldAlert },
       { name: 'Audit Logs', label: 'Activity Logs', icon: ClipboardList },
-      { name: 'Bug Reports', label: 'Reported Issues', icon: Bug },
+      { name: 'Bug Reports', label: 'Bugs', icon: Bug },
     ]
   }
 ];
