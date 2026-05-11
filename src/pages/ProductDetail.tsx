@@ -7,6 +7,8 @@ import {
   ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag,
   CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2, Loader2
 } from 'lucide-react';
+import { ImageGalleryModal } from '../components/ImageGalleryModal';
+import { ReviewSection } from '../components/ReviewSection';
 import { Product, Review, cn } from '../types';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
@@ -704,9 +706,19 @@ export default function ProductDetail() {
               <Truck className="text-primary" size={24} />
               <span className="text-sm font-medium">Fast Local Delivery</span>
             </div>
-            <div className="flex items-center space-x-3 text-stone-600">
-              <Info className="text-primary" size={24} />
-              <span className="text-sm font-medium">Stock: {selectedVariant ? selectedVariant.stock : product.stock} {product.unit}s available</span>
+            <div className="flex items-center space-x-3">
+              <Info className={cn("shrink-0", (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? (selectedVariant ? selectedVariant.stock : product.stock) < 5 ? "text-amber-500" : "text-emerald-500" : "text-red-500")} size={24} />
+              <div className="text-sm font-medium">
+                <span className="font-bold text-stone-900">{selectedVariant ? selectedVariant.stock : product.stock} {product.unit}s </span>
+                <span className={cn(
+                    "font-bold",
+                    (selectedVariant ? selectedVariant.stock : product.stock) > 0 
+                      ? (selectedVariant ? selectedVariant.stock : product.stock) < 5 ? "text-amber-600" : "text-emerald-600"
+                      : "text-red-600"
+                )}>
+                  { (selectedVariant ? selectedVariant.stock : product.stock) > 0 ? ((selectedVariant ? selectedVariant.stock : product.stock) < 5 ? "available (Low Stock)" : "available (In Stock)") : "Out of Stock" }
+                </span>
+              </div>
             </div>
             {product.reorder_point !== undefined && (
               <div className="flex items-center space-x-3 text-stone-600">
@@ -724,7 +736,17 @@ export default function ProductDetail() {
         </motion.div>
       </div>
 
-      {/* Related Products Section */}
+      <ReviewSection 
+            reviews={reviews} 
+            productId={Number(id)}
+            onReviewSubmit={handleSubmitReview}
+            rating={rating}
+            setRating={setRating}
+            comment={comment}
+            setComment={setComment}
+          />
+          {zoomIndex !== null && <ImageGalleryModal images={allImages} initialIndex={zoomIndex} onClose={() => setZoomIndex(null)} />}
+          {/* Related Products Section */}
       {relatedProducts.length > 0 && (
         <div className="mt-20 space-y-8">
           <div className="flex justify-between items-end">

@@ -304,7 +304,7 @@ export default function Checkout() {
         } catch (err) {
           handleAppError(err, 'Failed to update payment status', 'pollPayment', user?.role === 'admin');
         }
-      }, 5000);
+      }, 10000);
     }
     return () => clearInterval(interval);
   }, [step, pendingOrder]);

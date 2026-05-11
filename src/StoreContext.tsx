@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
+import { onAuthStateChanged } from 'firebase/auth'; // Import this
+import { auth, signOutUser } from './firebase'; // Import auth
 
 interface StoreContextType {
   user: User | null;
@@ -75,6 +77,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
   });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+        if (firebaseUser) {
+          // User logged in via Firebase
+          checkAuth();
+        } else {
+          // User logged out
+          setUser(null);
+        }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     checkAuth();
@@ -697,6 +712,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (user) {
       await logActivity('LOGOUT', 'User logged out voluntarily');
     }
+    
+    // Sign out from Firebase
+    try {
+      await signOutUser();
+    } catch (e) {
+      console.error('Firebase signout failed', e);
+    }
+    
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {

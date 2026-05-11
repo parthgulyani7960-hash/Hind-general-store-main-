@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { Server } from 'socket.io';
 import session from 'express-session';
 import sqliteStoreFactory from 'better-sqlite3-session-store';
 const SqliteStore = sqliteStoreFactory(session);
@@ -125,24 +125,22 @@ app.use((req, res, next) => {
 let httpServer: any;
 
 // WebSocket setup - Skip on Vercel
-let wss: WebSocketServer | null = null;
+let io: Server | null = null;
 if (!process.env.VERCEL) {
   httpServer = createServer(app);
-  wss = new WebSocketServer({ server: httpServer });
+  io = new Server(httpServer, {
+    cors: { origin: "*", methods: ["GET", "POST"] }
+  });
 
-  wss.on('connection', (ws) => {
-    console.log('Client connected to WebSocket');
-    ws.on('close', () => console.log('Client disconnected from WebSocket'));
+  io.on('connection', (socket) => {
+    console.log('Client connected to real-time updates');
+    socket.on('disconnect', () => console.log('Client disconnected'));
   });
 }
 
 const broadcast = (data: any) => {
-  if (wss) {
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(data));
-      }
-    });
+  if (io) {
+    io.emit('data', data);
   }
 };
 
@@ -213,10 +211,26 @@ async function initDatabase() {
     images TEXT, -- JSON array of image URLs
     specifications TEXT, -- JSON object of specifications
     supplier_id INTEGER,
+    batch_number TEXT,
+    expiry_date DATETIME,
     is_subscribable BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(category) REFERENCES categories(name),
     FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS purchase_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id INTEGER,
+    product_id INTEGER,
+    quantity INTEGER,
+    cost_price REAL,
+    invoice_number TEXT,
+    batch_number TEXT,
+    expiry_date DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
+    FOREIGN KEY(product_id) REFERENCES products(id)
   );
 
   CREATE TABLE IF NOT EXISTS orders (
@@ -656,6 +670,10 @@ async function initDatabase() {
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Order Delay', 'My order #ORD-1 is delayed by 2 days.', 'open');
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Payment Issue', 'Payment failed but amount deducted.', 'open');
   }
+    db.exec(`ALTER TABLE orders ADD COLUMN tracking_id TEXT`).catch(() => {});
+    db.exec(`ALTER TABLE products ADD COLUMN batch_number TEXT`).catch(() => {});
+    db.exec(`ALTER TABLE products ADD COLUMN expiry_date DATETIME`).catch(() => {});
+
     console.log('Database initialized successfully.');
   } catch (err) {
     console.error('Database initialization failed:', err);
@@ -3293,13 +3311,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/stats', (req, res) => {
+  app.post('/api/admin/orders/:id/tracking', (req, res) => {
+  const { id } = req.params;
+  const { tracking_id } = req.body;
+  try {
+    db.prepare('UPDATE orders SET tracking_id = ? WHERE id = ?').run(tracking_id, id);
+    res.json({ success: true, message: 'Tracking ID updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update tracking ID' });
+  }
+});
+
+app.get('/api/admin/stats', (req, res) => {
     try {
       const totalOrders = db.prepare('SELECT COUNT(*) as count FROM orders').get() as any;
       const totalRevenue = db.prepare('SELECT SUM(total) as sum FROM orders').get() as any;
       const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
       const lowStock = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point').get() as any;
       
+      const pendingOrders = db.prepare('SELECT COUNT(*) as count FROM orders WHERE status = "pending"').get() as any;
+      const totalRefunds = db.prepare('SELECT SUM(refund_amount) as sum FROM returns WHERE status = "approved"').get() as any;
+
+      const newUserCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at >= date("now")').get() as any;
+
       // Revenue by day for the last 7 days
       const revenueByDay = db.prepare(`
         SELECT strftime('%Y-%m-%d', created_at) as date, SUM(total) as revenue, COUNT(*) as orders
@@ -3319,7 +3353,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         LIMIT 5
       `).all();
 
-      // Top selling products (Predictive Velocity)
+      // Top selling products
       const topProducts = db.prepare(`
         SELECT p.name, SUM(oi.quantity) as sold
         FROM order_items oi
@@ -3342,6 +3376,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         revenue: totalRevenue.sum || 0,
         users: totalUsers.count,
         lowStock: lowStock.count,
+        pendingOrders: pendingOrders.count,
+        totalRefunds: totalRefunds.sum || 0,
+        netRevenue: (totalRevenue.sum || 0) - (totalRefunds.sum || 0),
+        newUserCount: newUserCount.count,
         revenueByDay,
         topCategories,
         topProducts,
@@ -3350,6 +3388,61 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch (error) {
       console.error('Admin stats error:', error);
       res.status(500).json({ message: 'Internal server error fetching stats', error: String(error) });
+    }
+  });
+
+  // Purchase and Expiry Endpoints
+  app.get('/api/admin/inventory/expiring', (req, res) => {
+    try {
+      const expiring = db.prepare(`
+        SELECT id, name, batch_number, expiry_date, stock 
+        FROM products 
+        WHERE expiry_date IS NOT NULL 
+        AND expiry_date <= date('now', '+30 days')
+        AND stock > 0
+        ORDER BY expiry_date ASC
+      `).all();
+      res.json(expiring);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch expiring products', error: err.message });
+    }
+  });
+
+  app.post('/api/admin/inventory/purchase', (req, res) => {
+    const { product_id, supplier_id, quantity, cost_price, invoice_number, batch_number, expiry_date } = req.body;
+    try {
+      db.transaction(() => {
+        // Log purchase
+        db.prepare(`
+          INSERT INTO purchase_records (supplier_id, product_id, quantity, cost_price, invoice_number, batch_number, expiry_date)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(supplier_id, product_id, quantity, cost_price, invoice_number, batch_number, expiry_date);
+
+        // Update product stock and batch info
+        db.prepare(`
+          UPDATE products 
+          SET stock = stock + ?, batch_number = ?, expiry_date = ?
+          WHERE id = ?
+        `).run(quantity, batch_number, expiry_date, product_id);
+      })();
+      res.json({ success: true, message: 'Purchase recorded and stock updated successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to record purchase', error: err.message });
+    }
+  });
+
+  app.get('/api/admin/purchase-records', (req, res) => {
+    try {
+      const records = db.prepare(`
+        SELECT pr.*, p.name as product_name, s.name as supplier_name 
+        FROM purchase_records pr
+        JOIN products p ON pr.product_id = p.id
+        LEFT JOIN suppliers s ON pr.supplier_id = s.id
+        ORDER BY pr.created_at DESC
+      `).all();
+      res.json(records);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch purchase records', error: err.message });
     }
   });
 
@@ -3493,6 +3586,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         }
       })();
       
+      broadcast({ type: 'ORDER_STATUS_UPDATE', payload: { id: id, order_id: existingOrder.order_id, status: status } });
+
       // Simulate email notification
       const order = db.prepare('SELECT user_id FROM orders WHERE id = ?').get(id) as any;
       if (order) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy, Share2, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { handleAppError } from '../lib/errorUtils';
 import { useStore } from '../StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import { io } from 'socket.io-client';
 import 'leaflet/dist/leaflet.css';
 
 // Fix for default marker icon
@@ -51,10 +52,28 @@ export default function TrackOrder() {
             if (data.location) setRunnerLocation(data);
           }
         } catch (e) {}
-      }, 5000);
+      }, 15000);
       return () => clearInterval(interval);
     }
   }, [order]);
+
+  const orderRef = useRef(order);
+  useEffect(() => { orderRef.current = order; }, [order]);
+
+  useEffect(() => {
+    const socket = io(); 
+    socket.on('data', (data) => {
+        const currentOrder = orderRef.current;
+        if (data.type === 'ORDER_STATUS_UPDATE' && currentOrder && (String(data.payload.id) === String(currentOrder.id) || String(data.payload.order_id) === String(currentOrder.order_id))) {
+            setOrder((prev: any) => ({ ...prev, status: data.payload.status }));
+            toast.success(`Order status updated to ${data.payload.status}`);
+        }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 
   const handleCancelOrder = async () => {
     if (!cancellationReason.trim()) { toast.error('Please enter a reason'); return; }

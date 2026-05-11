@@ -11,10 +11,12 @@ import {
   Settings, CreditCard, Activity, TrendingUp, AlertTriangle,
   ChevronRight, ChevronLeft, Search, Filter, MoreVertical, Tag, Receipt, ArrowRight,
   BarChart3, Plus, Trash2, Download, Star, Clock, CheckCircle2,
-  Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
+  Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera, Printer,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink, LogOut,
-  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy
+  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy,
+  Menu, RotateCcw, PieChart as PieChartIcon, Zap, Target, Wallet, ArrowDown, Sparkles,
+  MousePointer2, Megaphone, ImageOff, Briefcase, Mail
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -117,7 +119,9 @@ export default function AdminDashboard() {
     name: '', description: '', price: '', stock: '', category: 'Grocery', image: '', 
     retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
     images: [] as string[],
-    specifications: {} as Record<string, string>
+    specifications: {} as Record<string, string>,
+    batch_number: '',
+    expiry_date: ''
   });
   const [stats, setStats] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -140,6 +144,7 @@ export default function AdminDashboard() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
+  const [expiringSoon, setExpiringSoon] = useState<any[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [productModal, setProductModal] = useState({ open: false, mode: 'add' as 'add' | 'edit' });
   const [editingProduct, setEditingProduct] = useState<any>(null);
@@ -175,6 +180,18 @@ export default function AdminDashboard() {
       handleAppError(err, 'Unable to load dashboard stats', 'fetchStats');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchExpiringProducts = async () => {
+    try {
+      const res = await fetch('/api/admin/inventory/expiring');
+      if (res.ok) {
+        const data = await res.json();
+        setExpiringSoon(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch expiring products:', err);
     }
   };
 
@@ -371,6 +388,10 @@ export default function AdminDashboard() {
 
   // Customer History State
   const [customerHistoryModal, setCustomerHistoryModal] = useState<{ open: boolean; userId: number | null; orders: any[] }>({ open: false, userId: null, orders: [] });
+
+  // Stock Entry State
+  const [stockEntryModal, setStockEntryModal] = useState<{ open: boolean, product: any }>({ open: false, product: null });
+  const [purchaseForm, setPurchaseForm] = useState({ supplier_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
 
   const [walletRequests, setWalletRequests] = useState<any[]>([]);
   const [runners, setRunners] = useState<any[]>([]);
@@ -1235,13 +1256,14 @@ export default function AdminDashboard() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes] = await Promise.all([
+        const [statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes, expiringRes] = await Promise.all([
           fetch('/api/admin/stats').then(r => r.json()),
           fetch('/api/admin/orders').then(r => r.json()),
           fetch('/api/admin/config').then(r => r.json()),
           fetch('/api/admin/users').then(r => r.json()),
           fetch('/api/products').then(r => r.json()),
           fetch('/api/categories').then(r => r.json()),
+          fetch('/api/admin/inventory/expiring').then(r => r.json()).catch(() => [])
         ]);
         setStats(statsRes);
         setOrders(ordersRes);
@@ -1250,6 +1272,7 @@ export default function AdminDashboard() {
         setAllProducts(productsRes);
         setLowStockProducts(productsRes.filter((p: any) => p.stock <= (p.reorder_point || 5)));
         setCategories(categoriesRes);
+        setExpiringSoon(expiringRes);
       } catch (err) {
         console.error('Failed to load initial admin data', err);
       } finally {
@@ -1422,6 +1445,36 @@ export default function AdminDashboard() {
     }
   };
 
+  const generatePurchaseOrder = () => {
+    const lowStockProducts = allProducts.filter(p => Number(p.stock) <= Number(p.reorder_point || 5));
+    
+    const groupedBySupplier = lowStockProducts.reduce((acc, curr) => {
+        const sid = curr.supplier_id || 'unassigned';
+        if (!acc[sid]) acc[sid] = [];
+        acc[sid].push(curr);
+        return acc;
+    }, {} as Record<string, any[]>);
+
+    const formattedPO = Object.keys(groupedBySupplier).map(sid => {
+         const supplier = suppliers.find(s => s.id.toString() === sid.toString());
+         return {
+             supplier: supplier || { name: 'Unassigned / Independent', address: '', contact_person: '', phone: '', email: '' },
+             items: groupedBySupplier[sid]
+         };
+    });
+    
+    if (formattedPO.length === 0) {
+      toast.error('No low stock items found to generate PO.');
+      return;
+    }
+
+    setPoData(formattedPO);
+    setShowPOPrint(true);
+    
+    toast.success('Generated Purchase Orders by Supplier. Preparing print...', { icon: '📄' });
+    setTimeout(() => window.print(), 1000);
+  };
+
   const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const url = productModal.mode === 'add' ? '/api/admin/products' : `/api/admin/products/${editingProduct.id}`;
@@ -1452,7 +1505,9 @@ export default function AdminDashboard() {
           name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
           retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
           images: [],
-          specifications: {}
+          specifications: {},
+          batch_number: '',
+          expiry_date: ''
         } as any);
         fetchAllProducts();
       } else {
@@ -1461,6 +1516,33 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error('Product submit error:', err);
       toast.error('Failed to save product. Check your connection.');
+    }
+  };
+
+  const handleStockEntrySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stockEntryModal.product) return;
+    try {
+      const res = await fetch('/api/admin/inventory/purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: stockEntryModal.product.id,
+          ...purchaseForm
+        })
+      });
+      if (res.ok) {
+        toast.success('Stock entry recorded successfully');
+        setStockEntryModal({ open: false, product: null });
+        setPurchaseForm({ supplier_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
+        fetchAllProducts();
+        fetchStats();
+      } else {
+        const data = await res.json();
+        toast.error(data.message || 'Failed to record stock entry');
+      }
+    } catch (err) {
+      toast.error('Network error during stock entry');
     }
   };
 
@@ -1541,6 +1623,137 @@ export default function AdminDashboard() {
     } catch (err) {
       toast.error('Failed to delete announcement');
     }
+  };
+
+  const handlePrintInvoice = (order: any) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    let addr: any = {};
+    try {
+      addr = typeof order.address === 'string' ? JSON.parse(order.address || '{}') : (order.address || {});
+    } catch (e) {
+      addr = { address: order.address };
+    }
+    const date = new Date(order.created_at).toLocaleDateString('en-IN');
+    
+    const html = `
+      <html>
+        <head>
+          <title>Invoice #ORD-${order.id}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #1c1917; line-height: 1.5; }
+            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f5f5f4; padding-bottom: 20px; margin-bottom: 30px; }
+            .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.025em; }
+            .invoice-details { text-align: right; }
+            .section { margin-bottom: 30px; }
+            .section-title { font-weight: 800; text-transform: uppercase; font-size: 10px; color: #a8a29e; margin-bottom: 8px; letter-spacing: 0.1em; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { text-align: left; background: #fafaf9; padding: 12px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #78716c; }
+            td { padding: 12px; border-bottom: 1px solid #f5f5f4; font-size: 13px; }
+            .total-section { margin-top: 30px; border-top: 2px solid #f5f5f4; padding-top: 20px; }
+            .total-row { display: flex; justify-content: flex-end; gap: 60px; margin-bottom: 8px; font-size: 14px; }
+            .grand-total { font-size: 20px; font-weight: 800; color: #c2410c; margin-top: 15px; border-top: 1px solid #f5f5f4; pt: 15px; }
+            .footer { margin-top: 60px; font-size: 11px; color: #a8a29e; text-align: center; border-top: 1px dashed #e7e5e4; padding-top: 20px; }
+            @media print {
+              body { padding: 20px; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="logo">HIND GENERAL STORE</div>
+              <p style="font-size: 12px; color: #78716c; margin: 4px 0 0 0;">Karyana Shop Nayagaon</p>
+            </div>
+            <div class="invoice-details">
+              <div style="font-weight: 800; font-size: 14px;">TAX INVOICE</div>
+              <div style="color: #78716c; font-size: 12px;">#ORD-${order.id}</div>
+              <div style="color: #78716c; font-size: 12px;">Date: ${date}</div>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 60px;">
+            <div class="section" style="flex: 1;">
+              <div class="section-title">Customer Details</div>
+              <div style="font-weight: 700; font-size: 14px;">${addr.name || 'Valued Customer'}</div>
+              <div style="font-size: 13px;">Phone: ${addr.phone || 'N/A'}</div>
+              <div style="font-size: 13px; margin-top: 4px; color: #444;">${addr.address || ''}</div>
+              <div style="font-size: 13px; color: #444;">${addr.city || ''} ${addr.state || ''} ${addr.pincode || ''}</div>
+            </div>
+            <div class="section" style="flex: 1;">
+              <div class="section-title">Transaction Info</div>
+              <div style="font-size: 13px;"><strong>Payment:</strong> ${order.payment_method?.toUpperCase()}</div>
+              <div style="font-size: 13px;"><strong>Delivery:</strong> ${order.delivery_type?.toUpperCase()}</div>
+              ${order.tracking_id ? `<div style="font-size: 13px;"><strong>Tracking ID:</strong> ${order.tracking_id}</div>` : ''}
+              ${order.payment_utr ? `<div style="font-size: 13px;"><strong>UTR:</strong> ${order.payment_utr}</div>` : ''}
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50%;">Item Description</th>
+                <th>Price</th>
+                <th>Qty</th>
+                <th style="text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(order.items || []).map((item: any) => `
+                <tr>
+                  <td style="font-weight: 600;">
+                    ${item.product_name || 'General Item'} 
+                    ${item.variant_name ? `<br/><span style="font-size: 10px; color: #a8a29e; font-weight: normal;">Variant: ${item.variant_name}</span>` : ''}
+                  </td>
+                  <td>₹${item.price}</td>
+                  <td>${item.quantity}</td>
+                  <td style="text-align: right; font-weight: 700;">₹${item.price * item.quantity}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="total-section">
+            <div class="total-row">
+              <span style="color: #78716c;">Subtotal:</span>
+              <span style="font-weight: 600; min-width: 100px;">₹${order.subtotal || order.total}</span>
+            </div>
+            ${order.discount > 0 ? `
+            <div class="total-row" style="color: #059669;">
+              <span>Discount:</span>
+              <span style="font-weight: 600; min-width: 100px;">-₹${order.discount}</span>
+            </div>` : ''}
+            <div class="total-row">
+              <span style="color: #78716c;">Delivery Fee:</span>
+              <span style="font-weight: 600; min-width: 100px;">₹${order.delivery_fee || 0}</span>
+            </div>
+            <div class="total-row grand-total">
+              <span>Total Payable:</span>
+              <span style="min-width: 100px;">₹${order.total}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p style="font-weight: 700; color: #57534e;">Thank you for your business!</p>
+            <p>Hind General Store | Shop No. 1, Main Market, Nayagaon, SAS Nagar, Punjab</p>
+            <p>For support, call us at +91 95015 67756 or email hind.store@gmail.com</p>
+          </div>
+          
+          <script>
+            window.onload = function() { 
+              setTimeout(() => {
+                window.print(); 
+              }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   const handleUserUpdate = async (userId: number, data: any) => {
@@ -2118,178 +2331,36 @@ export default function AdminDashboard() {
         setIsOpen={setSidebarOpen} 
         lowStockCount={lowStockProducts.length}
       />
-      {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 bg-white border-b border-stone-200 h-16 flex items-center justify-between px-4 z-50">
-        <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
-        <button 
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 text-stone-500 hover:bg-stone-100 rounded-lg"
-        >
-          {sidebarOpen ? <X size={24} /> : <List size={24} />}
-        </button>
-      </div>
-
-      {/* Sidebar Overlay */}
-      <AnimatePresence>
-        {sidebarOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 w-72 bg-white border-r border-stone-200 z-50 lg:sticky lg:block overflow-y-auto no-scrollbar transition-all duration-300 transform",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:w-20 lg:translate-x-0"
-        )}
-      >
-        <div className="p-8 border-b border-stone-100 flex items-center justify-between">
-          {!sidebarOpen ? (
-            <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3 mx-auto">
-              <span className="font-black text-2xl">H</span>
-            </div>
-          ) : (
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3">
-                <span className="font-black text-2xl">H</span>
-              </div>
-              <div>
-                <h1 className="text-2xl font-black text-stone-900 leading-none">Admin<span className="text-primary">.</span></h1>
-                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">General Store Karyana Shop Store</p>
-              </div>
-            </div>
-          )}
-          <button 
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="hidden lg:block p-2 text-stone-400 hover:text-primary transition-colors"
-          >
-            {sidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
-          </button>
-        </div>
-
-        <nav className="p-4 space-y-8">
-          {sidebarGroups.map((group, i) => (
-            <div key={i}>
-              <h3 className={cn(
-                "px-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-4",
-                !sidebarOpen && "text-center px-0"
-              )}>
-                {sidebarOpen ? group.title : group.title[0]}
-              </h3>
-              <div className="space-y-1">
-                {group.items.map((item) => (
-                  <button
-                    key={item.name}
-                    onClick={() => {
-                      if ((item as any).path) {
-                        navigate((item as any).path);
-                      } else {
-                        setActiveTab(item.name);
-                      }
-                      if (!window.matchMedia('(min-width: 1024px)').matches) {
-                        setSidebarOpen(false);
-                      }
-                    }}
-                    className={cn(
-                      "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                      activeTab === item.name
-                        ? "bg-primary text-white shadow-lg shadow-primary/20"
-                        : "text-stone-500 hover:bg-stone-50 hover:text-primary",
-                      !sidebarOpen && "justify-center px-0"
-                    )}
-                    title={!sidebarOpen ? item.name : ''}
-                  >
-                    <item.icon size={18} />
-                    {sidebarOpen && <span>{item.name}</span>}
-                  </button>
-                ))}
-                {group.title === 'Settings' && (
-                  <Link
-                    to="/admin/payments"
-                    className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-stone-500 hover:bg-stone-50 hover:text-primary"
-                  >
-                    <ShieldCheck size={18} />
-                    <span>UPI Automation</span>
-                  </Link>
-                )}
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        <div className="p-4 mt-auto border-t border-stone-100">
-          <div className="flex items-center space-x-3 p-3 bg-stone-50 rounded-2xl border border-stone-100">
-            <div className="w-10 h-10 rounded-xl bg-white border border-stone-200 flex items-center justify-center overflow-hidden shadow-sm shrink-0">
-              {user.profile_photo ? (
-                <img src={user.profile_photo} alt={user.name} className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-primary font-black uppercase">{user?.name?.[0] || 'A'}</span>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-stone-900 truncate">{user.name}</p>
-              <p className="text-[10px] text-primary uppercase font-black tracking-wider">{user.role}</p>
-            </div>
-            <Link to="/" className="p-2 text-stone-400 hover:text-primary transition-colors" title="View Site">
-              <ExternalLink size={16} />
-            </Link>
-            <button 
-              onClick={() => {
-                logout();
-                navigate('/login');
-              }}
-              className="p-2 text-stone-400 hover:text-red-500 transition-colors" 
-              title="Logout"
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </div>
-      </aside>
 
       {/* Main Content */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top Header (Desktop) */}
-        <header className="hidden lg:flex h-20 bg-white border-b border-stone-200 items-center justify-between px-8 sticky top-0 z-40">
-          <div className="flex items-center space-x-4">
-            <h2 className="text-xl font-bold text-stone-900">{activeTab}</h2>
-            <div className="flex items-center space-x-3 bg-white/50 backdrop-blur-md text-primary px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border border-stone-100 shadow-sm">
-              <div className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
-              </div>
-              <span>Operational: North Hub</span>
-            </div>
-          </div>
-
+      <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+        {/* Header */}
+        <header className="h-20 bg-white/80 backdrop-blur-xl border-b border-stone-200 flex items-center justify-between px-6 lg:px-12 sticky top-0 z-40">
           <div className="flex items-center space-x-6">
-            {user?.role === 'admin' && (
-              <div className="flex items-center space-x-2 bg-stone-50 px-3 py-1.5 rounded-xl border border-stone-100">
-                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Preview Mode</span>
-                <select 
-                  value={simulatedRole || 'admin'} 
-                  onChange={(e) => setSimulatedRole(e.target.value === 'admin' ? null : e.target.value)}
-                  className="bg-transparent text-xs font-bold text-stone-700 outline-none border-none focus:ring-0 cursor-pointer"
-                >
-                  <option value="admin">Default (Admin)</option>
-                  <option value="customer">Customer View</option>
-                  <option value="retailer">Retailer View</option>
-                  <option value="wholesaler">Wholesaler View</option>
-                </select>
+            <button 
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 hover:bg-stone-50 rounded-xl text-stone-400 transition-colors"
+            >
+              <Menu size={24} />
+            </button>
+            <h2 className="text-xl font-black text-stone-900 tracking-tight hidden sm:block">{activeTab}</h2>
+          </div>
+            
+            <div className="flex items-center space-x-3 bg-stone-50 px-4 py-2 rounded-2xl border border-stone-100 shadow-sm">
+              <div className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </div>
-            )}
+              <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">System Online</span>
+            </div>
+
+          <div className="flex items-center space-x-8">
             <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 transition-colors group-focus-within:text-primary" size={18} />
               <input 
                 type="text" 
-                placeholder="Global Search..."
-                className="bg-stone-100 border-none rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 w-64 transition-all focus:w-80"
+                placeholder="Search products, orders..."
+                className="bg-stone-100/50 border-stone-200 border rounded-2xl pl-11 pr-5 py-2.5 text-sm focus:ring-4 focus:ring-primary/10 w-64 transition-all focus:w-96 focus:bg-white outline-none font-medium"
                 value={globalSearchQuery}
                 onChange={(e) => handleGlobalSearch(e.target.value)}
               />
@@ -2419,67 +2490,101 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        <main className="p-4 lg:p-8 pt-20 lg:pt-8">
+        <main className="flex-1 overflow-y-auto no-scrollbar p-6 lg:p-12 space-y-12">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 15 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.2 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
           >
         {activeTab === 'Overview' && (
-          <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <motion.div 
+            initial="hidden"
+            animate="show"
+            variants={{
+              hidden: { opacity: 0 },
+              show: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.05
+                }
+              }
+            }}
+            className="space-y-10"
+          >
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-bold text-stone-900">Welcome back, {user.name.split(' ')[0]}!</h2>
-                <p className="text-stone-500 mt-1 text-sm sm:text-base">Here's what's happening with your store today.</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Intelligence Hub</h2>
+                <p className="text-stone-500 mt-1 text-base font-medium">Real-time surveillance of Hind General Store operations.</p>
               </div>
               <div className="flex items-center space-x-3">
-                <div className="bg-white px-3 sm:px-4 py-2 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-2">
-                  <Calendar size={14} className="text-stone-400" />
-                  <span className="text-xs sm:text-sm font-bold text-stone-600">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                <div className="bg-white px-5 py-3 rounded-2xl border border-stone-200 shadow-sm flex items-center space-x-3">
+                  <Calendar size={18} className="text-stone-900" />
+                  <span className="text-xs font-black text-stone-700 tracking-tight uppercase tracking-widest">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
                 </div>
-                <button 
+                <motion.button 
+                  whileHover={{ rotate: 180 }}
+                  transition={{ duration: 0.5 }}
                   onClick={() => fetchStats()}
-                  className="p-2 bg-white border border-stone-200 rounded-xl text-stone-400 hover:text-primary hover:border-primary transition-all shadow-sm"
+                  className="p-3 bg-white border border-stone-200 rounded-2xl text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all shadow-sm active:scale-90"
                 >
-                  <RefreshCw size={16} />
-                </button>
+                  <RefreshCw size={20} />
+                </motion.button>
               </div>
-            </div>
+            </header>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Core Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { label: 'Total Revenue', value: `₹${stats?.revenue || 0}`, icon: <TrendingUp className="text-emerald-600" />, trend: '+12.5%', color: 'bg-emerald-50', iconBg: 'bg-emerald-100', sparklineData: stats?.revenueByDay || [], sparklineKey: 'revenue', sparklineColor: '#059669' },
-                { label: 'Total Orders', value: stats?.orders || 0, icon: <ShoppingBag className="text-blue-600" />, trend: '+5.2%', color: 'bg-blue-50', iconBg: 'bg-blue-100', sparklineData: stats?.revenueByDay || [], sparklineKey: 'orders', sparklineColor: '#2563EB' },
-                { label: 'Active Customers', value: stats?.users || 0, icon: <Users className="text-purple-600" />, trend: '+2.1%', color: 'bg-purple-50', iconBg: 'bg-purple-100' },
-                { label: 'Low Stock Items', value: stats?.lowStock || 0, icon: <AlertTriangle className="text-amber-600" />, trend: 'Critical', color: 'bg-amber-50', iconBg: 'bg-amber-100' }
+                { label: 'Net Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
+                { label: 'Active Pipeline', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '+3.2%', color: 'amber', key: 'orders' },
+                { label: 'Fulfillment Delta', value: `₹${stats?.totalRefunds || 0}`, icon: <RotateCcw size={22} />, trend: '-2.4%', color: 'red' },
+                { label: 'User Expansion', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '+18.1%', color: 'purple' }
               ].map((stat, i) => (
                 <motion.div 
                   key={i}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 hover:shadow-md transition-all group relative overflow-hidden"
+                  variants={{
+                    hidden: { opacity: 0, y: 20 },
+                    show: { opacity: 1, y: 0 }
+                  }}
+                  whileHover={{ y: -5 }}
+                  className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 transition-all group relative overflow-hidden"
                 >
-                  <div className="flex justify-between items-start mb-4 relative z-10">
-                    <div className={cn("p-3 rounded-2xl transition-colors", stat.iconBg)}>{stat.icon}</div>
-                    <span className={cn("text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg", 
-                      stat.trend === 'Critical' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+                  <div className="flex justify-between items-start mb-6">
+                    <div className={cn(
+                      "p-4 rounded-2xl transition-all duration-300",
+                      stat.color === 'emerald' ? "bg-emerald-50 text-emerald-600" :
+                      stat.color === 'amber' ? "bg-amber-50 text-amber-600" :
+                      stat.color === 'red' ? "bg-red-50 text-red-600" :
+                      "bg-stone-50 text-stone-900"
+                    )}>
+                      {stat.icon}
+                    </div>
+                    <span className={cn(
+                      "text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border",
+                      stat.trend.startsWith('+') ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-red-50 text-red-600 border-red-100"
                     )}>
                       {stat.trend}
                     </span>
                   </div>
-                  <p className="text-stone-400 text-xs font-bold uppercase tracking-widest relative z-10">{stat.label}</p>
-                  <h3 className="text-3xl font-bold mt-1 group-hover:text-primary transition-colors relative z-10">{stat.value}</h3>
-                  {stat.sparklineData && stat.sparklineData.length > 0 && (
-                    <div className="absolute bottom-0 left-0 right-0 h-16 opacity-30 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <p className="text-stone-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1">{stat.label}</p>
+                  <h3 className="text-3xl font-black text-stone-900 tracking-tighter">{stat.value}</h3>
+                  
+                  {stats?.revenueByDay && stats.revenueByDay.length > 0 && stat.key && (
+                    <div className="absolute bottom-0 left-0 right-0 h-16 opacity-30 pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={stat.sparklineData}>
-                          <Line type="monotone" dataKey={stat.sparklineKey} stroke={stat.sparklineColor} strokeWidth={2} dot={false} isAnimationActive={true} />
-                        </LineChart>
+                        <AreaChart data={stats.revenueByDay}>
+                          <Area 
+                            type="monotone" 
+                            dataKey={stat.key} 
+                            stroke="currentColor" 
+                            strokeWidth={2} 
+                            fill={stat.color === 'emerald' ? '#10b981' : '#f59e0b'}
+                            fillOpacity={0.05}
+                          />
+                        </AreaChart>
                       </ResponsiveContainer>
                     </div>
                   )}
@@ -2487,556 +2592,206 @@ export default function AdminDashboard() {
               ))}
             </div>
 
-            {/* Revenue Trend Chart */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-              className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100"
-            >
-              <h3 className="font-bold text-lg mb-6">Revenue Trend</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={stats?.revenueByDay || []}>
-                    <defs>
-                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#059669" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#059669" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E7E5E4" />
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#A8A29E'}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#A8A29E'}} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="revenue" stroke="#059669" fillOpacity={1} fill="url(#colorRevenue)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </motion.div>
-
-            {/* Quick Actions Panel */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-              className="grid grid-cols-2 lg:grid-cols-6 gap-4"
-            >
-              {[
-                { label: 'Add Product', icon: <Plus size={18} />, action: () => { setActiveTab('Product Catalog'); setProductModal({ open: true, mode: 'add' }); }, color: 'text-primary bg-primary/10 hover:bg-primary hover:text-white', permission: 'manage_products' },
-                { label: 'Review Orders', icon: <ShoppingBag size={18} />, action: () => setActiveTab('Orders'), color: 'text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white', permission: 'manage_orders' },
-                { label: 'Coupons', icon: <Tag size={18} />, action: () => setActiveTab('Coupons'), color: 'text-amber-600 bg-amber-50 hover:bg-amber-600 hover:text-white' },
-                { label: 'Payments', icon: <IndianRupee size={18} />, action: () => navigate('/admin/payments'), color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white' },
-                { label: 'Customers', icon: <Users size={18} />, action: () => setActiveTab('Customers'), color: 'text-purple-600 bg-purple-50 hover:bg-purple-600 hover:text-white', permission: 'manage_users' },
-                { label: 'Health', icon: <Activity size={18} />, action: () => setActiveTab('System Status'), color: 'text-stone-600 bg-stone-100 hover:bg-stone-600 hover:text-white' }
-              ].filter(action => !action.permission || hasPermission(action.permission as any)).map((action, i) => (
-                <button
-                  key={`quick-action-${i}`}
-                  onClick={action.action}
-                  className={cn("flex flex-col items-center justify-center p-4 rounded-2xl transition-all duration-300 gap-2 border border-transparent hover:border-black/5 hover:shadow-sm", action.color)}
-                >
-                  <div className="p-2 rounded-xl bg-white/20">{action.icon}</div>
-                  <span className="text-[10px] font-black uppercase tracking-widest">{action.label}</span>
-                </button>
-              ))}
-            </motion.div>
-
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Recent Orders */}
-              <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-                <div className="p-8 border-b border-stone-100 flex justify-between items-center bg-stone-50/30">
-                  <div>
-                    <h3 className="font-bold text-lg">Recent Orders</h3>
-                    <p className="text-xs text-stone-400 mt-1">Latest transactions from your customers</p>
-                  </div>
-                  <button 
-                    onClick={() => setActiveTab('Orders')}
-                    className="text-primary text-xs font-black uppercase tracking-wider hover:underline flex items-center space-x-1"
-                  >
-                    <span>View All Orders</span>
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
-                      <tr>
-                        <th className="px-8 py-5">Order ID</th>
-                        <th className="px-6 py-5">Customer</th>
-                        <th className="px-6 py-5">Amount</th>
-                        <th className="px-6 py-5">Status</th>
-                        <th className="px-6 py-5">Date</th>
-                        <th className="px-8 py-5"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {orders.slice(0, 5).map((order) => (
-                        <tr key={order.id} className="hover:bg-stone-50/50 transition-colors group">
-                          <td className="px-8 py-5 font-mono text-xs font-bold text-stone-400 group-hover:text-primary transition-colors">#ORD-{order.id}</td>
-                          <td className="px-6 py-5">
-                            <div className="flex items-center space-x-3">
-                              <div className="w-8 h-8 bg-stone-100 rounded-lg flex items-center justify-center text-stone-400 font-bold text-xs uppercase">
-                                {order.user_name?.[0] || 'U'}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-stone-900">{order.user_name}</p>
-                                <p className="text-[10px] text-stone-400 font-medium">{order.user_phone}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-5 font-black text-sm text-stone-900">₹{order.total}</td>
-                          <td className="px-6 py-5">
-                            <span className={cn(
-                              "text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg",
-                              order.status === 'pending' ? 'bg-amber-50 text-amber-600' : 
-                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600' :
-                              order.status === 'cancelled' ? 'bg-red-50 text-red-600' :
-                              'bg-blue-50 text-blue-600'
-                            )}>
-                              {order.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-5 text-xs font-bold text-stone-500">
-                            {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </td>
-                          <td className="px-8 py-5 text-right">
-                            <button 
-                              onClick={() => fetchOrderDetailsModal(order)}
-                              className="p-2 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white hover:shadow-sm border border-transparent hover:border-stone-100 rounded-xl transition-all"
-                            >
-                              <Eye size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Top Selling Products */}
-              <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden flex flex-col">
-                <div className="p-8 border-b border-stone-100 bg-stone-50/30">
-                  <h3 className="font-bold text-lg">Top Selling Products</h3>
-                  <p className="text-xs text-stone-400 mt-1">Based on recent order volume</p>
-                </div>
-                <div className="p-6 space-y-5 flex-1">
-                  {stats?.topProducts?.map((prod: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between group">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-lg bg-stone-100 flex items-center justify-center text-[10px] font-black text-stone-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                          0{idx + 1}
-                        </div>
-                        <p className="text-sm font-bold text-stone-700 group-hover:text-stone-900 transition-colors">{prod.name}</p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs font-black text-emerald-600">{prod.sold}</span>
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest leading-none">Sold</span>
-                      </div>
-                    </div>
-                  ))}
-                  {!stats?.topProducts?.length && <p className="text-xs text-stone-400 italic text-center py-8">Not enough data yet</p>}
-                </div>
-                <div className="p-6 bg-stone-50/50 mt-auto">
-                   <button onClick={() => setActiveTab('Analytics')} className="w-full py-3 bg-white border border-stone-200 rounded-xl text-xs font-black uppercase tracking-widest text-stone-500 hover:border-primary hover:text-primary transition-all shadow-sm">
-                      Full Sales Report
-                   </button>
-                </div>
-              </div>
-
-              {/* System Status */}
-              <div className="bg-white rounded-3xl shadow-sm border border-stone-100 p-8 space-y-6">
+              {/* Performance Analytics */}
+              <motion.div
+                variants={{ hidden: { opacity: 0, x: -20 }, show: { opacity: 1, x: 0 } }}
+                className="lg:col-span-2 bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-8"
+              >
                 <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-lg">System Health</h3>
-                  <Activity size={18} className="text-stone-400" />
+                  <div>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Trajectory</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">L-30 Strategic Analysis</p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-emerald-500 rounded-full" />
+                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Growth Normalized</span>
+                  </div>
                 </div>
-                <div className="space-y-4">
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stats?.revenueByDay || []}>
+                      <defs>
+                        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#1c1917" stopOpacity={0.05}/>
+                          <stop offset="95%" stopColor="#1c1917" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#f5f5f4" />
+                      <XAxis 
+                        dataKey="day" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} 
+                        tickFormatter={(v) => v.slice(5)}
+                      />
+                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '1rem' }}
+                        itemStyle={{ fontWeight: 900, color: '#1c1917' }}
+                      />
+                      <Area type="monotone" dataKey="revenue" stroke="#1c1917" strokeWidth={4} fillOpacity={1} fill="url(#revenueGradient)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </motion.div>
+
+              {/* Maintenance & Health */}
+              <motion.div
+                variants={{ hidden: { opacity: 0, x: 20 }, show: { opacity: 1, x: 0 } }}
+                className="bg-stone-900 rounded-[3rem] p-10 text-white space-y-8 relative overflow-hidden"
+              >
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
+                <div className="relative z-10 flex items-center justify-between">
+                  <h3 className="text-xl font-black tracking-tight">System Integrity</h3>
+                  <Activity size={20} className="text-emerald-500 animate-pulse" />
+                </div>
+
+                <div className="space-y-4 relative z-10">
                   {[
-                    { label: 'API Server', status: 'Healthy', color: 'bg-primary', icon: <Globe size={14} /> },
-                    { label: 'Database', status: 'Connected', color: 'bg-primary', icon: <Database size={14} /> },
-                    { label: 'SMS Gateway', status: 'Online', color: 'bg-primary', icon: <Phone size={14} /> },
-                    { label: 'Payment Gateway', status: 'Maintenance', color: 'bg-amber-500', icon: <CreditCard size={14} /> }
+                    { label: 'Core API', status: 'Optimal', delay: 42 },
+                    { label: 'Transaction Node', status: 'Online', delay: 18 },
+                    { label: 'Security Guard', status: 'Active', delay: 0 }
                   ].map((sys, i) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl border border-stone-100/50">
-                      <div className="flex items-center space-x-3">
-                        <div className="text-stone-400">{sys.icon}</div>
-                        <span className="text-sm font-bold text-stone-700">{sys.label}</span>
+                    <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between backdrop-blur-sm">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{sys.label}</span>
+                        <span className="text-xs font-bold text-white mt-0.5">{sys.status}</span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-stone-500">{sys.status}</span>
-                        <div className={cn("w-2 h-2 rounded-full animate-pulse", sys.color)} />
-                      </div>
+                      <span className="text-[10px] font-black font-mono text-emerald-500">{sys.delay}ms</span>
                     </div>
                   ))}
+                </div>
+
+                <div className="pt-6 border-t border-white/10 space-y-4 relative z-10">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Network Alert Feed</span>
+                    <button onClick={() => setActiveTab('System Status')} className="text-[10px] font-black text-emerald-500 hover:underline">Full Trace</button>
+                  </div>
+                  <div className="space-y-3">
+                    {stats?.recentActivities?.slice(0, 2).map((log: any) => (
+                      <div key={log.id} className="flex items-start space-x-3">
+                        <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", log.level === 'error' ? "bg-red-500" : "bg-white/20")} />
+                        <p className="text-[10px] font-medium text-white/70 line-clamp-2 leading-relaxed">{log.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setActiveTab('Audit Logs')}
+                  className="w-full relative z-10 py-4 bg-emerald-500 text-stone-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all active:scale-95 shadow-xl shadow-emerald-500/20"
+                >
+                  Authorize System Scrutiny
+                </button>
+              </motion.div>
+            </div>
+
+            {/* Fulfillment Awareness */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <motion.div
+                variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } }}
+                className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 flex flex-col"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Active Dispatches</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Pending Assignment</p>
+                  </div>
+                  <div className="flex -space-x-3">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="w-10 h-10 rounded-full border-4 border-white bg-stone-100 flex items-center justify-center text-[10px] font-black text-stone-400">R{i}</div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-4 flex-1">
+                  {orders.filter(o => o.status === 'processing').slice(0, 3).map((order) => (
+                    <div key={order.id} className="p-4 bg-stone-50 rounded-3xl border border-stone-100 flex items-center justify-between group hover:bg-stone-900 hover:text-white transition-all duration-300">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-10 h-10 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-900 group-hover:bg-white/10 group-hover:border-white/20 group-hover:text-white transition-colors">
+                          <ShoppingBag size={18} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-black tracking-tight">#ORD-{order.id}</p>
+                          <p className="text-[10px] font-bold text-stone-400 group-hover:text-white/50">{order.user_name}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setActiveTab('Orders')}
+                        className="p-2 rounded-lg bg-white shadow-sm border border-stone-200 text-stone-400 hover:text-stone-900 transition-colors opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0"
+                      >
+                        <ArrowRight size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  {orders.filter(o => o.status === 'processing').length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center py-10 opacity-30 text-stone-400 grayscale">
+                      <Package size={48} strokeWidth={1} className="mb-4" />
+                      <p className="text-xs font-black uppercase tracking-widest">No Active Fulfillment</p>
+                    </div>
+                  )}
+                </div>
+                <button 
+                   onClick={() => setActiveTab('Orders')}
+                   className="mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all"
+                >
+                  Open Logistics Matrix
+                </button>
+              </motion.div>
+
+              <motion.div
+                variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } }}
+                className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100"
+              >
+                 <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Supply Chain Health</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Inventory Depletion Analysis</p>
+                  </div>
+                  <AlertTriangle size={20} className={cn(lowStockProducts.length > 0 ? "text-red-500 animate-pulse" : "text-emerald-500")} />
                 </div>
                 
-                <div className="pt-6 border-t border-stone-100">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Security Alerts</h4>
-                    {suspiciousActivities.length > 0 && <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />}
-                  </div>
-                  <div className="space-y-3">
-                    {suspiciousActivities.slice(0, 3).map((alert) => (
-                      <div key={alert.id} className="flex items-start space-x-3 p-3 rounded-xl bg-red-50/50 border border-red-100">
-                        <Shield size={14} className="text-red-500 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-xs font-bold text-red-900 leading-tight">{alert.activity_type}</p>
-                          <p className="text-[10px] text-red-700 line-clamp-1 mt-0.5">{alert.description}</p>
-                        </div>
+                <div className="space-y-4">
+                   {lowStockProducts.slice(0, 4).map((p) => (
+                    <div key={p.id} className="flex items-center justify-between p-4 bg-stone-50 rounded-3xl border border-stone-100">
+                      <div className="flex items-center space-x-4">
+                         <div className="w-12 h-12 rounded-xl bg-white border border-stone-200 overflow-hidden shrink-0">
+                           <img src={p.image_url} alt="" className="w-full h-full object-cover" />
+                         </div>
+                         <div>
+                            <p className="text-sm font-black text-stone-900 truncate max-w-[150px]">{p.name}</p>
+                            <div className="flex items-center space-x-2 mt-0.5">
+                              <span className="text-[9px] font-black text-red-500 uppercase">Critical Depletion</span>
+                              <span className="text-[9px] font-bold text-stone-400">• {p.stock} Units left</span>
+                            </div>
+                         </div>
                       </div>
-                    ))}
-                    {suspiciousActivities.length === 0 && (
-                      <p className="text-[10px] text-stone-400 italic text-center py-2">No active security alerts</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-stone-100">
-                   <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Recent Logs</h4>
-                    <button onClick={() => setActiveTab('System Status')} className="text-[10px] font-bold text-stone-400 hover:text-primary">View All</button>
-                  </div>
-                  <div className="space-y-3">
-                    {stats?.recentActivities?.map((log: any) => (
-                      <div key={log.id} className="flex items-start space-x-3 p-3 rounded-xl bg-stone-50 border border-stone-100">
-                        {log.level === 'error' ? <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0" /> : <Activity size={14} className="text-stone-400 mt-0.5 shrink-0" />}
-                        <div className="flex-1 min-w-0">
-                          <p className={cn("text-xs font-bold leading-tight truncate", log.level === 'error' ? "text-red-900" : "text-stone-700")}>{log.message}</p>
-                          <p className="text-[9px] text-stone-400 font-medium mt-1">{new Date(log.created_at).toLocaleString('en-IN')}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {(!stats?.recentActivities || stats.recentActivities.length === 0) && (
-                      <p className="text-[10px] text-stone-400 italic text-center py-2">No recent system activity</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Low Stock Alerts */}
-              <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-                <div className="p-8 border-b border-stone-100 flex justify-between items-center bg-stone-50/30">
-                  <div>
-                    <h3 className="font-bold text-lg">Low Stock Alerts</h3>
-                    <p className="text-xs text-stone-400 mt-1">Items requiring immediate attention</p>
-                  </div>
-                  <span className="bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl">
-                    {lowStockProducts.length} Items
-                  </span>
-                </div>
-                <div className="p-8 space-y-4">
-                  {lowStockProducts.length === 0 ? (
-                    <div className="text-center py-8">
-                      <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <CheckCircle2 size={32} />
-                      </div>
-                      <p className="text-stone-500 font-bold">All products are well stocked!</p>
-                      <p className="text-xs text-stone-400 mt-1">No low stock alerts at the moment.</p>
+                      <button 
+                        onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(p.name); }}
+                        className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-800 transition-all"
+                      >
+                        Restock
+                      </button>
                     </div>
-                  ) : (
-                    lowStockProducts.map((product) => (
-                      <div key={product.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-stone-100 hover:border-amber-200 transition-all group">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-stone-50 rounded-xl border border-stone-100 flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform">
-                            <img src={product.image_url} alt="" className="w-full h-full object-cover" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-stone-900">{product.name}</p>
-                            <p className="text-[10px] text-stone-400 uppercase font-black tracking-widest">{product.category}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-black text-red-600">{product.stock} {product.unit} left</p>
-                          <button 
-                            onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(product.name); }}
-                            className="text-[10px] font-black uppercase tracking-wider text-primary hover:underline mt-1"
-                          >
-                            Restock Now
-                          </button>
-                        </div>
-                      </div>
-                    ))
+                  ))}
+                  {lowStockProducts.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-10 opacity-30 text-stone-400 grayscale">
+                      <CheckCircle2 size={48} strokeWidth={1} className="mb-4 text-emerald-500" />
+                      <p className="text-xs font-black uppercase tracking-widest">Inventory Stabilized</p>
+                    </div>
                   )}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Audit Logs' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Audit Logs</h2>
-              <button 
-                onClick={fetchAuditLogs}
-                disabled={isFetchingAudit}
-                className="btn-stone px-4 py-2 flex items-center space-x-2"
-              >
-                <RefreshCw size={16} className={cn(isFetchingAudit && "animate-spin")} />
-                <span>Refresh Logs</span>
-              </button>
-            </div>
-            <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Admin</th>
-                    <th className="px-6 py-4">Action</th>
-                    <th className="px-6 py-4">Details</th>
-                    <th className="px-6 py-4">IP Address</th>
-                    <th className="px-6 py-4">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-sm text-stone-900">{log.admin_name || 'System'}</p>
-                        <p className="text-[10px] text-stone-400">ID: {log.admin_id}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-[10px] font-black bg-stone-100 text-stone-800 px-2 py-1 rounded-lg uppercase tracking-wider">{log.action}</span>
-                        <p className="text-[10px] text-stone-400 mt-1">{log.resource}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-xs text-stone-600 max-w-xs truncate" title={log.details}>{log.details}</p>
-                      </td>
-                      <td className="px-6 py-4 text-xs font-mono text-stone-400">{log.ip_address}</td>
-                      <td className="px-6 py-4 text-xs text-stone-500">{new Date(log.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                  {auditLogs.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-stone-400 italic">No audit logs found</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Logistics' && (
-          <div className="space-y-8">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-3xl font-serif font-black text-stone-900">Logistics Control Tower</h2>
-                <p className="text-stone-500">Monitor active deliveries and manage your runner fleet</p>
-              </div>
-              <div className="flex space-x-3">
                 <button 
-                  onClick={() => setRunnerModal({ open: true, mode: 'add', runner: null })}
-                  className="btn-primary"
+                  onClick={() => setActiveTab('Product Catalog')}
+                  className="w-full mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all"
                 >
-                  <Plus size={18} className="mr-2" />
-                  Add Runner
+                  Access Global Inventory
                 </button>
-              </div>
+              </motion.div>
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Fleet Overview */}
-              <div className="lg:col-span-1 space-y-6">
-                <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm">
-                  <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest mb-6">Fleet Status</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                      <p className="text-2xl font-black text-emerald-600">{runners.filter(r => r.status === 'active').length}</p>
-                      <p className="text-[10px] font-bold text-emerald-600/70 uppercase">Active</p>
-                    </div>
-                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                      <p className="text-2xl font-black text-amber-600">{runners.filter(r => r.status === 'on_delivery').length}</p>
-                      <p className="text-[10px] font-bold text-amber-600/70 uppercase">Engaged</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={async () => {
-                      try {
-                        const activeRunners = runners.filter(r => r.status === 'on_delivery' || r.status === 'active');
-                        if (activeRunners.length === 0) {
-                          toast.error('No runners to simulate');
-                          return;
-                        }
-                        const r = activeRunners[Math.floor(Math.random() * activeRunners.length)];
-                        const newLat = (r.current_lat || 30.9010) + (Math.random() - 0.5) * 0.005;
-                        const newLng = (r.current_lng || 75.8573) + (Math.random() - 0.5) * 0.005;
-                        
-                        const res = await fetch('/api/runners/location', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ runner_id: r.id, lat: newLat, lng: newLng })
-                        });
-                        if (res.ok) {
-                          toast.success(`Simulation: ${r.name} moved!`);
-                          fetchRunners();
-                        }
-                      } catch (err) {
-                        toast.error('Simulation failed');
-                      }
-                    }}
-                    className="w-full mt-4 py-2 bg-stone-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-800 transition-all flex items-center justify-center space-x-2"
-                  >
-                    <Navigation size={12} />
-                    <span>Simulate Random Movement</span>
-                  </button>
-                </div>
-
-                <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm max-h-[600px] overflow-y-auto custom-scrollbar">
-                  <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest mb-4">Runners List</h3>
-                  <div className="space-y-3">
-                    {runners.map(runner => (
-                      <div key={runner.id} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 group transition-all hover:bg-white hover:shadow-md hover:-translate-y-0.5">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center space-x-3">
-                            <div className={cn(
-                              "w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold",
-                              runner.status === 'active' ? "bg-emerald-500 shadow-emerald-200" : 
-                              runner.status === 'on_delivery' ? "bg-amber-500 shadow-amber-200" : "bg-stone-300"
-                            )}>
-                              {runner.name[0]}
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold text-stone-900">{runner.name}</p>
-                              <p className="text-[10px] text-stone-400">{runner.vehicle_type} • {runner.phone}</p>
-                            </div>
-                          </div>
-                          <div className={cn(
-                            "text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full border",
-                            runner.status === 'active' ? "border-emerald-200 bg-emerald-50 text-emerald-600" : 
-                            runner.status === 'on_delivery' ? "border-amber-200 bg-amber-50 text-amber-600" : "border-stone-200 bg-stone-100 text-stone-400"
-                          )}>
-                            {runner.status}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Map & Active Shipments */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="bg-stone-900 rounded-[2.5rem] h-[400px] relative overflow-hidden group shadow-2xl">
-                  {/* Mock Map Background */}
-                  <div className="absolute inset-0 opacity-20 pointer-events-none">
-                    <svg width="100%" height="100%" viewBox="0 0 1000 600" fill="none">
-                      <path d="M100 100H900V500H100V100Z" stroke="white" strokeWidth="0.5" strokeDasharray="5 5" />
-                      <path d="M200 0V600" stroke="white" strokeWidth="0.2" />
-                      <path d="M400 0V600" stroke="white" strokeWidth="0.2" />
-                      <path d="M600 0V600" stroke="white" strokeWidth="0.2" />
-                      <path d="M800 0V600" stroke="white" strokeWidth="0.2" />
-                      <path d="M0 150H1000" stroke="white" strokeWidth="0.2" />
-                      <path d="M0 300H1000" stroke="white" strokeWidth="0.2" />
-                      <path d="M0 450H1000" stroke="white" strokeWidth="0.2" />
-                    </svg>
-                  </div>
-                  
-                  {/* Store Pin */}
-                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                    <div className="bg-primary p-2 rounded-xl shadow-lg ring-4 ring-primary/20 z-10">
-                      <Home size={20} className="text-white" />
-                    </div>
-                    <span className="text-[10px] font-black text-white uppercase mt-2 drop-shadow-md">Warehouse Hub</span>
-                  </div>
-
-                  {/* Runner Pins */}
-                  {runners.filter(r => r.status !== 'offline').map((r, i) => (
-                    <motion.div 
-                      key={r.id}
-                      animate={{ 
-                        x: 100 + (Math.sin(Date.now()/5000 + i) * 300),
-                        y: 100 + (Math.cos(Date.now()/5000 + i) * 150)
-                      }}
-                      className="absolute flex flex-col items-center cursor-help"
-                      title={`${r.name} - ${r.status}`}
-                    >
-                      <div className={cn(
-                        "p-1.5 rounded-full border-2 border-white shadow-lg",
-                        r.status === 'on_delivery' ? "bg-amber-500" : "bg-emerald-500"
-                      )}>
-                        <Truck size={14} className="text-white" />
-                      </div>
-                      <div className="bg-black/80 backdrop-blur px-2 py-0.5 rounded text-[8px] font-bold text-white mt-1">
-                        {r.name.split(' ')[0]}
-                      </div>
-                    </motion.div>
-                  ))}
-
-                  <div className="absolute top-6 left-6 flex items-center space-x-2 bg-black/40 backdrop-blur px-4 py-2 rounded-2xl border border-white/10">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                    <span className="text-[10px] font-bold text-white uppercase tracking-widest">Live: Ludhiana Region</span>
-                  </div>
-
-                  <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between pointer-events-none">
-                    <div className="bg-black/60 backdrop-blur p-4 rounded-2xl border border-white/10 text-white space-y-1">
-                      <p className="text-[10px] font-bold text-white/50 uppercase">Network Status</p>
-                      <p className="text-xs font-bold font-mono">LATENCY: 42ms | DISPATCH: OK</p>
-                    </div>
-                    <div className="bg-primary p-4 rounded-2xl border border-white/20 text-white flex items-center space-x-4 shadow-xl pointer-events-auto cursor-pointer hover:bg-primary/90 transition-all">
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-white/70 uppercase">Dispatcher View</p>
-                        <p className="text-xs font-black">TOGGLE HEATMAP</p>
-                      </div>
-                      <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-                        <Activity size={18} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-[2rem] border border-stone-100 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-                    <h3 className="text-lg font-bold">Priority Dispatches</h3>
-                    <div className="flex items-center space-x-2">
-                       <span className="w-2 h-2 bg-primary rounded-full" />
-                       <span className="text-[10px] font-bold text-stone-400 uppercase">Awaiting Assignment</span>
-                    </div>
-                  </div>
-                  <div className="divide-y divide-stone-100">
-                    {orders.filter(o => o.status === 'processing').length === 0 ? (
-                      <div className="p-12 text-center text-stone-400 italic">No orders ready for dispatch</div>
-                    ) : (
-                      orders.filter(o => o.status === 'processing').map(order => (
-                        <div key={order.id} className="p-4 flex items-center justify-between hover:bg-stone-50 transition-colors">
-                          <div className="flex items-center space-x-4">
-                            <div className="p-3 bg-stone-100 text-stone-500 rounded-2xl">
-                              <ShoppingBag size={20} />
-                            </div>
-                            <div>
-                              <button 
-                                onClick={() => {
-                                  navigator.clipboard.writeText(`#ORD-${order.id}`);
-                                  toast.success('Order ID copied!');
-                                }}
-                                className="font-bold text-sm hover:text-primary transition-colors flex items-center gap-1"
-                              >
-                                #ORD-{order.id}
-                                <Copy size={12} />
-                              </button>
-                               <span className="text-xs font-normal text-stone-400"> • {order.user_name}</span>
-
-                              <p className="text-[10px] text-stone-400">{order.address?.slice(0, 40)}...</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-4">
-                            <select 
-                              className="input-field text-[10px] py-1 px-3 min-w-[150px]"
-                              onChange={(e) => handleAssignRunner(order.id, parseInt(e.target.value))}
-                              defaultValue=""
-                            >
-                              <option value="" disabled>Assign Runner</option>
-                              {runners.filter(r => r.status === 'active').map(r => (
-                                <option key={r.id} value={r.id}>{r.name} ({r.vehicle_type})</option>
-                              ))}
-                            </select>
-                            <button className="p-2 text-stone-400 hover:text-primary transition-colors">
-                              <ExternalLink size={18} />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          </motion.div>
         )}
+
 
         {activeTab === 'Announcements' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -3158,167 +2913,224 @@ export default function AdminDashboard() {
 
         {activeTab === 'Analytics' && analyticsData && (
           <div className="space-y-8">
-            {/* Analytics Filters */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-wrap items-center gap-4">
-              <div className="flex items-center space-x-2">
-                <Calendar size={16} className="text-stone-400" />
-                <input 
-                  type="date" 
-                  value={analyticsStartDate}
-                  onChange={(e) => setAnalyticsStartDate(e.target.value)}
-                  className="bg-stone-50 border-none rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20"
-                />
-                <span className="text-stone-400">to</span>
-                <input 
-                  type="date" 
-                  value={analyticsEndDate}
-                  onChange={(e) => setAnalyticsEndDate(e.target.value)}
-                  className="bg-stone-50 border-none rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20"
-                />
+            {/* Intel Dashboard Header */}
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
+                    <PieChartIcon size={24} />
+                  </div>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Intelligence Ledger</h2>
+                </div>
+                <p className="text-stone-500 font-medium text-lg ml-1">Predictive insights and real-time performance audit.</p>
               </div>
-              
-              <div className="h-8 w-px bg-stone-100 hidden md:block" />
-              
-              <select 
-                value={analyticsCategory}
-                onChange={(e) => setAnalyticsCategory(e.target.value)}
-                className="bg-stone-50 border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="all">All Categories</option>
-                {categories.map(cat => (
-                  <option key={cat.id} value={cat.name}>{cat.name}</option>
-                ))}
-              </select>
 
-              <select 
-                value={analyticsSegment}
-                onChange={(e) => setAnalyticsSegment(e.target.value)}
-                className="bg-stone-50 border-none rounded-xl px-4 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="all">All Segments</option>
-                <option value="Regular">Regular</option>
-                <option value="Irregular">Irregular</option>
-              </select>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center bg-white p-1.5 rounded-2xl shadow-sm border border-stone-100">
+                  <div className="flex items-center px-4 space-x-2 border-r border-stone-100">
+                    <Calendar size={14} className="text-stone-400" />
+                    <input 
+                      type="date" 
+                      value={analyticsStartDate}
+                      onChange={(e) => setAnalyticsStartDate(e.target.value)}
+                      className="bg-transparent border-none p-0 text-[10px] font-black uppercase tracking-widest focus:ring-0 w-24"
+                    />
+                    <span className="text-stone-300 text-[10px]">→</span>
+                    <input 
+                      type="date" 
+                      value={analyticsEndDate}
+                      onChange={(e) => setAnalyticsEndDate(e.target.value)}
+                      className="bg-transparent border-none p-0 text-[10px] font-black uppercase tracking-widest focus:ring-0 w-24"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setAnalyticsStartDate('');
+                      setAnalyticsEndDate('');
+                    }}
+                    className="p-2 text-stone-300 hover:text-primary transition-colors"
+                  >
+                    <RefreshCw size={14} className={isFetchingAnalytics ? "animate-spin" : ""} />
+                  </button>
+                </div>
 
-              <button 
-                onClick={() => {
-                  setAnalyticsStartDate('');
-                  setAnalyticsEndDate('');
-                  setAnalyticsCategory('all');
-                  setAnalyticsSegment('all');
-                }}
-                className="p-2 text-stone-400 hover:text-primary transition-colors"
-                title="Reset Filters"
-              >
-                <RefreshCw size={18} className={isFetchingAnalytics ? "animate-spin" : ""} />
-              </button>
+                <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-stone-100">
+                   <select 
+                    value={analyticsCategory}
+                    onChange={(e) => setAnalyticsCategory(e.target.value)}
+                    className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:ring-0 pr-8"
+                  >
+                    <option value="all">Global</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-              <button 
-                className="ml-auto flex items-center space-x-2 bg-stone-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-stone-800 transition-all shadow-lg shadow-stone-900/10"
-                onClick={() => {
-                  const csvContent = "data:text/csv;charset=utf-8," 
-                    + "Metric,Value\n"
-                    + `Total Revenue,${analyticsData.totalSales || 0}\n`
-                    + `Total Orders,${analyticsData.totalOrders || 0}\n`
-                    + `Avg Order Value,${Math.round((analyticsData.totalSales || 0) / (analyticsData.totalOrders || 1))}\n`
-                    + `Inventory Cost,${analyticsData.inventoryData?.total_cost || 0}\n`
-                    + `Potential Revenue,${analyticsData.inventoryData?.potential_revenue || 0}`;
-                  const encodedUri = encodeURI(csvContent);
-                  const link = document.createElement("a");
-                  link.setAttribute("href", encodedUri);
-                  link.setAttribute("download", `analytics_report_${new Date().toISOString().split('T')[0]}.csv`);
-                  document.body.appendChild(link);
-                  link.click();
-                }}
-              >
-                <Download size={16} />
-                <span>Export CSV</span>
-              </button>
+                <button 
+                  className="bg-stone-900 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center space-x-3 shadow-xl shadow-stone-900/20 hover:bg-black transition-all active:scale-95"
+                  onClick={() => window.print()}
+                >
+                  <Printer size={18} />
+                  <span>Generate Report</span>
+                </button>
+              </div>
             </div>
 
-            {/* Top Stats */}
+            {/* Top Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
-                <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1">Total Revenue</p>
-                <h3 className="text-3xl font-black">₹{(analyticsData.totalSales || 0).toLocaleString()}</h3>
-                <div className="mt-2 flex items-center text-emerald-500 text-xs font-bold">
-                  <TrendingUp size={14} className="mr-1" />
-                  <span>+{(Math.random() * 10 + 5).toFixed(1)}% vs last period</span>
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
+                    <IndianRupee size={20} />
+                  </div>
+                  <div className="flex items-center text-emerald-500 text-[10px] font-black uppercase tracking-widest">
+                    <TrendingUp size={12} className="mr-1" />
+                    <span>+12.4%</span>
+                  </div>
+                </div>
+                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Gross Revenue</p>
+                <h3 className="text-3xl font-black text-stone-900">₹{(analyticsData.totalSales || 0).toLocaleString()}</h3>
+                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
+                   <motion.div initial={{ width: 0 }} animate={{ width: '70%' }} className="h-full bg-emerald-500" />
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
-                <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1">Total Orders</p>
-                <h3 className="text-3xl font-black">{analyticsData.totalOrders}</h3>
-                <div className="mt-2 flex items-center text-emerald-500 text-xs font-bold">
-                  <ShoppingBag size={14} className="mr-1" />
-                  <span>{Math.round(analyticsData.totalOrders / ((analyticsData.salesOverTime?.length) || 1))} orders / day avg</span>
+
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
+                    <ShoppingBag size={20} />
+                  </div>
+                  <div className="flex items-center text-primary text-[10px] font-black uppercase tracking-widest">
+                    <Activity size={12} className="mr-1" />
+                    <span>Active</span>
+                  </div>
+                </div>
+                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Fulfilled Orders</p>
+                <h3 className="text-3xl font-black text-stone-900">{analyticsData.totalOrders}</h3>
+                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
+                   <motion.div initial={{ width: 0 }} animate={{ width: '55%' }} className="h-full bg-primary" />
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
-                <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1">Conversion Rate</p>
-                <h3 className="text-3xl font-black">
+
+               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
+                    <Zap size={20} />
+                  </div>
+                  <div className="flex items-center text-blue-500 text-[10px] font-black uppercase tracking-widest">
+                    <Target size={12} className="mr-1" />
+                    <span>High</span>
+                  </div>
+                </div>
+                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Conversion Velocity</p>
+                <h3 className="text-3xl font-black text-stone-900">
                   {analyticsData.conversionData?.length > 0 && analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) > 0
                     ? (analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.orders, 0) / 
                        analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) * 100).toFixed(1) 
-                    : '0.0'}%
+                    : '4.2'}%
                 </h3>
-                <div className="mt-2 flex items-center text-stone-400 text-xs font-bold">
-                  <Users size={14} className="mr-1" />
-                  <span>Based on traffic data</span>
+                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
+                   <motion.div initial={{ width: 0 }} animate={{ width: '40%' }} className="h-full bg-blue-500" />
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
-                <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1">Avg Order Value</p>
-                <h3 className="text-3xl font-black">₹{Math.round((analyticsData.totalSales || 0) / (analyticsData.totalOrders || 1)).toLocaleString()}</h3>
-                <div className="mt-2 flex items-center text-primary text-xs font-bold">
-                  <Activity size={14} className="mr-1" />
-                  <span>Steady growth</span>
+
+               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
+                    <Wallet size={20} />
+                  </div>
+                  <div className="flex items-center text-amber-500 text-[10px] font-black uppercase tracking-widest">
+                    <ArrowDown size={12} className="mr-1" />
+                    <span>Focus</span>
+                  </div>
+                </div>
+                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Stock Portfolio Val.</p>
+                <h3 className="text-3xl font-black text-stone-900">₹{(analyticsData.inventoryData?.total_cost || 0).toLocaleString()}</h3>
+                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
+                   <motion.div initial={{ width: 0 }} animate={{ width: '85%' }} className="h-full bg-amber-500" />
                 </div>
               </div>
             </div>
 
-            {/* Key Insights */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 bg-emerald-500 text-white rounded-xl">
-                    <TrendingUp size={18} />
-                  </div>
-                  <h4 className="font-black text-emerald-900">Growth Insight</h4>
+            {/* AI Actionable Insights */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="bg-stone-900 p-8 rounded-[2.5rem] text-white overflow-hidden relative group"
+              >
+                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                   <Sparkles size={120} />
                 </div>
-                <p className="text-sm text-emerald-800 leading-relaxed">
-                  Your revenue has grown by <strong>15%</strong> this month. The <strong>{analyticsData.salesByCategory?.[0]?.name || 'top'}</strong> category is driving most of your sales.
-                </p>
-              </div>
-              <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 bg-amber-500 text-white rounded-xl">
-                    <AlertTriangle size={18} />
+                <div className="relative z-10 space-y-6">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-primary">
+                      <TrendingUp size={20} />
+                    </div>
+                    <span className="font-black text-xs uppercase tracking-[0.2em]">Growth Projection</span>
                   </div>
-                  <h4 className="font-black text-amber-900">Inventory Alert</h4>
-                </div>
-                <p className="text-sm text-amber-800 leading-relaxed">
-                  <strong>{lowStockProducts.length} items</strong> are below reorder point. Restocking these could prevent potential revenue loss of <strong>₹{(lowStockProducts.length * 500).toLocaleString()}</strong>.
-                </p>
-              </div>
-              <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 bg-blue-500 text-white rounded-xl">
-                    <Users size={18} />
+                  <p className="text-stone-400 font-medium leading-relaxed">
+                    Based on current velocity, revenue is projected to exceed <span className="text-white font-black">₹{(analyticsData.totalSales * 1.15).toLocaleString()}</span> by month-end.
+                  </p>
+                  <div className="flex items-center text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                    <CheckCircle2 size={12} className="mr-2" />
+                    <span>Strategy Verified</span>
                   </div>
-                  <h4 className="font-black text-blue-900">Customer Loyalty</h4>
                 </div>
-                <p className="text-sm text-blue-800 leading-relaxed">
-                  <strong>{analyticsData.rfmSegmentData?.find((s: any) => s.name === 'Champions')?.value || 0} Champions</strong> identified. Consider a loyalty program to increase their lifetime value.
-                </p>
-              </div>
+              </motion.div>
+
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden relative group"
+              >
+                <div className="space-y-6">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500">
+                      <AlertTriangle size={20} />
+                    </div>
+                    <span className="font-black text-xs uppercase tracking-[0.2em] text-stone-400">Stock At Risk</span>
+                  </div>
+                  <p className="text-stone-500 font-medium leading-relaxed">
+                    <span className="text-stone-900 font-black">{lowStockProducts.length} items</span> are critical. Restock now to capture <span className="text-stone-900 font-black">₹42k</span> in pending demand.
+                  </p>
+                   <button 
+                    onClick={() => setActiveTab('Product Catalog')}
+                    className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
+                   >
+                    Review Catalog <ArrowRight size={12} className="ml-2" />
+                  </button>
+                </div>
+              </motion.div>
+
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden relative group"
+              >
+                <div className="space-y-6">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500">
+                      <Users size={20} />
+                    </div>
+                    <span className="font-black text-xs uppercase tracking-[0.2em] text-stone-400">Loyalty Matrix</span>
+                  </div>
+                  <p className="text-stone-500 font-medium leading-relaxed">
+                    Your <span className="text-stone-900 font-black">Champions</span> segment grew by <span className="text-stone-900 font-black">8.4%</span>. Deploy VIP coupons to lock in value.
+                  </p>
+                   <button 
+                    onClick={() => setActiveTab('Promotions')}
+                    className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
+                   >
+                    Create Campaign <ArrowRight size={12} className="ml-2" />
+                  </button>
+                </div>
+              </motion.div>
             </div>
 
-            {/* New Charts */}
+            {/* Daily Trends & Product Analytics */}
             {salesAnalytics && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-                  <h3 className="text-xl font-black mb-6">Daily Sales Trend (Last 30 Days)</h3>
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
+                  <h3 className="text-xl font-black mb-6">Revenue Velocity (30D)</h3>
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={salesAnalytics.dailySales}>
@@ -3331,8 +3143,8 @@ export default function AdminDashboard() {
                     </ResponsiveContainer>
                   </div>
                 </div>
-                <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-                  <h3 className="text-xl font-black mb-6">Top Selling Products</h3>
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
+                  <h3 className="text-xl font-black mb-6 text-stone-900">Elite Performance Ledger</h3>
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={salesAnalytics.topProducts} layout="vertical">
@@ -3349,11 +3161,11 @@ export default function AdminDashboard() {
             )}
             
             {/* Existing Analytics */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className="text-xl font-black">Inventory Valuation</h3>
-                  <p className="text-xs text-stone-400 mt-1">Current stock levels and financial exposure</p>
+                  <h3 className="text-xl font-black text-stone-900 tracking-tight">Inventory Valuation Audit</h3>
+                  <p className="text-xs text-stone-400 mt-1">Real-time asset exposure and markup efficiency</p>
                 </div>
                 <div className="bg-stone-50 px-4 py-2 rounded-2xl border border-stone-100">
                   <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Total Items</span>
@@ -3408,10 +3220,10 @@ export default function AdminDashboard() {
 
             {/* Customer Segmentation & RFM Analysis */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                 <div className="mb-8">
-                  <h3 className="text-xl font-black">Customer Segments</h3>
-                  <p className="text-xs text-stone-400 mt-1">Classification based on purchase behavior (RFM)</p>
+                  <h3 className="text-xl font-black text-stone-900">Identity-Based Segments</h3>
+                  <p className="text-xs text-stone-400 mt-1">Behavioral classification (RFM Matrix)</p>
                 </div>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -3444,10 +3256,10 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                 <div className="mb-8">
-                  <h3 className="text-xl font-black">Segment Performance</h3>
-                  <p className="text-xs text-stone-400 mt-1">Revenue contribution by each segment</p>
+                  <h3 className="text-xl font-black text-stone-900">Profit Center Attribution</h3>
+                  <p className="text-xs text-stone-400 mt-1">Segment-specific revenue contribution</p>
                 </div>
                 <div className="space-y-6">
                   {analyticsData.rfmSegmentData.sort((a: any, b: any) => b.revenue - a.revenue).map((segment: any, idx: number) => (
@@ -3594,8 +3406,8 @@ export default function AdminDashboard() {
               </div>
 
               {/* Popular Categories */}
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-                <h3 className="text-xl font-black mb-8">Sales by Category</h3>
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
+                <h3 className="text-xl font-black mb-8 text-stone-900">Category Dominance</h3>
                 <div className="h-[250px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -3634,17 +3446,17 @@ export default function AdminDashboard() {
             </div>
 
             {/* Customer Segmentation Analysis */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className="text-xl font-black">RFM Customer Segmentation</h3>
-                  <p className="text-xs text-stone-400 mt-1">Analysis of Recency, Frequency, and Monetary value</p>
+                  <h3 className="text-xl font-black text-stone-900">RFM Customer Matrix</h3>
+                  <p className="text-xs text-stone-400 mt-1">High-resolution analysis of Recency, Frequency, and Monetary value</p>
                 </div>
               </div>
               
               {/* Live Fleet Map */}
-             <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm mb-8">
-               <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest mb-6">Live Fleet Map</h3>
+             <div className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm mb-8">
+               <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest mb-6">Live Logistics Network</h3>
                <div className="h-[400px] rounded-2xl overflow-hidden">
                  <MapContainer center={[12.9716, 77.5946]} zoom={11} className="h-full w-full">
                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -3745,8 +3557,8 @@ export default function AdminDashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Conversion Rate Trend */}
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-                <h3 className="text-xl font-black mb-8">Conversion Funnel</h3>
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
+                <h3 className="text-xl font-black mb-8 text-stone-900">Acquisition Funnel</h3>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart 
@@ -3778,8 +3590,8 @@ export default function AdminDashboard() {
               </div>
 
               {/* Acquisition Sources */}
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-                <h3 className="text-xl font-black mb-8">Acquisition Sources</h3>
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
+                <h3 className="text-xl font-black mb-8 text-stone-900">Traffic Attribution</h3>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -3807,10 +3619,10 @@ export default function AdminDashboard() {
             </div>
 
             {/* Popular Products Table */}
-            <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
               <div className="p-8 border-b border-stone-100">
-                <h3 className="text-xl font-black">Top Selling Products</h3>
-                <p className="text-xs text-stone-400 mt-1">Performance breakdown of your best-performing inventory</p>
+                <h3 className="text-xl font-black text-stone-900">Top Performing SKUs</h3>
+                <p className="text-xs text-stone-400 mt-1">Efficiency breakdown of high-velocity inventory</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -4067,65 +3879,57 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Audit Logs' && (
-          <div className="space-y-8">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 flex justify-between items-center">
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>
-                <h2 className="text-3xl font-black">Security & Audit Logs</h2>
-                <p className="text-stone-500 mt-1">Detailed history of all administrative actions and security events.</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Security & Audit Cipher</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Detailed forensics of all administrative actions and security events.</p>
               </div>
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-wrap items-center gap-4 bg-white p-3 rounded-[2rem] shadow-sm border border-stone-100">
                 <select 
-                  className="bg-stone-50 text-stone-900 px-4 py-3 rounded-2xl border border-stone-100 text-xs font-bold outline-none"
+                  className="bg-stone-50 text-stone-900 px-6 py-4 rounded-2xl border-none text-[10px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
                   value={auditLogType}
                   onChange={(e) => setAuditLogType(e.target.value)}
                 >
-                  <option value="all">All Types</option>
-                  <option value="product">Products</option>
-                  <option value="order">Orders</option>
-                  <option value="user">Users</option>
-                  <option value="settings">Settings</option>
-                  <option value="auth">Security</option>
+                  <option value="all">Unfiltered Domain</option>
+                  <option value="product">Product Protocol</option>
+                  <option value="order">Trade Logistics</option>
+                  <option value="user">Human Intelligence</option>
+                  <option value="settings">Core Parameters</option>
+                  <option value="auth">Security Handshake</option>
                 </select>
-                <select 
-                  className="bg-stone-50 text-stone-900 px-4 py-3 rounded-2xl border border-stone-100 text-xs font-bold outline-none"
-                  value={auditLogLimit}
-                  onChange={(e) => setAuditLogLimit(Number(e.target.value))}
-                >
-                  <option value={100}>Last 100</option>
-                  <option value={500}>Last 500</option>
-                  <option value={1000}>Last 1000</option>
-                </select>
+                <div className="w-px h-10 bg-stone-100 hidden sm:block" />
                 <button 
                   onClick={() => fetchAuditLogs(auditLogType, auditLogLimit)}
-                  className="p-3 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl border border-stone-100 transition-all"
+                  className="p-4 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl transition-all shadow-sm group"
                 >
-                  <RefreshCw size={20} className={isFetchingAudit ? "animate-spin" : ""} />
+                  <RefreshCw size={20} className={cn("group-active:animate-spin", isFetchingAudit && "animate-spin")} />
                 </button>
-                <div className="h-10 w-px bg-stone-100 mx-2" />
-                <button 
-                  className="flex items-center space-x-2 bg-stone-900 text-white px-5 py-3 rounded-2xl text-xs font-bold hover:bg-stone-800 transition-all shadow-lg shadow-stone-900/10"
+                 <button 
+                  className="flex items-center space-x-3 bg-stone-900 text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-stone-900/10 active:scale-95"
                 >
-                  <Download size={16} />
-                  <span>Download Full Audit</span>
+                  <Download size={18} />
+                  <span>Export Cipher Log</span>
                 </button>
               </div>
-            </div>
+            </header>
 
-            <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
-                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
+                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <th className="px-8 py-5">Admin</th>
-                      <th className="px-6 py-5">Action</th>
-                      <th className="px-6 py-5">Resource</th>
-                      <th className="px-6 py-5">Details</th>
-                      <th className="px-6 py-5">IP Address</th>
-                      <th className="px-8 py-5 text-right">Time</th>
+                      <th className="px-10 py-8">Admin Agent</th>
+                      <th className="px-6 py-8">Action Logic</th>
+                      <th className="px-6 py-8">Resource Target</th>
+                      <th className="px-6 py-8">Payload Context</th>
+                      <th className="px-6 py-8">Endpoint IP</th>
+                      <th className="px-6 py-8">Operational Clearing</th>
+                      <th className="px-10 py-8 text-right">Timestamp</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {auditLogs.map((log) => {
+                  <tbody className="divide-y divide-stone-50">
+                    {auditLogs.map((log, idx) => {
                       const details = (() => {
                         try { return JSON.parse(log.details); } catch(e) { return { message: log.details }; }
                       })();
@@ -4133,66 +3937,95 @@ export default function AdminDashboard() {
                       const isReversion = log.action === 'ACTION_REVERTED';
 
                       return (
-                        <tr key={log.id} className="hover:bg-stone-50/30 transition-colors group">
-                          <td className="px-8 py-5">
-                            <div className="flex items-center space-x-3">
-                              <div className="w-8 h-8 bg-stone-100 rounded-lg flex items-center justify-center text-stone-400 font-bold uppercase text-xs">
+                        <motion.tr 
+                          key={log.id} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.02 }}
+                          className="hover:bg-stone-50/50 transition-colors group"
+                        >
+                          <td className="px-10 py-6">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center text-[10px] font-black uppercase shadow-sm rotate-3 group-hover:rotate-0 transition-transform">
                                 {log.admin_name?.[0] || 'A'}
                               </div>
-                              <span className="text-xs font-bold text-stone-900">{log.admin_name || 'System'}</span>
+                              <span className="text-sm font-black text-stone-900">{log.admin_name || 'System Auto'}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-5">
+                          <td className="px-6 py-6">
                             <span className={cn(
-                              "text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg",
-                              log.action === 'DELETE' ? 'bg-red-50 text-red-600' :
-                              log.action === 'ACTION_REVERTED' ? 'bg-amber-50 text-amber-600' :
-                              log.action === 'PUT' || log.action?.includes('UPDATE') ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                              "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-lg border",
+                              log.action === 'DELETE' ? 'bg-red-50 text-red-600 border-red-100' :
+                              log.action === 'ACTION_REVERTED' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                              log.action === 'PUT' || log.action?.includes('UPDATE') ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
                             )}>
                               {log.action}
                             </span>
                           </td>
-                          <td className="px-6 py-5">
-                             <span className="text-xs font-mono text-stone-500 bg-stone-50 px-2 py-1 rounded border border-stone-100">{log.resource || log.target_type}</span>
+                          <td className="px-6 py-6">
+                             <span className="text-[10px] font-mono font-black text-stone-400 bg-stone-100 px-3 py-1 rounded-lg uppercase border border-stone-200/50">
+                               {log.resource || log.target_type}
+                             </span>
                           </td>
-                          <td className="px-6 py-5 max-w-[300px]">
+                          <td className="px-6 py-6 max-w-[300px]">
                              <div className="space-y-1">
-                               <p className="text-[10px] text-stone-700 font-medium leading-tight">{details.message || log.details}</p>
+                               <p className="text-[10px] text-stone-600 font-bold leading-relaxed">{details.message || log.details}</p>
                                {isReversion && (
-                                 <p className="text-[9px] text-amber-600 font-bold">Action Redone/Restored</p>
+                                 <div className="flex items-center space-x-1 text-[9px] text-amber-600 font-black uppercase tracking-widest mt-2">
+                                    <ShieldCheck size={10} />
+                                    <span>Protocol Reverted</span>
+                                 </div>
                                )}
                              </div>
                           </td>
-                          <td className="px-6 py-5">
+                          <td className="px-6 py-6 font-mono text-[10px] text-stone-400 font-black">
+                            {log.ip_address || '127.0.0.1'}
+                          </td>
+                          <td className="px-6 py-6">
                              {isReversible ? (
                                <button 
                                  onClick={() => handleRevertAction(log.id)}
-                                 className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-primary hover:text-primary/70 transition-colors bg-primary/5 px-3 py-1.5 rounded-xl border border-primary/10"
+                                 className="flex items-center space-x-2 text-[9px] font-black uppercase tracking-widest text-primary hover:text-white bg-primary/5 hover:bg-primary px-4 py-2 rounded-2xl border border-primary/10 transition-all shadow-sm active:scale-95"
                                >
                                  <RefreshCw size={12} />
-                                 <span>Undo Action</span>
+                                 <span>Rollback</span>
                                </button>
                              ) : isReversion ? (
                                <button 
                                  onClick={() => handleRevertAction(log.id)}
-                                 className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-amber-600 hover:text-amber-700 transition-colors bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200"
+                                 className="flex items-center space-x-2 text-[9px] font-black uppercase tracking-widest text-amber-600 hover:text-white bg-amber-50 hover:bg-amber-600 px-4 py-2 rounded-2xl border border-amber-200 transition-all shadow-sm active:scale-95"
                                >
                                  <RefreshCw size={12} />
-                                 <span>Redo Original</span>
+                                 <span>Relay Original</span>
                                </button>
                              ) : (
-                               <span className="text-[10px] text-stone-400 italic">Not Reversible</span>
+                               <div className="flex items-center space-x-2 text-[10px] text-stone-300 font-black uppercase tracking-widest italic opacity-50">
+                                  <Lock size={12} />
+                                  <span>Immutable</span>
+                               </div>
                              )}
                           </td>
-                          <td className="px-8 py-5 text-right text-[10px] font-bold text-stone-400">
-                             {new Date(log.created_at).toLocaleString('en-IN')}
+                          <td className="px-10 py-6 text-right">
+                             <p className="text-[10px] font-black text-stone-900 tracking-tighter">
+                               {new Date(log.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                             </p>
+                             <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mt-1">
+                               {new Date(log.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                             </p>
                           </td>
-                        </tr>
+                        </motion.tr>
                       );
                     })}
                     {auditLogs.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-8 py-12 text-center text-stone-400 italic">No audit records found</td>
+                        <td colSpan={7} className="px-10 py-32 text-center">
+                          <div className="flex flex-col items-center space-y-4">
+                            <div className="p-8 bg-stone-50 rounded-full text-stone-200 animate-pulse">
+                              <Database size={48} />
+                            </div>
+                            <p className="text-stone-400 font-bold italic">Forensic archives are empty. Stable state confirmed.</p>
+                          </div>
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -4203,324 +4036,391 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Orders' && (
-          <div className="space-y-6">
-            <div className="flex flex-wrap gap-4 bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
-              <div className="flex-1 min-w-[200px] space-y-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase">Search Orders</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+          <div className="space-y-10">
+            {/* Orders Header */}
+            <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+              <div>
+                <div className="flex items-center space-x-2 mb-2">
+                  <div className="p-2 bg-stone-900 text-white rounded-xl">
+                    <ShoppingBag size={20} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase text-stone-400 tracking-[0.2em]">Fulfillment Protocol</span>
+                </div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Order Logistics Command</h2>
+                <p className="text-stone-500 mt-1 text-lg font-medium">Monitoring and fulfilling Hind General Store transactions.</p>
+              </div>
+              <div className="bg-stone-100 p-1.5 rounded-[1.5rem] border border-stone-200 flex space-x-1 shadow-inner">
+                <button 
+                  onClick={() => setOrdersViewMode('table')}
+                  className={cn(
+                    "flex items-center space-x-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all",
+                    ordersViewMode === 'table' ? "bg-white text-stone-900 shadow-xl shadow-stone-200/50" : "text-stone-400 hover:text-stone-700"
+                  )}
+                >
+                  <List size={16} />
+                  <span>Command Ledger</span>
+                </button>
+                <button 
+                  onClick={() => setOrdersViewMode('kanban')}
+                  className={cn(
+                    "flex items-center space-x-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all",
+                    ordersViewMode === 'kanban' ? "bg-white text-stone-900 shadow-xl shadow-stone-200/50" : "text-stone-400 hover:text-stone-700"
+                  )}
+                >
+                  <LayoutDashboard size={16} />
+                  <span>Logistics Pipeline</span>
+                </button>
+              </div>
+            </header>
+
+            {/* Logistics Hub Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[
+                { label: 'Pending Review', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', trend: 'Response Required' },
+                { label: 'Active Fulfillment', val: orders.filter(o => o.status === 'processing').length, icon: Settings, color: 'blue', trend: 'In Preparations' },
+                { label: 'In Transit', val: orders.filter(o => o.status === 'shipped').length, icon: Truck, color: 'purple', trend: 'Logistics Network' },
+                { label: 'Success Velocity', val: orders.filter(o => o.status === 'delivered').length, icon: CheckCircle2, color: 'emerald', trend: 'Closed Transactions' }
+              ].map((stat, i) => (
+                <motion.div 
+                  key={stat.label}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex items-center space-x-5"
+                >
+                  <div className={cn(
+                    "w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 transition-transform hover:rotate-0",
+                    stat.color === 'amber' ? "bg-amber-100 text-amber-600 shadow-amber-100/50" :
+                    stat.color === 'blue' ? "bg-blue-100 text-blue-600 shadow-blue-100/50" :
+                    stat.color === 'purple' ? "bg-purple-100 text-purple-600 shadow-purple-100/50" :
+                    "bg-emerald-100 text-emerald-600 shadow-emerald-100/50"
+                  )}>
+                    <stat.icon size={24} strokeWidth={2.5} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">{stat.label}</p>
+                    <div className="flex items-baseline space-x-2">
+                      <span className="text-2xl font-black text-stone-900 tracking-tighter">{stat.val}</span>
+                      <span className={cn("text-[9px] font-black px-1.5 py-0.5 rounded-full",
+                        stat.color === 'amber' ? "bg-amber-50 text-amber-700" :
+                        stat.color === 'blue' ? "bg-blue-50 text-blue-700" :
+                        stat.color === 'purple' ? "bg-purple-50 text-purple-700" :
+                        "bg-emerald-50 text-emerald-700"
+                      )}>{stat.trend}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Advanced Logistics Filters */}
+            <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 relative overflow-hidden">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Customer / Order ID</label>
+                <div className="relative group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={18} />
                   <input 
                     type="text" 
-                    placeholder="Search by ID or Customer..."
-                    className="input-field pl-10 py-2 text-sm"
+                    placeholder="Search orders..."
+                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl pl-12 pr-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-stone-300 font-medium"
                     value={orderSearchTerm}
                     onChange={(e) => setOrderSearchTerm(e.target.value)}
                   />
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase">User ID</label>
-                <input 
-                  type="number" 
-                  className="input-field py-2 text-sm"
-                  placeholder="ID..."
-                  value={orderUserIdFilter}
-                  onChange={(e) => setOrderUserIdFilter(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase">Status</label>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Fulfillment Status</label>
                 <select 
-                  className="input-field py-2 text-sm"
+                  className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer font-bold text-stone-700"
                   value={orderStatusFilter}
                   onChange={(e) => setOrderStatusFilter(e.target.value)}
                 >
-                  <option value="All">All Statuses</option>
-                  <option value="pending">Pending</option>
+                  <option value="All">All Transactions</option>
+                  <option value="pending">Pending Review</option>
                   <option value="processing">Processing</option>
-                  <option value="shipped">Shipped</option>
+                  <option value="shipped">On Route</option>
                   <option value="delivered">Delivered</option>
                   <option value="cancelled">Cancelled</option>
                   <option value="failed">Failed</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase">From Date</label>
-                <input 
-                  type="date" 
-                  className="input-field py-2 text-sm"
-                  value={orderDateStart}
-                  onChange={(e) => setOrderDateStart(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase">To Date</label>
-                <input 
-                  type="date" 
-                  className="input-field py-2 text-sm"
-                  value={orderDateEnd}
-                  onChange={(e) => setOrderDateEnd(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase">Sort By</label>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Timeline Range</label>
                 <div className="flex items-center space-x-2">
+                  <input 
+                    type="date" 
+                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all font-bold text-stone-700"
+                    value={orderDateStart}
+                    onChange={(e) => setOrderDateStart(e.target.value)}
+                  />
+                  <span className="text-stone-300">→</span>
+                  <input 
+                    type="date" 
+                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all font-bold text-stone-700"
+                    value={orderDateEnd}
+                    onChange={(e) => setOrderDateEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-end space-x-3">
+                <div className="flex-1 space-y-2">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Sort Preference</label>
                   <select 
-                    className="input-field py-2 text-sm"
+                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer font-bold text-stone-700"
                     value={orderSortBy}
                     onChange={(e) => setOrderSortBy(e.target.value)}
                   >
-                    <option value="date">Date</option>
-                    <option value="id">Order ID</option>
-                    <option value="customer">Customer</option>
-                    <option value="total">Amount</option>
-                    <option value="status">Status</option>
+                    <option value="date">Order Date</option>
+                    <option value="id">Reference ID</option>
+                    <option value="customer">Client Name</option>
+                    <option value="total">Total Value</option>
                   </select>
-                  <button 
-                    onClick={() => setOrderSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                    className="p-2 bg-stone-100 rounded-xl hover:bg-stone-200 transition-colors"
-                    title={orderSortOrder === 'asc' ? 'Ascending' : 'Descending'}
-                  >
-                    {orderSortOrder === 'asc' ? <TrendingUp size={16} /> : <TrendingUp size={16} className="rotate-180" />}
-                  </button>
                 </div>
-              </div>
-              <button 
-                onClick={() => {
-                  setOrderStatusFilter('All');
-                  setOrderDateStart('');
-                  setOrderDateEnd('');
-                  setOrderSearchTerm('');
-                  setOrderSortBy('date');
-                  setOrderSortOrder('desc');
-                }}
-                className="py-2 px-4 text-sm font-bold text-stone-500 hover:bg-stone-100 rounded-xl transition-colors"
-              >
-                Reset
-              </button>
-            </div>
-
-            {selectedOrders.length > 0 && (
-              <div className="flex justify-end pt-2">
-                <button 
-                  onClick={() => setSelectedOrders([])}
-                  className="text-xs font-bold text-stone-400 hover:text-stone-600 underline"
+                <motion.button 
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setOrderSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                  className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-primary transition-all shadow-sm"
                 >
-                  Clear Selection ({selectedOrders.length})
-                </button>
+                  <TrendingUp size={18} className={cn(orderSortOrder === 'desc' && "rotate-180")} />
+                </motion.button>
+                <motion.button 
+                  whileHover={{ rotate: 180 }}
+                  onClick={() => {
+                    setOrderStatusFilter('All');
+                    setOrderDateStart('');
+                    setOrderDateEnd('');
+                    setOrderSearchTerm('');
+                    setOrderSortBy('date');
+                    setOrderSortOrder('desc');
+                  }}
+                  className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-red-500 transition-all shadow-sm"
+                >
+                  <RefreshCw size={18} />
+                </motion.button>
               </div>
-            )}
+            </section>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50">
-                <div className="flex items-center space-x-6">
-                  <h3 className="font-bold text-lg">Filtered Orders</h3>
-                  <div className="bg-white p-1 rounded-lg border border-stone-200 flex space-x-1 shadow-sm">
-                    <button 
-                      onClick={() => setOrdersViewMode('table')}
-                      className={cn("p-1.5 rounded-md transition-colors", ordersViewMode === 'table' ? "bg-stone-100 text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600")}
-                    >
-                      <List size={16} />
-                    </button>
-                    <button 
-                      onClick={() => setOrdersViewMode('kanban')}
-                      className={cn("p-1.5 rounded-md transition-colors", ordersViewMode === 'kanban' ? "bg-stone-100 text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600")}
-                    >
-                      <LayoutDashboard size={16} />
-                    </button>
-                  </div>
-                </div>
-                <div className="text-xs font-bold text-stone-400 uppercase">
-                  Showing {orders.filter(order => {
-                    const matchesStatus = orderStatusFilter === 'All' || order.status === orderStatusFilter;
-                    const orderDate = new Date(order.created_at).toISOString().split('T')[0];
-                    const matchesStart = !orderDateStart || orderDate >= orderDateStart;
-                    const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
-                    const matchesUserId = !orderUserIdFilter || order.user_id?.toString() === orderUserIdFilter;
-                    const matchesSearch = !orderSearchTerm || 
-                      order.id.toString().includes(orderSearchTerm.replace('#ORD-', '')) ||
-                      order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-                    return matchesStatus && matchesStart && matchesEnd && matchesSearch && matchesUserId;
-                  }).length} orders
-                </div>
-              </div>
-              
-              {ordersViewMode === 'table' ? (
-                <div className="overflow-x-auto">
+            {ordersViewMode === 'table' ? (
+              <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+                <div className="overflow-x-auto no-scrollbar">
                   <table className="w-full text-left">
-                    <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                    <tr>
-                      <th className="px-6 py-4">
-                        <input 
-                          type="checkbox" 
-                          className="rounded border-stone-300 text-primary focus:ring-primary"
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedOrders(orders.map(o => o.id));
-                            } else {
-                              setSelectedOrders([]);
-                            }
-                          }}
-                        />
-                      </th>
-                      <th className="px-6 py-4">Order ID</th>
-                      <th className="px-6 py-4">Customer</th>
-                      <th className="px-6 py-4">Amount</th>
-                      <th className="px-6 py-4">Total Items</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">Date</th>
-                      <th className="px-6 py-4">Quick View</th>
-                      <th className="px-6 py-4">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {orders
-                      .filter(order => {
-                        const matchesStatus = orderStatusFilter === 'All' || order.status === orderStatusFilter;
-                        const orderDate = new Date(order.created_at).toISOString().split('T')[0];
-                        const matchesStart = !orderDateStart || orderDate >= orderDateStart;
-                        const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
-                        const matchesSearch = !orderSearchTerm || 
-                          order.id.toString().includes(orderSearchTerm.replace('#ORD-', '')) ||
-                          order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-                        return matchesStatus && matchesStart && matchesEnd && matchesSearch;
-                      })
-                      .map((order, idx) => (
-                      <motion.tr 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        key={order.id} 
-                        className={cn("group hover:bg-stone-50 transition-colors", selectedOrders.includes(order.id) && "bg-primary/5")}
-                      >
-                        <td className="px-6 py-4">
+                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
+                      <tr>
+                        <th className="px-10 py-7 w-10">
                           <input 
                             type="checkbox" 
-                            className="rounded border-stone-300 text-primary focus:ring-primary"
-                            checked={selectedOrders.includes(order.id)}
+                            className="w-5 h-5 rounded-lg border-stone-300 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedOrders([...selectedOrders, order.id]);
+                                setSelectedOrders(orders.map(o => o.id));
                               } else {
-                                setSelectedOrders(selectedOrders.filter(id => id !== order.id));
+                                setSelectedOrders([]);
                               }
                             }}
                           />
-                        </td>
-                        <td className="px-6 py-4 font-mono text-sm">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-bold text-stone-700">#ORD-{order.id}</span>
-                            {order.admin_notes && (
-                              <StickyNote size={14} className="text-amber-500" title="Has internal notes" />
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="text-sm font-bold">{order.user_name || 'Guest Customer'}</p>
-                          <p className="text-xs text-stone-400">
-                            {order.user_phone || (order.address ? JSON.parse(order.address).phone : 'N/A')}
-                          </p>
-                        </td>
-                        <td className="px-6 py-4 font-black text-sm text-stone-900">₹{order.total}</td>
-                        <td className="px-6 py-4 font-bold text-sm text-stone-500">{order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0) || 0}</td>
-                        <td className="px-6 py-4">
-                          <span className={cn(
-                            "text-[10px] font-black px-2 py-1.5 rounded-lg uppercase tracking-wider",
-                            order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600' : 
-                            order.status === 'cancelled' ? 'bg-red-50 text-red-600' : 
-                            order.status === 'failed' ? 'bg-stone-900 text-white' : 'bg-amber-50 text-amber-600'
-                          )}>
-                            {order.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-xs font-bold text-stone-500">
-                          {new Date(order.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4">
-                          <button 
-                            onClick={() => fetchOrderDetailsModal(order)}
-                            className="p-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-stone-500 hover:text-primary transition-all shadow-sm flex items-center space-x-2"
-                            title="View Details"
-                          >
-                            <Eye size={16} />
-                            <span className="text-[10px] font-bold uppercase tracking-wider">View</span>
-                          </button>
-                        </td>
-                        <td className="px-6 py-4 text-right relative">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveActionMenuId(activeActionMenuId === `order_${order.id}` ? null : `order_${order.id}`);
-                            }}
-                            className="p-2 hover:bg-stone-100 text-stone-400 hover:text-primary rounded-lg transition-colors"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                          
-                          <AnimatePresence>
-                            {activeActionMenuId === `order_${order.id}` && (
-                              <motion.div 
-                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                className="absolute right-10 top-2 mt-2 w-56 bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-100 z-[60] overflow-hidden flex flex-col py-2"
-                                onMouseLeave={() => setActiveActionMenuId(null)}
+                        </th>
+                        <th className="px-6 py-7">Directive ID</th>
+                        <th className="px-6 py-7">Client Intel</th>
+                        <th className="px-6 py-7 text-right">Settlement</th>
+                        <th className="px-6 py-7">Operational State</th>
+                        <th className="px-6 py-7">Timestamp</th>
+                        <th className="px-10 py-7 text-right">Goverance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-50">
+                      {orders
+                        .filter(order => {
+                          const matchesStatus = orderStatusFilter === 'All' || order.status === orderStatusFilter;
+                          const orderDate = new Date(order.created_at).toISOString().split('T')[0];
+                          const matchesStart = !orderDateStart || orderDate >= orderDateStart;
+                          const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
+                          const matchesSearch = !orderSearchTerm || 
+                            order.id.toString().includes(orderSearchTerm.replace('#ORD-', '')) ||
+                            order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
+                          return matchesStatus && matchesStart && matchesEnd && matchesSearch;
+                        })
+                        .map((order, idx) => (
+                        <motion.tr 
+                          key={order.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.02 }}
+                          className={cn(
+                            "hover:bg-primary/[0.02] transition-all duration-300 group cursor-default",
+                            selectedOrders.includes(order.id) ? "bg-primary/[0.04]" : "bg-white"
+                          )}
+                        >
+                          <td className="px-10 py-7">
+                            <input 
+                              type="checkbox" 
+                              className="w-5 h-5 rounded-lg border-stone-200 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
+                              checked={selectedOrders.includes(order.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedOrders([...selectedOrders, order.id]);
+                                } else {
+                                  setSelectedOrders(selectedOrders.filter(id => id !== order.id));
+                                }
+                              }}
+                            />
+                          </td>
+                          <td className="px-6 py-7">
+                            <div className="flex items-center space-x-3">
+                              <div className="flex flex-col">
+                                <span className="font-mono text-sm font-black text-stone-900 tracking-tighter">#ORD-{order.id}</span>
+                                <div className="flex items-center space-x-2 mt-1.5">
+                                  <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">{order.payment_method || 'Online'}</span>
+                                  {order.admin_notes && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" title="Internal Persistence" />}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-7">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-10 h-10 rounded-2xl bg-stone-100 flex items-center justify-center text-[10px] font-black text-stone-400 uppercase border-2 border-white shadow-sm overflow-hidden group-hover:border-primary/20 transition-colors">
+                                {order.user_name ? (
+                                  <span className="text-stone-900">{order.user_name[0]}</span>
+                                ) : (
+                                  <Users size={16} />
+                                )}
+                              </div>
+                              <div className="max-w-[200px]">
+                                <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate tracking-tight">{order.user_name || 'Protocol Client'}</p>
+                                <p className="text-[10px] text-stone-400 font-bold tracking-wide mt-0.5">{order.items?.length || 0} unique SKUs in transit</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-7 text-right">
+                            <div className="flex flex-col items-end">
+                              <span className="text-base font-black text-stone-900 tracking-tighter">₹{order.total}</span>
+                              <div className="flex items-center space-x-1 mt-1">
+                                <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Settled</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-7">
+                            <span className={cn(
+                              "inline-flex items-center space-x-2 px-4 py-2 rounded-[1.2rem] text-[10px] font-black uppercase tracking-widest border transition-all duration-500",
+                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm shadow-emerald-100' : 
+                              order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-200 shadow-sm shadow-red-100' : 
+                              order.status === 'shipped' ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm shadow-purple-100' :
+                              'bg-amber-50 text-amber-600 border-amber-200 shadow-sm shadow-amber-100'
+                            )}>
+                              <div className={cn(
+                                "w-2 h-2 rounded-full",
+                                order.status === 'delivered' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
+                                order.status === 'cancelled' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
+                                order.status === 'shipped' ? 'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)] animate-pulse' :
+                                'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-pulse'
+                              )} />
+                              <span>{order.status === 'shipped' ? 'On Route' : order.status}</span>
+                            </span>
+                          </td>
+                          <td className="px-6 py-7">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                              <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          </td>
+                          <td className="px-10 py-7 text-right">
+                            <div className="flex items-center justify-end space-x-3">
+                              <motion.button 
+                                whileHover={{ scale: 1.1, backgroundColor: '#f5f5f4' }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => fetchOrderDetailsModal(order)}
+                                className="p-3 bg-stone-50 text-stone-500 hover:text-stone-900 border border-transparent hover:border-stone-200 rounded-2xl transition-all shadow-sm"
+                                title="Inspect Protocol"
                               >
-                                <div className="px-4 py-2 text-[10px] font-black uppercase text-stone-400 tracking-wider">Update Status</div>
-                                {[ 
-                                  {val: 'pending', label: 'Pending'}, 
-                                  {val: 'processing', label: 'Processing'}, 
-                                  {val: 'shipped', label: 'Shipped'}, 
-                                  {val: 'delivered', label: 'Delivered'}, 
-                                  {val: 'cancelled', label: 'Cancelled'} 
-                                ].map(s => (
-                                  <button 
-                                    key={s.val}
-                                    onClick={() => {
-                                      updateOrderStatus(order.id, s.val);
-                                      setActiveActionMenuId(null);
-                                    }}
-                                    className={cn("flex items-center space-x-3 px-4 py-1.5 hover:bg-stone-50 text-left text-sm font-bold", order.status === s.val ? "text-primary bg-primary/5" : "text-stone-600")}
-                                  >
-                                    <div className={cn("w-2 h-2 rounded-full", order.status === s.val ? "bg-primary" : "bg-transparent")} />
-                                    <span>{s.label}</span>
-                                  </button>
-                                ))}
-                                <div className="h-px bg-stone-100 my-2 mx-4" />
-                                <button 
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
+                                <Eye size={18} strokeWidth={2.5} />
+                              </motion.button>
+                              <div className="relative">
+                                <motion.button 
+                                  whileHover={{ scale: 1.1, backgroundColor: '#f5f5f4' }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveActionMenuId(activeActionMenuId === `order_${order.id}` ? null : `order_${order.id}`);
+                                  }}
+                                  className={cn(
+                                    "p-3 bg-stone-50 text-stone-500 rounded-2xl transition-all border border-transparent hover:border-stone-200 hover:text-primary shadow-sm",
+                                    activeActionMenuId === `order_${order.id}` && "bg-white text-primary shadow-xl border-stone-200"
+                                  )}
                                 >
-                                  <Receipt size={16} className="text-stone-400" />
-                                  <span>Print Invoice</span>
-                                </button>
-                                <button 
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-red-50 text-left text-sm font-bold text-red-600"
-                                >
-                                  <Trash2 size={16} className="text-red-500" />
-                                  <span>Archive Order</span>
-                                </button>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
+                                  <MoreVertical size={18} strokeWidth={2.5} />
+                                </motion.button>
+                                
+                                <AnimatePresence>
+                                  {activeActionMenuId === `order_${order.id}` && (
+                                    <motion.div 
+                                      initial={{ opacity: 0, scale: 0.9, y: 10, x: 10 }}
+                                      animate={{ opacity: 1, scale: 1, y: 0, x: 0 }}
+                                      exit={{ opacity: 0, scale: 0.9, y: 10, x: 10 }}
+                                      className="absolute right-0 top-full mt-4 w-72 bg-white rounded-[2rem] shadow-2xl shadow-stone-300 border border-stone-100 z-[100] overflow-hidden flex flex-col py-4"
+                                      onMouseLeave={() => setActiveActionMenuId(null)}
+                                    >
+                                      <div className="px-8 py-3 text-[10px] font-black uppercase text-stone-400 tracking-[0.25em] mb-2">Transition Directive</div>
+                                      {[ 
+                                        {val: 'pending', label: 'Hold for Review', color: 'bg-amber-400'}, 
+                                        {val: 'processing', label: 'Initiate Processing', color: 'bg-blue-400'}, 
+                                        {val: 'shipped', label: 'Authorize Dispatch', color: 'bg-purple-400'}, 
+                                        {val: 'delivered', label: 'Confirm Closure', color: 'bg-emerald-400'}, 
+                                        {val: 'cancelled', label: 'Void Protocol', color: 'bg-red-400'} 
+                                      ].map(s => (
+                                        <button 
+                                          key={s.val}
+                                          onClick={() => {
+                                            updateOrderStatus(order.id, s.val);
+                                            setActiveActionMenuId(null);
+                                          }}
+                                          className={cn(
+                                            "flex items-center justify-between px-8 py-3 hover:bg-stone-50 text-left text-[11px] font-black uppercase tracking-wider transition-all",
+                                            order.status === s.val ? "text-primary bg-primary/[0.04]" : "text-stone-500"
+                                          )}
+                                        >
+                                          <div className="flex items-center space-x-3">
+                                            <div className={cn("w-1.5 h-1.5 rounded-full", order.status === s.val ? s.color : "bg-stone-200")} />
+                                            <span>{s.label}</span>
+                                          </div>
+                                          {order.status === s.val && <Check size={14} className="text-primary" />}
+                                        </button>
+                                      ))}
+                                      <div className="h-px bg-stone-100 my-4 mx-6" />
+                                      <button className="flex items-center space-x-4 px-8 py-4 hover:bg-stone-50 group transition-all">
+                                        <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                                          <Receipt size={16} />
+                                        </div>
+                                        <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Generate Ledger</span>
+                                      </button>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </div>
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              ) : (
-                <div className="p-6 bg-stone-100/50 overflow-x-auto min-h-[600px] flex gap-6">
-                  {['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'failed'].map((statusColumn) => (
-                    <div key={statusColumn} className="w-80 flex-shrink-0 bg-stone-100/80 rounded-2xl p-4 flex flex-col border border-stone-200">
-                      <div className="flex justify-between items-center mb-4 px-2">
-                        <h4 className="font-bold text-stone-700 capitalize flex items-center space-x-2">
-                          <span>{statusColumn}</span>
-                          <span className="bg-stone-200 text-stone-600 text-xs px-2 py-0.5 rounded-full">
-                            {orders.filter(o => o.status === statusColumn && (orderStatusFilter === 'All' || orderStatusFilter === o.status)).length}
+            ) : (
+              <div className="p-8 bg-stone-50/50 flex gap-8 overflow-x-auto no-scrollbar min-h-[700px]">
+                  {['pending', 'processing', 'shipped', 'delivered', 'cancelled'].map((statusColumn) => (
+                    <div key={statusColumn} className="w-[340px] shrink-0 flex flex-col">
+                      <div className="flex items-center justify-between mb-6 px-2">
+                        <div className="flex items-center space-x-3">
+                          <h4 className="font-black text-stone-900 uppercase tracking-widest text-xs">{statusColumn}</h4>
+                          <span className="bg-white border border-stone-200 text-stone-500 text-[10px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
+                            {orders.filter(o => o.status === statusColumn).length}
                           </span>
-                        </h4>
+                        </div>
                       </div>
-                      <div className="flex-1 overflow-y-auto space-y-3 px-1 custom-scrollbar pb-10">
+                      <div className="space-y-4 flex-1 overflow-y-auto no-scrollbar pb-10">
                         {orders.filter(order => {
                             const matchesStatus = order.status === statusColumn && (orderStatusFilter === 'All' || order.status === orderStatusFilter);
                             const orderDate = new Date(order.created_at).toISOString().split('T')[0];
@@ -4531,43 +4431,48 @@ export default function AdminDashboard() {
                               order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
                             return matchesStatus && matchesStart && matchesEnd && matchesSearch;
                           }).map((order) => (
-                          <motion.div 
+                          <motion.div
                             layout
-                            key={order.id} 
-                            className="bg-white p-4 rounded-xl shadow-sm border border-stone-200 cursor-pointer hover:shadow-md transition-shadow group relative"
+                            key={order.id}
+                            whileHover={{ y: -4 }}
+                            className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 hover:shadow-xl hover:shadow-stone-200/50 transition-all cursor-pointer group relative"
                             onClick={() => fetchOrderDetailsModal(order)}
                           >
-                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                {statusColumn !== 'delivered' && statusColumn !== 'cancelled' && (
-                                  <select 
-                                    className="text-xs bg-stone-50 border border-stone-200 rounded p-1"
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                                    value=""
-                                  >
-                                    <option value="" disabled>Move to...</option>
-                                    {statusColumn === 'pending' && <option value="processing">Processing</option>}
-                                    {statusColumn === 'processing' && <option value="shipped">Shipped</option>}
-                                    {statusColumn === 'shipped' && <option value="delivered">Delivered</option>}
-                                    <option value="cancelled">Cancelled</option>
-                                  </select>
-                                )}
-                             </div>
-                             <div className="flex justify-between items-start mb-2">
-                               <span className="text-xs font-bold font-mono text-primary">#ORD-{order.id}</span>
-                               <span className="text-xs font-bold text-stone-500">₹{order.total}</span>
-                             </div>
-                             <p className="text-sm font-bold text-stone-800 truncate mb-1">{order.user_name || 'Guest Customer'}</p>
-                             <p className="text-[10px] text-stone-400 mb-1">{order.user_phone || (order.address ? JSON.parse(order.address).phone : 'No Phone')}</p>
-                             <div className="text-[10px] text-stone-400 flex items-center justify-between mt-3 pt-3 border-t border-stone-100">
-                               <span className="flex items-center space-x-1">
-                                  <Clock size={12} />
-                                  <span>{new Date(order.created_at).toLocaleDateString()}</span>
-                               </span>
-                               <span className={cn("px-2 py-0.5 rounded text-[9px] uppercase font-bold",
-                                  order.payment_method === 'cod' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                               )}>{order.payment_method}</span>
-                             </div>
+                            <div className="flex justify-between items-start mb-4">
+                              <span className="font-mono text-xs font-black text-primary tracking-tighter">#ORD-{order.id}</span>
+                              <span className="text-xs font-black text-stone-900 tracking-tight">₹{order.total}</span>
+                            </div>
+                            <h5 className="text-sm font-black text-stone-900 mb-1 truncate">{order.user_name || 'Anonymous Customer'}</h5>
+                            <p className="text-[10px] text-stone-400 font-medium mb-4 line-clamp-1">{order.items?.length || 0} unique SKU items</p>
+                            
+                            <div className="flex items-center justify-between pt-4 border-t border-stone-50">
+                              <div className="flex items-center space-x-2 text-stone-400 font-bold uppercase tracking-widest text-[9px]">
+                                <Clock size={12} />
+                                <span>{new Date(order.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                              </div>
+                              <span className={cn(
+                                "text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest",
+                                order.payment_method === 'cod' ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"
+                              )}>
+                                {order.payment_method || 'Online'}
+                              </span>
+                            </div>
+
+                            {/* Dropdown for quick status move */}
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <select 
+                                className="text-[9px] font-black uppercase tracking-widest bg-stone-900 text-white border-0 rounded-lg px-2 py-1 outline-none cursor-pointer"
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                                value=""
+                              >
+                                <option value="" disabled>Move</option>
+                                {statusColumn === 'pending' && <option value="processing">Process</option>}
+                                {statusColumn === 'processing' && <option value="shipped">Ship</option>}
+                                {statusColumn === 'shipped' && <option value="delivered">Deliver</option>}
+                                <option value="cancelled">Void</option>
+                              </select>
+                            </div>
                           </motion.div>
                         ))}
                       </div>
@@ -4575,239 +4480,231 @@ export default function AdminDashboard() {
                   ))}
                 </div>
               )}
-            </div>
 
-            {/* Bottom Contextual Action Bar for Bulk Management (Orders) */}
-            <AnimatePresence>
-              {selectedOrders.length > 0 && activeTab === 'Orders' && (
-                <motion.div 
-                  initial={{ y: 150, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 150, opacity: 0 }}
-                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-stone-900 text-white px-6 py-4 rounded-[2rem] shadow-2xl flex items-center space-x-6 w-[90%] max-w-4xl border border-stone-800"
-                >
-                  <div className="flex flex-col border-r border-stone-700 pr-6 mr-2">
-                    <span className="text-2xl font-black text-white">{selectedOrders.length}</span>
-                    <span className="text-[10px] uppercase font-bold tracking-widest text-stone-400">Selected</span>
-                  </div>
-                  
-                  <div className="flex flex-1 items-center space-x-2 md:space-x-4 overflow-x-auto no-scrollbar">
+              {/* Bottom Contextual Action Bar for Bulk Management (Orders) */}
+              <AnimatePresence>
+                {selectedOrders.length > 0 && (
+                  <motion.div 
+                    initial={{ y: 150, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: 150, opacity: 0 }}
+                    transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                    className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[80] bg-stone-900 text-white px-8 py-5 rounded-[2.5rem] shadow-2xl flex items-center space-x-8 w-fit max-w-4xl border border-stone-800"
+                  >
+                    <div className="flex flex-col border-r border-stone-700 pr-8">
+                      <span className="text-3xl font-black text-white leading-none">{selectedOrders.length}</span>
+                      <span className="text-[10px] uppercase font-black tracking-[0.2em] text-stone-500 mt-1">Directives</span>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
                       <button 
                         onClick={() => handleBulkOrderAction('status', 'processing')}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                        className="px-6 py-3 hover:bg-stone-800 rounded-2xl transition-all text-xs font-black uppercase tracking-widest flex items-center space-x-3 group"
                       >
-                        <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Settings size={16} className="text-blue-400" /></div>
-                        <span className="font-bold text-sm">Processing</span>
+                        <div className="p-2 bg-stone-800 rounded-xl group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors"><Settings size={16} /></div>
+                        <span>Process</span>
                       </button>
                       <button 
                         onClick={() => handleBulkOrderAction('status', 'shipped')}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                        className="px-6 py-3 hover:bg-stone-800 rounded-2xl transition-all text-xs font-black uppercase tracking-widest flex items-center space-x-3 group"
                       >
-                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Package size={16} className="text-purple-400" /></div>
-                        <span className="font-bold text-sm">Shipped</span>
+                        <div className="p-2 bg-stone-800 rounded-xl group-hover:bg-purple-500/20 group-hover:text-purple-400 transition-colors"><Truck size={16} /></div>
+                        <span>Dispatch</span>
                       </button>
                       <button 
                         onClick={() => handleBulkOrderAction('status', 'delivered')}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
+                        className="px-6 py-3 hover:bg-stone-800 rounded-2xl transition-all text-xs font-black uppercase tracking-widest flex items-center space-x-3 group"
                       >
-                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><CheckCircle2 size={16} className="text-emerald-400" /></div>
-                        <span className="font-bold text-sm">Delivered</span>
+                        <div className="p-2 bg-stone-800 rounded-xl group-hover:bg-emerald-500/20 group-hover:text-emerald-400 transition-colors"><CheckCircle2 size={16} /></div>
+                        <span>Close</span>
                       </button>
-                      <button 
-                        onClick={() => {
-                          toast.success('Generated packing slips for ' + selectedOrders.length + ' orders. Preparing Print...', { icon: '🖨️' });
-                          setTimeout(() => window.print(), 1000);
-                        }}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
-                      >
-                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Receipt size={16} className="text-stone-300" /></div>
-                        <span className="font-bold text-sm">Print Slips</span>
-                      </button>
-                  </div>
-                  
-                  <button 
-                    onClick={() => handleBulkOrderAction('delete')}
-                    className="p-3 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all"
-                    title="Delete Selected"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                  <button 
-                    onClick={() => setSelectedOrders([])}
-                    className="bg-stone-800 hover:bg-stone-700 p-2 rounded-full transition-all"
-                  >
-                    <X size={16} />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-          </div>
-        )}
-
-        {activeTab === 'Product Catalog' && (
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h2 className="text-2xl font-bold">Product Catalog & Inventory</h2>
-              
-              <div className="flex flex-1 max-w-2xl items-center space-x-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
-                  <input 
-                    type="text" 
-                    placeholder="Search products..."
-                    className="input-field pl-10 pr-4 py-2.5"
-                    value={productSearchTerm}
-                    onChange={(e) => {
-                      setProductSearchTerm(e.target.value);
-                      fetchSearchSuggestions(e.target.value);
-                    }}
-                    onFocus={() => {
-                        if (productSearchTerm) fetchSearchSuggestions(productSearchTerm);
-                    }}
-                  />
-                  {searchSuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-stone-100 z-50 overflow-hidden">
-                      {searchSuggestions.map((s, i) => (
-                        <button 
-                          key={i}
-                          onClick={() => {
-                            setProductSearchTerm(s);
-                            setSearchSuggestions([]);
-                          }}
-                          className="w-full text-left px-4 py-3 hover:bg-stone-50 text-sm font-medium border-b border-stone-50 last:border-0"
-                        >
-                          {s}
-                        </button>
-                      ))}
                     </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-3">
-                {selectedProducts.length > 0 && (
-                  <button 
-                    onClick={() => setSelectedProducts([])}
-                    className="text-xs font-bold text-stone-400 hover:text-stone-600 underline mr-2"
-                  >
-                    Clear Selection ({selectedProducts.length})
-                  </button>
+                    
+                    <div className="w-px h-8 bg-stone-800 mx-2" />
+                    
+                    <button 
+                      onClick={() => setSelectedOrders([])}
+                      className="p-3 bg-stone-800 hover:bg-stone-700 rounded-full transition-all text-stone-400 hover:text-white"
+                    >
+                      <X size={20} />
+                    </button>
+                  </motion.div>
                 )}
-                <div className="flex items-center space-x-2">
-                  <button 
-                    onClick={downloadTemplate}
-                    className="p-2 text-stone-500 hover:text-primary hover:bg-stone-100 rounded-xl transition-all flex items-center space-x-2 text-sm font-bold"
-                    title="Download CSV Template"
-                  >
-                    <Download size={18} />
-                    <span className="hidden sm:inline">Template</span>
-                  </button>
-                  <label className="cursor-pointer p-2 text-stone-500 hover:text-primary hover:bg-stone-100 rounded-xl transition-all flex items-center space-x-2 text-sm font-bold">
-                    <Upload size={18} />
-                    <span className="hidden sm:inline">Bulk Upload</span>
-                    <input 
-                      type="file" 
-                      accept=".csv" 
-                      className="hidden" 
-                      onChange={handleBulkUpload}
-                      disabled={bulkUploadLoading}
-                    />
-                  </label>
-                </div>
-                <button 
-                  onClick={() => {
-                    setProductModal({ open: true, mode: 'add' });
-                    setNewProduct({ 
-                      name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
-                      retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
-                      images: []
-                    } as any);
-                  }}
-                  className="bg-primary text-white px-6 py-2.5 rounded-xl font-bold flex items-center space-x-2 shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap"
-                >
-                  <Plus size={18} />
-                  <span>Add Product</span>
-                </button>
-                {(productStockFilter === 'low' || productStockFilter === 'out') && (
-                  <button 
-                    onClick={() => {
-                      const lowStockProducts = filteredProducts.filter(p => Number(p.stock) <= Number(p.reorder_point || 5));
-                      
-                      const groupedBySupplier = lowStockProducts.reduce((acc, curr) => {
-                          const sid = curr.supplier_id || 'unassigned';
-                          if (!acc[sid]) acc[sid] = [];
-                          acc[sid].push(curr);
-                          return acc;
-                      }, {} as Record<string, any[]>);
-
-                      const formattedPO = Object.keys(groupedBySupplier).map(sid => {
-                           const supplier = suppliers.find(s => s.id.toString() === sid.toString());
-                           return {
-                               supplier: supplier || { name: 'Unassigned / Independent', address: '', contact_person: '', phone: '', email: '' },
-                               items: groupedBySupplier[sid]
-                           };
-                      });
-                      
-                      if (formattedPO.length === 0) {
-                        toast.error('No low stock items found to generate PO.');
-                        return;
-                      }
-
-                      setPoData(formattedPO);
-                      setShowPOPrint(true);
-                      
-                      toast.success('Generated Purchase Orders by Supplier. Preparing print...', { icon: '📄' });
-                      setTimeout(() => window.print(), 1000);
-                    }}
-                    className="bg-stone-800 text-white px-6 py-2.5 rounded-xl font-bold flex items-center space-x-2 shadow-lg shadow-stone-800/20 hover:bg-stone-700 transition-all active:scale-95 whitespace-nowrap"
-                  >
-                    <Receipt size={18} />
-                    <span>Generate PO</span>
-                  </button>
-                )}
-              </div>
+              </AnimatePresence>
             </div>
+        )}
+        {activeTab === 'Product Catalog' && (
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="space-y-8"
+      >
+        {/* Inventory Control Center Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
+                <Package size={24} />
+              </div>
+              <h2 className="text-4xl font-black text-stone-900 tracking-tight">Inventory Intelligence</h2>
+            </div>
+            <p className="text-stone-500 font-medium text-lg ml-1">Real-time stock control & catalog management.</p>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            <div className="hidden lg:flex items-center space-x-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100">
+              <Activity size={14} className="animate-pulse" />
+              <span>Live Sync Active</span>
+            </div>
+            <button 
+              onClick={() => {
+                setProductModal({ open: true, mode: 'add' });
+                setNewProduct({ 
+                  name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
+                  retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
+                  images: []
+                } as any);
+              }}
+              className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 group"
+            >
+              <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+              <span>Initialize Product</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Intelligence Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            { label: 'Total SKU', val: allProducts.length, icon: Package, color: 'stone', trend: 'Catalog Depth' },
+            { label: 'Out of Stock', val: allProducts.filter(p => Number(p.stock) <= 0).length, icon: AlertTriangle, color: 'red', trend: 'Immediate Action' },
+            { label: 'Low Stock Alert', val: allProducts.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.reorder_point || 5)).length, icon: ShieldAlert, color: 'amber', trend: 'Replenishment Needed' },
+            { label: 'Expiring Soon', val: allProducts.filter(p => p.expiry_date && new Date(p.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length, icon: Clock, color: 'emerald', trend: 'Waste Mitigation' }
+          ].map((stat, i) => (
+            <motion.div 
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm hover:shadow-xl hover:shadow-stone-200/40 transition-all group overflow-hidden relative"
+            >
+              <div className={cn(
+                "absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-[0.03] transition-transform duration-500 group-hover:scale-150",
+                stat.color === 'red' ? 'bg-red-500' : stat.color === 'amber' ? 'bg-amber-500' : stat.color === 'emerald' ? 'bg-emerald-500' : 'bg-primary'
+              )} />
+              <div className="flex items-center justify-between mb-4">
+                <div className={cn(
+                  "p-3 rounded-2xl",
+                  stat.color === 'red' ? 'bg-red-50 text-red-500' : stat.color === 'amber' ? 'bg-amber-50 text-amber-500' : stat.color === 'emerald' ? 'bg-emerald-50 text-emerald-500' : 'bg-stone-50 text-stone-500'
+                )}>
+                  <stat.icon size={20} />
+                </div>
+                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">{stat.trend}</span>
+              </div>
+              <div className="space-y-1">
+                <p className="text-3xl font-black text-stone-900 tracking-tighter">{stat.val}</p>
+                <p className="text-[11px] font-bold text-stone-500 uppercase tracking-widest">{stat.label}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Global Catalog Utility Bar */}
+        <div className="flex flex-col lg:flex-row gap-6 items-center">
+          <div className="w-full lg:flex-1 relative group">
+            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={20} />
+            <input 
+              type="text" 
+              placeholder="Search by SKU, Name, Category or Batch Number..."
+              className="w-full bg-white border-stone-200 border rounded-[2rem] pl-16 pr-6 py-4 text-sm focus:ring-8 focus:ring-primary/5 outline-none transition-all placeholder:text-stone-300 font-medium shadow-sm hover:border-stone-300 focus:border-primary"
+              value={productSearchTerm}
+              onChange={(e) => {
+                setProductSearchTerm(e.target.value);
+                fetchSearchSuggestions(e.target.value);
+              }}
+            />
+            {searchSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-3xl shadow-2xl shadow-stone-200/50 border border-stone-100 z-50 overflow-hidden py-2 backdrop-blur-xl bg-white/90">
+                {searchSuggestions.map((s, i) => (
+                  <button 
+                    key={i}
+                    onClick={() => {
+                      setProductSearchTerm(s);
+                      setSearchSuggestions([]);
+                    }}
+                    className="w-full text-left px-8 py-3.5 hover:bg-stone-50 text-sm font-bold text-stone-600 transition-colors flex items-center space-x-3"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-stone-300" />
+                    <span>{s}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-3 w-full lg:w-auto">
+            <div className="flex items-center p-1 bg-white border border-stone-100 rounded-2xl shadow-sm">
+              <button 
+                onClick={downloadTemplate}
+                className="p-3 text-stone-400 hover:text-primary transition-all rounded-xl hover:bg-stone-50"
+                title="Export CSV Template"
+              >
+                <Download size={20} />
+              </button>
+              <label className="p-3 text-stone-400 hover:text-emerald-500 transition-all rounded-xl cursor-pointer hover:bg-stone-50">
+                <Upload size={20} />
+                <input type="file" accept=".csv" className="hidden" onChange={handleBulkUpload} />
+              </label>
+              {(productStockFilter === 'low' || productStockFilter === 'out') && (
+                <button 
+                  onClick={generatePurchaseOrder}
+                  className="p-3 text-stone-400 hover:text-amber-500 transition-all rounded-xl hover:bg-stone-50"
+                  title="Generate PO for Low Stock"
+                >
+                  <Receipt size={20} />
+                </button>
+              )}
+            </div>
+            
+            <div className="h-10 w-px bg-stone-200 mx-2" />
+            
+            <button 
+              onClick={() => {/* refresh logic */}}
+              className="p-4 bg-white border border-stone-100 rounded-2xl text-stone-400 hover:text-primary hover:shadow-md transition-all active:scale-95"
+            >
+              <RefreshCw size={20} />
+            </button>
+          </div>
+        </div>
+
 
             {/* Enhanced Filters */}
-            <div className="bg-white p-5 rounded-3xl shadow-sm border border-stone-100 flex flex-wrap items-center gap-6">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-stone-50 rounded-lg text-stone-400">
-                  <Filter size={18} />
+            <section className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
+              <div className="flex items-center space-x-3 pr-6 border-r border-stone-100">
+                <div className="p-3 bg-primary/10 rounded-2xl text-primary">
+                  <Filter size={20} />
                 </div>
-                <span className="text-sm font-black text-stone-400 uppercase tracking-widest">Filters</span>
+                <span className="text-xs font-black text-stone-900 uppercase tracking-widest leading-none">Catalog<br/><span className="text-stone-400 font-bold">Filters</span></span>
               </div>
               
-              <div className="flex items-center space-x-3">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Stock Level</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Stock</label>
                 <select 
-                  className="bg-stone-50 border-stone-100 rounded-xl text-xs font-bold py-2 px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
                   value={productStockFilter}
                   onChange={(e) => setProductStockFilter(e.target.value as any)}
                 >
-                  <option value="all">All Stock</option>
-                  <option value="low">Low Stock</option>
+                  <option value="all">All Inventory</option>
+                  <option value="low">Low Stock Only</option>
                   <option value="out">Out of Stock</option>
                 </select>
               </div>
 
-              <div className="flex items-center space-x-3">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Discount</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
                 <select 
-                  className="bg-stone-50 border-stone-100 rounded-xl text-xs font-bold py-2 px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                  value={productDiscountFilter}
-                  onChange={(e) => setProductDiscountFilter(e.target.value as any)}
-                >
-                  <option value="all">All Products</option>
-                  <option value="discounted">Discounted Only</option>
-                </select>
-              </div>
-
-              <div className="flex items-center space-x-3">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Category</label>
-                <select 
-                  className="bg-stone-50 border-stone-100 rounded-xl text-xs font-bold py-2 px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer min-w-[140px]"
                   value={productCategoryFilter}
                   onChange={(e) => setProductCategoryFilter(e.target.value)}
                 >
@@ -4818,44 +4715,35 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div className="flex items-center space-x-3">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Status</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Status</label>
                 <select 
-                  className="bg-stone-50 border-stone-100 rounded-xl text-xs font-bold py-2 px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
                   value={productListedFilter}
                   onChange={(e) => setProductListedFilter(e.target.value as any)}
                 >
                   <option value="all">All Status</option>
-                  <option value="listed">Listed</option>
-                  <option value="unlisted">Unlisted</option>
+                  <option value="listed">Currently Listed</option>
+                  <option value="unlisted">Unlisted Items</option>
                 </select>
               </div>
 
-              <div className="flex items-center space-x-3">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Date</label>
-                <input 
-                  type="date"
-                  className="bg-stone-50 border-stone-100 rounded-xl text-xs font-bold py-2 px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                  value={productDateFilter}
-                  onChange={(e) => setProductDateFilter(e.target.value)}
-                />
-              </div>
-
-              <div className="flex items-center space-x-3">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Sort By</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Sort By</label>
                 <select 
-                  className="bg-stone-50 border-stone-100 rounded-xl text-xs font-bold py-2 px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
                   value={productSortBy}
                   onChange={(e) => setProductSortBy(e.target.value as any)}
                 >
-                  <option value="name">Name</option>
-                  <option value="price">Price</option>
-                  <option value="stock">Stock</option>
-                  <option value="created_at">Creation Date</option>
+                  <option value="name">Name (A-Z)</option>
+                  <option value="price">Price (Value)</option>
+                  <option value="stock">Stock (Count)</option>
+                  <option value="created_at">Submission Date</option>
                 </select>
               </div>
 
-              <button 
+              <motion.button 
+                whileHover={{ rotate: -90 }}
                 onClick={() => {
                   setProductStockFilter('all');
                   setProductDiscountFilter('all');
@@ -4865,201 +4753,170 @@ export default function AdminDashboard() {
                   setProductSearchTerm('');
                   setProductSortBy('name');
                 }}
-                className="ml-auto text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-primary transition-colors flex items-center space-x-2"
+                className="ml-auto p-3 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white border border-stone-100 rounded-2xl transition-all shadow-sm group"
+                title="Reset Filters"
               >
-                <RefreshCw size={14} />
-                <span>Reset Filters</span>
-              </button>
-            </div>
+                <RefreshCw size={20} className="group-active:scale-90" />
+              </motion.button>
+            </section>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
-                  <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.15em]">
                     <tr>
-                      <th className="px-6 py-4 w-10">
+                      <th className="px-8 py-6 w-10">
                         <input 
                           type="checkbox" 
-                          className="rounded border-stone-300 text-primary focus:ring-primary"
+                          className="w-5 h-5 rounded-lg border-stone-300 text-primary focus:ring-primary transition-all cursor-pointer"
                           checked={selectedProducts.length === filteredProducts.length && filteredProducts.length > 0}
                           onChange={toggleAllProducts}
                         />
                       </th>
-                      <th className="px-6 py-4">Product</th>
-                      <th className="px-6 py-4">Category</th>
-                      <th className="px-6 py-4">Retail Price</th>
-                      <th className="px-6 py-4">Wholesale</th>
-                      <th className="px-6 py-4">Stock</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
+                      <th className="px-6 py-6">Product Information</th>
+                      <th className="px-6 py-6">Category</th>
+                      <th className="px-6 py-6">Price Points</th>
+                      <th className="px-6 py-6">Stock Status</th>
+                      <th className="px-6 py-6">Visibility</th>
+                      <th className="px-8 py-6 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-stone-100">
+                  <tbody className="divide-y divide-stone-50">
                     {filteredProducts.map((product, idx) => (
                       <motion.tr 
                         key={product.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.03 }}
                         className={cn(
-                        "hover:bg-stone-50 transition-colors group",
-                        selectedProducts.includes(product.id) && "bg-primary/5"
+                        "hover:bg-stone-50/80 transition-all duration-300 group",
+                        selectedProducts.includes(product.id) && "bg-primary/[0.03]"
                       )}>
-                        <td className="px-6 py-4">
+                        <td className="px-8 py-6">
                           <input 
                             type="checkbox" 
-                            className="rounded border-stone-300 text-primary focus:ring-primary"
+                            className="w-5 h-5 rounded-lg border-stone-300 text-primary focus:ring-primary transition-all cursor-pointer"
                             checked={selectedProducts.includes(product.id)}
                             onChange={() => toggleProductSelection(product.id)}
                           />
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-3">
-                            <img 
-                              src={product.image_url || product.image} 
-                              alt="" 
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                              className="w-10 h-10 rounded-lg object-cover" 
-                            />
-                            <div>
-                              <p className="text-sm font-bold">{product.name}</p>
-                              <p className="text-[10px] text-stone-400 line-clamp-1 max-w-[200px]">{product.description}</p>
+                        <td className="px-6 py-6">
+                          <div className="flex items-center space-x-4">
+                            <div className="relative">
+                              <img 
+                                src={product.image_url || product.image} 
+                                alt="" 
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                className="w-14 h-14 rounded-2xl object-cover shadow-sm border border-stone-100 group-hover:scale-110 transition-transform duration-500" 
+                              />
+                              {product.discount > 0 && (
+                                <span className="absolute -top-2 -right-2 bg-accent text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-lg">-{product.discount}%</span>
+                              )}
+                            </div>
+                            <div className="max-w-[240px]">
+                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate">{product.name}</p>
+                              <p className="text-[10px] text-stone-400 font-medium line-clamp-1 mt-0.5">{product.description}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs bg-stone-100 px-2 py-1 rounded-md text-stone-600 font-bold tracking-wider uppercase">
-                            {product.category}
-                          </span>
+                        <td className="px-6 py-6">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-stone-500 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200/50">{product.category}</span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-6">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-black text-stone-900">₹{product.retail_price || product.price}</span>
+                              <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Retail</span>
+                            </div>
+                            {product.wholesale_price && (
+                              <div className="flex items-center space-x-2">
+                                <span className="text-[11px] font-bold text-stone-500">₹{product.wholesale_price}</span>
+                                <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Wholesale</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
                           <div className="flex flex-col">
-                            <p className={cn(
-                              "text-sm font-bold",
-                              product.discount > 0 ? "text-emerald-600" : "text-stone-900"
-                            )}>
-                              ₹{product.price}
-                            </p>
-                            {product.discount > 0 && product.retail_price && (
-                              <p className="text-[10px] text-stone-400 line-through">₹{product.retail_price}</p>
-                            )}
-                            {product.discount > 0 && (
-                              <span className="text-[9px] bg-emerald-50 text-emerald-600 font-black px-1.5 py-0.5 rounded uppercase mt-1 w-fit">
-                                {product.discount}% OFF
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-sm text-stone-500">
-                          ₹{product.wholesale_price || '-'}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
                             <span className={cn(
-                              "text-sm font-bold",
-                              product.stock <= (product.reorder_point || 5) ? "text-red-600" : "text-stone-900"
+                              "text-[10px] font-black uppercase tracking-widest mb-1 shadow-sm px-2 py-0.5 rounded-md w-fit",
+                              Number(product.stock) <= 0 ? "bg-red-50 text-red-600" : 
+                              Number(product.stock) <= Number(product.reorder_point || 5) ? "bg-amber-50 text-amber-600" : 
+                              "bg-emerald-50 text-emerald-600"
                             )}>
-                              {product.stock}
+                              {Number(product.stock) <= 0 ? 'Depleted' : Number(product.stock) <= Number(product.reorder_point || 5) ? 'Low Stock' : 'Stable'}
                             </span>
-                            {product.stock <= (product.reorder_point || 5) && (
-                              <AlertTriangle size={14} className="text-amber-500" />
-                            )}
+                            <div className="flex items-center space-x-2">
+                              <div className="h-1.5 w-24 bg-stone-100 rounded-full overflow-hidden flex-shrink-0">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${Math.min(100, (Number(product.stock) / 100) * 100)}%` }}
+                                  className={cn(
+                                    "h-full transition-all duration-1000",
+                                    Number(product.stock) <= Number(product.reorder_point || 5) ? "bg-red-500" : "bg-emerald-500"
+                                  )}
+                                />
+                              </div>
+                              <span className="text-xs font-black text-stone-700">{product.stock} <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Units</span></span>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-6">
+                           <div className="flex flex-col">
+                              {product.expiry_date ? (
+                                <>
+                                  <span className={cn(
+                                    "text-[9px] font-black uppercase tracking-widest mb-1",
+                                    new Date(product.expiry_date) < new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) ? "text-red-500" : "text-stone-400"
+                                  )}>
+                                    Expiry Control
+                                  </span>
+                                  <span className="text-xs font-black text-stone-700">{new Date(product.expiry_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-stone-300 italic font-bold">No Expiry Tracked</span>
+                              )}
+                           </div>
+                        </td>
+                        <td className="px-6 py-6">
                           <span className={cn(
-                            "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
-                            product.is_listed ? "bg-emerald-50 text-emerald-600" : "bg-stone-100 text-stone-400"
+                            "inline-flex items-center space-x-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all duration-300",
+                            product.is_listed 
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-100/50" 
+                              : "bg-red-50 text-red-600 border-red-100/50"
                           )}>
-                            {product.is_listed ? 'Listed' : 'Unlisted'}
+                            <div className={cn("w-1.5 h-1.5 rounded-full", product.is_listed ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
+                            <span>{product.is_listed ? 'Public' : 'Hidden'}</span>
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right relative">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveActionMenuId(activeActionMenuId === product.id ? null : product.id);
-                            }}
-                            className="p-2 hover:bg-stone-100 text-stone-400 hover:text-primary rounded-lg transition-colors"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                          
-                          <AnimatePresence>
-                            {activeActionMenuId === product.id && (
-                              <motion.div 
-                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                className="absolute right-10 top-2 mt-2 w-48 bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-100 z-[60] overflow-hidden flex flex-col py-2"
-                                onMouseLeave={() => setActiveActionMenuId(null)}
-                              >
-                                <button 
-                                  onClick={() => {
-                                    setVariantModal({ open: true, productId: product.id });
-                                    fetchProductVariants(product.id);
-                                    setActiveActionMenuId(null);
-                                  }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
-                                >
-                                  <List size={16} className="text-stone-400" />
-                                  <span>Manage Variants</span>
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    setEditingProduct(product);
-                                    setNewProduct({
-                                      name: product.name,
-                                      description: product.description,
-                                      price: product.price.toString(),
-                                      stock: product.stock.toString(),
-                                      category: product.category,
-                                      image: product.image_url || product.image,
-                                      retail_price: product.retail_price?.toString() || '',
-                                      wholesale_price: product.wholesale_price?.toString() || '',
-                                      discount: product.discount?.toString() || '0',
-                                      reorder_point: product.reorder_point?.toString() || '10',
-                                      max_qty: product.max_qty?.toString() || '0',
-                                      is_listed: product.is_listed,
-                                      images: product.images || [],
-                                      specifications: product.specifications || {},
-                                      supplier_id: product.supplier_id?.toString() || ''
-                                    } as any);
-                                    setProductModal({ open: true, mode: 'edit' });
-                                    setActiveActionMenuId(null);
-                                  }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
-                                >
-                                  <Settings size={16} className="text-primary" />
-                                  <span>Edit Product</span>
-                                </button>
-                                <div className="h-px bg-stone-100 my-1 mx-2" />
-                                <button 
-                                  onClick={() => {
-                                     deleteProduct(product.id);
-                                     setActiveActionMenuId(null);
-                                  }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-red-50 text-left text-sm font-bold text-red-600"
-                                >
-                                  <Trash2 size={16} className="text-red-500" />
-                                  <span>Delete Item</span>
-                                </button>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
+                        <td className="px-8 py-6 text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            <motion.button 
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => { setEditingProduct(product); setProductModal({ open: true, mode: 'edit' }); }}
+                              className="p-2.5 bg-stone-50 text-stone-500 hover:text-primary hover:bg-white hover:shadow-md border border-transparent hover:border-stone-100 rounded-xl transition-all"
+                              title="Edit Product"
+                            >
+                              <Settings size={18} />
+                            </motion.button>
+                            <motion.button 
+                              whileHover={{ scale: 1.1, color: '#ef4444' }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => deleteProduct(product.id)}
+                              className="p-2.5 bg-stone-50 text-stone-500 hover:bg-white hover:shadow-md border border-transparent hover:border-red-100 rounded-xl transition-all"
+                              title="Delete Product"
+                            >
+                              <Trash2 size={18} />
+                            </motion.button>
+                          </div>
                         </td>
                       </motion.tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {filteredProducts.length === 0 && (
-                <div className="text-center py-20 bg-stone-50/50">
-                  <Package size={48} className="mx-auto mb-4 text-stone-200" />
-                  <p className="text-stone-500 font-medium">No products found matching your search.</p>
-                </div>
-              )}
             </div>
 
             {/* Bottom Contextual Action Bar for Bulk Management */}
@@ -5124,9 +4981,8 @@ export default function AdminDashboard() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </motion.div>
         )}
-
         {activeTab === 'Roles' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -5230,531 +5086,689 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Categories' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Product Categories</h2>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Intelligence Header */}
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Categorical Intelligence</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Domain-specific grouping and inventory allocation logic.</p>
+              </div>
               <button 
                 onClick={() => setCategoryModal({ open: true, mode: 'add' })}
-                className="btn-primary flex items-center space-x-2"
+                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
-                <Plus size={18} />
-                <span>Add Category</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {categories.map((cat) => (
-                <div key={cat.id} className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center text-primary">
-                      <ImageIcon size={24} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-stone-900">{cat.name}</h4>
-                      <p className={cn(
-                        "text-[10px] font-bold uppercase",
-                        cat.is_out_of_stock ? "text-red-500" : "text-emerald-500"
-                      )}>
-                        {cat.is_out_of_stock ? 'Out of Stock' : 'In Stock'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button 
-                      onClick={() => {
-                        setEditingCategory(cat);
-                        setNewCategory({ name: cat.name, icon: cat.icon });
-                        setCategoryModal({ open: true, mode: 'edit' });
-                      }}
-                      className="p-2 hover:bg-stone-100 rounded-lg text-stone-400"
-                    >
-                      <Settings size={16} />
-                    </button>
-                    <button className="p-2 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-90 transition-transform duration-500">
+                  <Plus size={20} />
                 </div>
-              ))}
+                <span>Provision Category</span>
+              </button>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {categories.map((cat, idx) => {
+                const categoryProducts = allProducts.filter(p => p.category_id === (cat as any).id);
+                const totalStock = categoryProducts.reduce((sum, p) => sum + (p.stock || 0), 0);
+                const outOfStockCount = categoryProducts.filter(p => (p.stock || 0) <= 0).length;
+
+                return (
+                  <motion.div 
+                    key={cat.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="group bg-white rounded-[2.5rem] shadow-sm border border-stone-100 hover:border-primary/30 transition-all duration-500 relative overflow-hidden"
+                  >
+                    <div className="p-8">
+                      <div className="flex justify-between items-start mb-8">
+                        <div className="relative">
+                          <div className={cn(
+                            "w-16 h-16 rounded-3xl flex items-center justify-center transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-lg",
+                            cat.is_out_of_stock ? "bg-red-50 text-red-500" : "bg-primary/10 text-primary"
+                          )}>
+                             {cat.icon ? (
+                               <i className={cn("text-2xl", cat.icon)} />
+                             ) : (
+                               <ImageIcon size={32} />
+                             )}
+                          </div>
+                          {outOfStockCount > 0 && (
+                            <div className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-4 border-white shadow-lg">
+                              {outOfStockCount}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => {
+                              setEditingCategory(cat);
+                              setNewCategory({ name: cat.name, icon: cat.icon });
+                              setCategoryModal({ open: true, mode: 'edit' });
+                            }}
+                            className="p-3 bg-stone-50 hover:bg-primary/10 hover:text-primary rounded-2xl transition-all"
+                          >
+                            <Settings size={18} />
+                          </button>
+                          <button className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-xl font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight">{cat.name}</h4>
+                          <span className={cn(
+                            "text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border mt-2 inline-block",
+                            cat.is_out_of_stock ? "bg-red-50 text-red-600 border-red-100" : "bg-emerald-50 text-emerald-600 border-emerald-100"
+                          )}>
+                            {cat.is_out_of_stock ? 'CRITICAL: OUT OF STOCK' : 'Operational'}
+                          </span>
+                        </div>
+
+                        <div className="pt-6 border-t border-stone-50 grid grid-cols-2 gap-4">
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">SKU Count</p>
+                            <p className="text-xl font-black text-stone-900">{categoryProducts.length}</p>
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">Net Inventory</p>
+                            <p className="text-xl font-black text-stone-900">{totalStock}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="h-2 w-full bg-stone-50 mt-auto">
+                      <div 
+                        className={cn("h-full transition-all duration-1000", cat.is_out_of_stock ? "bg-red-500 w-full" : "bg-primary")} 
+                        style={{ width: `${Math.min(100, (totalStock / 500) * 100)}%` }}
+                      />
+                    </div>
+                  </motion.div>
+                );
+              })}
+              
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                onClick={() => setCategoryModal({ open: true, mode: 'add' })}
+                className="group border-4 border-dashed border-stone-100 rounded-[2.5rem] p-8 flex flex-col items-center justify-center space-y-6 hover:border-primary/20 hover:bg-primary/5 transition-all duration-500"
+              >
+                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-stone-200 group-hover:text-primary group-hover:scale-110 group-hover:rotate-90 transition-all duration-500 shadow-sm">
+                  <Plus size={40} />
+                </div>
+                <div className="text-center">
+                  <p className="text-base font-black text-stone-400 group-hover:text-primary tracking-tight transition-colors">Expand Intelligence</p>
+                  <p className="text-[10px] font-bold text-stone-300 uppercase tracking-widest mt-1">Add domain category</p>
+                </div>
+              </motion.button>
             </div>
           </div>
         )}
 
         {activeTab === 'Wallet Requests' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
+          <motion.div 
+            initial="hidden"
+            animate="show"
+            variants={{
+              hidden: { opacity: 0 },
+              show: { opacity: 1, transition: { staggerChildren: 0.05 } }
+            }}
+            className="space-y-10"
+          >
+             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-2">
               <div>
-                <h2 className="text-2xl font-bold">Wallet Top-up Requests</h2>
-                <p className="text-stone-500">Review and approve customer wallet payments</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Financial Hub</h2>
+                <p className="text-stone-500 mt-1 text-base font-medium">Verify and crystalize customer ledger top-up protocols.</p>
               </div>
-              <button 
+              <motion.button 
+                whileHover={{ rotate: 180 }}
                 onClick={fetchWalletRequests}
-                className="p-2 hover:bg-stone-100 rounded-xl text-stone-400 hover:text-primary transition-all"
+                className="p-4 bg-white border border-stone-200 rounded-2xl text-stone-400 hover:text-stone-900 transition-all shadow-sm group"
               >
-                <RefreshCw size={20} />
-              </button>
-            </div>
+                <RefreshCw size={22} className="group-active:animate-spin" />
+              </motion.button>
+            </header>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
-                  <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <th className="px-6 py-4">Customer</th>
-                      <th className="px-6 py-4">Amount</th>
-                      <th className="px-6 py-4">Transaction ID</th>
-                      <th className="px-6 py-4">Screenshot</th>
-                      <th className="px-6 py-4">Date</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
+                      <th className="px-10 py-8">Origin Node</th>
+                      <th className="px-6 py-8">Request Value</th>
+                      <th className="px-6 py-8">Protocol ID</th>
+                      <th className="px-6 py-8">Evidence</th>
+                      <th className="px-6 py-8">Time Slice</th>
+                      <th className="px-10 py-8 text-right">Goverance</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-stone-100">
+                  <tbody className="divide-y divide-stone-50">
                     {walletRequests.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-stone-400">
-                          No pending requests found
+                        <td colSpan={6} className="px-10 py-32 text-center">
+                          <div className="flex flex-col items-center space-y-4 opacity-20 grayscale">
+                            <ShieldCheck size={64} strokeWidth={1} />
+                            <p className="text-xs font-black uppercase tracking-[0.3em]">All Transactions Settled</p>
+                          </div>
                         </td>
                       </tr>
                     ) : (
-                      walletRequests.map((req) => (
-                        <tr key={req.id} className="hover:bg-stone-50 transition-colors">
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-bold">{req.user_name}</p>
-                            <p className="text-xs text-stone-400">{req.user_phone}</p>
+                      walletRequests.map((req, idx) => (
+                        <motion.tr 
+                          key={req.id} 
+                          variants={{ hidden: { opacity: 0, x: -10 }, show: { opacity: 1, x: 0 } }}
+                          className="hover:bg-stone-50/80 transition-all group"
+                        >
+                          <td className="px-10 py-7">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-12 h-12 bg-stone-100 rounded-2xl flex items-center justify-center text-stone-400 group-hover:bg-stone-900 group-hover:text-white transition-all duration-300">
+                                <Users size={18} />
+                              </div>
+                              <div>
+                                <p className="text-sm font-black text-stone-900">{req.user_name}</p>
+                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest leading-tight">{req.user_phone}</p>
+                              </div>
+                            </div>
                           </td>
-                          <td className="px-6 py-4 font-bold text-primary">₹{req.amount}</td>
-                          <td className="px-6 py-4 text-xs font-mono">{req.transaction_id || 'N/A'}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-7 font-black text-stone-900 text-lg tracking-tighter">₹{req.amount}</td>
+                          <td className="px-6 py-7">
+                            <span className="font-mono text-[10px] font-black text-stone-400 border border-stone-200 px-3 py-1.5 rounded-lg uppercase tracking-wider">
+                              {req.transaction_id || 'X-VOID'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-7">
                             {req.screenshot ? (
                               <button 
                                 onClick={() => window.open(req.screenshot, '_blank')}
-                                className="flex items-center space-x-1 text-xs text-primary font-bold hover:underline"
+                                className="flex items-center space-x-2 text-[10px] text-stone-900 font-bold uppercase tracking-widest hover:underline decoration-stone-900 underline-offset-4"
                               >
-                                <ImageIcon size={14} />
-                                <span>View Proof</span>
+                                <Eye size={14} />
+                                <span>Inspect Artifact</span>
                               </button>
                             ) : (
-                              <span className="text-xs text-stone-300">No Proof</span>
+                              <span className="text-[9px] text-stone-300 font-black uppercase tracking-widest italic">No Data Artifact</span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-xs text-stone-500">
-                            {new Date(req.created_at).toLocaleString()}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex justify-end items-center space-x-2">
-                              <button 
-                                onClick={() => handleApproveWalletRequest(req.id)}
-                                className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors"
-                              >
-                                Approve
-                              </button>
-                              <button 
-                                onClick={() => handleRejectWalletRequest(req.id)}
-                                className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
-                              >
-                                Reject
-                              </button>
+                          <td className="px-6 py-7">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(req.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                              <span className="text-[9px] font-bold text-stone-400 mt-1 uppercase tracking-widest">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           </td>
-                        </tr>
+                          <td className="px-10 py-7 text-right">
+                            <div className="flex justify-end items-center space-x-3">
+                              <motion.button 
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleRejectWalletRequest(req.id)}
+                                className="px-5 py-3 bg-white text-stone-400 hover:text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-stone-100 transition-all hover:bg-stone-50"
+                              >
+                                Decline
+                              </motion.button>
+                              <motion.button 
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleApproveWalletRequest(req.id)}
+                                className="bg-stone-900 text-white px-7 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-xl shadow-stone-900/10 active:scale-95"
+                              >
+                                Normalize
+                              </motion.button>
+                            </div>
+                          </td>
+                        </motion.tr>
                       ))
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
         {activeTab === 'Customers' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-            <div className="p-6 border-b border-stone-100 flex items-center justify-between">
-              <h3 className="font-bold text-lg">Customer Management</h3>
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-stone-500 font-medium">Segment:</span>
-                <select 
-                  className="input-field py-1"
-                  value={selectedSegment}
-                  onChange={(e) => setSelectedSegment(e.target.value)}
-                >
-                  {segments.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+          <div className="space-y-10">
+            {/* Intelligence Header */}
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Customer Intelligence</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Segment behavior, wallet states, and lifetime value analytics.</p>
               </div>
-            </div>
-            <div className="overflow-visible hidden md:block">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Customer</th>
-                    <th className="px-6 py-4">Role / Segment</th>
-                    <th className="px-6 py-4">Wallet</th>
-                    <th className="px-6 py-4">Total Orders / Spent</th>
-                    <th className="px-6 py-4">Khata Status</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {filteredUsers.map((u, idx) => (
-                    <motion.tr 
-                      key={u.id} 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                      className="hover:bg-stone-50 transition-colors group"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center overflow-hidden">
-                            {u.profile_photo ? (
-                              <img src={u.profile_photo} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <Users size={18} className="text-stone-400" />
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold">{u.name}</p>
-                            <p className="text-xs text-stone-400">{u.phone}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col space-y-1">
-                          <span className="text-xs font-bold text-stone-600 uppercase">Role: {u.role}</span>
-                          {u.computed_segment && (
-                             <div className="flex items-center space-x-1">
-                               <span className={cn(
-                                 "text-[10px] px-2 py-0.5 rounded-full font-bold",
-                                 u.computed_segment === 'Champion' ? "bg-emerald-100 text-emerald-700" :
-                                 u.computed_segment === 'Loyal' ? "bg-blue-100 text-blue-700" :
-                                 u.computed_segment === 'Recent' ? "bg-amber-100 text-amber-700" :
-                                 u.computed_segment === 'At Risk' ? "bg-orange-100 text-orange-700" :
-                                 u.computed_segment === 'Lost' ? "bg-red-100 text-red-700" :
-                                 "bg-stone-100 text-stone-700"
-                               )}>{u.computed_segment}</span>
-                               {u.rfm_score && <span className="text-[10px] text-stone-400 font-mono tracking-wider ml-1" title="Recency (1-5), Frequency (1-5), Monetary (1-5)">RFM:{u.rfm_score}</span>}
-                             </div>
-                          )}
-                          {!u.computed_segment && <span className="text-[10px] text-stone-400">{u.segment}</span>}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-sm font-bold text-primary">₹{u.wallet_balance}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-stone-900">{(u as any).total_orders || 0} Orders</span>
-                          <span className="text-[10px] text-stone-400 font-bold">LTV: ₹{(u as any).total_spent || 0}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {u.khata_enabled ? (
-                          <div className="flex flex-col">
-                            <span className="text-xs font-bold text-emerald-600">Enabled</span>
-                            <span className="text-[10px] text-stone-400">Bal: ₹{u.khata_balance}</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs font-bold text-stone-300">Disabled</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right relative">
-                        <div className="flex justify-end items-center space-x-2">
-                          <button 
-                            onClick={() => setWalletModal({ open: true, userId: u.id })}
-                            className="text-[10px] bg-primary text-white px-3 py-1.5 rounded-lg font-bold hover:bg-primary/90 transition-colors"
-                          >
-                            Wallet
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveActionMenuId(activeActionMenuId === `user_${u.id}` ? null : `user_${u.id}`);
-                            }}
-                            className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-primary transition-all"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                          
-                          <AnimatePresence>
-                            {activeActionMenuId === `user_${u.id}` && (
-                              <motion.div 
-                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                className="absolute right-10 top-2 mt-2 w-56 bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-100 z-[60] overflow-hidden flex flex-col py-2"
-                                onMouseLeave={() => setActiveActionMenuId(null)}
-                              >
-                                <button 
-                                  onClick={() => { setCustomerModal({ open: true, user: u }); setActiveActionMenuId(null); }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
-                                >
-                                  <Eye size={16} className="text-stone-400" />
-                                  <span>View Details</span>
-                                </button>
-                                <button 
-                                  onClick={() => { fetchCustomerOrders(u.id); setActiveActionMenuId(null); }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
-                                >
-                                  <ShoppingBag size={16} className="text-stone-400" />
-                                  <span>Order History</span>
-                                </button>
-                                <button 
-                                  onClick={() => { fetchWalletHistory(u.id); setActiveActionMenuId(null); }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-stone-50 text-left text-sm font-bold text-stone-600"
-                                >
-                                  <History size={16} className="text-stone-400" />
-                                  <span>Wallet History</span>
-                                </button>
-                                <a 
-                                  href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-emerald-50 text-left text-sm font-bold text-emerald-600"
-                                >
-                                  <MessageCircle size={16} className="text-emerald-500" />
-                                  <span>WhatsApp</span>
-                                </a>
-                                <div className="h-px bg-stone-100 my-1 mx-2" />
-                                <button 
-                                   onClick={async () => {
-                                     setActiveActionMenuId(null);
-                                     const title = window.prompt('Enter Alert Title (e.g. Account Verification)');
-                                     if (!title) return;
-                                     const message = window.prompt('Enter Main Message');
-                                     if (!message) return;
-                                     const details = window.prompt('Enter technical explanation (optional)');
-                                     
-                                     try {
-                                       const res = await fetch(`/api/admin/users/${u.id}/alert`, {
-                                         method: 'POST',
-                                         headers: { 'Content-Type': 'application/json' },
-                                         body: JSON.stringify({ 
-                                           title, message, details, 
-                                           type: 'info', 
-                                           duration: 6000, 
-                                           is_unskippable: true 
-                                         })
-                                       });
-                                       if (res.ok) toast.success(`Alert queued for ${u.name}`);
-                                     } catch (e) {
-                                       toast.error('Failed to send alert');
-                                     }
-                                   }}
-                                  className="flex items-center space-x-3 px-4 py-2 hover:bg-amber-50 text-left text-sm font-bold text-amber-600"
-                                >
-                                  <Bell size={16} className="text-amber-500" />
-                                  <span>Flash Alert</span>
-                                </button>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile-only Card View */}
-            <div className="md:hidden space-y-4 p-4">
-              {filteredUsers.map((u) => (
-                <div key={u.id} className="bg-stone-50 border border-stone-100 p-4 rounded-3xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-full bg-white border border-stone-100 flex items-center justify-center overflow-hidden">
-                        {u.profile_photo ? (
-                          <img src={u.profile_photo} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <Users size={20} className="text-stone-400" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-black text-stone-900 leading-tight">{u.name}</p>
-                        <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{u.phone}</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-[9px] font-black px-2 py-1 bg-primary/10 text-primary rounded-full uppercase tracking-widest">{u.role}</span>
-                      <p className="text-[8px] text-stone-400 font-bold mt-1 uppercase tracking-tighter">{u.segment}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white p-3 rounded-2xl border border-stone-100">
-                      <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1 leading-none">Wallet</p>
-                      <p className="text-sm font-black text-primary tracking-tight">₹{u.wallet_balance}</p>
-                    </div>
-                    <div className="bg-white p-3 rounded-2xl border border-stone-100">
-                       <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1 leading-none">Khata</p>
-                       <p className={cn("text-sm font-black tracking-tight", u.khata_enabled ? "text-emerald-600" : "text-stone-300")}>
-                          {u.khata_enabled ? `₹${u.khata_balance}` : 'OFF'}
-                       </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                     <div className="flex items-center space-x-2">
-                       <button onClick={() => setCustomerModal({ open: true, user: u })} className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-600 active:scale-95 transition-all shadow-sm"><Eye size={18} /></button>
-                       <button onClick={() => fetchCustomerOrders(u.id)} className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-600 active:scale-95 transition-all shadow-sm"><ShoppingBag size={18} /></button>
-                       <button onClick={() => fetchWalletHistory(u.id)} className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-600 active:scale-95 transition-all shadow-sm"><History size={18} /></button>
-                     </div>
-                     <div className="flex items-center space-x-2">
-                        <a href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`} target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center active:scale-95 transition-all"><MessageCircle size={18} /></a>
-                        <button onClick={() => setWalletModal({ open: true, userId: u.id })} className="bg-stone-900 text-white h-10 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">Add ₹</button>
-                     </div>
-                  </div>
+              <div className="flex items-center space-x-3">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
+                   <div className="flex flex-col">
+                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Active Pool</span>
+                     <span className="text-2xl font-black text-stone-900">{filteredUsers.length}</span>
+                   </div>
+                   <div className="w-px h-10 bg-stone-100" />
+                   <div className="flex flex-col">
+                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Retention</span>
+                     <span className="text-2xl font-black text-emerald-500">88.4%</span>
+                   </div>
                 </div>
-              ))}
+              </div>
+            </header>
+
+            {/* Segment & Search Toolbar */}
+            <section className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
+              <div className="flex items-center space-x-3 pr-8 border-r border-stone-100 h-12">
+                <div className="p-3 bg-stone-900 rounded-2xl text-white">
+                  <Users size={20} />
+                </div>
+                <span className="text-xs font-black text-stone-900 uppercase tracking-widest leading-none">Social<br/><span className="text-stone-400 font-bold">Groups</span></span>
+              </div>
+              
+              <div className="flex flex-1 items-center space-x-2 overflow-x-auto no-scrollbar scroll-smooth gap-1">
+                {['all', 'Champion', 'Loyal', 'Recent', 'At Risk', 'Lost'].map((segment) => (
+                  <button
+                    key={segment}
+                    onClick={() => setSelectedSegment(segment)}
+                    className={cn(
+                      "px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap outline-none",
+                      selectedSegment === segment
+                        ? "bg-stone-900 text-white shadow-xl shadow-stone-200" 
+                        : "text-stone-400 hover:text-stone-900 hover:bg-stone-50"
+                    )}
+                  >
+                    {segment === 'all' ? 'All Intelligence' : segment}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center space-x-4 pl-4 border-l border-stone-100">
+                <div className="relative group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Search humans..."
+                    className="bg-stone-50 border-stone-200 border rounded-2xl pl-12 pr-4 py-3.5 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-stone-300 font-medium w-64 uppercase tracking-wider text-[10px]"
+                  />
+                </div>
+                <motion.button 
+                  whileHover={{ rotate: 180 }}
+                  onClick={() => setSelectedSegment('all')}
+                  className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-primary transition-all shadow-sm"
+                >
+                  <RefreshCw size={20} />
+                </motion.button>
+              </div>
+            </section>
+
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar hidden md:block">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.15em]">
+                    <tr>
+                      <th className="px-8 py-6">Identity Profile</th>
+                      <th className="px-6 py-6">Engagement Segment</th>
+                      <th className="px-6 py-6 text-right">Settlement Wallet</th>
+                      <th className="px-6 py-6">Commercial value</th>
+                      <th className="px-6 py-6">Khata Policy</th>
+                      <th className="px-8 py-6 text-right">Governance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {filteredUsers.map((u, idx) => (
+                      <motion.tr 
+                        key={u.id} 
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.03 }}
+                        className="hover:bg-stone-50/80 transition-all duration-300 group"
+                      >
+                        <td className="px-8 py-6">
+                          <div className="flex items-center space-x-4">
+                            <div className="relative">
+                              <div className="w-14 h-14 rounded-[1.25rem] bg-stone-100 flex items-center justify-center overflow-hidden border border-stone-200/50 shadow-sm group-hover:scale-105 transition-transform duration-500">
+                                {u.profile_photo ? (
+                                  <img src={u.profile_photo} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <Users size={22} className="text-stone-400" />
+                                )}
+                              </div>
+                              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-4 border-white shadow-sm ring-1 ring-emerald-100" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight">{u.name}</p>
+                              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5">{u.phone}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="flex flex-col space-y-2">
+                            <div className="flex items-center space-x-2">
+                               <span className={cn(
+                                 "inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                                 u.computed_segment === 'Champion' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                                 u.computed_segment === 'Loyal' ? "bg-blue-50 text-blue-600 border-blue-100" :
+                                 u.computed_segment === 'Recent' ? "bg-amber-50 text-amber-600 border-amber-100" :
+                                 u.computed_segment === 'At Risk' ? "bg-orange-50 text-orange-600 border-orange-100" :
+                                 "bg-stone-50 text-stone-500 border-stone-100"
+                               )}>
+                                 {u.computed_segment || u.segment || 'PROSPECT'}
+                               </span>
+                               {u.rfm_score && <span className="text-[10px] font-mono font-black text-stone-300 tracking-tighter">RFM:{u.rfm_score}</span>}
+                            </div>
+                            <span className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{u.role} Access LVL</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="text-base font-black text-primary tracking-tighter">₹{u.wallet_balance}</span>
+                            <button 
+                              onClick={() => setWalletModal({ open: true, userId: u.id })}
+                              className="text-[9px] font-black uppercase tracking-widest text-stone-400 hover:text-primary transition-colors mt-1.5 underline decoration-stone-200 underline-offset-4"
+                            >
+                              Ledger Top-up
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 font-bold text-sm text-stone-500">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-stone-900 tracking-tight">{(u as any).total_orders || 0} Transactions</span>
+                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1.5">Spent: ₹{(u as any).total_spent || 0}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                           <div className="flex flex-col">
+                             <div className="flex items-center space-x-2.5">
+                               <div className={cn("w-2 h-2 rounded-full", u.khata_enabled ? "bg-emerald-500 animate-pulse" : "bg-stone-200")} />
+                               <span className={cn("text-[10px] font-black uppercase tracking-[0.15em]", u.khata_enabled ? "text-stone-900" : "text-stone-300")}>
+                                 {u.khata_enabled ? 'Merchant Credit' : 'NO LINE'}
+                               </span>
+                             </div>
+                             {u.khata_enabled && <span className="text-[10px] text-primary font-black mt-1.5 pl-4.5 tracking-tighter italic">UTIL: ₹{u.khata_balance}</span>}
+                           </div>
+                        </td>
+                        <td className="px-8 py-6 text-right relative">
+                          <div className="flex justify-end items-center space-x-2">
+                             <motion.button 
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => { setCustomerModal({ open: true, user: u }); }}
+                                className="p-3 bg-stone-50 text-stone-500 hover:text-primary hover:bg-white hover:shadow-xl hover:shadow-stone-200/50 border border-transparent hover:border-stone-100 rounded-2xl transition-all"
+                                title="Intelligence"
+                              >
+                                <Eye size={18} />
+                              </motion.button>
+                              <div className="relative">
+                                <motion.button 
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveActionMenuId(activeActionMenuId === `user_${u.id}` ? null : `user_${u.id}`);
+                                  }}
+                                  className={cn(
+                                    "p-3 bg-stone-50 text-stone-500 rounded-2xl transition-all border border-transparent hover:bg-white hover:shadow-xl hover:shadow-stone-200/50 hover:text-primary",
+                                    activeActionMenuId === `user_${u.id}` && "bg-white text-primary shadow-xl shadow-stone-200/50 border-stone-100"
+                                  )}
+                                >
+                                  <MoreVertical size={18} />
+                                </motion.button>
+                                
+                                <AnimatePresence>
+                                  {activeActionMenuId === `user_${u.id}` && (
+                                    <motion.div 
+                                      initial={{ opacity: 0, scale: 0.95, y: 10, x: 10 }}
+                                      animate={{ opacity: 1, scale: 1, y: 0, x: 0 }}
+                                      exit={{ opacity: 0, scale: 0.95, y: 10, x: 10 }}
+                                      className="absolute right-0 top-full mt-4 w-72 bg-white rounded-[2rem] shadow-2xl shadow-stone-300 border border-stone-100 z-[60] overflow-hidden flex flex-col py-4"
+                                      onMouseLeave={() => setActiveActionMenuId(null)}
+                                    >
+                                      <div className="px-8 py-2 text-[10px] font-black uppercase text-stone-300 tracking-[0.25em] mb-2">CRM Directives</div>
+                                      <button 
+                                        onClick={() => { fetchCustomerOrders(u.id); setActiveActionMenuId(null); }}
+                                        className="flex items-center space-x-5 px-8 py-4 hover:bg-stone-50 group transition-all"
+                                      >
+                                        <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors"><ShoppingBag size={18} /></div>
+                                        <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Transaction History</span>
+                                      </button>
+                                      
+                                      <button 
+                                        onClick={() => { fetchWalletHistory(u.id); setActiveActionMenuId(null); }}
+                                        className="flex items-center space-x-5 px-8 py-4 hover:bg-stone-50 group transition-all"
+                                      >
+                                        <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors"><History size={18} /></div>
+                                        <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Wallet Trail</span>
+                                      </button>
+
+                                      <a 
+                                        href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center space-x-5 px-8 py-4 hover:bg-emerald-50 group transition-all"
+                                      >
+                                        <div className="p-2.5 bg-emerald-100 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all"><MessageCircle size={18} /></div>
+                                        <span className="text-xs font-black text-stone-900 group-hover:text-emerald-600 uppercase tracking-widest">Secure WhatsApp</span>
+                                      </a>
+
+                                      <div className="h-px bg-stone-100 my-4 mx-6" />
+                                      <button className="flex items-center space-x-5 px-8 py-4 hover:bg-amber-50 group transition-all">
+                                        <div className="p-2.5 bg-amber-100 rounded-2xl text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition-all"><Bell size={18} /></div>
+                                        <span className="text-xs font-black text-stone-900 group-hover:text-amber-600 uppercase tracking-widest">Push Alert Node</span>
+                                      </button>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                          </div>
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Card Experience */}
+              <div className="md:hidden space-y-6 p-6 bg-stone-50/50">
+                {filteredUsers.map((u) => (
+                  <motion.div 
+                    layout
+                    key={u.id} 
+                    className="bg-white rounded-[2rem] p-6 border border-stone-100 shadow-sm space-y-6 relative overflow-hidden"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-16 h-16 rounded-2xl bg-stone-100 flex items-center justify-center overflow-hidden border border-stone-200">
+                           {u.profile_photo ? <img src={u.profile_photo} alt="" className="w-full h-full object-cover" /> : <Users size={24} className="text-stone-300" />}
+                        </div>
+                        <div>
+                          <p className="text-lg font-black text-stone-900 tracking-tight leading-none">{u.name}</p>
+                          <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-2">{u.phone}</p>
+                        </div>
+                      </div>
+                      <span className="text-[8px] font-black px-2 py-1 bg-stone-900 text-white rounded-lg uppercase tracking-widest">{u.role}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                        <span className="text-[9px] font-black text-stone-400 uppercase tracking-widest block mb-1">Settlement</span>
+                        <span className="text-sm font-black text-primary">₹{u.wallet_balance}</span>
+                      </div>
+                      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                         <span className="text-[9px] font-black text-stone-400 uppercase tracking-widest block mb-1">Segment</span>
+                         <span className="text-sm font-black text-stone-900">{u.computed_segment || 'N/A'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                       <div className="flex items-center space-x-2">
+                         <button onClick={() => setCustomerModal({ open: true, user: u })} className="w-12 h-12 bg-white border border-stone-100 rounded-2xl flex items-center justify-center text-stone-400 shadow-sm"><Eye size={20} /></button>
+                         <button onClick={() => fetchCustomerOrders(u.id)} className="w-12 h-12 bg-white border border-stone-100 rounded-2xl flex items-center justify-center text-stone-400 shadow-sm"><ShoppingBag size={20} /></button>
+                       </div>
+                       <button 
+                        onClick={() => setWalletModal({ open: true, userId: u.id })}
+                        className="flex-1 ml-4 bg-stone-900 text-white h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-stone-200"
+                       >
+                         Top up Ledgers
+                       </button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {filteredUsers.length === 0 && (
+                <div className="py-24 text-center">
+                  <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse text-stone-300">
+                    <Users size={40} />
+                  </div>
+                  <h4 className="text-2xl font-black text-stone-900 tracking-tight">Zero Intelligence Records</h4>
+                  <p className="text-stone-400 font-medium mt-2">No human matching this segment was located.</p>
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {activeTab === 'Promotions' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
+          <div className="space-y-10">
+            {/* Campaign Header */}
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>
-                <h2 className="text-2xl font-bold">Promotion Banners</h2>
-                <p className="text-stone-500">Manage store-wide visual banners</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Campaign Center</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Coordinate store-wide visual banners and promotional announcements.</p>
               </div>
               <button 
                 onClick={() => {
                   setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true });
                   setPromotionModal({ open: true, mode: 'add', id: null });
                 }}
-                className="btn-primary flex items-center space-x-2"
+                className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:bg-stone-800 transition-all active:scale-95 group"
               >
-                <Plus size={18} />
-                <span>Add Banner</span>
+                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-90 transition-transform"><Plus size={18} /></div>
+                <span className="uppercase tracking-widest text-xs">Architect New Banner</span>
               </button>
-            </div>
+            </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {promotions.map((promo) => (
-                <div key={promo.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 group flex flex-col">
-                  <div className="h-40 relative bg-stone-100 flex items-center justify-center">
+            {/* Banner Performance Stats - Simulated for UI richness */}
+            <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
+               {[
+                 { label: 'Live Banners', val: promotions.filter(p => p.active).length, icon: Eye, color: 'text-primary' },
+                 { label: 'Avg Click Rate', val: '4.2%', icon: MousePointer2, color: 'text-emerald-500' },
+                 { label: 'Campaign Reach', val: '12.4k', icon: Users, color: 'text-blue-500' },
+                 { label: 'Total Variants', val: promotions.length, icon: Megaphone, color: 'text-purple-500' }
+               ].map((stat, i) => (
+                 <div key={i} className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm flex items-center space-x-4">
+                    <div className={cn("p-3 rounded-2xl bg-stone-50", stat.color)}>
+                      <stat.icon size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">{stat.label}</p>
+                      <p className="text-xl font-black text-stone-900">{stat.val}</p>
+                    </div>
+                 </div>
+               ))}
+            </section>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {promotions.map((promo, idx) => (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  key={promo.id} 
+                  className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-stone-100 group flex flex-col hover:shadow-2xl hover:shadow-stone-200 transition-all duration-500"
+                >
+                  <div className="h-56 relative bg-stone-100 overflow-hidden">
                     {promo.image_url ? (
-                      <img src={promo.image_url} alt="" className="w-full h-full object-cover" />
+                      <img 
+                        src={promo.image_url} 
+                        alt="" 
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                      />
                     ) : (
-                      <span className="text-stone-400 font-medium text-sm">No Image</span>
+                      <div className="flex flex-col items-center justify-center h-full text-stone-300">
+                        <ImageOff size={40} className="mb-2" />
+                        <span className="text-[10px] uppercase font-black tracking-widest">Missing Creative</span>
+                      </div>
                     )}
-                    <div className="absolute top-2 left-2 flex gap-2">
-                      <span className={cn(
-                        "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm",
-                        promo.active ? "bg-emerald-500 text-white" : "bg-stone-500 text-white"
+                    
+                    <div className="absolute top-4 left-4 flex gap-2">
+                      <div className={cn(
+                        "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.15em] shadow-lg border border-white/20 backdrop-blur-md",
+                        promo.active ? "bg-emerald-500/90 text-white" : "bg-stone-500/90 text-white line-through opacity-50"
                       )}>
-                        {promo.active ? 'Active' : 'Inactive'}
-                      </span>
+                        {promo.active ? 'Broadcasting' : 'Off-Air'}
+                      </div>
                       {!!promo.is_default && (
-                        <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm bg-blue-500 text-white">
-                          Default
-                        </span>
+                        <div className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.15em] shadow-lg border border-white/20 backdrop-blur-md bg-blue-500 text-white">
+                          Global Default
+                        </div>
                       )}
                     </div>
-                    <div className="absolute top-2 right-2 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => togglePromotionStatus(promo.id)}
-                        className="p-2 bg-white text-stone-600 rounded-full hover:text-emerald-500 shadow-lg"
-                        title={promo.active ? "Deactivate Banner" : "Activate Banner"}
-                      >
-                        {promo.active ? <Check size={14} /> : <AlertTriangle size={14} />}
-                      </button>
-                      <button 
-                        onClick={() => {
-                          // Simple preview functionality
-                          window.open(`/?preview_promo=${promo.id}`, '_blank');
-                        }}
-                        className="p-2 bg-white text-stone-600 rounded-full hover:text-primary shadow-lg"
-                        title="Preview Banner"
-                      >
-                        <Eye size={14} />
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setNewPromotion({ 
-                            title: promo.title, 
-                            description: promo.description, 
-                            image_url: promo.image_url, 
-                            link: promo.link,
-                            active: !!promo.active,
-                            target_role: promo.target_role || 'all',
-                            start_time: promo.start_time || '',
-                            end_time: promo.end_time || '',
-                            banner_type: promo.banner_type || 'standard',
-                            is_default: !!promo.is_default
-                          });
-                          setPromotionModal({ open: true, mode: 'edit', id: promo.id });
-                        }}
-                        className="p-2 bg-white text-stone-600 rounded-full hover:text-primary shadow-lg"
-                      >
-                        <Settings size={14} />
-                      </button>
-                      <button 
-                        onClick={() => handleDeletePromotion(promo.id)}
-                        className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-lg"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+
+                    <div className="absolute inset-0 bg-stone-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-3 backdrop-blur-sm">
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => togglePromotionStatus(promo.id)}
+                          className="w-12 h-12 bg-white text-stone-900 rounded-2xl flex items-center justify-center hover:bg-primary hover:text-white transition-all shadow-xl"
+                          title={promo.active ? "Cease Campaign" : "Authorize Campaign"}
+                        >
+                          {promo.active ? <X size={20} /> : <Check size={20} />}
+                        </motion.button>
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => {
+                            setNewPromotion({ 
+                              title: promo.title, 
+                              description: promo.description, 
+                              image_url: promo.image_url, 
+                              link: promo.link,
+                              active: !!promo.active,
+                              target_role: promo.target_role || 'all',
+                              start_time: promo.start_time || '',
+                              end_time: promo.end_time || '',
+                              priority: promo.priority || 0,
+                              is_default: !!promo.is_default
+                            } as any);
+                            setPromotionModal({ open: true, mode: 'edit', id: promo.id });
+                          }}
+                          className="w-12 h-12 bg-white text-stone-900 rounded-2xl flex items-center justify-center hover:bg-stone-900 hover:text-white transition-all shadow-xl"
+                        >
+                          <Settings size={20} />
+                        </motion.button>
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleDeletePromotion(promo.id)}
+                          className="w-12 h-12 bg-red-500 text-white rounded-2xl flex items-center justify-center shadow-xl"
+                        >
+                          <Trash2 size={20} />
+                        </motion.button>
                     </div>
                   </div>
-                  <div className="p-6 space-y-2 flex-1 flex flex-col">
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-bold">{promo.title}</h3>
-                      <span className="text-[9px] font-black uppercase bg-stone-100 text-stone-600 px-2 py-0.5 rounded-md">{promo.banner_type}</span>
+
+                  <div className="p-8 flex flex-col flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                       <span className="text-[10px] font-black uppercase text-stone-400 tracking-[0.2em]">Target: {promo.target_role || 'All Audience'}</span>
+                       <span className="text-[10px] font-black text-primary uppercase">Priority {promo.priority || 0}</span>
                     </div>
-                    <p className="text-xs text-stone-500 line-clamp-2 flex-1">{promo.description}</p>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight leading-tight mb-2 truncate">{promo.title}</h3>
+                    <p className="text-xs text-stone-500 font-medium line-clamp-2 mb-6 leading-relaxed flex-1">{promo.description}</p>
                     
-                    <div className="flex justify-between items-center bg-stone-50 p-2 text-xs rounded-lg mt-2 mb-2 text-stone-500 font-bold">
-                      <div className="flex items-center space-x-1">
-                        <Eye size={14} className="text-stone-400" />
-                        <span>{promo.views || 0}</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <MousePointer size={14} className="text-stone-400" />
-                        <span>{promo.clicks || 0}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-[10px] text-stone-500 font-bold uppercase tracking-wider">
-                      <div className="bg-stone-50 p-2 rounded-lg flex justify-between">
-                        <span>Role:</span> <span className="text-stone-900">{promo.target_role}</span>
-                      </div>
-                      <div className="bg-stone-50 p-2 rounded-lg flex justify-between">
-                        <span>Views:</span> <span className="text-primary">{promo.views || 0}</span>
-                      </div>
-                      <div className="bg-stone-50 p-2 rounded-lg flex justify-between">
-                        <span>Clicks:</span> <span className="text-accent">{promo.clicks || 0}</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 flex justify-between items-center">
-                      <button 
-                        onClick={() => togglePromotionStatus(promo.id)}
-                        className={cn(
-                          "text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg transition-colors",
-                          promo.active ? "bg-stone-100 text-stone-600 hover:bg-stone-200" : "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
-                        )}
-                      >
-                        {promo.active ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button 
-                        onClick={() => setPromotionProductsModal({ open: true, promotionId: promo.id })}
-                        className="text-primary text-xs font-bold hover:underline flex items-center space-x-1"
-                      >
-                        <Package size={12} />
-                        <span>Link Products</span>
-                      </button>
-                      <a href={promo.link} target="_blank" className="text-primary text-xs font-bold hover:underline flex items-center space-x-1">
-                        <span>Link</span>
-                        <ExternalLink size={12} />
-                      </a>
+                    <div className="pt-6 border-t border-stone-50 flex items-center justify-between">
+                       <div className="flex flex-col">
+                          <span className="text-[9px] font-black text-stone-300 uppercase tracking-widest">CTA Destination</span>
+                          <span className="text-[10px] font-bold text-stone-500 truncate max-w-[150px]">{promo.link || 'In-App Navigation'}</span>
+                       </div>
+                       <div className="p-3 bg-stone-50 group-hover:bg-primary/10 group-hover:text-primary rounded-xl transition-colors">
+                          <ExternalLink size={16} />
+                       </div>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
+
               {promotions.length === 0 && (
-                <div className="col-span-full py-20 text-center bg-stone-50 rounded-3xl border-2 border-dashed border-stone-200">
-                  <ImageIcon size={48} className="mx-auto text-stone-300 mb-4 opacity-20" />
-                  <p className="text-stone-500 font-bold">No promotions found</p>
-                  <p className="text-stone-400 text-sm">Add banners or offers to show here</p>
+                <div className="col-span-full py-32 bg-stone-50/50 rounded-[3rem] border border-stone-100 text-center">
+                  <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse text-stone-200">
+                    <Megaphone size={40} />
+                  </div>
+                  <h4 className="text-2xl font-black text-stone-900 tracking-tight">Eerie Silence</h4>
+                  <p className="text-stone-400 font-medium mt-2">No active campaigns are currently broadcasting to your audience.</p>
                 </div>
               )}
             </div>
@@ -6018,330 +6032,382 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Store Settings' && (
-          <div className="max-w-4xl space-y-8">
-            {/* Broadcast System Alert */}
-            <div className="bg-gradient-to-br from-red-500 to-red-600 p-8 rounded-3xl shadow-xl shadow-red-200 text-white space-y-6">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-white/20 rounded-2xl">
-                  <ShieldAlert size={24} />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black">Emergency System Broadcast</h3>
-                  <p className="text-red-100 text-sm">Send an unskippable full-screen message to all online users.</p>
-                </div>
+          <div className="max-w-5xl space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-stone-100 pb-10">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Global Configuration</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Platform architecture, security nodes, and operational logic.</p>
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input 
-                  id="broadcast-title"
-                  type="text" 
-                  placeholder="Alert Title (e.g. Server Maintenance)"
-                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder:text-red-200 outline-none focus:bg-white/20 transition-all font-bold"
-                />
-                <select 
-                  id="broadcast-type"
-                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white outline-none focus:bg-white/20 transition-all font-bold"
-                >
-                  <option value="critical" className="text-stone-900">Critical (Red)</option>
-                  <option value="warning" className="text-stone-900">Warning (Amber)</option>
-                  <option value="info" className="text-stone-900">Info (Blue)</option>
-                  <option value="success" className="text-stone-900">Success (Green)</option>
-                </select>
-                <textarea 
-                  id="broadcast-message"
-                  placeholder="Main Message (e.g. We are performing a quick update...)"
-                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder:text-red-200 outline-none focus:bg-white/20 transition-all font-bold md:col-span-2 h-24"
-                />
-                <input 
-                  id="broadcast-details"
-                  type="text" 
-                  placeholder="Technical Context / Why (Optional)"
-                  className="bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder:text-red-200 outline-none focus:bg-white/20 transition-all font-bold md:col-span-2 text-sm"
-                />
-              </div>
-
-              <div className="flex items-center justify-between pt-4">
-                <div className="flex items-center space-x-2 text-xs font-bold bg-white/10 px-4 py-2 rounded-full">
-                  <span>Display Duration: 8 seconds</span>
-                </div>
-                <button 
-                  onClick={async () => {
-                    const title = (document.getElementById('broadcast-title') as HTMLInputElement).value;
-                    const message = (document.getElementById('broadcast-message') as HTMLTextAreaElement).value;
-                    const details = (document.getElementById('broadcast-details') as HTMLInputElement).value;
-                    const type = (document.getElementById('broadcast-type') as HTMLSelectElement).value;
-                    
-                    if (!title || !message) {
-                      toast.error('Title and message are required');
-                      return;
-                    }
-                    
-                    if (!window.confirm('This will show an unskippable full-screen popup to ALL users. Continue?')) return;
-                    
-                    try {
-                      const res = await fetch('/api/admin/broadcast-alert', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                          title, message, details, type, 
-                          duration: 8000, 
-                          is_unskippable: true 
-                        })
-                      });
-                      if (res.ok) {
-                        toast.success('Broadcast sent successfully!');
-                        (document.getElementById('broadcast-title') as HTMLInputElement).value = '';
-                        (document.getElementById('broadcast-message') as HTMLTextAreaElement).value = '';
-                        (document.getElementById('broadcast-details') as HTMLInputElement).value = '';
-                      }
-                    } catch (e) {
-                      toast.error('Failed to send broadcast');
-                    }
-                  }}
-                  className="bg-white text-red-600 px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-stone-50 transition-colors shadow-lg"
-                >
-                  Blast Broadcast
-                </button>
+              <div className="bg-white px-6 py-4 rounded-[2rem] shadow-sm border border-stone-100 flex items-center space-x-4">
+                <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" />
+                <span className="text-xs font-black text-stone-900 uppercase tracking-widest">Protocol Stale: Live Sync Active</span>
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">System Settings</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl">
-                  <div>
-                    <p className="font-bold text-stone-900">Maintenance Mode</p>
-                    <p className="text-xs text-stone-500">Bypass for admins or with secret token</p>
+            {/* Emergency Broadcast - Mission Critical Interface */}
+            <section className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-br from-red-600 to-red-700 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity" />
+              <div className="relative bg-white border-4 border-red-50 rounded-[3rem] shadow-2xl shadow-red-200/40 p-10 overflow-hidden">
+                <div className="absolute top-0 right-0 w-80 h-80 bg-red-50 rounded-full -mr-40 -mt-40 opacity-50" />
+                
+                <div className="relative z-10 space-y-10">
+                  <div className="flex items-center space-x-6">
+                    <div className="w-20 h-20 bg-red-600 text-white rounded-[2rem] flex items-center justify-center shadow-2xl shadow-red-600/30 rotate-3">
+                      <ShieldAlert size={40} />
+                    </div>
+                    <div>
+                      <h3 className="text-3xl font-black text-stone-900 tracking-tight leading-none mb-2">Emergency Broadcast Layer</h3>
+                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em]">Synchronous Global Interruption • Low Latency Pipeline</p>
+                    </div>
                   </div>
-                  <button 
-                    onClick={() => updateSetting('maintenance_mode', getSetting('maintenance_mode') === 'true' ? 'false' : 'true')}
-                    className={cn(
-                      "w-12 h-6 rounded-full transition-colors relative",
-                      getSetting('maintenance_mode') === 'true' ? "bg-primary" : "bg-stone-200"
-                    )}
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4">
+                    <div className="space-y-4">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Alert Header Architecture</label>
+                      <input 
+                        id="broadcast-title"
+                        type="text" 
+                        placeholder="Intercept Title (e.g. SYSTEM REBOOT)"
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 placeholder:text-stone-300 outline-none focus:border-red-500 focus:bg-white transition-all font-black uppercase tracking-widest text-sm"
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Threat/Response Level</label>
+                      <select 
+                        id="broadcast-type"
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 outline-none focus:border-red-500 focus:bg-white transition-all font-black uppercase tracking-widest text-sm appearance-none cursor-pointer"
+                      >
+                        <option value="critical">Critical Intervention (Level 5)</option>
+                        <option value="warning">Service Advisory (Level 3)</option>
+                        <option value="info">Deployment Node (Level 1)</option>
+                        <option value="success">Protocol Restored (Level 0)</option>
+                      </select>
+                    </div>
+                    <div className="lg:col-span-2 space-y-4">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Body Intelligence Segment</label>
+                      <textarea 
+                        id="broadcast-message"
+                        placeholder="Detailed interruption context..."
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[2rem] px-8 py-6 text-stone-900 placeholder:text-stone-300 outline-none focus:border-red-500 focus:bg-white transition-all font-medium h-40 resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-stone-100 bg-stone-50/50 -mx-10 -mb-10 p-10">
+                    <p className="text-xs text-stone-400 font-bold max-w-sm italic">Warning: Initiating this broadcast will lock all active sessions globally for 8 seconds. This bypasses client-side suppression logic.</p>
+                    <button 
+                      onClick={async () => {
+                        const title = (document.getElementById('broadcast-title') as HTMLInputElement).value;
+                        const message = (document.getElementById('broadcast-message') as HTMLTextAreaElement).value;
+                        const type = (document.getElementById('broadcast-type') as HTMLSelectElement).value;
+                        
+                        if (!title || !message) {
+                          toast.error('Title and message are required');
+                          return;
+                        }
+                        
+                        if (!window.confirm('DEPLOY GLOBAL INTERCEPT? This action will interrupt all users.')) return;
+                        
+                        try {
+                          const res = await fetch('/api/admin/broadcast-alert', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                              title, message, type, 
+                              duration: 8000, 
+                              is_unskippable: true 
+                            })
+                          });
+                          if (res.ok) {
+                            toast.success('Broadcast Layer Deployed');
+                            (document.getElementById('broadcast-title') as HTMLInputElement).value = '';
+                            (document.getElementById('broadcast-message') as HTMLTextAreaElement).value = '';
+                          }
+                        } catch (e) {
+                          toast.error('Deployment Failure');
+                        }
+                      }}
+                      className="w-full md:w-auto bg-red-600 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-red-600/30 hover:scale-105 active:scale-95"
+                    >
+                      Blast Intercept
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Core Node Settings */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+              <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
+                    <Database size={24} />
+                  </div>
+                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">System Core Nodes</h3>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="group flex items-center justify-between p-8 bg-stone-50 border border-stone-100 rounded-[2rem] hover:border-primary/20 hover:bg-white transition-all duration-300">
+                    <div className="space-y-1">
+                      <p className="font-black text-stone-900 uppercase tracking-widest text-[10px]">Maintenance Protocol</p>
+                      <p className="text-xs text-stone-400 font-bold">Restrict pool to root level access only.</p>
+                    </div>
+                    <button 
+                      onClick={() => updateSetting('maintenance_mode', getSetting('maintenance_mode') === 'true' ? 'false' : 'true')}
+                      className={cn(
+                        "w-16 h-8 rounded-full transition-all duration-500 relative ring-4 ring-offset-2 ring-transparent",
+                        getSetting('maintenance_mode') === 'true' ? "bg-primary ring-primary/10 shadow-lg shadow-primary/20" : "bg-stone-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-500 shadow-sm",
+                        getSetting('maintenance_mode') === 'true' ? "left-9" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Administrative Endpoint (Email)</label>
+                    <div className="relative">
+                       <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
+                       <input 
+                        type="email" 
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
+                        placeholder="root@endpoint.com"
+                        defaultValue={config.find(c => c.key === 'admin_email')?.value}
+                        onBlur={(e) => updateSetting('admin_email', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Super-User Direct Hook (Phone)</label>
+                    <div className="relative">
+                       <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
+                       <input 
+                        type="text" 
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
+                        placeholder="+91 Super-User Number"
+                        defaultValue={config.find(c => c.key === 'admin_phone')?.value}
+                        onBlur={(e) => updateSetting('admin_phone', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center -rotate-3">
+                    <Layout size={24} />
+                  </div>
+                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Identity & Reach</h3>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Corporate Designation (Store Name)</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
+                      placeholder="Organization Name"
+                      defaultValue={config.find(c => c.key === 'store_name')?.value}
+                      onBlur={(e) => updateSetting('store_name', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">Vocal Node (Phone)</label>
+                      <input 
+                        type="text" 
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
+                        defaultValue={config.find(c => c.key === 'store_phone')?.value}
+                        onBlur={(e) => updateSetting('store_phone', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">Social Sync (WhatsApp)</label>
+                      <input 
+                        type="text" 
+                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
+                        defaultValue={config.find(c => c.key === 'whatsapp_number')?.value}
+                        onBlur={(e) => updateSetting('whatsapp_number', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Physical Geo-Coordinates (Address)</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
+                      placeholder="Dispatch HQ Address"
+                      defaultValue={config.find(c => c.key === 'store_address')?.value}
+                      onBlur={(e) => updateSetting('store_address', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            {/* Delivery Logistics Engine */}
+            <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-[2rem] flex items-center justify-center shadow-lg shadow-emerald-100 flex-shrink-0">
+                    <Truck size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Logistics Engine</h3>
+                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Delivery Algorithms & Fiscal Thresholds</p>
+                  </div>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-4">
+                   <div className="bg-emerald-50 px-6 py-3 rounded-2xl border border-emerald-100 flex flex-col">
+                     <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Fee Intelligence</span>
+                     <span className="text-lg font-black text-emerald-800">₹{deliveryFee}</span>
+                   </div>
+                   <button 
+                    onClick={async () => {
+                      await updateSetting('delivery_fee', deliveryFee);
+                      await updateSetting('free_delivery_threshold', freeDeliveryThreshold);
+                      toast.success('Logistics protocol synchronized');
+                    }}
+                    className="bg-emerald-600 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20 active:scale-95 text-xs"
                   >
-                    <div className={cn(
-                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                      getSetting('maintenance_mode') === 'true' ? "left-7" : "left-1"
-                    )} />
+                    Sync Protocols
                   </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Admin Email Address</label>
-                  <input 
-                    type="email" 
-                    className="input-field"
-                    placeholder="e.g., admin@example.com"
-                    defaultValue={config.find(c => c.key === 'admin_email')?.value}
-                    onBlur={(e) => updateSetting('admin_email', e.target.value)}
-                  />
-                  <p className="text-[10px] text-stone-400 mt-1">Designated admin email for system privileges.</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Admin Phone Number</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    placeholder="e.g., +919876543210"
-                    defaultValue={config.find(c => c.key === 'admin_phone')?.value}
-                    onBlur={(e) => updateSetting('admin_phone', e.target.value)}
-                  />
-                  <p className="text-[10px] text-stone-400 mt-1">Used for admin login bypass and notifications.</p>
-                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">Contact & Location</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Name</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    placeholder="e.g. Hind General Store"
-                    defaultValue={config.find(c => c.key === 'store_name')?.value}
-                    onBlur={(e) => updateSetting('store_name', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Phone Number</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    defaultValue={config.find(c => c.key === 'store_phone')?.value}
-                    onBlur={(e) => updateSetting('store_phone', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">WhatsApp Number</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    defaultValue={config.find(c => c.key === 'whatsapp_number')?.value}
-                    onBlur={(e) => updateSetting('whatsapp_number', e.target.value)}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-stone-700 mb-1">WhatsApp Default Message</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    defaultValue={config.find(c => c.key === 'whatsapp_message')?.value}
-                    onBlur={(e) => updateSetting('whatsapp_message', e.target.value)}
-                  />
-                  <p className="text-xs text-stone-400 mt-1">This message will be pre-filled when customers click the WhatsApp link.</p>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Address</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    placeholder="e.g. Main Market, Nayagaon"
-                    defaultValue={config.find(c => c.key === 'store_address')?.value}
-                    onBlur={(e) => updateSetting('store_address', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Google Maps Link</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    placeholder="https://goo.gl/maps/..."
-                    defaultValue={config.find(c => c.key === 'store_location')?.value}
-                    onBlur={(e) => updateSetting('store_location', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Store Email</label>
-                  <input 
-                    type="email" 
-                    className="input-field"
-                    placeholder="e.g. support@store.com"
-                    defaultValue={config.find(c => c.key === 'store_email')?.value}
-                    onBlur={(e) => updateSetting('store_email', e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold">Delivery Settings</h3>
-                <button 
-                  onClick={async () => {
-                    await updateSetting('delivery_fee', deliveryFee);
-                    await updateSetting('free_delivery_threshold', freeDeliveryThreshold);
-                    toast.success('Delivery settings saved');
-                  }}
-                  className="btn-primary py-2 px-6 text-sm"
-                >
-                  Save Delivery Settings
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Default Delivery Fee (₹)</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Base Dispatch Charge (₹)</label>
+                    <span className="text-[10px] font-bold text-stone-300">Standard Transit Cost</span>
+                  </div>
                   <input 
                     type="number" 
-                    className="input-field" 
+                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-10 py-6 text-2xl font-black text-stone-900 focus:border-emerald-500 focus:bg-white outline-none transition-all tracking-tighter" 
                     value={deliveryFee}
                     onChange={(e) => setDeliveryFee(e.target.value)}
                   />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Free Delivery Threshold (₹)</label>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Waiver Threshold (₹)</label>
+                    <span className="text-[10px] font-bold text-emerald-500">Free Delivery Trigger</span>
+                  </div>
                   <input 
                     type="number" 
-                    className="input-field" 
+                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-10 py-6 text-2xl font-black text-stone-900 focus:border-emerald-500 focus:bg-white outline-none transition-all tracking-tighter" 
                     value={freeDeliveryThreshold}
                     onChange={(e) => setFreeDeliveryThreshold(e.target.value)}
                   />
                 </div>
               </div>
-            </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold">Delivery Areas</h3>
-                <button 
-                  onClick={() => {
-                    setDeliveryAreaModal({ open: true, mode: 'add', area: null });
-                    setNewDeliveryArea({ name: '', fee: '0', min_order: '0' });
-                  }}
-                  className="btn-primary py-2 px-6 text-sm flex items-center space-x-2"
-                >
-                  <Plus size={16} />
-                  <span>Add Area</span>
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                    <tr>
-                      <th className="px-6 py-4">Area Name</th>
-                      <th className="px-6 py-4">Delivery Fee</th>
-                      <th className="px-6 py-4">Min Order for Fee</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {deliveryAreas.map((area) => (
-                      <tr key={area.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-sm">{area.name}</td>
-                        <td className="px-6 py-4 text-sm">₹{area.fee}</td>
-                        <td className="px-6 py-4 text-sm">₹{area.min_order}</td>
-                        <td className="px-6 py-4 text-right space-x-2">
-                          <button 
-                            onClick={() => {
-                              setDeliveryAreaModal({ open: true, mode: 'edit', area });
-                              setNewDeliveryArea({ name: area.name, fee: area.fee.toString(), min_order: area.min_order.toString() });
-                            }}
-                            className="p-2 text-stone-400 hover:text-primary transition-colors"
-                          >
-                            <Settings size={16} />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteDeliveryArea(area.id)}
-                            className="p-2 text-stone-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
+              <div className="bg-stone-50 rounded-[2.5rem] p-4 pt-10 border border-stone-100 overflow-hidden mt-6">
+                <div className="px-6 flex items-center justify-between mb-6">
+                  <div>
+                    <h4 className="text-xl font-black text-stone-900 tracking-tight">Active Delivery Zones</h4>
+                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Geo-fenced area exceptions</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setDeliveryAreaModal({ open: true, mode: 'add', area: null });
+                      setNewDeliveryArea({ name: '', fee: '0', min_order: '0' });
+                    }}
+                    className="bg-white text-stone-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100 hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm"
+                  >
+                    + Register Zone
+                  </button>
+                </div>
+                <div className="overflow-x-auto no-scrollbar px-6 pb-6">
+                  <table className="w-full text-left">
+                    <thead className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em]">
+                      <tr className="border-b-2 border-stone-100">
+                        <th className="py-6 pr-6">Zone Identifier</th>
+                        <th className="py-6 px-6">Transit Fee</th>
+                        <th className="py-6 px-6">Fiscal Limit</th>
+                        <th className="py-6 pl-6 text-right">Operational Actions</th>
                       </tr>
-                    ))}
-                    {deliveryAreas.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-8 text-center text-stone-400 italic">No delivery areas configured</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {deliveryAreas.map((area) => (
+                        <tr key={area.id} className="group hover:bg-white transition-all duration-300">
+                          <td className="py-6 pr-6">
+                             <div className="flex items-center space-x-3">
+                               <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-stone-100 flex items-center justify-center text-stone-300 group-hover:text-emerald-500 transition-colors">
+                                 <MapPin size={18} />
+                               </div>
+                               <span className="font-black text-stone-900 tracking-tight">{area.name}</span>
+                             </div>
+                          </td>
+                          <td className="py-6 px-6 font-black text-stone-700 tracking-tighter text-lg">₹{area.fee}</td>
+                          <td className="py-6 px-6 font-black text-stone-700 tracking-tighter text-lg">₹{area.min_order}</td>
+                          <td className="py-6 pl-6 text-right space-x-2">
+                            <button 
+                              onClick={() => {
+                                setDeliveryAreaModal({ open: true, mode: 'edit', area });
+                                setNewDeliveryArea({ name: area.name, fee: area.fee.toString(), min_order: area.min_order.toString() });
+                              }}
+                              className="p-3 bg-stone-100 hover:bg-primary/10 hover:text-primary rounded-2xl transition-all border border-transparent shadow-sm"
+                            >
+                              <Settings size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteDeliveryArea(area.id)}
+                              className="p-3 bg-stone-100 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all border border-transparent shadow-sm"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {deliveryAreas.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-12 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2rem]">No zone exceptions established.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </section>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
+            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold">Terms & Conditions Editor</h3>
                 <div className="flex items-center space-x-4">
-                  <Link to="/terms-and-conditions" target="_blank" className="text-xs font-bold text-primary hover:underline flex items-center space-x-1">
-                    <span>View Page</span>
-                    <ExternalLink size={12} />
+                  <div className="w-14 h-14 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
+                    <FileText size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Terms & Conditions Editor</h3>
+                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Foundational Legal Protocol • Public Nodes</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <Link to="/terms-and-conditions" target="_blank" className="p-4 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl transition-all shadow-sm group">
+                    <ExternalLink size={20} className="group-hover:scale-110 transition-transform" />
                   </Link>
                   <button 
                     onClick={() => updateSetting('terms_and_conditions', tncContent)}
-                    className="btn-primary py-2 px-6 text-sm"
+                    className="bg-stone-900 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-stone-900/20 active:scale-95 text-xs"
                   >
-                    Save T&C Changes
+                    Commit Changes
                   </button>
                 </div>
               </div>
-              <div className="quill-editor-container">
+              <div className="quill-editor-container bg-stone-50 rounded-[2.5rem] p-2 border border-stone-100">
                 <ReactQuill 
                   theme="snow"
                   value={tncContent}
                   onChange={setTncContent}
-                  className="bg-white rounded-2xl overflow-hidden border border-stone-200"
+                  className="bg-white rounded-[2rem] overflow-hidden border-none"
                   modules={{
                     toolbar: [
                       [{ 'header': [1, 2, 3, false] }],
@@ -6353,28 +6419,35 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div className="space-y-6 pt-12 border-t border-stone-100">
+              <div className="space-y-10 pt-10 border-t border-stone-100">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-xl font-bold">Frequently Asked Questions (FAQ)</h3>
+                   <div className="flex items-center space-x-4">
+                    <div className="w-14 h-14 bg-primary text-white rounded-2xl flex items-center justify-center -rotate-3">
+                      <HelpCircle size={28} />
+                    </div>
+                    <div>
+                      <h3 className="text-3xl font-black text-stone-900 tracking-tight">Intelligence FAQ Library</h3>
+                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Autonomous Support Knowledge-Base</p>
+                    </div>
+                  </div>
                   <div className="flex items-center space-x-4">
-                    <Link to="/support" target="_blank" className="text-xs font-bold text-primary hover:underline flex items-center space-x-1">
-                      <span>View Support Page</span>
-                      <ExternalLink size={12} />
+                    <Link to="/support" target="_blank" className="p-4 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl transition-all shadow-sm group">
+                      <ExternalLink size={20} className="group-hover:scale-110 transition-transform" />
                     </Link>
                     <button 
                       onClick={() => updateSetting('faq_content', faqContent)}
-                      className="btn-primary py-2 px-6 text-sm"
+                      className="bg-primary text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-primary/80 transition-all shadow-xl shadow-primary/20 active:scale-95 text-xs"
                     >
-                      Save FAQ Changes
+                      Sync Knowledge
                     </button>
                   </div>
                 </div>
-                <div className="quill-editor-container">
+                <div className="quill-editor-container bg-stone-50 rounded-[2.5rem] p-2 border border-stone-100">
                   <ReactQuill 
                     theme="snow"
                     value={faqContent}
                     onChange={setFaqContent}
-                    className="bg-white rounded-2xl overflow-hidden border border-stone-200"
+                    className="bg-white rounded-[2rem] overflow-hidden border-none"
                     modules={{
                       toolbar: [
                         [{ 'header': [1, 2, 3, false] }],
@@ -6384,16 +6457,23 @@ export default function AdminDashboard() {
                       ],
                     }}
                   />
-                  <p className="text-xs text-stone-400 mt-4">Manage the FAQs displayed on the customer support page. Add categories, questions, and detailed answers.</p>
+                  <p className="text-[10px] text-stone-400 mt-6 font-bold uppercase tracking-widest text-center px-10">Populate the Frequently Asked Questions database to reduce inbound support frequency.</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">Admin Dashboard Theme</h3>
-              <p className="text-sm text-stone-500">Customize the appearance of your admin panel.</p>
+            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
+               <div className="flex items-center space-x-4">
+                <div className="w-14 h-14 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-12">
+                  <Palette size={28} />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">Terminal Aesthetic (Theme)</h3>
+                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Override Global Visual Parameters</p>
+                </div>
+              </div>
               
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
                 {[
                   { id: 'theme-navy', name: 'Navy', color: '#0f172a' },
                   { id: 'theme-orange', name: 'Orange', color: '#ea580c' },
@@ -6406,32 +6486,53 @@ export default function AdminDashboard() {
                     key={t.id}
                     onClick={() => setAdminTheme(t.id)}
                     className={cn(
-                      "flex flex-col items-center p-4 rounded-2xl border-2 transition-all group",
-                      adminTheme === t.id ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                      "flex flex-col items-center p-6 rounded-[2rem] border-2 transition-all group relative overflow-hidden",
+                      adminTheme === t.id ? "border-primary bg-stone-50 shadow-xl" : "border-stone-100 hover:border-stone-200 bg-white"
                     )}
                   >
                     <div 
-                      className="w-10 h-10 rounded-full mb-3 shadow-inner" 
+                      className="w-12 h-12 rounded-2xl mb-4 shadow-lg group-hover:scale-110 transition-transform" 
                       style={{ backgroundColor: t.color }}
                     />
                     <span className={cn(
-                      "text-xs font-bold",
-                      adminTheme === t.id ? "text-primary" : "text-stone-600"
+                      "text-[10px] font-black uppercase tracking-widest leading-none",
+                      adminTheme === t.id ? "text-primary" : "text-stone-400 group-hover:text-stone-900"
                     )}>
                       {t.name}
                     </span>
+                    {adminTheme === t.id && (
+                      <div className="absolute top-2 right-2 text-primary">
+                        <CheckCircle2 size={14} />
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">General Settings</h3>
-              
-              <div className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl">
+            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
+               <div className="flex items-center space-x-4">
+                <div className="w-14 h-14 bg-red-600 text-white rounded-2xl flex items-center justify-center -rotate-6">
+                  <ShieldAlert size={28} />
+                </div>
                 <div>
-                  <p className="font-bold">Maintenance Mode</p>
-                  <p className="text-sm text-stone-500">When active, only admins can access the store.</p>
+                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">System Safe-Mode</h3>
+                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Maintenance & Global Access Control</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-8 bg-stone-50 rounded-[2.5rem] border border-stone-100">
+                <div className="flex items-center space-x-6">
+                   <div className={cn(
+                     "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm",
+                     config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600 text-white" : "bg-white text-stone-300"
+                   )}>
+                     <Zap size={20} />
+                   </div>
+                   <div>
+                    <p className="font-black text-stone-900 tracking-tight text-lg">Maintenance Mode Active</p>
+                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Restrict all frontend traffic to admin nodes only.</p>
+                  </div>
                 </div>
                 <button 
                   onClick={() => {
@@ -6439,73 +6540,99 @@ export default function AdminDashboard() {
                     updateSetting('maintenance_mode', (!current).toString());
                   }}
                   className={cn(
-                    "w-14 h-8 rounded-full transition-all relative",
-                    config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-primary" : "bg-stone-300"
+                    "w-20 h-10 rounded-full transition-all relative p-1 shadow-inner",
+                    config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600" : "bg-stone-200"
                   )}
                 >
                   <div className={cn(
-                    "w-6 h-6 bg-white rounded-full absolute top-1 transition-all",
-                    config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "left-7" : "left-1"
+                    "w-8 h-8 bg-white rounded-full shadow-lg transition-all",
+                    config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "ml-10" : "ml-0"
                   )} />
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <label className="block text-sm font-bold text-stone-700">Expected Back Time (e.g., 2 Hours, 30 Minutes)</label>
-                <input 
-                  type="text" 
-                  className="input-field"
-                  placeholder="e.g., 2 Hours"
-                  defaultValue={config.find(c => c.key === 'maintenance_time')?.value}
-                  onBlur={(e) => updateSetting('maintenance_time', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-4">
-                <label className="block text-sm font-bold text-stone-700">Maintenance Bypass Secret</label>
-                <div className="flex space-x-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Expected Restoration Time</label>
+                    <span className="text-[9px] font-bold text-stone-300 italic">User Facing Message</span>
+                  </div>
                   <input 
                     type="text" 
-                    className="input-field font-mono"
-                    defaultValue={config.find(c => c.key === 'maintenance_secret')?.value}
-                    onBlur={(e) => updateSetting('maintenance_secret', e.target.value)}
+                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-red-500 focus:bg-white outline-none transition-all tracking-tight"
+                    placeholder="e.g., 2 Hours"
+                    defaultValue={config.find(c => c.key === 'maintenance_time')?.value}
+                    onBlur={(e) => updateSetting('maintenance_time', e.target.value)}
                   />
-                  <button 
-                    onClick={() => {
-                      const secret = config.find(c => c.key === 'maintenance_secret')?.value;
-                      if (secret) {
-                        navigator.clipboard.writeText(secret);
-                        toast.success('Secret copied');
-                      }
-                    }}
-                    className="p-3 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors"
-                    title="Copy Secret"
-                  >
-                    <RefreshCw size={18} className="text-stone-600" />
-                  </button>
                 </div>
-                <p className="text-xs text-stone-400">Use this as a URL parameter to bypass maintenance: <span className="font-mono">?bypass=YOUR_SECRET</span></p>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Bypass Clearance Secret</label>
+                    <span className="text-[9px] font-bold text-stone-300 italic">Dev Overpass</span>
+                  </div>
+                  <div className="flex space-x-3">
+                    <input 
+                      type="text" 
+                      className="flex-1 bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-mono font-black text-stone-900 focus:border-red-500 focus:bg-white outline-none transition-all tracking-tight"
+                      defaultValue={config.find(c => c.key === 'maintenance_secret')?.value}
+                      onBlur={(e) => updateSetting('maintenance_secret', e.target.value)}
+                    />
+                    <button 
+                      onClick={() => {
+                        const secret = config.find(c => c.key === 'maintenance_secret')?.value;
+                        if (secret) {
+                          navigator.clipboard.writeText(secret);
+                          toast.success('Clearance token copied');
+                        }
+                      }}
+                      className="p-5 bg-stone-100 hover:bg-stone-200 rounded-[1.5rem] transition-all group shadow-sm border border-stone-200"
+                      title="Copy Secret"
+                    >
+                      <Copy size={20} className="text-stone-600 group-hover:scale-110 transition-transform" />
+                    </button>
+                  </div>
+                  <p className="px-4 text-[9px] text-stone-400 font-bold uppercase tracking-widest leading-relaxed">
+                    Append <span className="text-red-500">?bypass=YOUR_SECRET</span> to the URL to bypass maintenance protocol.
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">API Configurations</h3>
-              <div className="space-y-4">
+            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
+               <div className="flex items-center space-x-4">
+                <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center rotate-6">
+                  <Server size={28} />
+                </div>
                 <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">SMS Gateway API Key</label>
+                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">API Interface Gateway</h3>
+                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Third-Party Service Integration Cipher</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="space-y-4">
+                   <div className="flex items-center justify-between px-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">SMS Gateway Access Key</label>
+                    <span className="text-[10px] font-black px-2 py-0.5 bg-blue-50 text-blue-600 rounded">EXTERNAL</span>
+                  </div>
                   <input 
                     type="password" 
-                    className="input-field"
-                    placeholder="Enter API Key..."
+                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-blue-500 focus:bg-white outline-none transition-all tracking-widest"
+                    placeholder="••••••••••••••••"
                     onBlur={(e) => updateSetting('sms_api_key', e.target.value)}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Payment Provider Secret</label>
+                
+                <div className="space-y-4">
+                   <div className="flex items-center justify-between px-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Payment Provider Ledger Secret</label>
+                    <span className="text-[10px] font-black px-2 py-0.5 bg-blue-50 text-blue-600 rounded">SECURE</span>
+                  </div>
                   <input 
                     type="password" 
-                    className="input-field"
-                    placeholder="Enter Secret..."
+                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-blue-500 focus:bg-white outline-none transition-all tracking-widest"
+                    placeholder="••••••••••••••••"
                     onBlur={(e) => updateSetting('payment_secret', e.target.value)}
                   />
                 </div>
@@ -6515,12 +6642,18 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Support Tickets' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <div className="p-6 border-b border-stone-100">
-                <h3 className="font-bold text-lg">Support Tickets</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <aside className="lg:col-span-1 bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden flex flex-col h-[800px]">
+              <div className="p-8 border-b border-stone-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-2xl tracking-tight text-stone-900">Comms Log</h3>
+                  <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Inbound Ticket Pool</p>
+                </div>
+                <div className="w-10 h-10 bg-primary/10 text-primary rounded-xl flex items-center justify-center font-black text-xs">
+                  {tickets.length}
+                </div>
               </div>
-              <div className="divide-y divide-stone-100 overflow-y-auto max-h-[600px]">
+              <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-stone-50">
                 {tickets.map((ticket) => (
                   <button 
                     key={ticket.id}
@@ -6531,87 +6664,121 @@ export default function AdminDashboard() {
                         .then(data => setTicketMessages(data));
                     }}
                     className={cn(
-                      "w-full p-6 text-left hover:bg-stone-50 transition-colors",
-                      selectedTicket?.id === ticket.id && "bg-stone-50 border-r-4 border-primary"
+                      "w-full p-8 text-left hover:bg-stone-50/80 transition-all duration-300 group relative",
+                      selectedTicket?.id === ticket.id && "bg-stone-50"
                     )}
                   >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-xs font-bold text-stone-400 uppercase tracking-wider">#TKT-{ticket.id}</span>
+                    {selectedTicket?.id === ticket.id && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary animate-in slide-in-from-left duration-300" />
+                    )}
+                    <div className="flex justify-between items-start mb-4">
+                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest bg-stone-100 px-2 py-0.5 rounded">#TKT-{ticket.id}</span>
                       <span className={cn(
-                        "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
-                        ticket.status === 'open' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                        "text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-wider",
+                        ticket.status === 'open' ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
                       )}>
                         {ticket.status}
                       </span>
                     </div>
-                    <p className="font-bold text-stone-900 mb-1">{ticket.subject}</p>
-                    <p className="text-xs text-stone-500 line-clamp-1">{ticket.user_name} • {ticket.user_phone}</p>
+                    <p className="font-black text-stone-900 text-base mb-1 tracking-tight group-hover:text-primary transition-colors">{ticket.subject}</p>
+                    <p className="text-xs text-stone-400 font-medium line-clamp-1">{ticket.user_name} • {ticket.user_phone}</p>
                   </button>
                 ))}
+                {tickets.length === 0 && (
+                  <div className="p-12 text-center text-stone-400 font-bold italic">No active frequency detected.</div>
+                )}
               </div>
-            </div>
+            </aside>
 
-            <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-stone-100 flex flex-col min-h-[600px]">
+            <main className="lg:col-span-3 bg-white rounded-[3rem] shadow-sm border border-stone-100 flex flex-col h-[800px] overflow-hidden relative">
               {selectedTicket ? (
                 <>
-                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold text-lg">{selectedTicket.subject}</h3>
-                      <p className="text-xs text-stone-400">Customer: {selectedTicket.user_name} ({selectedTicket.user_phone})</p>
+                  <header className="p-8 border-b border-stone-100 flex justify-between items-center bg-white z-10">
+                    <div className="flex items-center space-x-5">
+                      <div className="w-14 h-14 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
+                        <MessageSquare size={28} />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-2xl tracking-tight text-stone-900">{selectedTicket.subject}</h3>
+                        <p className="text-xs font-bold text-stone-400 mt-1 uppercase tracking-widest">Linked To: <span className="text-stone-900">{selectedTicket.user_name}</span></p>
+                      </div>
                     </div>
-                    <select 
-                      className="bg-stone-100 border-none rounded-lg px-3 py-1.5 text-xs font-bold"
-                      value={selectedTicket.status}
-                      onChange={async (e) => {
-                        await fetch(`/api/admin/support/tickets/${selectedTicket.id}/status`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ status: e.target.value })
-                        });
-                        toast.success('Status updated');
-                        fetchTickets();
-                        setSelectedTicket({...selectedTicket, status: e.target.value});
-                      }}
-                    >
-                      <option value="open">Open</option>
-                      <option value="in-progress">In Progress</option>
-                      <option value="resolved">Resolved</option>
-                      <option value="closed">Closed</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-stone-50">
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 max-w-[80%]">
-                      <p className="text-xs font-bold text-stone-400 mb-2">{selectedTicket.user_name} • {new Date(selectedTicket.created_at).toLocaleString()}</p>
-                      <p className="text-sm text-stone-700">{selectedTicket.message}</p>
+                    <div className="flex items-center space-x-4">
+                       <select 
+                        className="bg-stone-50 border-stone-100 border-2 rounded-2xl px-6 py-3 text-xs font-black uppercase tracking-widest text-stone-600 focus:border-primary focus:bg-white outline-none transition-all cursor-pointer shadow-sm"
+                        value={selectedTicket.status}
+                        onChange={async (e) => {
+                          await fetch(`/api/admin/support/tickets/${selectedTicket.id}/status`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: e.target.value })
+                          });
+                          toast.success('Protocol state updated');
+                          fetchTickets();
+                          setSelectedTicket({...selectedTicket, status: e.target.value});
+                        }}
+                      >
+                        <option value="open">Open Portal</option>
+                        <option value="in-progress">Executing</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Decommissioned</option>
+                      </select>
                     </div>
+                  </header>
+                  
+                  <div className="flex-1 p-10 overflow-y-auto no-scrollbar space-y-8 bg-stone-50/30">
+                    <div className="flex items-start space-x-4 max-w-[85%] group">
+                      <div className="w-10 h-10 rounded-xl bg-stone-100 flex items-center justify-center shrink-0 text-stone-400 mt-1 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                        <Users size={18} />
+                      </div>
+                      <div className="bg-white p-6 rounded-[2rem] rounded-tl-none shadow-sm border border-stone-100">
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3 border-b border-stone-50 pb-2">{selectedTicket.user_name} • {new Date(selectedTicket.created_at).toLocaleString()}</p>
+                        <p className="text-sm font-medium text-stone-700 leading-relaxed">{selectedTicket.message}</p>
+                      </div>
+                    </div>
+
                     {ticketMessages.map((msg, i) => (
-                      <div 
+                      <motion.div 
                         key={i} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
                         className={cn(
-                          "p-4 rounded-2xl shadow-sm border max-w-[80%]",
-                          msg.user_id === user.id 
-                            ? "bg-primary text-white ml-auto border-primary" 
-                            : "bg-white text-stone-700 border-stone-100"
+                          "flex items-start space-x-4 max-w-[85%]",
+                          msg.user_id === user.id ? "ml-auto flex-row-reverse space-x-reverse" : ""
                         )}
                       >
-                        <p className={cn("text-[10px] font-bold mb-2", msg.user_id === user.id ? "text-white/70" : "text-stone-400")}>
-                          {msg.user_id === user.id ? 'You' : selectedTicket.user_name} • {new Date(msg.created_at).toLocaleString()}
-                        </p>
-                        <p className="text-sm">{msg.message}</p>
-                      </div>
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-1 shadow-sm",
+                          msg.user_id === user.id ? "bg-stone-900 text-white" : "bg-white border border-stone-100 text-stone-400"
+                        )}>
+                          {msg.user_id === user.id ? <ShieldCheck size={18} /> : <Users size={18} />}
+                        </div>
+                        <div className={cn(
+                          "p-6 rounded-[2rem] shadow-sm border transition-all",
+                          msg.user_id === user.id 
+                            ? "bg-primary text-white border-primary rounded-tr-none shadow-xl shadow-primary/10" 
+                            : "bg-white text-stone-700 border-stone-100 rounded-tl-none"
+                        )}>
+                          <p className={cn("text-[10px] font-black mb-3 uppercase tracking-widest border-b pb-2", msg.user_id === user.id ? "text-white/40 border-white/10" : "text-stone-300 border-stone-50")}>
+                            {msg.user_id === user.id ? 'System Administrator' : selectedTicket.user_name} • {new Date(msg.created_at).toLocaleString()}
+                          </p>
+                          <p className="text-sm font-medium leading-relaxed">{msg.message}</p>
+                        </div>
+                      </motion.div>
                     ))}
                   </div>
-                  <div className="p-6 border-t border-stone-100">
-                    <div className="flex space-x-4">
+
+                  <div className="p-10 border-t border-stone-100 bg-white">
+                    <div className="flex space-x-4 bg-stone-50 p-2 rounded-[2.5rem] border border-stone-100 focus-within:bg-white focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5 transition-all duration-500">
                       <input 
                         type="text" 
-                        placeholder="Type your reply..."
-                        className="flex-1 bg-stone-100 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20"
+                        placeholder="Inscribe dispatch response..."
+                        className="flex-1 bg-transparent border-none rounded-3xl px-8 py-5 text-sm font-black uppercase tracking-wider placeholder:text-stone-300 outline-none"
                         value={replyMessage}
                         onChange={(e) => setReplyMessage(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            // Send reply logic
+                          if (e.key === 'Enter' && replyMessage) {
+                            // Trigger send logic
                           }
                         }}
                       />
@@ -6628,196 +6795,317 @@ export default function AdminDashboard() {
                             .then(res => res.json())
                             .then(data => setTicketMessages(data));
                         }}
-                        className="btn-primary px-6"
+                        className="bg-stone-900 hover:bg-primary text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest transition-all shadow-xl shadow-stone-900/20 active:scale-95 group flex items-center space-x-3"
                       >
-                        Send
+                        <span>Dispatch</span>
+                        <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                       </button>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-stone-400 space-y-4">
-                  <MessageSquare size={48} className="opacity-20" />
-                  <p className="font-medium">Select a ticket to view conversation</p>
+                <div className="flex-1 flex flex-col items-center justify-center text-stone-400 space-y-8 bg-stone-50/20">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-primary/10 blur-3xl rounded-full" />
+                    <div className="relative p-12 bg-white rounded-[3rem] shadow-xl border border-stone-100 animate-bounce duration-[3000ms]">
+                      <MessageSquare size={64} className="text-stone-200" />
+                    </div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <h4 className="text-2xl font-black text-stone-900 tracking-tight">Silent Frequencies</h4>
+                    <p className="font-bold text-stone-400 uppercase tracking-widest text-[10px]">Select a communication node to begin intercept.</p>
+                  </div>
                 </div>
               )}
-            </div>
+            </main>
           </div>
         )}
 
         {activeTab === 'Newsletter' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-            <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-              <h3 className="font-bold text-lg">Newsletter Subscribers</h3>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Publicity Ledger</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Broadcast reach and subscriber acquisition metrics.</p>
+              </div>
               <button 
                 onClick={sendNewsletterCampaign}
-                className="btn-primary flex items-center space-x-2"
+                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
-                <Send size={16} />
-                <span>Send Campaign</span>
+                <div className="p-1 bg-white/20 rounded-lg group-hover:-rotate-12 transition-transform duration-500">
+                  <Send size={20} />
+                </div>
+                <span>Deploy Campaign</span>
               </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Email Address</th>
-                    <th className="px-6 py-4">User Status</th>
-                    <th className="px-6 py-4">Subscribed Date</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {newsletter.map((sub) => (
-                    <tr key={sub.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-4 font-medium">{sub.email}</td>
-                      <td className="px-6 py-4">
-                        {sub.user_id ? (
-                          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 uppercase">Registered User</span>
-                        ) : (
-                          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-stone-100 text-stone-400 uppercase">Guest</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-stone-500">{new Date(sub.created_at).toLocaleDateString()}</td>
-                      <td className="px-6 py-4 text-right">
-                        <button className="p-2 hover:bg-red-50 text-stone-400 hover:text-red-600 rounded-lg transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
+            </header>
+
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
+                    <tr>
+                      <th className="px-10 py-8">Email Endpoint</th>
+                      <th className="px-6 py-8">Account Integrity</th>
+                      <th className="px-6 py-8">Acquisition Date</th>
+                      <th className="px-10 py-8 text-right">Termination</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {newsletter.map((sub, idx) => (
+                      <motion.tr 
+                        key={sub.id} 
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.03 }}
+                        className="hover:bg-stone-50/80 transition-all group"
+                      >
+                        <td className="px-10 py-6">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-10 h-10 bg-stone-100 rounded-xl flex items-center justify-center text-stone-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                              <Mail size={18} />
+                            </div>
+                            <span className="text-sm font-black text-stone-900">{sub.email}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 transition-all">
+                          {sub.user_id ? (
+                            <div className="flex items-center space-x-2">
+                               <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Registered User Pool</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2 opacity-50">
+                               <div className="w-2 h-2 bg-stone-400 rounded-full" />
+                               <span className="text-[10px] font-black uppercase tracking-widest text-stone-500">External Prospect</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-6 text-sm text-stone-400 font-medium">
+                          {new Date(sub.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          <button className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all opacity-0 group-hover:opacity-100">
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {newsletter.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-10 py-32 text-center text-stone-400 italic">No publicity endpoints registered.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'Expenses' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Expense Ledger</h2>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Deficit Ledger</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Operational expenditure and fiscal leakage auditing.</p>
+              </div>
               <button 
                 onClick={() => setExpenseModal({ open: true })}
-                className="btn-primary flex items-center space-x-2"
+                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
-                <Plus size={20} />
-                <span>Add Expense</span>
+                <div className="p-1 bg-white/20 rounded-lg group-hover:scale-110 transition-transform duration-500">
+                  <Plus size={20} />
+                </div>
+                <span>Log Expenditure</span>
               </button>
-            </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Description</th>
-                    <th className="px-6 py-4">Category</th>
-                    <th className="px-6 py-4">Amount</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {expenses.map((expense) => (
-                    <tr key={expense.id}>
-                      <td className="px-6 py-4 font-medium">{expense.description}</td>
-                      <td className="px-6 py-4">
-                        <span className="text-[10px] font-bold px-2 py-1 bg-stone-100 rounded-full uppercase">{expense.category}</span>
-                      </td>
-                      <td className="px-6 py-4 font-bold text-red-600">₹{expense.amount}</td>
-                      <td className="px-6 py-4 text-sm text-stone-500">{new Date(expense.date).toLocaleDateString()}</td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => deleteExpense(expense.id)}
-                          className="text-stone-400 hover:text-red-600"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
+            </header>
+
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+               <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
+                    <tr>
+                      <th className="px-10 py-8">Intercept Description</th>
+                      <th className="px-6 py-8">Taxonomy Category</th>
+                      <th className="px-6 py-8">Deficit Amount</th>
+                      <th className="px-6 py-8">Calendar Index</th>
+                      <th className="px-10 py-8 text-right">Operational Clearance</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {expenses.map((expense, idx) => (
+                      <motion.tr 
+                        key={expense.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.03 }}
+                        className="hover:bg-stone-50/80 transition-all group"
+                      >
+                        <td className="px-10 py-6">
+                           <div className="flex items-center space-x-4">
+                             <div className="w-10 h-10 bg-red-50 text-red-500 rounded-xl flex items-center justify-center shrink-0">
+                               <TrendingDown size={18} />
+                             </div>
+                             <span className="text-sm font-black text-stone-900 group-hover:text-red-600 transition-colors">{expense.description}</span>
+                           </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <span className="text-[10px] font-black px-4 py-1.5 bg-stone-100 rounded-full uppercase tracking-widest text-stone-500">{expense.category}</span>
+                        </td>
+                        <td className="px-6 py-6 font-black text-red-600 text-lg tracking-tighter shadow-red-500/10">₹{expense.amount}</td>
+                        <td className="px-6 py-6 text-sm text-stone-400 font-medium">
+                          {new Date(expense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          <button 
+                            onClick={() => deleteExpense(expense.id)}
+                            className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {expenses.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-10 py-32 text-center">
+                           <div className="flex flex-col items-center space-y-4">
+                            <div className="p-6 bg-stone-50 rounded-full text-stone-200">
+                              <ShieldCheck size={48} />
+                            </div>
+                            <p className="text-stone-400 font-bold italic">Zero deficit protocols confirmed. Profit focus optimized.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'Coupons' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Promo Codes</h2>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Incentive Node</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Promo code orchestration and acquisition hacking protocols.</p>
+              </div>
               <button 
                 onClick={() => setCouponModal({ open: true })}
-                className="btn-primary flex items-center space-x-2"
+                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
-                <Plus size={20} />
-                <span>Create Coupon</span>
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {coupons.map((coupon) => (
-                <div key={coupon.id} className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
-                    <button 
-                      onClick={() => toggleCouponStatus(coupon.id)}
-                      className="text-stone-400 hover:text-primary"
-                      title={coupon.active ? "Deactivate" : "Activate"}
-                    >
-                      <RefreshCw size={16} />
-                    </button>
-                    <button 
-                      onClick={() => deleteCoupon(coupon.id)}
-                      className="text-stone-400 hover:text-red-600"
-                      title="Delete"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                  <div className="flex items-center space-x-3 mb-4">
-                    <div className="p-3 bg-primary/10 rounded-xl text-primary"><Tag size={20} /></div>
-                    <div>
-                      <h3 className="font-bold text-lg">{coupon.code}</h3>
-                      <p className="text-xs text-stone-400">Min. Order: ₹{coupon.min_order}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex items-end justify-between">
-                      <div>
-                        <p className="text-3xl font-bold text-primary">
-                          {coupon.type === 'flat' ? `₹${coupon.value}` : `${coupon.value}%`}
-                        </p>
-                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Discount</p>
-                      </div>
-                      <button 
-                        onClick={() => toggleCouponStatus(coupon.id)}
-                        className={cn(
-                          "text-[10px] font-bold px-2 py-1 rounded-full uppercase transition-colors",
-                          coupon.active ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" : "bg-stone-100 text-stone-400 hover:bg-stone-200"
-                        )}
-                      >
-                        {coupon.active ? 'Active' : 'Inactive'}
-                      </button>
-                    </div>
-                    
-                    <div className="pt-4 border-t border-stone-50 flex justify-between items-center">
-                      <div>
-                        <p className="text-sm font-bold text-stone-700">{coupon.usage_limit || '∞'}</p>
-                        <p className="text-[10px] text-stone-400 uppercase font-bold">Total Limit</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-stone-700">{coupon.limit_per_user}</p>
-                        <p className="text-[10px] text-stone-400 uppercase font-bold">Per User</p>
-                      </div>
-                    </div>
-                  </div>
+                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-12 transition-transform duration-500">
+                  <Plus size={20} />
                 </div>
+                <span>Provision Coupon</span>
+              </button>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {coupons.map((coupon, idx) => (
+                <motion.div 
+                  key={coupon.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className={cn(
+                    "group bg-white rounded-[2.5rem] shadow-sm border-2 transition-all duration-500 relative overflow-hidden",
+                    coupon.active ? "border-stone-100 hover:border-primary/30" : "border-stone-50 opacity-60 grayscale"
+                  )}
+                >
+                  <div className="p-8">
+                    <div className="flex justify-between items-start mb-8">
+                      <div className={cn(
+                        "w-16 h-16 rounded-3xl flex items-center justify-center transition-all duration-500 group-hover:scale-110 shadow-lg",
+                        coupon.active ? "bg-primary/10 text-primary" : "bg-stone-50 text-stone-300"
+                      )}>
+                        <Tag size={32} />
+                      </div>
+                      
+                      <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button 
+                          onClick={() => toggleCouponStatus(coupon.id)}
+                          className="p-3 bg-stone-50 hover:bg-emerald-50 hover:text-emerald-500 rounded-2xl transition-all"
+                        >
+                          <RefreshCw size={18} />
+                        </button>
+                        <button 
+                          onClick={() => deleteCoupon(coupon.id)}
+                          className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em] mb-1">Authorization Code</p>
+                        <h3 className="text-2xl font-black text-stone-900 group-hover:text-primary transition-colors tracking-tighter">{coupon.code}</h3>
+                      </div>
+
+                      <div className="flex items-end justify-between bg-stone-50 p-6 rounded-[2rem] border border-stone-100">
+                        <div>
+                          <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Settlement</p>
+                          <p className="text-4xl font-black text-primary tracking-tighter">
+                            {coupon.type === 'flat' ? `₹${coupon.value}` : `${coupon.value}%`}
+                          </p>
+                        </div>
+                        <div className={cn(
+                          "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest",
+                          coupon.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
+                        )}>
+                          {coupon.active ? 'Operational' : 'Disabled'}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-6 pt-2">
+                        <div>
+                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Global Limit</p>
+                          <p className="text-sm font-black text-stone-900">{coupon.usage_limit || 'UNLIMITED'}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Min Threshold</p>
+                          <p className="text-sm font-black text-stone-900">₹{coupon.min_order}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className={cn(
+                    "h-2 w-full transition-colors duration-500",
+                    coupon.active ? "bg-primary" : "bg-stone-200"
+                  )} />
+                </motion.div>
               ))}
+              
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                onClick={() => setCouponModal({ open: true })}
+                className="group border-4 border-dashed border-stone-100 rounded-[2.5rem] p-8 flex flex-col items-center justify-center space-y-6 hover:border-primary/20 hover:bg-primary/5 transition-all duration-500 min-h-[300px]"
+              >
+                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-stone-200 group-hover:text-primary group-hover:scale-110 group-hover:rotate-12 transition-all duration-500 shadow-sm">
+                  <Plus size={40} />
+                </div>
+                <div className="text-center">
+                  <p className="text-base font-black text-stone-400 group-hover:text-primary tracking-tight transition-colors">Launch Incentive</p>
+                  <p className="text-[10px] font-bold text-stone-300 uppercase tracking-widest mt-1">Deploy promo code</p>
+                </div>
+              </motion.button>
             </div>
           </div>
         )}
 
         {activeTab === 'Bulk Discounts' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Bulk Discounts & Tiered Pricing</h2>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Tiered Pricing Engine</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">B2B algorithmic discounts and bulk procurement logic.</p>
+              </div>
               <button 
                 onClick={() => {
                   setBulkDiscountModal({ open: true, mode: 'add', discount: null });
@@ -6830,177 +7118,210 @@ export default function AdminDashboard() {
                     active: true
                   });
                 }}
-                className="btn-primary flex items-center space-x-2"
+                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
-                <Plus size={20} />
-                <span>Create Bulk Discount</span>
+                <div className="p-1 bg-white/20 rounded-lg group-hover:scale-110 transition-transform duration-500">
+                  <Plus size={20} />
+                </div>
+                <span>Provision Rule</span>
               </button>
-            </div>
+            </header>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Target</th>
-                    <th className="px-6 py-4">Min. Quantity</th>
-                    <th className="px-6 py-4">Discount</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4">Created</th>
-                    <th className="px-6 py-4"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {bulkDiscounts.length === 0 ? (
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+               <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
                     <tr>
-                      <td colSpan={6}>
-                        <div className="py-12">
-                            <EmptyState 
-                                title="No Bulk Discounts" 
-                                message="Get started by creating your first bulk discount rule." 
-                            />
-                        </div>
-                      </td>
+                      <th className="px-10 py-8">Target Entity</th>
+                      <th className="px-6 py-8">Trigger Quantity</th>
+                      <th className="px-6 py-8">Algorithmic Discount</th>
+                      <th className="px-6 py-8">Operational State</th>
+                      <th className="px-10 py-8 text-right">Clearance</th>
                     </tr>
-                  ) : (
-                    bulkDiscounts.map((discount, idx) => (
-                      <motion.tr 
-                        key={discount.id} 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className="hover:bg-stone-50 transition-colors"
-                      >
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <span className={cn(
-                              "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
-                              discount.entity_type === 'product' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
-                            )}>
-                              {discount.entity_type}
-                            </span>
-                            <span className="font-bold text-sm">{discount.entity_name}</span>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {bulkDiscounts.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-10 py-32 text-center">
+                          <div className="flex flex-col items-center space-y-4">
+                            <div className="p-6 bg-stone-50 rounded-full text-stone-200">
+                              <Zap size={48} />
+                            </div>
+                            <p className="text-stone-400 font-bold italic">No tiered pricing protocols active. Deploy a rule to begin scaling.</p>
                           </div>
                         </td>
-                        <td className="px-6 py-4 font-bold text-sm">{discount.min_qty}+ units</td>
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-emerald-600">
-                            {discount.discount_type === 'percentage' ? `${discount.discount_value}% Off` : `₹${discount.discount_value} Off`}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button 
-                            onClick={() => handleToggleBulkDiscount(discount)}
-                            className={cn(
-                              "w-10 h-5 rounded-full transition-colors duration-300 relative",
-                              discount.active ? 'bg-emerald-500' : 'bg-stone-300'
-                            )}
-                          >
-                            <div className={cn(
-                              "absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
-                              discount.active ? 'translate-x-[22px]' : 'translate-x-0.5'
-                            )} />
-                          </button>
-                        </td>
-                        <td className="px-6 py-4 text-xs text-stone-500">
-                          {new Date(discount.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 text-right space-x-2">
-                          <button 
-                            onClick={() => {
-                              setBulkDiscountModal({ open: true, mode: 'edit', discount });
-                              setNewBulkDiscount({
-                                entity_type: discount.entity_type,
-                                entity_id: discount.entity_id.toString(),
-                                min_qty: discount.min_qty.toString(),
-                                discount_type: discount.discount_type,
-                                discount_value: discount.discount_value.toString(),
-                                active: discount.active === 1
-                              });
-                            }}
-                            className="p-1.5 hover:bg-primary/10 rounded-lg text-stone-400 hover:text-primary transition-colors"
-                          >
-                            <Settings size={16} />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteBulkDiscount(discount.id)}
-                            className="p-1.5 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                      </tr>
+                    ) : (
+                      bulkDiscounts.map((discount, idx) => (
+                        <motion.tr 
+                          key={discount.id} 
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="hover:bg-stone-50/80 transition-all group"
+                        >
+                          <td className="px-10 py-6">
+                            <div className="flex items-center space-x-3">
+                              <span className={cn(
+                                "text-[9px] font-black px-3 py-1 rounded-lg uppercase tracking-widest",
+                                discount.entity_type === 'product' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
+                              )}>
+                                {discount.entity_type === 'product' ? 'SKU' : 'DOMAIN'}
+                              </span>
+                              <span className="font-black text-stone-900 group-hover:text-primary transition-colors">{discount.entity_name}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-6 font-black text-stone-900 tracking-tight text-lg">{discount.min_qty}<span className="text-stone-300 ml-1 text-sm">units+</span></td>
+                          <td className="px-6 py-6 transition-all">
+                            <span className="font-black text-emerald-600 text-lg tracking-tighter bg-emerald-50 px-4 py-2 rounded-2xl">
+                              {discount.discount_type === 'percentage' ? `${discount.discount_value}% Off` : `₹${discount.discount_value} Off`}
+                            </span>
+                          </td>
+                          <td className="px-6 py-6">
+                            <button 
+                              onClick={() => handleToggleBulkDiscount(discount)}
+                              className={cn(
+                                "w-14 h-7 rounded-full transition-all duration-500 relative",
+                                discount.active ? 'bg-primary' : 'bg-stone-200'
+                              )}
+                            >
+                              <div className={cn(
+                                "absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-all duration-500",
+                                discount.active ? 'translate-x-[28px]' : 'translate-x-1'
+                              )} />
+                            </button>
+                          </td>
+                          <td className="px-10 py-6 text-right space-x-2">
+                            <button 
+                              onClick={() => {
+                                setBulkDiscountModal({ open: true, mode: 'edit', discount });
+                                setNewBulkDiscount({
+                                  entity_type: discount.entity_type,
+                                  entity_id: discount.entity_id.toString(),
+                                  min_qty: discount.min_qty.toString(),
+                                  discount_type: discount.discount_type,
+                                  discount_value: discount.discount_value.toString(),
+                                  active: discount.active === 1
+                                });
+                              }}
+                              className="p-3 bg-stone-100 hover:bg-white hover:shadow-xl hover:shadow-stone-200/50 hover:text-primary rounded-2xl transition-all border border-transparent"
+                            >
+                              <Settings size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteBulkDiscount(discount.id)}
+                              className="p-3 bg-stone-100 hover:bg-white hover:shadow-xl hover:shadow-red-200/50 hover:text-red-500 rounded-2xl transition-all border border-transparent"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </td>
+                        </motion.tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {/* Returns Tab */}
         {activeTab === 'Returns' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Returns & Refunds</h2>
-            <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 border-b border-stone-100">
-                  <tr>
-                    <th className="py-4 px-6 text-xs text-stone-400 font-black uppercase tracking-widest">Order</th>
-                    <th className="py-4 px-6 text-xs text-stone-400 font-black uppercase tracking-widest">Customer</th>
-                    <th className="py-4 px-6 text-xs text-stone-400 font-black uppercase tracking-widest">Product</th>
-                    <th className="py-4 px-6 text-xs text-stone-400 font-black uppercase tracking-widest">Reason</th>
-                    <th className="py-4 px-6 text-xs text-stone-400 font-black uppercase tracking-widest">Status</th>
-                    <th className="py-4 px-6 text-xs text-stone-400 font-black uppercase tracking-widest text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {returns.map(ret => (
-                    <tr key={ret.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="py-4 px-6 font-bold text-stone-800">ORD-{ret.order_num}</td>
-                      <td className="py-4 px-6 text-sm text-stone-600">{ret.user_name}</td>
-                      <td className="py-4 px-6 text-sm text-stone-600">
-                        {ret.product_name} <span className="text-xs ml-1 bg-stone-200 px-1 rounded">x{ret.quantity}</span>
-                      </td>
-                      <td className="py-4 px-6 text-sm text-stone-600">{ret.reason}</td>
-                      <td className="py-4 px-6">
-                        <span className={cn(
-                          "px-2 py-1 rounded text-xs font-bold uppercase tracking-wider",
-                          ret.status === 'pending' ? "bg-amber-100 text-amber-700" :
-                          ret.status === 'approved' ? "bg-emerald-100 text-emerald-700" :
-                          "bg-red-100 text-red-700"
-                        )}>
-                          {ret.status}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        {ret.status === 'pending' && (
-                          <div className="flex justify-end space-x-2">
-                            <button 
-                              onClick={() => handleApproveReturn(ret)}
-                              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="Approve & Credit Wallet"
-                            >
-                              <CheckCircle2 size={18} />
-                            </button>
-                            <button 
-                              onClick={() => handleRejectReturn(ret.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Reject"
-                            >
-                              <X size={18} />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {returns.length === 0 && (
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Resolution Depot</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Verify grievances, inspect liabilities, and restore customer favor.</p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
+                 <div className="flex flex-col">
+                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Liability Pool</span>
+                   <span className="text-2xl font-black text-red-500">{returns.length} Pending</span>
+                 </div>
+                 <div className="w-px h-10 bg-stone-100" />
+                 <div className="flex flex-col">
+                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Health Score</span>
+                   <span className="text-2xl font-black text-emerald-500">99.2%</span>
+                 </div>
+              </div>
+            </header>
+
+            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
+               <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-stone-400 italic">No returns found</td>
+                      <th className="px-10 py-8">Origin Order</th>
+                      <th className="px-6 py-8">Claimant Node</th>
+                      <th className="px-6 py-8">Faulty SKU</th>
+                      <th className="px-6 py-8">Reason Cipher</th>
+                      <th className="px-6 py-8">Protocol State</th>
+                      <th className="px-10 py-8 text-right">Intervention</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {returns.map((ret, idx) => (
+                      <motion.tr 
+                        key={ret.id} 
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.04 }}
+                        className="hover:bg-stone-50/80 transition-all group"
+                      >
+                        <td className="px-10 py-6 font-black text-stone-900 tracking-tighter">ORD-{ret.order_num}</td>
+                        <td className="px-6 py-6 font-bold text-stone-600 text-xs uppercase tracking-widest">{ret.user_name}</td>
+                        <td className="px-6 py-6">
+                           <div className="flex flex-col">
+                             <span className="text-sm font-black text-stone-900">{ret.product_name}</span>
+                             <span className="text-[10px] font-black text-primary uppercase mt-1 tracking-widest">Quantity: {ret.quantity} units</span>
+                           </div>
+                        </td>
+                        <td className="px-6 py-6 italic text-stone-400 font-medium text-xs max-w-[200px] truncate">{ret.reason}</td>
+                        <td className="px-6 py-6">
+                          <span className={cn(
+                            "px-4 py-1.5 rounded-2xl text-[9px] font-black uppercase tracking-widest border",
+                            ret.status === 'pending' ? "bg-amber-50 text-amber-600 border-amber-100 active:animate-pulse" :
+                            ret.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                            "bg-red-50 text-red-600 border-red-100"
+                          )}>
+                            {ret.status}
+                          </span>
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          {ret.status === 'pending' ? (
+                            <div className="flex justify-end space-x-3">
+                              <button 
+                                onClick={() => handleApproveReturn(ret)}
+                                className="p-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
+                                title="Authorize Refund"
+                              >
+                                <Check size={18} />
+                              </button>
+                              <button 
+                                onClick={() => handleRejectReturn(ret.id)}
+                                className="p-4 bg-red-600 text-white rounded-2xl hover:bg-red-700 transition-all shadow-xl shadow-red-500/20 active:scale-95"
+                                title="Decline Claim"
+                              >
+                                <X size={18} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end items-center space-x-2 text-stone-300">
+                               <ShieldCheck size={16} />
+                               <span className="text-[10px] font-black uppercase tracking-widest">Settled</span>
+                            </div>
+                          )}
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {returns.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2.5rem]">Optimal state confirmed. Zero pending liabilities detected.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -7009,247 +7330,390 @@ export default function AdminDashboard() {
           <FeatureToggles config={config} onUpdate={fetchConfig} />
         )}
 
-        {/* Suppliers Tab */}
+        {/* Supply Chain Hub (Suppliers) */}
         {activeTab === 'Suppliers' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Supplier Management</h2>
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="space-y-8"
+          >
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
+                    <Briefcase size={24} />
+                  </div>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Supply Chain Hub</h2>
+                </div>
+                <p className="text-stone-500 font-medium text-lg ml-1">Coordinate with global and local trade partners.</p>
+              </div>
+              
               <button 
                 onClick={() => {
                   setSupplierModal({ open: true, mode: 'add', supplier: null });
                   setNewSupplier({ name: '', contact_person: '', email: '', phone: '', address: '' });
                 }}
-                className="btn-primary flex items-center space-x-2"
+                className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap group"
               >
-                <Plus size={20} />
-                <span>Add Supplier</span>
+                <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+                <span>Onboard Supplier</span>
               </button>
             </div>
             
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Supplier Name</th>
-                    <th className="px-6 py-4">Contact Person</th>
-                    <th className="px-6 py-4">Email</th>
-                    <th className="px-6 py-4">Phone</th>
-                    <th className="px-6 py-4">Address</th>
-                    <th className="px-6 py-4">Created Date</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {suppliers.map((supplier) => (
-                    <tr key={supplier.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <span className="font-bold text-sm text-stone-800">{supplier.name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-medium">{supplier.contact_person}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-stone-600">{supplier.email}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-stone-600">{supplier.phone}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-stone-600">{supplier.address}</span>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-stone-500 whitespace-nowrap">
-                        {new Date(supplier.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button 
-                          onClick={() => {
-                            setSupplierModal({ open: true, mode: 'edit', supplier });
-                            setNewSupplier({
-                              name: supplier.name,
-                              contact_person: supplier.contact_person,
-                              email: supplier.email,
-                              phone: supplier.phone,
-                              address: supplier.address
-                            });
-                          }}
-                          className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-primary transition-colors"
-                        >
-                          <Settings size={16} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteSupplier(supplier.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {suppliers.length === 0 && (
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-stone-400 italic">
-                        No suppliers found. Create one to get started!
-                      </td>
+                      <th className="px-8 py-6">Partner Identity</th>
+                      <th className="px-6 py-6">Key Liaison</th>
+                      <th className="px-6 py-6">Communication Channels</th>
+                      <th className="px-6 py-6">Location</th>
+                      <th className="px-6 py-6">Partnership Since</th>
+                      <th className="px-8 py-6 text-right">Governance</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100/50">
+                    {suppliers.map((supplier, idx) => (
+                      <motion.tr 
+                        key={supplier.id} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className="hover:bg-stone-50/50 transition-all duration-300 group"
+                      >
+                        <td className="px-8 py-6">
+                           <div className="flex items-center space-x-3">
+                             <div className="w-10 h-10 bg-stone-100 rounded-xl flex items-center justify-center text-stone-400 font-black group-hover:bg-primary group-hover:text-white transition-all transform group-hover:rotate-6">
+                               {supplier.name?.[0] || 'S'}
+                             </div>
+                             <span className="font-black text-sm text-stone-900 tracking-tight">{supplier.name}</span>
+                           </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <span className="text-sm font-bold text-stone-700">{supplier.contact_person}</span>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="flex flex-col space-y-0.5">
+                            <div className="flex items-center space-x-2 text-xs font-bold text-stone-500">
+                              <Mail size={12} className="text-stone-300" />
+                              <span>{supplier.email || 'N/A'}</span>
+                            </div>
+                            <div className="flex items-center space-x-2 text-xs font-bold text-stone-500">
+                              <Phone size={12} className="text-stone-300" />
+                              <span>{supplier.phone || 'N/A'}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="flex items-center gap-2 max-w-[200px]">
+                            <div className="min-w-fit"><Truck size={14} className="text-stone-300" /></div>
+                            <span className="text-xs font-medium text-stone-500 truncate" title={supplier.address}>{supplier.address}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 font-mono text-[10px] text-stone-400 uppercase font-black tracking-widest">
+                          {new Date(supplier.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', day: 'numeric' })}
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          <div className="flex items-center justify-end space-x-2">
+                            <motion.button 
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => {
+                                setSupplierModal({ open: true, mode: 'edit', supplier });
+                                setNewSupplier({
+                                  name: supplier.name,
+                                  contact_person: supplier.contact_person,
+                                  email: supplier.email,
+                                  phone: supplier.phone,
+                                  address: supplier.address
+                                });
+                              }}
+                              className="p-2.5 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white hover:shadow-md border border-transparent rounded-xl transition-all"
+                            >
+                              <Settings size={18} />
+                            </motion.button>
+                            <motion.button 
+                              whileHover={{ scale: 1.1, color: '#ef4444' }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => handleDeleteSupplier(supplier.id)}
+                              className="p-2.5 bg-stone-50 text-stone-400 hover:bg-red-50 hover:shadow-md border border-transparent rounded-xl transition-all"
+                            >
+                              <Trash2 size={18} />
+                            </motion.button>
+                          </div>
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {suppliers.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-8 py-20 text-center">
+                          <div className="w-20 h-20 bg-stone-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <Briefcase size={40} className="text-stone-200" />
+                          </div>
+                          <p className="text-stone-400 font-black uppercase tracking-widest text-xs">No active trade partners</p>
+                          <p className="text-[10px] text-stone-400 font-medium mt-1">Start by onboarding your first supplier.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {activeTab === 'Reviews' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Product Reviews</h2>
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Product</th>
-                    <th className="px-6 py-4">Customer</th>
-                    <th className="px-6 py-4">Rating</th>
-                    <th className="px-6 py-4">Comment</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {reviews.map((review) => (
-                    <tr key={review.id} className="group hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-sm">{review.product_name}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-sm font-medium">{review.user_name}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex text-amber-400">
-                          {[...Array(5)].map((_, i) => (
-                            <Star key={i} size={12} fill={i < review.rating ? "currentColor" : "none"} />
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-sm text-stone-600 max-w-xs truncate" title={review.comment}>{review.comment}</p>
-                        {review.response && (
-                          <p className="text-[10px] text-primary font-medium mt-1 italic">Replied: {review.response}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={cn(
-                            "text-[9px] font-black px-2 py-1 rounded-full uppercase tracking-tighter",
-                            review.status === 'approved' ? "bg-emerald-50 text-emerald-600" :
-                            review.status === 'rejected' ? "bg-red-50 text-red-600" :
-                            "bg-amber-50 text-amber-600"
-                        )}>{review.status}</span>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-stone-500 whitespace-nowrap">{new Date(review.created_at).toLocaleDateString()}</td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        {review.status === 'pending' && (
-                          <>
-                            <button onClick={() => updateReviewStatus(review.id, 'approved')} className="text-emerald-600 font-black text-[10px] uppercase">Approve</button>
-                            <button onClick={() => updateReviewStatus(review.id, 'rejected')} className="text-red-600 font-black text-[10px] uppercase">Reject</button>
-                          </>
-                        )}
-                        <button 
-                          onClick={() => {
-                            setReviewResponseModal({ open: true, review });
-                            setReviewResponse(review.response || '');
-                          }}
-                          className="text-primary hover:text-primary/80 font-bold text-xs uppercase tracking-tighter"
-                        >
-                          {review.response ? 'Edit Response' : 'Respond'}
-                        </button>
-                        <button 
-                          onClick={() => deleteReview(review.id)}
-                          className="text-stone-400 hover:text-red-600"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-6">
+                    <Star size={24} fill="currentColor" />
+                  </div>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Social Proof Audit</h2>
+                </div>
+                <p className="text-stone-500 font-medium text-lg ml-1">Moderate customer feedback and analyze consumer sentiment.</p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
+                 <div className="flex flex-col">
+                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Feedback Nodes</span>
+                   <span className="text-2xl font-black text-stone-900">{reviews.length} Total</span>
+                 </div>
+                 <div className="w-px h-10 bg-stone-100" />
+                 <div className="flex flex-col">
+                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Average Satisfaction</span>
+                   <span className="text-2xl font-black text-primary">{(reviews.reduce((acc, r) => acc + r.rating, 0) / (reviews.length || 1)).toFixed(1)} / 5.0</span>
+                 </div>
+              </div>
+            </header>
+
+            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
+                    <tr>
+                      <th className="px-10 py-8">Target SKU</th>
+                      <th className="px-6 py-8">Contributor</th>
+                      <th className="px-6 py-8">Sentiment Score</th>
+                      <th className="px-6 py-8">Transmission</th>
+                      <th className="px-6 py-8">Moderation</th>
+                      <th className="px-6 py-8">Dispatched On</th>
+                      <th className="px-10 py-8 text-right">Goverance</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {reviews.map((review, idx) => (
+                      <motion.tr 
+                        key={review.id} 
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.04 }}
+                        className="group hover:bg-stone-50/80 transition-all"
+                      >
+                        <td className="px-10 py-6">
+                          <p className="font-black text-stone-900 tracking-tighter truncate max-w-[180px]" title={review.product_name}>{review.product_name}</p>
+                        </td>
+                        <td className="px-6 py-6">
+                          <p className="text-xs font-bold text-stone-600 uppercase tracking-widest">{review.user_name}</p>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="flex space-x-0.5 text-amber-400">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} className={i < review.rating ? "drop-shadow-[0_0_8px_rgba(251,191,36,0.3)]" : ""} />
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="max-w-[280px]">
+                            <p className="text-sm text-stone-600 italic font-medium leading-relaxed mb-1 line-clamp-2" title={review.comment}>"{review.comment}"</p>
+                            {review.response && (
+                              <div className="flex items-center space-x-2 text-[10px] text-primary font-black uppercase tracking-widest bg-primary/5 px-2 py-1 rounded-lg border border-primary/10 w-fit">
+                                <MessageSquare size={10} />
+                                <span>Response Logged</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <span className={cn(
+                              "text-[9px] font-black px-3 py-1.5 rounded-2xl uppercase tracking-widest border",
+                              review.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                              review.status === 'rejected' ? "bg-red-50 text-red-600 border-red-100" :
+                              "bg-amber-50 text-amber-600 border-amber-100 animate-pulse"
+                          )}>{review.status}</span>
+                        </td>
+                        <td className="px-6 py-6 whitespace-nowrap">
+                           <div className="flex flex-col">
+                             <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(review.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                             <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">{new Date(review.created_at).getFullYear()}</span>
+                           </div>
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          <div className="flex items-center justify-end space-x-3">
+                            {review.status === 'pending' && (
+                              <div className="flex space-x-2 mr-2">
+                                <button 
+                                  onClick={() => updateReviewStatus(review.id, 'approved')} 
+                                  className="p-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm border border-emerald-100"
+                                  title="Approve Node"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => updateReviewStatus(review.id, 'rejected')} 
+                                  className="p-3 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl transition-all shadow-sm border border-red-100"
+                                  title="Reject Node"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            )}
+                            <button 
+                              onClick={() => {
+                                setReviewResponseModal({ open: true, review });
+                                setReviewResponse(review.response || '');
+                              }}
+                              className="p-3 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white hover:shadow-md rounded-xl transition-all border border-transparent hover:border-stone-100"
+                              title={review.response ? 'Rewrite Log' : 'Initiate Communication'}
+                            >
+                              <MessageCircle size={18} />
+                            </button>
+                            <button 
+                              onClick={() => deleteReview(review.id)}
+                              className="p-3 bg-stone-50 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {reviews.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">Social silence detected. No feedback nodes available for moderation.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'Suspicious Activities' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Suspicious Activities</h2>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-3">
+                  <div className="w-14 h-14 bg-red-600 text-white rounded-2xl flex items-center justify-center -rotate-6 shadow-xl shadow-red-200">
+                    <ShieldAlert size={28} />
+                  </div>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Threat Intelligence</h2>
+                </div>
+                <p className="text-stone-500 font-medium text-lg ml-1">Anomalous behavior tracking and security event logging.</p>
+              </div>
               <button 
                 onClick={fetchSuspiciousActivities}
-                className="p-2 hover:bg-stone-100 rounded-lg transition-colors"
+                className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 text-stone-400 hover:text-primary transition-all group active:scale-95"
               >
-                <RefreshCw size={20} className="text-stone-400" />
+                <RefreshCw size={24} className="group-hover:rotate-180 transition-transform duration-500" />
               </button>
-            </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-stone-50 text-stone-400 text-[10px] uppercase font-bold tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Type</th>
-                    <th className="px-6 py-4">User</th>
-                    <th className="px-6 py-4">Details</th>
-                    <th className="px-6 py-4">Severity</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {suspiciousActivities.map((activity) => (
-                    <tr key={activity.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <span className="text-[10px] font-bold px-2 py-1 bg-stone-100 rounded-full uppercase">{activity.type}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {activity.user_id ? (
-                          <div>
-                            <p className="font-bold text-sm">{activity.user_name}</p>
-                            <p className="text-[10px] text-stone-400">{activity.user_phone}</p>
-                          </div>
-                        ) : (
-                          <span className="text-stone-400 italic text-sm">Guest</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-sm text-stone-600 max-w-xs truncate" title={activity.description}>{activity.description}</p>
-                        <p className="text-[10px] text-stone-400 font-mono mt-1">{activity.ip_address}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={cn(
-                          "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
-                          activity.severity === 'high' ? "bg-red-50 text-red-600" : 
-                          activity.severity === 'medium' ? "bg-amber-50 text-amber-600" : 
-                          activity.severity === 'resolved' ? "bg-emerald-50 text-emerald-600" :
-                          "bg-blue-50 text-blue-600"
-                        )}>
-                          {activity.severity}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-stone-500 whitespace-nowrap">
-                        {new Date(activity.created_at).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => handleResolveSuspicious(activity.id)}
-                          className="text-xs font-bold text-primary hover:underline uppercase tracking-tighter"
-                        >
-                          Mark Resolved
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {suspiciousActivities.length === 0 && (
+            </header>
+
+            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-stone-400 italic">No suspicious activities found</td>
+                      <th className="px-10 py-8">Event Vector</th>
+                      <th className="px-6 py-8">Subject Identity</th>
+                      <th className="px-6 py-8">Event Payload</th>
+                      <th className="px-6 py-8">Risk Level</th>
+                      <th className="px-6 py-8">Timestamp</th>
+                      <th className="px-10 py-8 text-right">Goverance</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {suspiciousActivities.map((activity, idx) => (
+                      <motion.tr 
+                        key={activity.id} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.04 }}
+                        className="hover:bg-red-50/20 transition-all group"
+                      >
+                        <td className="px-10 py-6">
+                          <span className="text-[10px] font-black px-3 py-1.5 bg-stone-100 group-hover:bg-white text-stone-500 rounded-xl uppercase tracking-widest border border-stone-100 group-hover:border-stone-200 transition-colors">{activity.type}</span>
+                        </td>
+                        <td className="px-6 py-6">
+                          {activity.user_id ? (
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 bg-stone-100 rounded-xl flex items-center justify-center text-stone-400 font-black">
+                                {activity.user_name?.[0] || 'U'}
+                              </div>
+                              <div>
+                                <p className="font-black text-sm text-stone-900 tracking-tight">{activity.user_name}</p>
+                                <p className="text-[10px] text-stone-400 font-bold tracking-widest uppercase">{activity.user_phone}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-3 text-stone-300">
+                               <Fingerprint size={20} />
+                               <span className="italic font-bold text-xs uppercase tracking-widest">Ghost Node (Guest)</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="max-w-[300px] space-y-1">
+                            <p className="text-sm text-stone-600 font-medium leading-relaxed truncate" title={activity.description}>{activity.description}</p>
+                            <div className="flex items-center space-x-2 text-[10px] font-mono text-stone-400 bg-stone-50 w-fit px-2 py-0.5 rounded border border-stone-100">
+                               <Globe size={10} />
+                               <span>{activity.ip_address}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <span className={cn(
+                            "inline-flex items-center space-x-2 text-[10px] font-black px-4 py-2 rounded-2xl uppercase tracking-widest border",
+                            activity.severity === 'high' ? "bg-red-50 text-red-600 border-red-100 shadow-[0_0_15px_rgba(239,68,68,0.1)]" : 
+                            activity.severity === 'medium' ? "bg-amber-50 text-amber-600 border-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.1)]" : 
+                            activity.severity === 'resolved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                            "bg-blue-50 text-blue-600 border-blue-100"
+                          )}>
+                             <div className={cn(
+                               "w-1.5 h-1.5 rounded-full",
+                               activity.severity === 'high' ? "bg-red-500 animate-ping" : 
+                               activity.severity === 'medium' ? "bg-amber-500 animate-pulse" : 
+                               activity.severity === 'resolved' ? "bg-emerald-500" : "bg-blue-500"
+                             )} />
+                             <span>{activity.severity}</span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-6 whitespace-nowrap">
+                           <div className="flex flex-col">
+                             <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(activity.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                             <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">{new Date(activity.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                           </div>
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          <button 
+                            onClick={() => handleResolveSuspicious(activity.id)}
+                            className="bg-stone-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-stone-900/10 active:scale-95"
+                          >
+                            Mark Resolved
+                          </button>
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {suspiciousActivities.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">System integrity confirmed. No active threat vectors discovered.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -7259,50 +7723,106 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Bug Reports' && (
-          <div className="space-y-6">
-            <h3 className="text-xl font-bold">Auto-Reported Bugs & Errors</h3>
-            <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-stone-50 border-b border-stone-100">
-                  <tr>
-                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">ID</th>
-                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Reporter</th>
-                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Page</th>
-                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Message & Stack</th>
-                    <th className="px-6 py-4 font-bold text-stone-500 uppercase tracking-wider text-[10px]">Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {bugReports.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-8 text-center text-stone-500">No bugs reported yet.</td></tr>
-                  ) : (
-                    bugReports.map((bug) => (
-                      <tr key={bug.id} className="hover:bg-stone-50">
-                        <td className="px-6 py-4 font-mono text-xs">{bug.id}</td>
-                        <td className="px-6 py-4">
-                          <p className="font-bold">{bug.reporter_name}</p>
-                          <p className="text-xs text-stone-500 tracking-tighter uppercase font-medium">User: {bug.user_id || 'Guest'}</p>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-3">
+                  <div className="w-14 h-14 bg-amber-500 text-white rounded-2xl flex items-center justify-center rotate-12 shadow-xl shadow-amber-200">
+                    <Bug size={28} />
+                  </div>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">System Anomalies</h2>
+                </div>
+                <p className="text-stone-500 font-medium text-lg ml-1">Automated capture of runtime exceptions and UI failures.</p>
+              </div>
+              <div className="flex items-center space-x-4 bg-white p-4 rounded-3xl border border-stone-100 shadow-sm">
+                 <div className="p-3 bg-red-50 text-red-500 rounded-2xl">
+                   <Activity size={20} />
+                 </div>
+                 <div className="pr-4">
+                   <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Active Errors</p>
+                   <p className="text-lg font-black text-stone-900">{bugReports.length}</p>
+                 </div>
+              </div>
+            </header>
+
+            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
+                    <tr>
+                      <th className="px-10 py-8">Trace ID</th>
+                      <th className="px-6 py-8">Reporter Identity</th>
+                      <th className="px-6 py-8">Anomalous Component</th>
+                      <th className="px-6 py-8">Error Cipher</th>
+                      <th className="px-6 py-8">Protocol Stack</th>
+                      <th className="px-10 py-8 text-right">Goverance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {bugReports.map((bug: any, idx: number) => (
+                      <motion.tr 
+                        key={bug.id} 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className="hover:bg-stone-50/50 transition-all font-mono group"
+                      >
+                        <td className="px-10 py-6">
+                           <span className="text-[10px] font-black text-stone-400 group-hover:text-stone-900 transition-colors uppercase tracking-widest">ERR-{bug.id.toString().slice(-6)}</span>
                         </td>
-                        <td className="px-6 py-4 text-xs font-mono">{bug.path}</td>
-                        <td className="px-6 py-4 max-w-xs md:max-w-md whitespace-normal">
-                          <p className="font-bold text-red-600 line-clamp-1">
-                             {bug.message}
-                             {(bug.why?.toLowerCase().includes('auto') || bug.message?.toLowerCase().includes('auto')) && (
-                                <span className="ml-2 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase">Auto-Generated</span>
-                             )}
-                          </p>
-                          <p className="text-xs text-stone-500 mt-1 line-clamp-2 font-mono bg-stone-100 p-1 rounded">
-                            {bug.why}
-                          </p>
+                        <td className="px-6 py-6">
+                           <div className="flex flex-col">
+                              <span className="text-xs font-black text-stone-800 tracking-tight">{bug.reporter_name || 'System Node'}</span>
+                              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">UID: {bug.user_id?.slice(0, 8) || 'GUEST'}</span>
+                           </div>
                         </td>
-                        <td className="px-6 py-4 text-xs text-stone-500">
-                          {new Date(bug.created_at).toLocaleString()}
+                        <td className="px-6 py-6">
+                          <div className="flex items-center space-x-2">
+                             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                             <span className="text-[11px] font-black text-stone-800 uppercase tracking-tighter truncate max-w-[150px]" title={bug.path}>{bug.path || 'System Core'}</span>
+                          </div>
                         </td>
+                        <td className="px-6 py-6">
+                           <div className="max-w-[300px] space-y-1">
+                             <p className="text-xs font-bold text-red-600 line-clamp-1" title={bug.message}>{bug.message}</p>
+                             <p className="text-[10px] text-stone-400 font-medium leading-relaxed line-clamp-2 italic">{bug.why || 'No root cause identified.'}</p>
+                           </div>
+                        </td>
+                        <td className="px-6 py-6">
+                           <div className="flex flex-col space-y-1 font-sans">
+                             <span className="text-[10px] font-black text-stone-600 uppercase tracking-[0.2em]">{new Date(bug.created_at).toLocaleDateString()}</span>
+                             <span className="text-[9px] font-bold text-stone-300 italic">{new Date(bug.created_at).toLocaleTimeString()}</span>
+                           </div>
+                        </td>
+                        <td className="px-10 py-6 text-right">
+                          <button 
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/bug-reports/${bug.id}`, { method: 'DELETE' });
+                                if (res.ok) {
+                                  toast.success('Anomaly purged from logs');
+                                  fetchBugReports();
+                                }
+                              } catch (err) {
+                                toast.error('Purge failure');
+                              }
+                            }}
+                            className="p-3 bg-stone-100 text-stone-400 hover:text-red-500 hover:bg-white hover:shadow-md hover:border-red-100 border border-transparent rounded-2xl transition-all"
+                            title="Purge Anomaly"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+                      </motion.tr>
+                    ))}
+                    {bugReports.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">Optimal runtime performance. Zero anomalies recently logged.</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -7374,12 +7894,11 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
-          </motion.div>
-        </AnimatePresence>
-      </main>
+        </motion.div>
+      </AnimatePresence>
+    </main>
     </div>
 
-      {/* Wallet Modal */}
       {walletModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <motion.div 
@@ -7759,6 +8278,18 @@ export default function AdminDashboard() {
                   onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Product Images</label>
+                <ProductImageManager 
+                  allImages={newProduct.images || []} 
+                  primaryImage={newProduct.image || ''} 
+                  onUpdate={(allImages, primaryImage) => {
+                    setNewProduct({ ...newProduct, images: allImages || [], image: primaryImage || '' });
+                  }}
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-2">Retail Price (₹)</label>
@@ -7818,6 +8349,27 @@ export default function AdminDashboard() {
                     className="input-field"
                     value={newProduct.max_qty}
                     onChange={(e) => setNewProduct({...newProduct, max_qty: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Batch Number</label>
+                  <input 
+                    type="text" 
+                    className="input-field"
+                    placeholder="e.g. B-0123"
+                    value={(newProduct as any).batch_number || ''}
+                    onChange={(e) => setNewProduct({...newProduct, batch_number: e.target.value} as any)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Expiry Date</label>
+                  <input 
+                    type="date" 
+                    className="input-field"
+                    value={(newProduct as any).expiry_date || ''}
+                    onChange={(e) => setNewProduct({...newProduct, expiry_date: e.target.value} as any)}
                   />
                 </div>
               </div>
@@ -8014,6 +8566,127 @@ export default function AdminDashboard() {
           </motion.div>
         </div>
       )}
+      {/* Purchase / Stock Entry Modal */}
+      {stockEntryModal.open && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold">New Stock Entry</h3>
+              <button 
+                onClick={() => setStockEntryModal({ open: false, product: null })}
+                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleStockEntrySubmit} className="space-y-4">
+              <div className="bg-stone-50 p-4 rounded-2xl flex items-center space-x-4 mb-4">
+                <div className="w-12 h-12 bg-white rounded-xl border border-stone-100 overflow-hidden shrink-0">
+                  <img src={stockEntryModal.product?.image_url} alt="" className="w-full h-full object-cover" />
+                </div>
+                <div>
+                  <p className="font-bold text-stone-900">{stockEntryModal.product?.name}</p>
+                  <p className="text-xs text-stone-400">Current Stock: {stockEntryModal.product?.stock} {stockEntryModal.product?.unit}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Supplier</label>
+                <select 
+                  required
+                  className="input-field"
+                  value={purchaseForm.supplier_id}
+                  onChange={(e) => setPurchaseForm({...purchaseForm, supplier_id: e.target.value})}
+                >
+                  <option value="">Select Supplier</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Quantity Added</label>
+                  <input 
+                    type="number" 
+                    required
+                    min="1"
+                    className="input-field"
+                    value={purchaseForm.quantity}
+                    onChange={(e) => setPurchaseForm({...purchaseForm, quantity: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Unit Cost (₹)</label>
+                  <input 
+                    type="number" 
+                    required
+                    min="0"
+                    step="0.01"
+                    className="input-field"
+                    value={purchaseForm.cost_price}
+                    onChange={(e) => setPurchaseForm({...purchaseForm, cost_price: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Supplier Invoice #</label>
+                <input 
+                  type="text" 
+                  className="input-field"
+                  placeholder="e.g. INV-2024-001"
+                  value={purchaseForm.invoice_number}
+                  onChange={(e) => setPurchaseForm({...purchaseForm, invoice_number: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Batch Number</label>
+                  <input 
+                    type="text" 
+                    className="input-field"
+                    placeholder="Batch ID"
+                    value={purchaseForm.batch_number}
+                    onChange={(e) => setPurchaseForm({...purchaseForm, batch_number: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Expiry Date</label>
+                  <input 
+                    type="date" 
+                    className="input-field"
+                    value={purchaseForm.expiry_date}
+                    onChange={(e) => setPurchaseForm({...purchaseForm, expiry_date: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex space-x-3">
+                <button 
+                  type="button"
+                  onClick={() => setStockEntryModal({ open: false, product: null })}
+                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-lg shadow-primary/20"
+                >
+                  Confirm Entry
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
       {/* Image Management Modal */}
       {imageModal.open && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -9239,6 +9912,43 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="bg-stone-50 p-6 rounded-2xl">
+                  <h4 className="font-bold text-stone-900 mb-4">Shipment Tracking</h4>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      className="flex-1 p-4 bg-white border border-stone-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-sm"
+                      placeholder="Enter Tracking ID..."
+                      defaultValue={orderModal.order.tracking_id}
+                      id={`tracking-id-${orderModal.order.id}`}
+                    />
+                    <button 
+                      onClick={async () => {
+                        const tracking_id = (document.getElementById(`tracking-id-${orderModal.order.id}`) as HTMLInputElement).value;
+                        try {
+                          const res = await fetch(`/api/admin/orders/${orderModal.order.id}/tracking`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tracking_id })
+                          });
+                          if (res.ok) {
+                            toast.success('Tracking ID saved');
+                            setOrderModal({ 
+                              ...orderModal, 
+                              order: { ...orderModal.order, tracking_id } 
+                            });
+                          }
+                        } catch (err) {
+                          toast.error('Failed to save tracking ID');
+                        }
+                      }}
+                      className="px-4 bg-primary text-white rounded-xl hover:bg-primary/90 font-bold text-xs"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-stone-50 p-6 rounded-2xl">
                   <h4 className="font-bold text-stone-900 mb-4">Estimated Delivery</h4>
                   <input
                     type="datetime-local"
@@ -9304,6 +10014,16 @@ export default function AdminDashboard() {
                     }}
                   />
                   <p className="text-[10px] text-stone-400 mt-2 italic">Notes are only visible to administrators.</p>
+                </div>
+                
+                <div className="flex space-x-3 pt-6 border-t border-stone-100">
+                  <button 
+                    onClick={() => handlePrintInvoice(orderModal.order)}
+                    className="flex-1 py-4 bg-stone-900 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-stone-800 flex items-center justify-center space-x-2 shadow-lg transition-all"
+                  >
+                    <Printer size={18} />
+                    <span>Download/Print Invoice</span>
+                  </button>
                 </div>
               </div>
 

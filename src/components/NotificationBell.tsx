@@ -30,7 +30,7 @@ export default function NotificationBell() {
     };
     
     fetchNotifs();
-    const interval = setInterval(fetchNotifs, 10000);
+    const interval = setInterval(fetchNotifs, 45000);
     return () => clearInterval(interval);
   }, [activeRole, user?.id]);
 

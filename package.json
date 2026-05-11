@@ -44,6 +44,8 @@
     "react-quill-new": "^3.8.3",
     "react-router-dom": "^7.13.1",
     "recharts": "^3.7.0",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.5.0",
     "vite": "^6.2.0",
     "ws": "^8.19.0",
