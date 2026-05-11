@@ -8,7 +8,7 @@ export const handleAppError = (error: any, userFriendlyMessage: string, context?
   logErrorToFirestore(error, context || 'General');
 
   if (isAdmin) {
-      toast.error(`[LOGISTICS_FAULT][${context || 'SYSTEM'}]: ${error.message || 'Interrupted flow'}`);
+      toast.error(`${userFriendlyMessage}: ${error.message || 'Unknown error'}`);
   } else if (error?.isUserFacing) {
       toast.error(error.message || userFriendlyMessage);
   } else {

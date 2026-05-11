@@ -9,50 +9,50 @@ import { cn } from '../../types';
 
 const menuGroups = [
   {
-    label: 'Strategic Command',
+    label: 'Store Management',
     items: [
-      { name: 'Overview', label: 'Strategic Matrix', icon: LayoutDashboard },
-      { name: 'Analytics', label: 'Trajectory Analysis', icon: TrendingUp },
-      { name: 'Announcements', label: 'Global Broadcasts', icon: Megaphone },
+      { name: 'Overview', label: 'Dashboard Overview', icon: LayoutDashboard },
+      { name: 'Analytics', label: 'Business Analytics', icon: TrendingUp },
+      { name: 'Announcements', label: 'Store Announcements', icon: Megaphone },
     ]
   },
   {
-    label: 'Operational Logistics',
+    label: 'Inventory & Orders',
     items: [
-      { name: 'Orders', label: 'Fulfillment Queue', icon: ShoppingBag },
-      { name: 'Product Catalog', label: 'Inventory Core', icon: Package },
-      { name: 'Categories', label: 'Taxonomy', icon: BookOpen },
-      { name: 'Logistics', label: 'Last-Mile Ops', icon: Truck },
-      { name: 'Suppliers', label: 'Origin Nodes', icon: Briefcase },
-      { name: 'Returns', label: 'Reverse Logistics', icon: RotateCcw },
+      { name: 'Orders', label: 'Order Management', icon: ShoppingBag },
+      { name: 'Product Catalog', label: 'Product Catalog', icon: Package },
+      { name: 'Categories', label: 'Product Categories', icon: BookOpen },
+      { name: 'Logistics', label: 'Delivery & Shipping', icon: Truck },
+      { name: 'Suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
+      { name: 'Returns', label: 'Returns & Refunds', icon: RotateCcw },
     ]
   },
   {
-    label: 'Capital Management',
+    label: 'Accounts & Finance',
     items: [
-      { name: 'Wallet Requests', label: 'Liquidity Flow', icon: CreditCard },
-      { name: 'Coupons', label: 'Promo Engines', icon: Ticket },
-      { name: 'Bulk Discounts', label: 'Volume Dynamics', icon: Percent },
-      { name: 'Expenses', label: 'Operational Overhead', icon: DollarSign },
+      { name: 'Wallet Requests', label: 'Wallet Top-ups', icon: CreditCard },
+      { name: 'Coupons', label: 'Discount Coupons', icon: Ticket },
+      { name: 'Bulk Discounts', label: 'Bulk Price Rules', icon: Percent },
+      { name: 'Expenses', label: 'Shop Expenses', icon: DollarSign },
     ]
   },
   {
-    label: 'Entity Relations',
+    label: 'Customers & Support',
     items: [
-      { name: 'Customers', label: 'Personas', icon: Users },
-      { name: 'Reviews', label: 'Sentiment Feed', icon: MessageSquare },
-      { name: 'Support Tickets', label: 'Response Unit', icon: LifeBuoy },
-      { name: 'Newsletter', label: 'Broadcast Hub', icon: Mail },
+      { name: 'Customers', label: 'Customer Base', icon: Users },
+      { name: 'Reviews', label: 'Customer Reviews', icon: MessageSquare },
+      { name: 'Support Tickets', label: 'Support Center', icon: LifeBuoy },
+      { name: 'Newsletter', label: 'Newsletter Hub', icon: Mail },
     ]
   },
   {
-    label: 'Core Infrastructure',
+    label: 'Settings & System',
     items: [
-      { name: 'Store Settings', label: 'Config Core', icon: Settings },
-      { name: 'System Status', label: 'Pulse', icon: Activity },
-      { name: 'Suspicious Activities', label: 'Security Sentinel', icon: ShieldAlert },
-      { name: 'Audit Logs', label: 'Event Ledger', icon: ClipboardList },
-      { name: 'Bug Reports', label: 'System Defects', icon: Bug },
+      { name: 'Store Settings', label: 'Store Configuration', icon: Settings },
+      { name: 'System Status', label: 'System Health', icon: Activity },
+      { name: 'Suspicious Activities', label: 'Security Alerts', icon: ShieldAlert },
+      { name: 'Audit Logs', label: 'Activity Logs', icon: ClipboardList },
+      { name: 'Bug Reports', label: 'Reported Issues', icon: Bug },
     ]
   }
 ];
@@ -93,8 +93,8 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
               <span className="font-black text-xl">H</span>
             </div>
             <div>
-              <h1 className="text-xl font-black text-stone-900 leading-none tracking-tight">Hind Matrix</h1>
-              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">Operational Command</p>
+              <h1 className="text-xl font-black text-stone-900 leading-none tracking-tight">Hind Admin</h1>
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">Management Dashboard</p>
             </div>
           </div>
 
@@ -162,7 +162,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
                 <p className="text-sm font-black text-stone-900 truncate tracking-tight">{user.name}</p>
                 <div className="flex items-center space-x-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">Master Control</p>
+                  <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">Store Manager</p>
                 </div>
               </div>
             </div>
@@ -171,7 +171,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
               className="w-full flex items-center justify-center space-x-2 py-3 bg-white border border-stone-200 rounded-xl text-stone-500 text-[10px] font-black uppercase tracking-widest hover:text-red-500 hover:border-red-100 hover:bg-red-50 transition-all duration-300 shadow-sm"
             >
               <LogOut size={14} />
-              <span>Terminate Session</span>
+              <span>Logout</span>
             </button>
           </div>
         </div>

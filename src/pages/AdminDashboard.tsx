@@ -181,28 +181,28 @@ export default function AdminDashboard() {
 
   const getNominalLabel = (tab: string) => {
     const mapping: Record<string, string> = {
-      'Overview': 'Strategic Matrix',
-      'Analytics': 'Trajectory Analysis',
-      'Announcements': 'Global Broadcasts',
-      'Orders': 'Fulfillment Queue',
-      'Product Catalog': 'Inventory Core',
-      'Categories': 'Taxonomy',
-      'Logistics': 'Last-Mile Ops',
-      'Suppliers': 'Origin Nodes',
-      'Returns': 'Reverse Logistics',
-      'Wallet Requests': 'Liquidity Flow',
-      'Coupons': 'Promo Engines',
-      'Bulk Discounts': 'Volume Dynamics',
-      'Expenses': 'Operational Overhead',
-      'Customers': 'Personas',
-      'Reviews': 'Sentiment Feed',
-      'Support Tickets': 'Response Unit',
-      'Newsletter': 'Broadcast Hub',
-      'Store Settings': 'Config Core',
-      'System Status': 'Pulse',
-      'Suspicious Activities': 'Security Sentinel',
-      'Audit Logs': 'Event Ledger',
-      'Bug Reports': 'System Defects'
+      'Overview': 'Admin Dashboard',
+      'Analytics': 'Sales Reports',
+      'Announcements': 'Store News',
+      'Orders': 'Order List',
+      'Product Catalog': 'Inventory',
+      'Categories': 'Categories',
+      'Logistics': 'Delivery Control',
+      'Suppliers': 'Suppliers',
+      'Returns': 'Returns',
+      'Wallet Requests': 'Wallet Top-ups',
+      'Coupons': 'Coupons',
+      'Bulk Discounts': 'Bulk Pricing',
+      'Expenses': 'Expenses',
+      'Customers': 'Customers',
+      'Reviews': 'Reviews',
+      'Support Tickets': 'Help Desk',
+      'Newsletter': 'Marketing',
+      'Store Settings': 'Settings',
+      'System Status': 'System Health',
+      'Suspicious Activities': 'Security',
+      'Audit Logs': 'Activity Logs',
+      'Bug Reports': 'Bug Reports'
     };
     return mapping[tab] || tab;
   };
@@ -2407,12 +2407,12 @@ export default function AdminDashboard() {
             <h2 className="text-xl font-black text-stone-900 tracking-tight hidden sm:block">{getNominalLabel(activeTab)}</h2>
           </div>
             
-            <div className="flex items-center space-x-3 bg-stone-50 px-4 py-2 rounded-2xl border border-stone-100 shadow-sm">
+            <div className="flex items-center space-x-3 bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100 shadow-sm">
               <div className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </div>
-              <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Live Node: {stats?.activeUsers || 1} Active</span>
+              <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">{stats?.activeUsers || 1} Customer(s) Online Now</span>
             </div>
 
           <div className="flex items-center space-x-8">
@@ -2577,20 +2577,8 @@ export default function AdminDashboard() {
           >
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
               <div>
-                <div className="flex gap-1.5 mb-3">
-                  {['DB', 'API', 'WS', 'SEC', 'IMG', 'PDF', 'LOG', 'INF'].map(node => (
-                    <div key={node} className="flex items-center space-x-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">
-                      <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[6px] font-black text-emerald-600 uppercase tracking-tighter">{node}</span>
-                    </div>
-                  ))}
-                  <div className="flex items-center space-x-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">
-                    <div className="w-1 h-1 rounded-full bg-emerald-500" />
-                    <span className="text-[6px] font-black text-emerald-600 uppercase tracking-tighter">NOMINAL</span>
-                  </div>
-                </div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Strategic Matrix</h2>
-                <p className="text-stone-500 mt-1 text-base font-medium">Real-time surveillance & logistical orchestration.</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Store Overview</h2>
+                <p className="text-stone-500 mt-1 text-base font-medium">Real-time status of your store's sales and operations.</p>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="bg-white px-5 py-3 rounded-2xl border border-stone-200 shadow-sm flex items-center space-x-3">
@@ -2611,10 +2599,10 @@ export default function AdminDashboard() {
             {/* Core Operational metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { label: 'Capital Inflow', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
-                { label: 'Fulfillment Queue', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '+3.2%', color: 'amber', key: 'orders' },
-                { label: 'Liquidity Reclamation', value: `₹${stats?.totalRefunds || 0}`, icon: <RotateCcw size={22} />, trend: '-2.4%', color: 'red' },
-                { label: 'Entity Acquisition', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '+18.1%', color: 'purple' }
+                { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
+                { label: 'New Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '+3.2%', color: 'amber', key: 'orders' },
+                { label: 'Refunds Given', value: `₹${stats?.totalRefunds || 0}`, icon: <RotateCcw size={22} />, trend: '-2.4%', color: 'red' },
+                { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '+18.1%', color: 'purple' }
               ].map((stat, i) => (
                 <motion.div 
                   key={i}
@@ -2673,12 +2661,12 @@ export default function AdminDashboard() {
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Trajectory</h3>
-                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">L-30 Logistical Analysis</p>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Sales Analytics</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Last 30 Days Sales</p>
                   </div>
                   <div className="flex items-center space-x-2">
                     <div className="w-3 h-3 bg-emerald-500 rounded-full" />
-                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Flux Normalized</span>
+                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Normal Growth</span>
                   </div>
                 </div>
                 <div className="h-72 w-full">
@@ -2716,15 +2704,15 @@ export default function AdminDashboard() {
               >
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
                 <div className="relative z-10 flex items-center justify-between">
-                  <h3 className="text-xl font-black tracking-tight">System Integrity</h3>
+                  <h3 className="text-xl font-black tracking-tight">System Status</h3>
                   <Activity size={20} className="text-emerald-500 animate-pulse" />
                 </div>
 
                 <div className="space-y-4 relative z-10">
                   {[
-                    { label: 'Core API', status: 'Optimal', delay: Math.floor(Math.random() * 20) + 30 },
-                    { label: 'Transaction Node', status: 'Nominal', delay: Math.floor(Math.random() * 10) + 5 },
-                    { label: 'Security Guard', status: 'Shielded', delay: 0 }
+                    { label: 'Website Speed', status: 'Optimal', delay: Math.floor(Math.random() * 20) + 30 },
+                    { label: 'Order Processing', status: 'Running', delay: Math.floor(Math.random() * 10) + 5 },
+                    { label: 'Data Security', status: 'Secure', delay: 0 }
                   ].map((sys, i) => (
                     <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between backdrop-blur-sm">
                       <div className="flex flex-col">
@@ -2755,7 +2743,7 @@ export default function AdminDashboard() {
                   onClick={() => setActiveTab('Audit Logs')}
                   className="w-full relative z-10 py-4 bg-emerald-500 text-stone-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all active:scale-95 shadow-xl shadow-emerald-500/20"
                 >
-                  Authorize System Scrutiny
+                  View Activity Logs
                 </button>
               </motion.div>
             </div>
@@ -2768,12 +2756,12 @@ export default function AdminDashboard() {
               >
                 <div className="flex items-center justify-between mb-8">
                   <div>
-                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Active Dispatches</h3>
-                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Pending Assignment</p>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">New Orders</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Pending Delivery</p>
                   </div>
                   <div className="flex -space-x-3">
                     {[1, 2, 3].map(i => (
-                      <div key={i} className="w-10 h-10 rounded-full border-4 border-white bg-stone-100 flex items-center justify-center text-[10px] font-black text-stone-400">R{i}</div>
+                      <div key={i} className="w-10 h-10 rounded-full border-4 border-white bg-stone-100 flex items-center justify-center text-[10px] font-black text-stone-400">D{i}</div>
                     ))}
                   </div>
                 </div>
@@ -2808,7 +2796,7 @@ export default function AdminDashboard() {
                    onClick={() => setActiveTab('Orders')}
                    className="mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all"
                 >
-                  Open Logistics Matrix
+                  View All Orders
                 </button>
               </motion.div>
 
@@ -2818,8 +2806,8 @@ export default function AdminDashboard() {
               >
                  <div className="flex items-center justify-between mb-8">
                   <div>
-                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Supply Chain Health</h3>
-                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Inventory Depletion Analysis</p>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Low Stock Alerts</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">Products that need restocking</p>
                   </div>
                   <AlertTriangle size={20} className={cn(lowStockProducts.length > 0 ? "text-red-500 animate-pulse" : "text-emerald-500")} />
                 </div>
@@ -2834,7 +2822,7 @@ export default function AdminDashboard() {
                          <div>
                             <p className="text-sm font-black text-stone-900 truncate max-w-[150px]">{p.name}</p>
                             <div className="flex items-center space-x-2 mt-0.5">
-                              <span className="text-[9px] font-black text-red-500 uppercase">Critical Depletion</span>
+                              <span className="text-[9px] font-black text-red-500 uppercase">Stock Low</span>
                               <span className="text-[9px] font-bold text-stone-400">• {p.stock} Units left</span>
                             </div>
                          </div>
@@ -2858,7 +2846,7 @@ export default function AdminDashboard() {
                   onClick={() => setActiveTab('Product Catalog')}
                   className="w-full mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all"
                 >
-                  Access Global Inventory
+                  View Full Inventory
                 </button>
               </motion.div>
             </div>
