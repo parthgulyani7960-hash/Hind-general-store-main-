@@ -21,9 +21,27 @@ export const generateUserExportPDF = (data: any) => {
   addHeader(doc);
   const formatValue = (val: any) => (val === null || val === undefined || val === '' ? 'N/A' : val);
 
-  // 1. Account Details
+  // 1. Summary
   doc.setFontSize(16);
-  doc.text('1. Customer Information', 14, 45);
+  doc.text('1. Account Summary', 14, 45);
+  const totalSpent = (data.orders || []).reduce((acc: number, o: any) => acc + (parseFloat(o.total) || 0), 0);
+  (doc as any).autoTable({
+    startY: 50,
+    head: [['Metric', 'Value']],
+    body: [
+      ['Total Orders', (data.orders || []).length],
+      ['Total Amount Spent', `₹${totalSpent.toFixed(2)}`],
+      ['Last Transaction', data.wallet && data.wallet.length > 0 ? new Date(data.wallet[0].created_at).toLocaleDateString() : 'N/A']
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: primaryColor }
+  });
+
+  // 2. Customer Information
+  doc.addPage();
+  addHeader(doc);
+  doc.setFontSize(16);
+  doc.text('2. Customer Information', 14, 45);
   (doc as any).autoTable({
     startY: 50,
     head: [['Field', 'Details']],
@@ -37,11 +55,11 @@ export const generateUserExportPDF = (data: any) => {
     headStyles: { fillColor: primaryColor }
   });
 
-  // 2. Order History
+  // 3. Order History
   doc.addPage();
   addHeader(doc);
   doc.setFontSize(16);
-  doc.text('2. Order History', 14, 45);
+  doc.text('3. Order History', 14, 45);
   (doc as any).autoTable({
     startY: 50,
     head: [['Order ID', 'Total', 'Method', 'Pay Ref', 'Status', 'Date']],
@@ -57,11 +75,11 @@ export const generateUserExportPDF = (data: any) => {
     headStyles: { fillColor: secondaryColor }
   });
 
-  // 3. Payment Transactions
+  // 4. Payment Transactions
   doc.addPage();
   addHeader(doc);
   doc.setFontSize(16);
-  doc.text('3. Payment Transactions', 14, 45);
+  doc.text('4. Payment Transactions', 14, 45);
   (doc as any).autoTable({
     startY: 50,
     head: [['ID', 'Type', 'Amount', 'Description', 'Date']],
@@ -76,11 +94,11 @@ export const generateUserExportPDF = (data: any) => {
     headStyles: { fillColor: [16, 185, 129] }
   });
 
-  // 4. About Us
+  // 5. About Us
   doc.addPage();
   addHeader(doc);
   doc.setFontSize(16);
-  doc.text('4. About Us', 14, 45);
+  doc.text('5. About Us', 14, 45);
   doc.setFontSize(10);
   doc.text('Hind General Store provides quality groceries.', 14, 55);
 
