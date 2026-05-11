@@ -52,8 +52,8 @@ interface StoreContextType {
   isProfileComplete: () => boolean;
   isMobile: boolean;
   isTablet: boolean;
-  lastAddedId: number | null;
-  logActivity: (type: string, details: string, severity?: 'low' | 'medium' | 'high') => Promise<void>;
+  isSyncingCart: boolean;
+  syncCartToBackend: (cartItems: CartItem[]) => Promise<void>;
   currentAlert: any;
   setCurrentAlert: (alert: any) => void;
   markAlertAsRead: (id: number) => Promise<void>;
@@ -186,6 +186,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartLoadedFromStorage, setCartLoadedFromStorage] = useState(false);
+  const [isSyncingCart, setIsSyncingCart] = useState(false);
 
   useEffect(() => {
     try {
@@ -198,6 +199,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     setCartLoadedFromStorage(true);
   }, []);
+
+  const syncCartToBackend = async (cartItems: CartItem[]) => {
+    if (!user) return;
+    setIsSyncingCart(true);
+    try {
+        await fetch('/api/cart/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, items: cartItems })
+        });
+    } catch (err) {
+        console.error('Failed to sync cart:', err);
+    } finally {
+        setIsSyncingCart(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!cartLoadedFromStorage) return;
+    localStorage.setItem('hgs_cart', JSON.stringify(cart));
+    // syncCartToBackend(cart); // Leave sync to explicit calls for now, or keep it. Let's remove this to avoid double sync.
+  }, [cart, cartLoadedFromStorage]);
 
   const [wishlist, setWishlist] = useState<number[]>(() => {
     try {
@@ -749,7 +772,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       language, setLanguage, t,
       addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
       isOnline, isProfileComplete,
-      isMobile, isTablet, lastAddedId,
+      isMobile, isTablet, lastAddedId, isSyncingCart, syncCartToBackend,
       logActivity,
       currentAlert, setCurrentAlert, markAlertAsRead,
       hasPermission,

@@ -5,7 +5,7 @@ import {
   ShoppingCart, Share2, ArrowLeft, ShieldCheck, Truck, Info, Star, 
   MessageSquare, Plus, Minus, Clock, Camera, Image as ImageIcon,
   ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag,
-  CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2
+  CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2, Loader2
 } from 'lucide-react';
 import { Product, Review, cn } from '../types';
 import { useStore } from '../StoreContext';
@@ -29,9 +29,10 @@ export default function ProductDetail() {
   const [variants, setVariants] = useState<any[]>([]);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
+  const [addingToCart, setAddingToCart] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config } = useStore();
+  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config, isSyncingCart } = useStore();
   const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const navigate = useNavigate();
   const activeRole = simulatedRole || user?.role;
@@ -641,14 +642,21 @@ export default function ProductDetail() {
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 flex-1">
                 <button 
-                  onClick={() => {
+                  disabled={addingToCart || isSyncingCart}
+                  onClick={async () => {
+                    setAddingToCart(true);
                     addToCart(product, selectedVariant, quantity);
-                    toast.success('Added to cart!');
+                    await new Promise(resolve => setTimeout(resolve, 600));
+                    setAddingToCart(false);
                   }}
-                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5 min-h-[56px] mobile-active-state"
+                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5 min-h-[56px] mobile-active-state disabled:opacity-70"
                 >
-                  <ShoppingCart size={22} />
-                  <span>Add to Cart</span>
+                  {addingToCart || isSyncingCart ? (
+                      <Loader2 className="animate-spin" size={22} />
+                  ) : (
+                      <ShoppingCart size={22} />
+                  )}
+                  <span>{addingToCart || isSyncingCart ? 'Adding...' : 'Add to Cart'}</span>
                 </button>
                 <button 
                   onClick={() => {

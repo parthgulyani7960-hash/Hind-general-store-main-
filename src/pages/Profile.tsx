@@ -536,7 +536,8 @@ export default function Profile() {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 pb-32 md:pb-8">
+    <>
+      <div className="max-w-4xl mx-auto px-4 py-8 pb-32 md:pb-8">
       {/* Profile Header */}
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-stone-100 mb-6">
         <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-8">
@@ -2011,6 +2012,233 @@ export default function Profile() {
         )}
       </AnimatePresence>
     </div>
+
+    {showAddressModal && (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+        >
+          <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+            <h3 className="font-black text-xl text-stone-800">
+              {editingAddress ? t('edit_address') : t('add_new_address')}
+            </h3>
+            <button onClick={() => setShowAddressModal(false)} className="p-2 hover:bg-white rounded-xl transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const data = Object.fromEntries(formData);
+              await saveAddress({
+                ...data,
+                id: editingAddress?.id,
+                is_default: editingAddress?.is_default || false
+              } as any);
+              setShowAddressModal(false);
+            }}
+            className="p-6 space-y-4 max-h-[70vh] overflow-y-auto"
+          >
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Name</label>
+                  <input 
+                    name="name"
+                    required
+                    defaultValue={editingAddress?.name}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                  />
+                </div>
+                <div className="col-span-2 flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Location</label>
+                  <LocationPicker onLocationFound={(lat, lng) => {
+                      const latInput = document.querySelector('input[name="lat"]') as HTMLInputElement;
+                      const lngInput = document.querySelector('input[name="lng"]') as HTMLInputElement;
+                      if (latInput) latInput.value = lat.toString();
+                      if (lngInput) lngInput.value = lng.toString();
+                      toast.success('Location pin updated');
+                  }} />
+                  <input type="hidden" name="lat" defaultValue={editingAddress?.lat} />
+                  <input type="hidden" name="lng" defaultValue={editingAddress?.lng} />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">House / Flat / Apt Number</label>
+                  <input 
+                    name="house_number"
+                    required
+                    defaultValue={editingAddress?.house_number}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Phone Number</label>
+                <input 
+                  name="phone"
+                  required
+                  defaultValue={editingAddress?.phone}
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                />
+              </div>
+              <div className="col-span-2 md:col-span-1">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Code</label>
+                <div className="relative">
+                  <input 
+                    name="pin_code"
+                    required
+                    placeholder="6 digit PIN"
+                    defaultValue={editingAddress?.pin_code}
+                    onChange={async (e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      e.target.value = val;
+                      if (val.length === 6) {
+                        const data = await lookupPincode(val, 'address');
+                        if (data) {
+                          const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
+                          const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
+                          if (cityInput) cityInput.value = data.city;
+                          if (stateInput) stateInput.value = data.state;
+                        }
+                      }
+                    }}
+                    className="w-full px-4 py-3 pr-10 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if ("geolocation" in navigator) {
+                        toast.loading('Fetching location...', { id: 'geo_prof_modal' });
+                        navigator.geolocation.getCurrentPosition(
+                          async (pos) => {
+                            const { latitude, longitude } = pos.coords;
+                            try {
+                              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+                              const data = await res.json();
+                              if (data && data.address) {
+                                const addr = data.address;
+                                const pcInput = document.querySelector('input[name="pin_code"]') as HTMLInputElement;
+                                const stInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
+                                const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
+                                const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
+                                
+                                if (pcInput && addr.postcode) pcInput.value = addr.postcode.slice(0, 6);
+                                if (stInput) stInput.value = `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`;
+                                if (cityInput && (addr.city || addr.town || addr.village)) cityInput.value = addr.city || addr.town || addr.village;
+                                if (stateInput && addr.state) stateInput.value = addr.state;
+                                
+                                toast.success('Location found!', { id: 'geo_prof_modal' });
+                              } else {
+                                toast.success('Location coordinates captured', { id: 'geo_prof_modal' });
+                              }
+                            } catch(err) {
+                              toast.error('Could not reverse geocode', { id: 'geo_prof_modal' });
+                            }
+                          },
+                          (err) => toast.error('Location denied', { id: 'geo_prof_modal' })
+                        );
+                      }
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
+                    title="Use My Current Location"
+                  >
+                    <Navigation2 size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Street Address</label>
+                <input name="street_address" required defaultValue={editingAddress?.street_address} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+              </div>
+              
+              <div className="col-span-2 md:col-span-1">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
+                <input name="city" required defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+              </div>
+              
+              <div className="col-span-2 md:col-span-1">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
+                <input name="state" required defaultValue={editingAddress?.state} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+              </div>
+              
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Area</label>
+                <select
+                  name="delivery_area"
+                  required
+                  defaultValue={editingAddress?.delivery_area}
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                >
+                  <option value="">Select Area</option>
+                  {deliveryAreas.map(area => (
+                    <option key={area.id} value={area.name}>{area.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Address</label>
+              <textarea 
+                name="address"
+                required
+                defaultValue={editingAddress?.address}
+                className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors min-h-[80px] font-bold text-stone-700"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
+                <input 
+                  name="city"
+                  required
+                  defaultValue={editingAddress?.city || 'Samana'}
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
+                <input 
+                  name="state"
+                  required
+                  defaultValue={editingAddress?.state || 'Punjab'}
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Zone</label>
+              <select 
+                name="delivery_area"
+                required
+                defaultValue={editingAddress?.delivery_area}
+                className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+              >
+                <option value="">Select a zone</option>
+                {deliveryAreas.map(area => (
+                  <option key={area.id} value={area.name}>{area.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all mt-4"
+            >
+              Save Address
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    )}
+    </>
   );
 }
 
