@@ -3000,10 +3000,20 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       if (purchase) isVerified = 1;
     }
 
-    db.prepare('INSERT INTO reviews (product_id, user_id, user_name, rating, comment, is_verified) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(product_id, userId || null, user_name, rating, comment, isVerified);
+    db.prepare('INSERT INTO reviews (product_id, user_id, user_name, rating, comment, is_verified, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(product_id, userId || null, user_name, rating, comment, isVerified, 'pending');
       
     res.json({ success: true, isVerified: !!isVerified });
+  });
+
+  app.put('/api/admin/reviews/:id/status', (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
+    db.prepare('UPDATE reviews SET status = ? WHERE id = ?').run(status, id);
+    res.json({ success: true });
   });
 
   app.get('/api/admin/reviews', (req, res) => {

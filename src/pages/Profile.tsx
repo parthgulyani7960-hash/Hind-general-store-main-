@@ -1470,7 +1470,7 @@ export default function Profile() {
                       <button onClick={async (e) => {
                         e.stopPropagation();
                         await handleDataRequest('export');
-                      }} className="bg-primary text-white p-2 rounded-xl text-[10px] font-bold uppercase">Request Export</button>
+                      }} className="bg-primary text-white p-2 rounded-xl text-[10px] font-bold uppercase">{t('request_export')}</button>
                     )}
                     { exportStatus?.status === 'PENDING_REVIEW' && (
                       <button className="bg-amber-500 text-white p-2 rounded-xl text-[10px] font-bold uppercase cursor-not-allowed" disabled>Pending Review</button>

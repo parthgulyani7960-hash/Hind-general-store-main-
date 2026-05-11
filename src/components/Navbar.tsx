@@ -101,7 +101,7 @@ export default function Navbar() {
 
   const navLinks = [
     { to: '/', label: t('home') },
-    { to: '/about', label: 'About Us' },
+    { to: '/about', label: t('about_us') },
     { to: '/products', label: t('products') },
     { to: '/support', label: t('support') },
     { to: '/track-order', label: 'Track Order' },

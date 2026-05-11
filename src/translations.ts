@@ -3,6 +3,7 @@ export type Language = 'en' | 'hi' | 'pa';
 export const translations = {
   en: {
     home: "Home",
+    about_us: "About Us",
     products: "Products",
     support: "Help & Support",
     login: "Login",
@@ -88,9 +89,11 @@ export const translations = {
     start_shopping: "Start Shopping",
     shopping_cart: "Shopping Cart",
     proceed_to_checkout: "Proceed to Checkout",
+    request_export: "Request Export",
   },
   hi: {
     home: "होम",
+    about_us: "हमारे बारे में",
     products: "उत्पाद",
     support: "सहायता",
     login: "लॉगिन",
@@ -172,6 +175,7 @@ export const translations = {
   },
   pa: {
     home: "ਹੋਮ",
+    about_us: "ਸਾਡੇ ਬਾਰੇ",
     products: "ਉਤਪਾਦ",
     support: "ਸਹਾਇਤਾ",
     login: "ਲੌਗਇਨ",

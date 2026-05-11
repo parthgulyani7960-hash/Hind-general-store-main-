@@ -144,16 +144,25 @@ export default function Products() {
       const matchesSale = !onSaleOnly || p.discount > 0;
       return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && p.is_listed;
     })
-    .sort((a, b) => {
-      const priceA = getProductPrice(a, user?.role);
-      const priceB = getProductPrice(b, user?.role);
-      if (sortBy === 'price-low') return priceA - priceB;
-      if (sortBy === 'price-high') return priceB - priceA;
-      if (sortBy === 'rating') return (b.avg_rating || 0) - (a.avg_rating || 0);
-      if (sortBy === 'popularity') return ((b as any).review_count || 0) - ((a as any).review_count || 0);
-      if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-      return 0; // Relevance
-    });
+      .sort((a, b) => {
+        const priceA = getProductPrice(a, user?.role);
+        const priceB = getProductPrice(b, user?.role);
+        
+        switch (sortBy) {
+          case 'price-low': 
+            return priceA - priceB;
+          case 'price-high': 
+            return priceB - priceA;
+          case 'rating': 
+            return (b.avg_rating || 0) - (a.avg_rating || 0);
+          case 'popularity': 
+            return ((b as any).review_count || 0) - ((a as any).review_count || 0);
+          case 'newest': 
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+          default:
+            return 0; // Relevance
+        }
+      });
 
   const categories = ['All', ...new Set(products.map(p => p.category))];
 
@@ -539,7 +548,7 @@ export default function Products() {
                         { id: 'price-low', label: 'Price: Low', icon: ArrowDownNarrowWide },
                         { id: 'price-high', label: 'Price: High', icon: ArrowUpNarrowWide },
                         { id: 'rating', label: 'Top Rated', icon: Star },
-                        { id: 'newest', label: 'What\'s New', icon: Clock },
+                        { id: 'newest', label: 'Newest', icon: Clock },
                       ].map(option => (
                         <button
                           key={option.id}

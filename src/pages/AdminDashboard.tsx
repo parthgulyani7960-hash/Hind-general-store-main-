@@ -1788,6 +1788,16 @@ export default function AdminDashboard() {
     fetch('/api/admin/reviews').then(res => res.json()).then(setReviews);
   };
 
+  const updateReviewStatus = async (id: number, status: string) => {
+    await fetch(`/api/admin/reviews/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    toast.success('Review status updated');
+    fetch('/api/admin/reviews').then(res => res.json()).then(setReviews);
+  };
+
   const deleteCoupon = async (id: number) => {
     if (!confirm('Delete this coupon?')) return;
     await fetch(`/api/admin/coupons/${id}`, { method: 'DELETE' });
@@ -7114,14 +7124,21 @@ export default function AdminDashboard() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {review.response ? (
-                          <span className="text-[9px] font-black px-2 py-1 bg-emerald-50 text-emerald-600 rounded-full uppercase tracking-tighter">Responded</span>
-                        ) : (
-                          <span className="text-[9px] font-black px-2 py-1 bg-amber-50 text-amber-600 rounded-full uppercase tracking-tighter">Pending</span>
-                        )}
+                        <span className={cn(
+                            "text-[9px] font-black px-2 py-1 rounded-full uppercase tracking-tighter",
+                            review.status === 'approved' ? "bg-emerald-50 text-emerald-600" :
+                            review.status === 'rejected' ? "bg-red-50 text-red-600" :
+                            "bg-amber-50 text-amber-600"
+                        )}>{review.status}</span>
                       </td>
                       <td className="px-6 py-4 text-xs text-stone-500 whitespace-nowrap">{new Date(review.created_at).toLocaleDateString()}</td>
                       <td className="px-6 py-4 text-right space-x-2">
+                        {review.status === 'pending' && (
+                          <>
+                            <button onClick={() => updateReviewStatus(review.id, 'approved')} className="text-emerald-600 font-black text-[10px] uppercase">Approve</button>
+                            <button onClick={() => updateReviewStatus(review.id, 'rejected')} className="text-red-600 font-black text-[10px] uppercase">Reject</button>
+                          </>
+                        )}
                         <button 
                           onClick={() => {
                             setReviewResponseModal({ open: true, review });
