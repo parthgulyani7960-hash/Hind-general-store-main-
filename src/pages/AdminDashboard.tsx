@@ -14,7 +14,7 @@ import {
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink, LogOut,
-  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer
+  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
@@ -123,6 +123,7 @@ export default function AdminDashboard() {
   const [orderSortBy, setOrderSortBy] = useState<string>('date');
   const [orderSortOrder, setOrderSortOrder] = useState<'asc' | 'desc'>('desc');
   const [coupons, setCoupons] = useState<any[]>([]);
+  const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
@@ -225,8 +226,10 @@ export default function AdminDashboard() {
     } else if (activeTab === 'Promotions') {
       fetchPromotions();
       fetchPromotionRules();
+    } else if (activeTab === 'Bulk Discounts') {
+      fetchBulkDiscounts();
     }
-  }, [activeTab, user]);
+  }, [activeTab, user, orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, orderSearchTerm, orderSortBy, orderSortOrder]);
 
   const [newBatchCategory, setNewBatchCategory] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -505,7 +508,6 @@ export default function AdminDashboard() {
   };
   const [poData, setPoData] = useState<any[] | null>(null);
   const [showPOPrint, setShowPOPrint] = useState(false);
-  const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [supplierModal, setSupplierModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', supplier: null as any });
   const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', email: '', phone: '', address: '' });
@@ -629,15 +631,6 @@ export default function AdminDashboard() {
     active: true
   });
 
-  const fetchBulkDiscounts = async () => {
-    try {
-      const res = await fetch('/api/admin/bulk-discounts');
-      const data = await res.json();
-      setBulkDiscounts(data);
-    } catch (err) {
-      console.error('Failed to fetch bulk discounts:', err);
-    }
-  };
 
   useEffect(() => {
     if (activeTab === 'Bulk Discounts') {
@@ -994,6 +987,16 @@ export default function AdminDashboard() {
       setPromotionRules(data);
     } catch (err) {
       console.error('Promotion Rules fetch error:', err);
+    }
+  };
+
+  const fetchBulkDiscounts = async () => {
+    try {
+      const res = await fetch('/api/admin/bulk-discounts');
+      if (res.ok) setBulkDiscounts(await res.json());
+      else toast.error('Failed to load bulk discounts');
+    } catch (err) {
+      toast.error('Failed to load bulk discounts');
     }
   };
 
@@ -2460,6 +2463,31 @@ export default function AdminDashboard() {
                 </motion.div>
               ))}
             </div>
+
+            {/* Revenue Trend Chart */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+              className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100"
+            >
+              <h3 className="font-bold text-lg mb-6">Revenue Trend</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats?.revenueByDay || []}>
+                    <defs>
+                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#059669" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#059669" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E7E5E4" />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#A8A29E'}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#A8A29E'}} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="revenue" stroke="#059669" fillOpacity={1} fill="url(#colorRevenue)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
 
             {/* Quick Actions Panel */}
             <motion.div 
@@ -4285,10 +4313,11 @@ export default function AdminDashboard() {
                     const orderDate = new Date(order.created_at).toISOString().split('T')[0];
                     const matchesStart = !orderDateStart || orderDate >= orderDateStart;
                     const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
+                    const matchesUserId = !orderUserIdFilter || order.user_id?.toString() === orderUserIdFilter;
                     const matchesSearch = !orderSearchTerm || 
                       order.id.toString().includes(orderSearchTerm.replace('#ORD-', '')) ||
                       order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-                    return matchesStatus && matchesStart && matchesEnd && matchesSearch;
+                    return matchesStatus && matchesStart && matchesEnd && matchesSearch && matchesUserId;
                   }).length} orders
                 </div>
               </div>
@@ -6798,74 +6827,86 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {bulkDiscounts.map((discount) => (
-                    <tr key={discount.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <span className={cn(
-                            "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
-                            discount.entity_type === 'product' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
-                          )}>
-                            {discount.entity_type}
-                          </span>
-                          <span className="font-bold text-sm">{discount.entity_name}</span>
+                  {bulkDiscounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <div className="py-12">
+                            <EmptyState 
+                                title="No Bulk Discounts" 
+                                message="Get started by creating your first bulk discount rule." 
+                            />
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-bold text-sm">{discount.min_qty}+ units</td>
-                      <td className="px-6 py-4">
-                        <span className="font-bold text-emerald-600">
-                          {discount.discount_type === 'percentage' ? `${discount.discount_value}% Off` : `₹${discount.discount_value} Off`}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button 
-                          onClick={() => handleToggleBulkDiscount(discount)}
-                          className={cn(
-                            "w-12 h-6 rounded-full transition-colors duration-300 relative",
-                            discount.active ? 'bg-emerald-500' : 'bg-stone-300'
-                          )}
-                        >
-                          <div className={cn(
-                            "absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
-                            discount.active ? 'translate-x-7' : 'translate-x-1'
-                          )} />
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-stone-500">
-                        {new Date(discount.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button 
-                          onClick={() => {
-                            setBulkDiscountModal({ open: true, mode: 'edit', discount });
-                            setNewBulkDiscount({
-                              entity_type: discount.entity_type,
-                              entity_id: discount.entity_id.toString(),
-                              min_qty: discount.min_qty.toString(),
-                              discount_type: discount.discount_type,
-                              discount_value: discount.discount_value.toString(),
-                              active: discount.active === 1
-                            });
-                          }}
-                          className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-primary transition-colors"
-                        >
-                          <Settings size={16} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteBulkDiscount(discount.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
                     </tr>
-                  ))}
-                  {bulkDiscounts.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-stone-400 italic">
-                        No bulk discounts found. Create one to get started!
-                      </td>
-                    </tr>
+                  ) : (
+                    bulkDiscounts.map((discount, idx) => (
+                      <motion.tr 
+                        key={discount.id} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className="hover:bg-stone-50 transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-2">
+                            <span className={cn(
+                              "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
+                              discount.entity_type === 'product' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
+                            )}>
+                              {discount.entity_type}
+                            </span>
+                            <span className="font-bold text-sm">{discount.entity_name}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 font-bold text-sm">{discount.min_qty}+ units</td>
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-emerald-600">
+                            {discount.discount_type === 'percentage' ? `${discount.discount_value}% Off` : `₹${discount.discount_value} Off`}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <button 
+                            onClick={() => handleToggleBulkDiscount(discount)}
+                            className={cn(
+                              "w-10 h-5 rounded-full transition-colors duration-300 relative",
+                              discount.active ? 'bg-emerald-500' : 'bg-stone-300'
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
+                              discount.active ? 'translate-x-[22px]' : 'translate-x-0.5'
+                            )} />
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-stone-500">
+                          {new Date(discount.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 text-right space-x-2">
+                          <button 
+                            onClick={() => {
+                              setBulkDiscountModal({ open: true, mode: 'edit', discount });
+                              setNewBulkDiscount({
+                                entity_type: discount.entity_type,
+                                entity_id: discount.entity_id.toString(),
+                                min_qty: discount.min_qty.toString(),
+                                discount_type: discount.discount_type,
+                                discount_value: discount.discount_value.toString(),
+                                active: discount.active === 1
+                              });
+                            }}
+                            className="p-1.5 hover:bg-primary/10 rounded-lg text-stone-400 hover:text-primary transition-colors"
+                          >
+                            <Settings size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteBulkDiscount(discount.id)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </motion.tr>
+                    ))
                   )}
                 </tbody>
               </table>
