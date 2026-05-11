@@ -1296,6 +1296,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
   });
 
+  app.post('/api/admin/data-exports/:id/reject', requireAdmin, (req, res) => {
+      try {
+          const { id } = req.params;
+          db.prepare('UPDATE data_exports SET status = "REJECTED" WHERE id = ?').run(id);                
+          res.json({ success: true });
+      } catch (err: any) {
+          handleAppError(err, 'Failed to reject export', 'rejectExport');
+          res.status(500).json({ success: false, message: 'Failed to reject export' });
+      }
+  });
+
   app.get('/api/user/generate-export', requireAuth, (req, res) => {
     try {
       console.log('Generating export for user:', req.session.userId);
