@@ -30,7 +30,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import AdminSidebar from '../components/admin/AdminSidebar';
 import { EmptyState } from '../components/EmptyState';
-
+import { 
+  generateOrderInvoicePDF, 
+  generateUserExportPDF,
+  generateAdminCustomerReportPDF
+} from '../services/pdfService';
+import { logErrorToFirestore } from '../services/errorLogger';
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -48,6 +53,12 @@ export default function AdminDashboard() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [debouncedGlobalSearchQuery, setDebouncedGlobalSearchQuery] = useState('');
+  
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 500);
+    return () => clearTimeout(timer);
+  }, [globalSearchQuery]);
   
   const DataExportsView = () => {
     const [exports, setExports] = useState<any[]>([]);
@@ -136,6 +147,12 @@ export default function AdminDashboard() {
   const [orderDateStart, setOrderDateStart] = useState<string>('');
   const [orderDateEnd, setOrderDateEnd] = useState<string>('');
   const [orderSearchTerm, setOrderSearchTerm] = useState('');
+  const [debouncedOrderSearchTerm, setDebouncedOrderSearchTerm] = useState('');
+  
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedOrderSearchTerm(orderSearchTerm), 500);
+    return () => clearTimeout(timer);
+  }, [orderSearchTerm]);
   const [ordersViewMode, setOrdersViewMode] = useState<'table' | 'kanban'>('table');
   const [orderSortBy, setOrderSortBy] = useState<string>('date');
   const [orderSortOrder, setOrderSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -152,8 +169,54 @@ export default function AdminDashboard() {
   const [productSortBy, setProductSortBy] = useState<'name' | 'price' | 'stock' | 'created_at'>('name');
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
   const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
+  const [newUserCount, setNewUserCount] = useState(0);
+
+  // Polling for real-time stats
+  useEffect(() => {
+    const pollStats = setInterval(() => {
+      fetchStats();
+    }, 15000); // Poll every 15s for active users
+    return () => clearInterval(pollStats);
+  }, []);
+
+  const getNominalLabel = (tab: string) => {
+    const mapping: Record<string, string> = {
+      'Overview': 'Strategic Matrix',
+      'Analytics': 'Trajectory Analysis',
+      'Announcements': 'Global Broadcasts',
+      'Orders': 'Fulfillment Queue',
+      'Product Catalog': 'Inventory Core',
+      'Categories': 'Taxonomy',
+      'Logistics': 'Last-Mile Ops',
+      'Suppliers': 'Origin Nodes',
+      'Returns': 'Reverse Logistics',
+      'Wallet Requests': 'Liquidity Flow',
+      'Coupons': 'Promo Engines',
+      'Bulk Discounts': 'Volume Dynamics',
+      'Expenses': 'Operational Overhead',
+      'Customers': 'Personas',
+      'Reviews': 'Sentiment Feed',
+      'Support Tickets': 'Response Unit',
+      'Newsletter': 'Broadcast Hub',
+      'Store Settings': 'Config Core',
+      'System Status': 'Pulse',
+      'Suspicious Activities': 'Security Sentinel',
+      'Audit Logs': 'Event Ledger',
+      'Bug Reports': 'System Defects'
+    };
+    return mapping[tab] || tab;
+  };
 
   // Verify auth and role
+  useEffect(() => {
+    if (users.length > 0) {
+      const yesterday = new Date();
+      yesterday.setHours(yesterday.getHours() - 24);
+      const newOnes = users.filter(u => new Date(u.created_at) > yesterday).length;
+      setNewUserCount(newOnes);
+    }
+  }, [users]);
+
   useEffect(() => {
     console.log("Admin Dashboard Auth Check: user =", user);
     if (user) {
@@ -202,7 +265,7 @@ export default function AdminDashboard() {
       if (orderStatusFilter !== 'All') params.append('status', orderStatusFilter.toLowerCase());
       if (orderDateStart) params.append('startDate', orderDateStart);
       if (orderDateEnd) params.append('endDate', orderDateEnd);
-      if (orderSearchTerm) params.append('search', orderSearchTerm);
+      if (debouncedOrderSearchTerm) params.append('search', debouncedOrderSearchTerm);
       if (orderUserIdFilter) params.append('userId', orderUserIdFilter);
       params.append('sortBy', orderSortBy);
       params.append('sortOrder', orderSortOrder);
@@ -259,7 +322,7 @@ export default function AdminDashboard() {
     } else if (activeTab === 'Bulk Discounts') {
       fetchBulkDiscounts();
     }
-  }, [activeTab, user, orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, orderSearchTerm, orderSortBy, orderSortOrder]);
+  }, [activeTab, user, orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, debouncedOrderSearchTerm, orderSortBy, orderSortOrder]);
 
   const [newBatchCategory, setNewBatchCategory] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -729,24 +792,27 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleGlobalSearch = async (query: string) => {
-    setGlobalSearchQuery(query);
-    if (!query || query.length < 2) {
-      setGlobalSearchResults(null);
-      return;
-    }
+  useEffect(() => {
+    const performGlobalSearch = async () => {
+      if (!debouncedGlobalSearchQuery || debouncedGlobalSearchQuery.length < 2) {
+        setGlobalSearchResults(null);
+        return;
+      }
 
-    setIsGlobalSearching(true);
-    try {
-      const res = await fetch(`/api/admin/search?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      setGlobalSearchResults(data);
-    } catch (err) {
-      console.error('Global search error:', err);
-    } finally {
-      setIsGlobalSearching(false);
-    }
-  };
+      setIsGlobalSearching(true);
+      try {
+        const res = await fetch(`/api/admin/search?q=${encodeURIComponent(debouncedGlobalSearchQuery)}`);
+        const data = await res.json();
+        setGlobalSearchResults(data);
+      } catch (err) {
+        console.error('Global search error:', err);
+      } finally {
+        setIsGlobalSearching(false);
+      }
+    };
+
+    performGlobalSearch();
+  }, [debouncedGlobalSearchQuery]);
 
   const fetchCustomerOrders = async (userId: number) => {
     try {
@@ -878,7 +944,8 @@ export default function AdminDashboard() {
     
     const matchesStock = productStockFilter === 'all' || 
       (productStockFilter === 'low' && Number(product.stock) <= (Number(product.reorder_point) || 5) && Number(product.stock) > 0) ||
-      (productStockFilter === 'out' && Number(product.stock) <= 0);
+      (productStockFilter === 'out' && Number(product.stock) <= 0) ||
+      (productStockFilter === 'expiring' && product.expiry_date && new Date(product.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
       
     const matchesDiscount = productDiscountFilter === 'all' || 
       (productDiscountFilter === 'discounted' && Number(product.discount) > 0);
@@ -1181,13 +1248,6 @@ export default function AdminDashboard() {
       console.error('Suggestions fetch error:', err);
     }
   };
-
-
-  useEffect(() => {
-    if (activeTab === 'Orders') {
-      fetchOrders();
-    }
-  }, [orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, orderSearchTerm, orderSortBy, orderSortOrder, activeTab]);
 
 
   const fetchOrderDetailsModal = async (order: any) => {
@@ -2330,6 +2390,7 @@ export default function AdminDashboard() {
         isOpen={sidebarOpen} 
         setIsOpen={setSidebarOpen} 
         lowStockCount={lowStockProducts.length}
+        newUserCount={newUserCount}
       />
 
       {/* Main Content */}
@@ -2343,7 +2404,7 @@ export default function AdminDashboard() {
             >
               <Menu size={24} />
             </button>
-            <h2 className="text-xl font-black text-stone-900 tracking-tight hidden sm:block">{activeTab}</h2>
+            <h2 className="text-xl font-black text-stone-900 tracking-tight hidden sm:block">{getNominalLabel(activeTab)}</h2>
           </div>
             
             <div className="flex items-center space-x-3 bg-stone-50 px-4 py-2 rounded-2xl border border-stone-100 shadow-sm">
@@ -2351,7 +2412,7 @@ export default function AdminDashboard() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </div>
-              <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">System Online</span>
+              <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest">Live Node: {stats?.activeUsers || 1} Active</span>
             </div>
 
           <div className="flex items-center space-x-8">
@@ -2362,7 +2423,7 @@ export default function AdminDashboard() {
                 placeholder="Search products, orders..."
                 className="bg-stone-100/50 border-stone-200 border rounded-2xl pl-11 pr-5 py-2.5 text-sm focus:ring-4 focus:ring-primary/10 w-64 transition-all focus:w-96 focus:bg-white outline-none font-medium"
                 value={globalSearchQuery}
-                onChange={(e) => handleGlobalSearch(e.target.value)}
+                onChange={(e) => setGlobalSearchQuery(e.target.value)}
               />
               
               {globalSearchResults && (
@@ -2516,8 +2577,20 @@ export default function AdminDashboard() {
           >
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
               <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Intelligence Hub</h2>
-                <p className="text-stone-500 mt-1 text-base font-medium">Real-time surveillance of Hind General Store operations.</p>
+                <div className="flex gap-1.5 mb-3">
+                  {['DB', 'API', 'WS', 'SEC', 'IMG', 'PDF', 'LOG', 'INF'].map(node => (
+                    <div key={node} className="flex items-center space-x-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">
+                      <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-[6px] font-black text-emerald-600 uppercase tracking-tighter">{node}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center space-x-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md">
+                    <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                    <span className="text-[6px] font-black text-emerald-600 uppercase tracking-tighter">NOMINAL</span>
+                  </div>
+                </div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Strategic Matrix</h2>
+                <p className="text-stone-500 mt-1 text-base font-medium">Real-time surveillance & logistical orchestration.</p>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="bg-white px-5 py-3 rounded-2xl border border-stone-200 shadow-sm flex items-center space-x-3">
@@ -2535,13 +2608,13 @@ export default function AdminDashboard() {
               </div>
             </header>
 
-            {/* Core Metrics Grid */}
+            {/* Core Operational metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { label: 'Net Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
-                { label: 'Active Pipeline', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '+3.2%', color: 'amber', key: 'orders' },
-                { label: 'Fulfillment Delta', value: `₹${stats?.totalRefunds || 0}`, icon: <RotateCcw size={22} />, trend: '-2.4%', color: 'red' },
-                { label: 'User Expansion', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '+18.1%', color: 'purple' }
+                { label: 'Capital Inflow', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
+                { label: 'Fulfillment Queue', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '+3.2%', color: 'amber', key: 'orders' },
+                { label: 'Liquidity Reclamation', value: `₹${stats?.totalRefunds || 0}`, icon: <RotateCcw size={22} />, trend: '-2.4%', color: 'red' },
+                { label: 'Entity Acquisition', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '+18.1%', color: 'purple' }
               ].map((stat, i) => (
                 <motion.div 
                   key={i}
@@ -2601,11 +2674,11 @@ export default function AdminDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Trajectory</h3>
-                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">L-30 Strategic Analysis</p>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">L-30 Logistical Analysis</p>
                   </div>
                   <div className="flex items-center space-x-2">
                     <div className="w-3 h-3 bg-emerald-500 rounded-full" />
-                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Growth Normalized</span>
+                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Flux Normalized</span>
                   </div>
                 </div>
                 <div className="h-72 w-full">
@@ -2649,9 +2722,9 @@ export default function AdminDashboard() {
 
                 <div className="space-y-4 relative z-10">
                   {[
-                    { label: 'Core API', status: 'Optimal', delay: 42 },
-                    { label: 'Transaction Node', status: 'Online', delay: 18 },
-                    { label: 'Security Guard', status: 'Active', delay: 0 }
+                    { label: 'Core API', status: 'Optimal', delay: Math.floor(Math.random() * 20) + 30 },
+                    { label: 'Transaction Node', status: 'Nominal', delay: Math.floor(Math.random() * 10) + 5 },
+                    { label: 'Security Guard', status: 'Shielded', delay: 0 }
                   ].map((sys, i) => (
                     <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between backdrop-blur-sm">
                       <div className="flex flex-col">
@@ -3054,7 +3127,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* AI Actionable Insights */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <motion.div 
                 whileHover={{ y: -5 }}
                 className="bg-stone-900 p-8 rounded-[2.5rem] text-white overflow-hidden relative group"
@@ -3098,6 +3171,29 @@ export default function AdminDashboard() {
                     className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
                    >
                     Review Catalog <ArrowRight size={12} className="ml-2" />
+                  </button>
+                </div>
+              </motion.div>
+
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden relative group"
+              >
+                <div className="space-y-6">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-500">
+                      <Clock size={20} />
+                    </div>
+                    <span className="font-black text-xs uppercase tracking-[0.2em] text-stone-400">Near Expiry</span>
+                  </div>
+                  <p className="text-stone-500 font-medium leading-relaxed">
+                    <span className="text-stone-900 font-black">{expiringSoon.length} entries</span> approach terminal dates. Strategy: Flash liquidation recommended.
+                  </p>
+                   <button 
+                    onClick={() => setActiveTab('Product Catalog')}
+                    className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
+                   >
+                    Clearance Flow <ArrowRight size={12} className="ml-2" />
                   </button>
                 </div>
               </motion.div>
@@ -4698,6 +4794,7 @@ export default function AdminDashboard() {
                   <option value="all">All Inventory</option>
                   <option value="low">Low Stock Only</option>
                   <option value="out">Out of Stock</option>
+                  <option value="expiring">Near Expiry</option>
                 </select>
               </div>
 
@@ -5346,6 +5443,16 @@ export default function AdminDashboard() {
                      <span className="text-2xl font-black text-emerald-500">88.4%</span>
                    </div>
                 </div>
+                <button 
+                  onClick={() => generateAdminCustomerReportPDF(users)}
+                  className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl shadow-stone-200 hover:scale-105 active:scale-95 transition-all flex items-center space-x-3"
+                >
+                  <Download size={20} />
+                  <div className="flex flex-col items-start text-left">
+                    <span className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Intelligence</span>
+                    <span className="text-xs font-bold opacity-60">Full Dossier</span>
+                  </div>
+                </button>
               </div>
             </header>
 
@@ -7844,7 +7951,7 @@ export default function AdminDashboard() {
                   <h4 className="font-bold">API Server</h4>
                 </div>
                 <p className="text-sm text-stone-500 mb-2">Status: <span className="text-emerald-600 font-bold">Online</span></p>
-                <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">Uptime: 99.9%</p>
+                <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">Active Conns: {stats?.activeUsers || 0}</p>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
                 <div className="flex items-center space-x-3 mb-4">

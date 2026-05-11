@@ -9,50 +9,50 @@ import { cn } from '../../types';
 
 const menuGroups = [
   {
-    label: 'Command',
+    label: 'Strategic Command',
     items: [
-      { name: 'Overview', icon: LayoutDashboard },
-      { name: 'Analytics', icon: TrendingUp },
-      { name: 'Announcements', icon: Megaphone },
+      { name: 'Overview', label: 'Strategic Matrix', icon: LayoutDashboard },
+      { name: 'Analytics', label: 'Trajectory Analysis', icon: TrendingUp },
+      { name: 'Announcements', label: 'Global Broadcasts', icon: Megaphone },
     ]
   },
   {
-    label: 'Logistics',
+    label: 'Operational Logistics',
     items: [
-      { name: 'Orders', icon: ShoppingBag },
-      { name: 'Product Catalog', icon: Package },
-      { name: 'Categories', icon: BookOpen },
-      { name: 'Logistics', icon: Truck },
-      { name: 'Suppliers', icon: Briefcase },
-      { name: 'Returns', icon: RotateCcw },
+      { name: 'Orders', label: 'Fulfillment Queue', icon: ShoppingBag },
+      { name: 'Product Catalog', label: 'Inventory Core', icon: Package },
+      { name: 'Categories', label: 'Taxonomy', icon: BookOpen },
+      { name: 'Logistics', label: 'Last-Mile Ops', icon: Truck },
+      { name: 'Suppliers', label: 'Origin Nodes', icon: Briefcase },
+      { name: 'Returns', label: 'Reverse Logistics', icon: RotateCcw },
     ]
   },
   {
-    label: 'Monetization',
+    label: 'Capital Management',
     items: [
-      { name: 'Wallet Requests', icon: CreditCard },
-      { name: 'Coupons', icon: Ticket },
-      { name: 'Bulk Discounts', icon: Percent },
-      { name: 'Expenses', icon: DollarSign },
+      { name: 'Wallet Requests', label: 'Liquidity Flow', icon: CreditCard },
+      { name: 'Coupons', label: 'Promo Engines', icon: Ticket },
+      { name: 'Bulk Discounts', label: 'Volume Dynamics', icon: Percent },
+      { name: 'Expenses', label: 'Operational Overhead', icon: DollarSign },
     ]
   },
   {
-    label: 'Relations',
+    label: 'Entity Relations',
     items: [
-      { name: 'Customers', icon: Users },
-      { name: 'Reviews', icon: MessageSquare },
-      { name: 'Support Tickets', icon: LifeBuoy },
-      { name: 'Newsletter', icon: Mail },
+      { name: 'Customers', label: 'Personas', icon: Users },
+      { name: 'Reviews', label: 'Sentiment Feed', icon: MessageSquare },
+      { name: 'Support Tickets', label: 'Response Unit', icon: LifeBuoy },
+      { name: 'Newsletter', label: 'Broadcast Hub', icon: Mail },
     ]
   },
   {
-    label: 'Infrastructure',
+    label: 'Core Infrastructure',
     items: [
-      { name: 'Store Settings', icon: Settings },
-      { name: 'System Status', icon: Activity },
-      { name: 'Suspicious Activities', icon: ShieldAlert },
-      { name: 'Audit Logs', icon: ClipboardList },
-      { name: 'Bug Reports', icon: Bug },
+      { name: 'Store Settings', label: 'Config Core', icon: Settings },
+      { name: 'System Status', label: 'Pulse', icon: Activity },
+      { name: 'Suspicious Activities', label: 'Security Sentinel', icon: ShieldAlert },
+      { name: 'Audit Logs', label: 'Event Ledger', icon: ClipboardList },
+      { name: 'Bug Reports', label: 'System Defects', icon: Bug },
     ]
   }
 ];
@@ -65,9 +65,10 @@ interface AdminSidebarProps {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   lowStockCount?: number;
+  newUserCount?: number;
 }
 
-export default function AdminSidebar({ activeTab, setActiveTab, user, logout, isOpen, setIsOpen, lowStockCount = 0 }: AdminSidebarProps) {
+export default function AdminSidebar({ activeTab, setActiveTab, user, logout, isOpen, setIsOpen, lowStockCount = 0, newUserCount = 0 }: AdminSidebarProps) {
   return (
     <>
       <AnimatePresence>
@@ -92,8 +93,8 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
               <span className="font-black text-xl">H</span>
             </div>
             <div>
-              <h1 className="text-xl font-black text-stone-900 leading-none tracking-tight">Hind Admin</h1>
-              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">Intelligence Hub</p>
+              <h1 className="text-xl font-black text-stone-900 leading-none tracking-tight">Hind Matrix</h1>
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">Operational Command</p>
             </div>
           </div>
 
@@ -122,7 +123,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
                       >
                         <div className="flex items-center space-x-3 relative z-10">
                           <item.icon size={18} className={cn("transition-transform duration-300", isActive ? "scale-110" : "group-hover:scale-110")} />
-                          <span>{item.name}</span>
+                          <span>{item.label}</span>
                         </div>
                         {item.name === 'Product Catalog' && lowStockCount > 0 && (
                           <span className={cn(
@@ -130,6 +131,14 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
                             isActive ? "bg-white text-stone-900" : "bg-red-50 text-red-500"
                           )}>
                             {lowStockCount}
+                          </span>
+                        )}
+                        {item.name === 'Customers' && newUserCount > 0 && (
+                          <span className={cn(
+                            "text-[9px] font-black px-2 py-0.5 rounded-full transition-colors relative z-10",
+                            isActive ? "bg-white text-stone-900" : "bg-emerald-50 text-emerald-500"
+                          )}>
+                            {newUserCount}
                           </span>
                         )}
                       </motion.button>

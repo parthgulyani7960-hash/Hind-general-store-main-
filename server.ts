@@ -101,7 +101,7 @@ app.use((req, res, next) => {
 // Basic Rate Limiting to prevent automated misuse
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 100; // per minute per IP
+const MAX_REQUESTS = 1000; // per minute per IP
 
 app.use((req, res, next) => {
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
@@ -3371,6 +3371,8 @@ app.get('/api/admin/stats', (req, res) => {
         LIMIT 5
       `).all();
 
+      const activeUsers = io ? io.engine.clientsCount : 1;
+
       res.json({
         orders: totalOrders.count,
         revenue: totalRevenue.sum || 0,
@@ -3383,7 +3385,8 @@ app.get('/api/admin/stats', (req, res) => {
         revenueByDay,
         topCategories,
         topProducts,
-        recentActivities
+        recentActivities,
+        activeUsers
       });
     } catch (error) {
       console.error('Admin stats error:', error);
