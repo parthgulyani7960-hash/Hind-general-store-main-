@@ -70,6 +70,16 @@ export default function AdminDashboard() {
         }
     };
 
+    const reject = async (id: number) => {
+        const res = await fetch(`/api/admin/data-exports/${id}/reject`, { method: 'POST' });
+        if (res.ok) {
+            setExports(exports.map(e => e.id === id ? {...e, status: 'REJECTED'} : e));
+            toast.success('Rejected');
+        } else {
+            toast.error('Failed to reject');
+        }
+    };
+
     return (
         <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm">
             <h2 className="text-2xl font-bold mb-6">Data Export Requests</h2>
@@ -90,7 +100,10 @@ export default function AdminDashboard() {
                             <td className="py-4 text-xs font-black">{e.status}</td>
                             <td className="py-4">
                                 {e.status === 'PENDING_REVIEW' && (
-                                    <button onClick={() => approve(e.id)} className="bg-primary text-white p-2 rounded text-[10px] font-bold">Approve</button>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => approve(e.id)} className="bg-primary text-white p-2 rounded text-[10px] font-bold">Approve</button>
+                                        <button onClick={() => reject(e.id)} className="bg-red-500 text-white p-2 rounded text-[10px] font-bold">Reject</button>
+                                    </div>
                                 )}
                             </td>
                         </tr>
