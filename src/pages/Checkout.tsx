@@ -408,8 +408,8 @@ export default function Checkout() {
                                <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
                             </div>
                             {selectedAddressId === addr.id && (
-                              <div className="text-primary bg-white rounded-full p-1 shadow-sm">
-                                <CheckCircle2 size={24} />
+                              <div className="text-primary bg-primary/10 rounded-full p-1 shadow-sm">
+                                <CheckCircle2 size={20} />
                               </div>
                             )}
                           </div>
@@ -417,48 +417,48 @@ export default function Checkout() {
                       ))}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Full Name</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Full Name</label>
                         <input 
                           type="text" 
-                          className="input-field" 
+                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                           value={addressData.name}
                           onChange={(e) => setAddressData({...addressData, name: e.target.value})}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Phone Number</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
                         <input 
                           type="text" 
-                          className="input-field" 
+                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                           value={addressData.phone}
                           onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
                         />
                       </div>
-                      <div className="md:col-span-2 space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Street Address</label>
+                      <div className="md:col-span-2 space-y-1">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Street Address</label>
                         <textarea 
-                          className="input-field min-h-[100px]" 
+                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[100px]"
                           value={addressData.address}
                           onChange={(e) => setAddressData({...addressData, address: e.target.value})}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">City</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">City</label>
                         <input 
                           type="text" 
-                          className="input-field" 
+                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                           value={addressData.city}
                           onChange={(e) => setAddressData({...addressData, city: e.target.value})}
                         />
                       </div>
-                      <div className="space-y-2 col-span-2 md:col-span-1">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Postcode</label>
+                      <div className="space-y-1 col-span-2 md:col-span-1">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Postcode</label>
                         <div className="relative">
                           <input 
                             type="text" 
-                            className="input-field pr-10" 
+                            className="w-full px-4 py-3 pr-12 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                             value={addressData.pin_code}
                             placeholder="6 digit PIN"
                             onChange={async (e) => {
@@ -515,17 +515,17 @@ export default function Checkout() {
                                 );
                               }
                             }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-xl hover:bg-primary/20 transition-all"
                             title="Use My Current Location"
                           >
                             <MapPin size={16} />
                           </button>
                         </div>
                       </div>
-                      <div className="col-span-2 space-y-2">
-                        <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">Delivery Area</label>
+                      <div className="col-span-2 space-y-1">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Delivery Area</label>
                         <select 
-                          className="input-field" 
+                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
                           value={addressData.delivery_area}
                           onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
                         >
@@ -573,15 +573,15 @@ export default function Checkout() {
                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
                     <h2 className="text-2xl font-bold">Select Payment Method</h2>
                     
-                    <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-1 gap-3">
                       {/* UPI QR - Recommended */}
                       <div className="relative group">
                         <button 
                           onClick={() => { isLoggedIn && setSelectedPaymentMethod('upi'); isLoggedIn && setStep('review'); }}
                           disabled={isProcessing || !isLoggedIn}
                           className={cn(
-                            "w-full p-6 rounded-2xl border-2 transition-all flex items-center justify-between",
-                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5"
+                            "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
+                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
                           )}
                         >
                           <div className="flex items-center space-x-4">
@@ -589,14 +589,14 @@ export default function Checkout() {
                               "p-3 rounded-xl transition-colors",
                               !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-primary group-hover:text-white"
                             )}>
-                              <CreditCard size={24} />
+                              <CreditCard size={20} />
                             </div>
                             <div className="text-left">
-                              <p className="font-bold">UPI QR Automation</p>
-                              <p className="text-xs text-stone-500">Fast auto-verification via UPI Note</p>
+                              <p className="font-bold text-stone-800">UPI QR Automation</p>
+                              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Fast auto-verification via UPI Note</p>
                             </div>
                           </div>
-                          <ArrowRight size={18} className="text-stone-300 group-hover:text-primary" />
+                          <ArrowRight size={16} className="text-stone-300 group-hover:text-primary" />
                         </button>
                         {!isLoggedIn && (
                           <div className="mt-2 flex items-center justify-between px-2">
@@ -617,35 +617,35 @@ export default function Checkout() {
                           onClick={() => { isLoggedIn && setSelectedPaymentMethod('wallet'); isLoggedIn && setStep('review'); }}
                           disabled={isProcessing || !isLoggedIn || (user?.wallet_balance || 0) < total}
                           className={cn(
-                            "w-full p-6 rounded-3xl border-2 transition-all flex items-center justify-between",
-                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5",
+                            "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
+                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 active:scale-[0.98]",
                             isLoggedIn && (user?.wallet_balance || 0) < total && "opacity-50 cursor-not-allowed"
                           )}
                         >
                           <div className="flex items-center space-x-4">
                             <div className={cn(
-                              "p-4 rounded-2xl transition-colors",
+                              "p-3 rounded-xl transition-colors",
                               !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-primary group-hover:text-white"
                             )}>
-                              <Wallet size={24} />
+                              <Wallet size={20} />
                             </div>
                             <div className="text-left">
-                              <p className="font-bold text-stone-900">Store Wallet</p>
+                              <p className="font-bold text-stone-800">Store Wallet</p>
                               {isLoggedIn ? (
                                 <div className="mt-1 flex items-center">
                                   <span className={cn(
-                                    "px-2 py-0.5 rounded-full text-[10px] font-black uppercase border",
+                                    "px-2 py-0.5 rounded-full text-[9px] font-black uppercase border",
                                     (user?.wallet_balance || 0) < total ? "bg-red-50 text-red-600 border-red-100" : "bg-emerald-50 text-emerald-600 border-emerald-100"
                                   )}>
                                     Balance: ₹{user?.wallet_balance || 0}
                                   </span>
                                 </div>
                               ) : (
-                                <p className="text-xs text-stone-500">Login to access your wallet</p>
+                                <p className="text-[10px] text-stone-500 uppercase tracking-widest font-bold">Login to access wallet</p>
                               )}
                             </div>
                           </div>
-                          {isProcessing ? <Loader2 size={18} className="animate-spin text-primary" /> : <ArrowRight size={18} className="text-stone-300 group-hover:text-primary" />}
+                          {isProcessing ? <Loader2 size={16} className="animate-spin text-primary" /> : <ArrowRight size={16} className="text-stone-300 group-hover:text-primary" />}
                         </button>
                       </div>
 
@@ -656,35 +656,35 @@ export default function Checkout() {
                             onClick={() => { isLoggedIn && setSelectedPaymentMethod('khata'); isLoggedIn && setStep('review'); }}
                             disabled={isProcessing || !isLoggedIn || (user?.khata_balance || 0) + total > (user?.credit_limit || 0)}
                             className={cn(
-                              "w-full p-6 rounded-3xl border-2 transition-all flex items-center justify-between",
-                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-blue-500 hover:bg-blue-50/50",
+                              "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
+                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-blue-500 hover:bg-blue-50/50 active:scale-[0.98]",
                               isLoggedIn && (user?.khata_balance || 0) + total > (user?.credit_limit || 0) && "opacity-50 cursor-not-allowed"
                             )}
                           >
                             <div className="flex items-center space-x-4">
                               <div className={cn(
-                                "p-4 rounded-2xl transition-colors",
+                                "p-3 rounded-xl transition-colors",
                                 !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-blue-500 group-hover:text-white"
                               )}>
-                                <Clock size={24} />
+                                <Clock size={20} />
                               </div>
                               <div className="text-left">
-                                <p className="font-bold text-stone-900">Khata (Credit Line)</p>
+                                <p className="font-bold text-stone-800">Khata (Credit Line)</p>
                                 {isLoggedIn ? (
                                   <div className="mt-1 flex flex-wrap gap-2">
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
                                       Limit: ₹{user?.credit_limit || 0}
                                     </span>
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-stone-50 text-stone-500 border border-stone-200">
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-stone-50 text-stone-500 border border-stone-200">
                                       Used: ₹{user?.khata_balance || 0}
                                     </span>
                                   </div>
                                 ) : (
-                                  <p className="text-xs text-stone-500">Login to view credit limit</p>
+                                  <p className="text-[10px] text-stone-500 uppercase tracking-widest font-bold">Login for credit</p>
                                 )}
                               </div>
                             </div>
-                            <ArrowRight size={18} className={cn("text-stone-300", isLoggedIn && "group-hover:text-blue-500")} />
+                            <ArrowRight size={16} className={cn("text-stone-300", isLoggedIn && "group-hover:text-blue-500")} />
                           </button>
                         </div>
                       )}
@@ -693,18 +693,18 @@ export default function Checkout() {
                       <button 
                         onClick={() => { setSelectedPaymentMethod('cod'); setStep('review'); }}
                         disabled={isProcessing}
-                        className="w-full p-6 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group"
+                        className="w-full p-5 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group active:scale-[0.98]"
                       >
                         <div className="flex items-center space-x-4">
                           <div className="p-3 rounded-xl bg-stone-100 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                            <Truck size={24} />
+                            <Truck size={20} />
                           </div>
                           <div className="text-left">
-                            <p className="font-bold">Cash on Delivery</p>
-                            <p className="text-xs text-stone-500">Pay at your doorstep</p>
+                            <p className="font-bold text-stone-800">Cash on Delivery</p>
+                            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Pay at your doorstep</p>
                           </div>
                         </div>
-                        <ArrowRight size={18} className="text-stone-300 group-hover:text-emerald-500" />
+                        <ArrowRight size={16} className="text-stone-300 group-hover:text-emerald-500" />
                       </button>
                     </div>
 
