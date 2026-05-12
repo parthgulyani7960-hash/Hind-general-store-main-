@@ -80,30 +80,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
-          // User logged in via Firebase
-          checkAuth();
+          try {
+            const token = await firebaseUser.getIdToken();
+            localStorage.setItem('hgs_token', token);
+            checkAuth(token);
+          } catch (e) {
+            console.error('Failed to get Firebase ID token', e);
+            checkAuth();
+          }
         } else {
           // User logged out
           setUser(null);
+          localStorage.removeItem('hgs_token');
+          localStorage.removeItem('hgs_user');
         }
     });
     return unsubscribe;
   }, []);
 
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
   useEffect(() => {
-    checkAuth();
+    const initAuth = async () => {
+        await checkAuth();
+        setIsAuthChecking(false);
+    };
+    initAuth();
     checkMaintenance();
   }, []);
 
   useEffect(() => {
-    if (user) {
+    if (user && !isAuthChecking) {
       fetchAlerts();
       const interval = setInterval(fetchAlerts, 15000);
       return () => clearInterval(interval);
     }
-  }, [user]);
+  }, [user, isAuthChecking]);
 
   const fetchAlerts = async () => {
     if (!user) return;
@@ -131,15 +145,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {}
   };
 
-  const checkAuth = async () => {
+  const checkAuth = async (fbToken?: string) => {
     try {
-      const res = await fetch('/api/auth/me');
+      const headers: any = { 'Content-Type': 'application/json' };
+      const token = fbToken || localStorage.getItem('hgs_token');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch('/api/auth/me', { headers });
       if (res.ok) {
         const data = await res.json();
-        if (data.token) localStorage.setItem('hgs_token', data.token);
+        // Don't overwrite hgs_token with server's custom token if we're using Firebase tokens
+        // if (data.token) localStorage.setItem('hgs_token', data.token);
         setUser(data.user);
+        localStorage.setItem('hgs_user', JSON.stringify(data.user));
       } else {
-        // If session is invalid, clear local user
+        // If session is invalid and no token worked, clear local user
         setUser(null);
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
@@ -152,7 +174,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = async () => {
     if (!user) return;
     try {
-      const res = await fetch('/api/user/profile');
+      const res = await fetch('/api/user/profile', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setUser(data);
@@ -167,7 +189,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch('/api/user/update-profile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ...data, id: user.id })
       });
       const result = await res.json();
@@ -222,7 +244,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
         await fetch('/api/cart/sync', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify({ userId: user.id, items: cartItems })
         });
     } catch (err) {
@@ -330,7 +352,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     setLoadingAddresses(true);
     try {
-      const res = await fetch('/api/user/addresses');
+      const res = await fetch('/api/user/addresses', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setAddresses(data);
@@ -346,7 +368,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch('/api/user/addresses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(address)
       });
       const data = await res.json();
@@ -363,7 +385,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const deleteAddress = async (id: number) => {
     try {
-      const res = await fetch(`/api/user/addresses/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/user/addresses/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) {
         toast.success(data.message);
@@ -376,7 +398,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setDefaultAddress = async (id: number) => {
     try {
-      const res = await fetch(`/api/user/addresses/${id}/default`, { method: 'POST' });
+      const res = await fetch(`/api/user/addresses/${id}/default`, { method: 'POST', headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) {
         toast.success(data.message);
@@ -689,7 +711,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch('/api/audit/log', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ userId: user?.id, type, details, severity })
       });
     } catch (err) {

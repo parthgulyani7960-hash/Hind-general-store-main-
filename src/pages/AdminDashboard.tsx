@@ -23,6 +23,7 @@ import {
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { cn, Order } from '../types';
+import { getAuthHeaders } from '../lib/utils';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import FeatureToggles from '../components/admin/FeatureToggles';
@@ -240,7 +241,7 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/admin/stats');
+      const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
       if (!res.ok) throw new Error(`Stats failure: ${res.status}`);
       const data = await res.json();
       setStats(data || {});
@@ -275,7 +276,7 @@ export default function AdminDashboard() {
       params.append('sortBy', orderSortBy);
       params.append('sortOrder', orderSortOrder);
       
-      const res = await fetch(`/api/admin/orders?${params.toString()}`);
+      const res = await fetch(`/api/admin/orders?${params.toString()}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || `Failed to fetch orders: ${res.status}`);
@@ -388,6 +389,22 @@ export default function AdminDashboard() {
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [reviewResponseModal, setReviewResponseModal] = useState<{ open: boolean; review: any }>({ open: false, review: null });
+  const fetchExpenses = async () => {
+    try {
+      const res = await fetch('/api/admin/expenses', { headers: getAuthHeaders() });
+      if (res.ok) {
+        setExpenses(await res.json());
+      }
+    } catch (err) {
+      console.error('Failed to fetch expenses');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'Expenses') fetchExpenses();
+    if (activeTab === 'Support Tickets') fetchTickets();
+    if (activeTab === 'Suspicious Activities') fetchSuspiciousActivities();
+  }, [activeTab]);
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
   const [promotionRules, setPromotionRules] = useState<any[]>([]);
@@ -500,7 +517,7 @@ export default function AdminDashboard() {
 
   const fetchRunners = async () => {
     try {
-      const res = await fetch('/api/admin/runners');
+      const res = await fetch('/api/admin/runners', { headers: getAuthHeaders() });
       const data = await res.json();
       setRunners(data);
     } catch (err) {
@@ -511,7 +528,7 @@ export default function AdminDashboard() {
   const fetchAuditLogs = async (target_type = 'all', limit = 100) => {
     setIsFetchingAudit(true);
     try {
-      const res = await fetch(`/api/admin/audit-logs?target_type=${target_type}&limit=${limit}`);
+      const res = await fetch(`/api/admin/audit-logs?target_type=${target_type}&limit=${limit}`, { headers: getAuthHeaders() });
       const data = await res.json();
       setAuditLogs(data);
     } catch (err) {
@@ -523,7 +540,7 @@ export default function AdminDashboard() {
 
   const fetchSuspiciousActivities = async () => {
     try {
-      const res = await fetch('/api/admin/suspicious-activities');
+      const res = await fetch('/api/admin/suspicious-activities', { headers: getAuthHeaders() });
       const data = await res.json();
       setSuspiciousActivities(data);
     } catch (err) {
@@ -644,16 +661,6 @@ export default function AdminDashboard() {
   const [supplierModal, setSupplierModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', supplier: null as any });
   const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', email: '', phone: '', address: '' });
   const [returns, setReturns] = useState<any[]>([]);
-  const [promotionalRules, setPromotionalRules] = useState<any[]>([]);
-
-  const fetchPromotionalRules = async () => {
-    try {
-      const res = await fetch('/api/admin/promotional-rules');
-      if (res.ok) setPromotionalRules(await res.json());
-    } catch (err) {
-      console.error('Failed to fetch promotional rules', err);
-    }
-  };
 
   const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as any });
   const [newPromotionRule, setNewPromotionRule] = useState({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
@@ -665,12 +672,12 @@ export default function AdminDashboard() {
       const method = promotionRuleFormModal.mode === 'add' ? 'POST' : 'PUT';
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newPromotionRule)
       });
       if (res.ok) {
         toast.success(promotionRuleFormModal.mode === 'add' ? 'Rule created' : 'Rule updated');
-        fetchPromotionalRules();
+        fetchPromotionRules();
         setPromotionRuleFormModal({ open: false, mode: 'add', rule: null });
       } else {
         const data = await res.json();
@@ -688,7 +695,7 @@ export default function AdminDashboard() {
       const res = await fetch(`/api/admin/promotional-rules/${id}`, { method: 'DELETE' });
       if (res.ok) {
         toast.success('Rule deleted');
-        fetchPromotionalRules();
+        fetchPromotionRules();
       } else {
         toast.error('Failed to delete rule');
       }
@@ -740,7 +747,7 @@ export default function AdminDashboard() {
 
   const fetchSuppliers = async () => {
     try {
-      const res = await fetch('/api/admin/suppliers');
+      const res = await fetch('/api/admin/suppliers', { headers: getAuthHeaders() });
       const data = await res.json();
       setSuppliers(data);
     } catch (err) {
@@ -808,7 +815,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (activeTab === 'Promotional Rules') {
-      fetchPromotionalRules();
+      fetchPromotionRules();
     }
   }, [activeTab]);
 
@@ -884,7 +891,7 @@ export default function AdminDashboard() {
 
       setIsGlobalSearching(true);
       try {
-        const res = await fetch(`/api/admin/search?q=${encodeURIComponent(debouncedGlobalSearchQuery)}`);
+        const res = await fetch(`/api/admin/search?q=${encodeURIComponent(debouncedGlobalSearchQuery)}`, { headers: getAuthHeaders() });
         const data = await res.json();
         setGlobalSearchResults(data);
       } catch (err) {
@@ -899,7 +906,7 @@ export default function AdminDashboard() {
 
   const fetchCustomerOrders = async (userId: number) => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}/orders`);
+      const res = await fetch(`/api/admin/users/${userId}/orders`, { headers: getAuthHeaders() });
       const data = await res.json();
       setCustomerHistoryModal({ open: true, userId, orders: data });
     } catch (err) {
@@ -911,7 +918,7 @@ export default function AdminDashboard() {
 
   const fetchPromotionProducts = async (promoId: number) => {
     try {
-      const res = await fetch(`/api/admin/promotions/${promoId}/products`);
+      const res = await fetch(`/api/admin/promotions/${promoId}/products`, { headers: getAuthHeaders() });
       const data = await res.json();
       setLinkedProductIds(data.map((p: any) => p.id));
     } catch (err) {
@@ -1579,7 +1586,7 @@ export default function AdminDashboard() {
       const res = await fetch(`/api/admin/promotional-rules/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete rule');
       toast.success('Discount rule deleted');
-      fetchPromotionalRules();
+      fetchPromotionRules();
     } catch (err: any) {
       handleAppError(err, 'Failed to delete rule', 'deletePromotionRule', true);
     }
@@ -7966,7 +7973,7 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100">
-                      {promotionalRules.map((rule) => (
+                      {promotionRules.map((rule) => (
                         <tr key={rule.id} className="hover:bg-stone-50 transition-colors">
                           <td className="p-4">
                             <span className={cn(

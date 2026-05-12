@@ -16,18 +16,29 @@ import { google } from 'googleapis';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Firebase Admin synchronously
+// Initialize Firebase Admin
 try {
-  const firebaseConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  if (fs.existsSync(firebaseConfigPath)) {
-    const config = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: config.projectId
-      });
-      console.log('Firebase Admin initialized synchronously with projectId:', config.projectId);
-    }
-  }
+   const configPaths = [
+     path.join(process.cwd(), 'firebase-applet-config.json'),
+     path.join(__dirname, 'firebase-applet-config.json')
+   ];
+   
+   let config: any = null;
+   for (const p of configPaths) {
+     if (fs.existsSync(p)) {
+       config = JSON.parse(fs.readFileSync(p, 'utf8'));
+       break;
+     }
+   }
+
+   if (config && !admin.apps.length) {
+     admin.initializeApp({
+       projectId: config.projectId
+     });
+     console.log('Firebase Admin initialized with projectId:', config.projectId);
+   } else if (!config) {
+     console.warn('Firebase config file NOT found in:', configPaths);
+   }
 } catch (e) {
   console.error('Failed to initialize Firebase Admin:', e);
 }
@@ -1038,21 +1049,39 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
         const email = decodedToken.email;
         
         // Find user by email
-        const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+        let user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+        
+        // If user doesn't exist in this instance's DB (common on Vercel/serverless)
+        // we might want to create them if the token is valid.
+        if (!user && decodedToken.uid) {
+            console.log(`[AUTH] Creating missing user record for verified token: ${email}`);
+            try {
+              db.prepare('INSERT INTO users (email, name, role) VALUES (?, ?, ?)').run(
+                email, 
+                decodedToken.name || email.split('@')[0], 
+                'customer'
+              );
+              user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email);
+            } catch (insertErr) {
+              console.error('Failed to auto-create user in requireAuth', insertErr);
+            }
+        }
+
         if (user) {
             req.session.userId = user.id;
             req.session.role = user.role;
             return next();
         } else {
-            console.warn(`[AUTH FAIL] User not found for email: ${email}`);
+            console.warn(`[AUTH FAIL] User record still not found for email: ${email}`);
         }
-    } catch (e) {
-        console.error('Invalid Firebase token in Authorization header', e);
+    } catch (e: any) {
+        console.warn(`[AUTH] Firebase token verification failed for ${req.path}: ${e.message}`);
     }
   }
 
-  console.warn(`[AUTH FAIL] Path: ${req.path}, IP: ${req.ip}, User-Agent: ${req.headers['user-agent']}`);
-  return res.status(401).json({ success: false, message: 'Authentication required' });
+  const failMsg = `[AUTH FAIL] Path: ${req.path}, IP: ${req.ip}, AuthHeader: ${authHeader ? 'Present' : 'Missing'}`;
+  console.warn(failMsg);
+  return res.status(401).json({ success: false, message: 'Authentication required', debug: process.env.NODE_ENV === 'development' ? failMsg : undefined });
 };
 
 const requireAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -1063,7 +1092,22 @@ const requireAdmin = async (req: express.Request, res: express.Response, next: e
         try {
             const decodedToken = await admin.auth().verifyIdToken(token);
             const email = decodedToken.email;
-            const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+            let user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+            
+            // Auto-create user if missing in this instance
+            if (!user && decodedToken.uid) {
+                try {
+                  db.prepare('INSERT INTO users (email, name, role) VALUES (?, ?, ?)').run(
+                    email, 
+                    decodedToken.name || email.split('@')[0], 
+                    'customer'
+                  );
+                  user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email);
+                } catch (insertErr) {
+                  console.error('Failed to auto-create user in requireAdmin', insertErr);
+                }
+            }
+
             if (user) {
                 req.session.userId = user.id;
                 req.session.role = user.role;
@@ -1075,25 +1119,25 @@ const requireAdmin = async (req: express.Request, res: express.Response, next: e
   }
 
   if (!req.session.userId) {
-    console.warn(`[AUTH] Admin access denied: No session userId. IP: ${req.ip}`);
+    console.warn(`[AUTH FAIL] Admin access denied: No valid session or token. Path: ${req.path}, IP: ${req.ip}`);
     return res.status(401).json({ success: false, message: 'Authentication required' });
   }
 
-  // If session role is admin, we're good
-  if (req.session.role === 'admin') {
+  const role = req.session.role;
+  if (role === 'admin' || role === 'owner' || role === 'manager') {
     return next();
   }
 
   // If session role is not admin, double check the database in case it was updated
   try {
-    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId) as any;
-    if (user && user.role === 'admin') {
+    const userRow = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId) as any;
+    if (userRow && (userRow.role === 'admin' || userRow.role === 'owner' || userRow.role === 'manager')) {
       console.log(`[AUTH] Auto-repairing admin session for user ${req.session.userId}`);
-      req.session.role = 'admin';
+      req.session.role = userRow.role;
       return next();
     }
     
-    console.warn(`[AUTH] Admin access denied: User ${req.session.userId} has role ${user?.role || 'unknown'}. IP: ${req.ip}`);
+    console.warn(`[AUTH] Admin access denied: User ${req.session.userId} has role ${userRow?.role || 'unknown'}. Path: ${req.path}`);
     logSuspicious(req.session.userId as number, 'UNAUTHORIZED_ADMIN_ACCESS', `User attempted to access admin route ${req.path}`, req.ip);
     return res.status(403).json({ success: false, message: 'Admin access required' });
   } catch (err) {
@@ -3331,7 +3375,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const tickets = db.prepare(`
       SELECT t.*, u.name as user_name, u.phone as user_phone 
       FROM support_tickets t 
-      JOIN users u ON t.user_id = u.id 
+      LEFT JOIN users u ON t.user_id = u.id 
       ORDER BY t.created_at DESC
     `).all();
     res.json(tickets);
