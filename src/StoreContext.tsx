@@ -2,8 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
-import { onAuthStateChanged } from 'firebase/auth'; // Import this
-import { auth, signOutUser } from './firebase'; // Import auth
+import { auth, signOutUser, onAuthStateChanged } from './firebase'; // Import from local firebase.ts
 import { getAuthHeaders } from './lib/utils';
 
 interface StoreContextType {
@@ -778,19 +777,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const totalEligibleQty = eligibleItems.reduce((acc, item) => acc + item.quantity, 0);
 
       if (promo.type === 'percentage') {
-        if (!promo.min_qty || totalEligibleQty >= promo.min_qty) {
+        if (!promo.condition_qty || totalEligibleQty >= promo.condition_qty) {
           eligibleItems.forEach(item => {
-            totalDiscount += (item.price * item.quantity * promo.value) / 100;
+            totalDiscount += (item.price * item.quantity * promo.discount_value) / 100;
           });
         }
       } else if (promo.type === 'fixed') {
-        if (!promo.min_qty || totalEligibleQty >= promo.min_qty) {
-          totalDiscount += promo.value; 
+        if (!promo.condition_qty || totalEligibleQty >= promo.condition_qty) {
+          totalDiscount += promo.discount_value; 
         }
       } else if (promo.type === 'bogo') {
           eligibleItems.forEach(item => {
-             if (item.quantity >= (promo.min_qty || 2)) {
-                 const freeItems = Math.floor(item.quantity / (promo.min_qty || 2)) * (promo.value || 1);
+             if (item.quantity >= (promo.condition_qty || 2)) {
+                 const freeItems = Math.floor(item.quantity / (promo.condition_qty || 2)) * (promo.reward_qty || 1);
                  totalDiscount += freeItems * item.price;
              }
           });

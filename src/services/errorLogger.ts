@@ -1,5 +1,4 @@
-import { db, auth } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth, collection, addDoc, serverTimestamp } from '../firebase';
 
 const ERROR_QUEUE_KEY = 'admin_error_queue';
 

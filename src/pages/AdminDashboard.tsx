@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
-import { cn, Order } from '../types';
+import { cn, Order, PromotionRule } from '../types';
 import { getAuthHeaders } from '../lib/utils';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -254,7 +254,7 @@ export default function AdminDashboard() {
 
   const fetchExpiringProducts = async () => {
     try {
-      const res = await fetch('/api/admin/inventory/expiring');
+      const res = await fetch('/api/admin/inventory/expiring', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setExpiringSoon(data);
@@ -292,7 +292,7 @@ export default function AdminDashboard() {
 
   const fetchReturns = async () => {
     try {
-        const res = await fetch('/api/admin/returns');
+        const res = await fetch('/api/admin/returns', { headers: getAuthHeaders() });
         if (!res.ok) throw new Error('Failed to fetch returns');
         setReturns(await res.json());
     } catch (err: any) {
@@ -407,7 +407,6 @@ export default function AdminDashboard() {
   }, [activeTab]);
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
-  const [promotionRules, setPromotionRules] = useState<any[]>([]);
 
   const [promotionModal, setPromotionModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
   const [promotionProductsModal, setPromotionProductsModal] = useState({ open: false, promotionId: null as number | null });
@@ -612,7 +611,7 @@ export default function AdminDashboard() {
 
   const fetchWalletRequests = async () => {
     try {
-      const res = await fetch('/api/admin/wallet/requests');
+      const res = await fetch('/api/admin/wallet/requests', { headers: getAuthHeaders() });
       const data = await res.json();
       setWalletRequests(data);
     } catch (err) {
@@ -662,46 +661,49 @@ export default function AdminDashboard() {
   const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', email: '', phone: '', address: '' });
   const [returns, setReturns] = useState<any[]>([]);
 
-  const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as any });
-  const [newPromotionRule, setNewPromotionRule] = useState({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+  const [promotionRules, setPromotionRules] = useState<PromotionRule[]>([]);
+  const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as PromotionRule | null });
+  const [newPromotionRuleData, setNewPromotionRuleData] = useState<Partial<PromotionRule>>({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
 
   const handlePromotionRuleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const url = promotionRuleFormModal.mode === 'add' ? '/api/admin/promotional-rules' : `/api/admin/promotional-rules/${promotionRuleFormModal.rule.id}`;
+      const url = promotionRuleFormModal.mode === 'add' ? '/api/admin/promotional-rules' : `/api/admin/promotional-rules/${promotionRuleFormModal.rule?.id}`;
       const method = promotionRuleFormModal.mode === 'add' ? 'POST' : 'PUT';
       const res = await fetch(url, {
         method,
         headers: getAuthHeaders(),
-        body: JSON.stringify(newPromotionRule)
+        body: JSON.stringify(newPromotionRuleData)
       });
       if (res.ok) {
         toast.success(promotionRuleFormModal.mode === 'add' ? 'Rule created' : 'Rule updated');
         fetchPromotionRules();
         setPromotionRuleFormModal({ open: false, mode: 'add', rule: null });
+        setNewPromotionRuleData({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
       } else {
         const data = await res.json();
         toast.error(data.message || 'Failed to save rule');
       }
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to save rule');
+    } catch (err: any) {
+      handleAppError(err, 'Failed to save rule', 'promotionRuleSubmit', true);
     }
   };
 
   const handleDeleteRule = async (id: number) => {
     if (!confirm('Are you sure you want to delete this rule?')) return;
     try {
-      const res = await fetch(`/api/admin/promotional-rules/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/promotional-rules/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         toast.success('Rule deleted');
         fetchPromotionRules();
       } else {
         toast.error('Failed to delete rule');
       }
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to delete rule');
+    } catch (err: any) {
+      handleAppError(err, 'Failed to delete rule', 'deleteRule', true);
     }
   };
 
@@ -1062,7 +1064,7 @@ export default function AdminDashboard() {
   const fetchSystemLogs = async () => {
     setIsRefreshingLogs(true);
     try {
-      const res = await fetch('/api/admin/system-logs');
+      const res = await fetch('/api/admin/system-logs', { headers: getAuthHeaders() });
       const data = await res.json();
       setSystemLogs(data);
     } catch (err) {
@@ -1074,7 +1076,10 @@ export default function AdminDashboard() {
 
   const resolveSuspiciousActivity = async (id: number) => {
     try {
-      await fetch(`/api/admin/suspicious-activities/${id}/resolve`, { method: 'POST' });
+      await fetch(`/api/admin/suspicious-activities/${id}/resolve`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       toast.success('Activity resolved');
       fetchSuspiciousActivities();
     } catch (err) {
@@ -1086,7 +1091,7 @@ export default function AdminDashboard() {
 
   const fetchBugReports = async () => {
     try {
-      const res = await fetch('/api/admin/bugs');
+      const res = await fetch('/api/admin/bugs', { headers: getAuthHeaders() });
       if (!res.ok) throw new Error('Failed to fetch bugs');
       const data = await res.json();
       setBugReports(data);
@@ -1109,13 +1114,13 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   const fetchConfig = async () => {
-    const res = await fetch('/api/admin/config');
+    const res = await fetch('/api/admin/config', { headers: getAuthHeaders() });
     const data = await res.json();
     setConfig(data);
   };
 
   const fetchUsers = async () => {
-    const res = await fetch('/api/admin/users');
+    const res = await fetch('/api/admin/users', { headers: getAuthHeaders() });
     const data = await res.json();
     setUsers(data);
   };
@@ -1144,13 +1149,13 @@ export default function AdminDashboard() {
   };
 
   const fetchTickets = async () => {
-    const res = await fetch('/api/admin/support/tickets');
+    const res = await fetch('/api/admin/support/tickets', { headers: getAuthHeaders() });
     const data = await res.json();
     setTickets(data);
   };
 
   const fetchNewsletter = async () => {
-    const res = await fetch('/api/admin/newsletter');
+    const res = await fetch('/api/admin/newsletter', { headers: getAuthHeaders() });
     const data = await res.json();
     setNewsletter(data);
   };
@@ -1190,11 +1195,14 @@ export default function AdminDashboard() {
 
   const fetchPromotionRules = async () => {
     try {
-      const res = await fetch('/api/promotions-rules');
+      const res = await fetch('/api/admin/promotional-rules', {
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) throw new Error('Failed to fetch promotion rules');
       const data = await res.json();
       setPromotionRules(data);
-    } catch (err) {
-      console.error('Promotion Rules fetch error:', err);
+    } catch (err: any) {
+      handleAppError(err, 'Failed to fetch promotion rules', 'fetchPromotionRules');
     }
   };
 
@@ -1394,8 +1402,8 @@ export default function AdminDashboard() {
       if (analyticsSegment !== 'all') params.append('segment', analyticsSegment);
       
       const [res, salesRes] = await Promise.all([
-        fetch(`/api/admin/analytics?${params.toString()}`),
-        fetch('/api/admin/sales-analytics')
+        fetch(`/api/admin/analytics?${params.toString()}`, { headers: getAuthHeaders() }),
+        fetch('/api/admin/sales-analytics', { headers: getAuthHeaders() })
       ]);
       const data = await res.json();
       const salesData = await salesRes.json();
@@ -1423,37 +1431,33 @@ export default function AdminDashboard() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const fetchJSON = (url: string) => fetch(url).then(r => {
-          if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
-          return r.json();
-        }).catch(err => {
-          console.error(`Fetch failed for ${url}:`, err);
-          return null;
-        });
-
         const [statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes, expiringRes] = await Promise.all([
-          fetchJSON('/api/admin/stats'),
-          fetchJSON('/api/admin/orders'),
-          fetchJSON('/api/admin/config'),
-          fetchJSON('/api/admin/users'),
-          fetchJSON('/api/products'),
-          fetchJSON('/api/categories'),
-          fetchJSON('/api/admin/inventory/expiring')
+          fetch('/api/admin/stats', { headers: getAuthHeaders() }),
+          fetch('/api/admin/orders', { headers: getAuthHeaders() }),
+          fetch('/api/admin/config', { headers: getAuthHeaders() }),
+          fetch('/api/admin/users', { headers: getAuthHeaders() }),
+          fetch('/api/products', { headers: getAuthHeaders() }),
+          fetch('/api/categories', { headers: getAuthHeaders() }),
+          fetch('/api/admin/inventory/expiring', { headers: getAuthHeaders() })
         ]);
 
-        setStats(statsRes || {});
-        setOrders(ordersRes || []);
-        setConfig(configRes || []);
-        setUsers(usersRes || []);
-        if (productsRes) {
-          setAllProducts(productsRes);
-          setLowStockProducts(productsRes.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-        } else {
-          setAllProducts([]);
-          setLowStockProducts([]);
-        }
-        setCategories(categoriesRes || []);
-        setExpiringSoon(expiringRes || []);
+        const statsData = statsRes.ok ? await statsRes.json() : {};
+        const ordersData = ordersRes.ok ? await ordersRes.json() : [];
+        const configData = configRes.ok ? await configRes.json() : [];
+        const usersData = usersRes.ok ? await usersRes.json() : [];
+        const productsData = productsRes.ok ? await productsRes.json() : [];
+        const categoriesData = categoriesRes.ok ? await categoriesRes.json() : [];
+        const expiringData = expiringRes.ok ? await expiringRes.json() : [];
+
+        setStats(statsData);
+        setOrders(ordersData);
+        setConfig(configData);
+        setUsers(usersData);
+        setAllProducts(productsData);
+        setLowStockProducts(productsData.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+        setCategories(categoriesData);
+        setExpiringSoon(expiringData);
+
       } catch (err) {
         console.error('Failed to load initial admin data', err);
       } finally {
@@ -1580,22 +1584,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeletePromotionRule = async (id: number) => {
-    if (!window.confirm('Delete this rule?')) return;
-    try {
-      const res = await fetch(`/api/admin/promotional-rules/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete rule');
-      toast.success('Discount rule deleted');
-      fetchPromotionRules();
-    } catch (err: any) {
-      handleAppError(err, 'Failed to delete rule', 'deletePromotionRule', true);
-    }
-  };
-
-
   const togglePromotionRuleStatus = async (id: number) => {
     try {
-      const res = await fetch(`/api/admin/promotions-rules/${id}/toggle`, { method: 'POST' });
+      const res = await fetch(`/api/admin/promotional-rules/${id}/toggle`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       if (!res.ok) throw new Error('Failed to update rule status');
       toast.success('Rule status updated');
       fetchPromotionRules();
@@ -5974,7 +5968,7 @@ export default function AdminDashboard() {
                 </div>
                 <button 
                   onClick={() => {
-                    setNewPromotionRule({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
+                    setNewPromotionRuleData({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
                     setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
                   }}
                   className="bg-stone-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center space-x-2"
@@ -6009,18 +6003,18 @@ export default function AdminDashboard() {
                               {rule.active ? 'Active' : 'Paused'}
                             </span>
                           </td>
-                          <td className="p-4 font-bold max-w-[200px] truncate">{rule.name}</td>
+                          <td className="p-4 font-bold max-w-[200px] truncate">{rule.title}</td>
                           <td className="p-4 uppercase text-[10px] font-black text-stone-500 tracking-widest">{rule.type}</td>
                           <td className="p-4">
                             <span className="bg-stone-100 px-2 py-1 rounded text-xs font-bold text-stone-600">
                               {rule.target_type === 'all' ? 'Entire Store' : `${rule.target_type}: ${rule.target_id}`}
                             </span>
                           </td>
-                          <td className="p-4 font-bold">{rule.min_qty || 0}</td>
+                          <td className="p-4 font-bold">{rule.condition_qty || 0}</td>
                           <td className="p-4 font-bold text-emerald-600">
-                            {rule.type === 'percentage' && `${rule.value}%`}
-                            {rule.type === 'fixed' && `₹${rule.value}`}
-                            {rule.type === 'bogo' && `By ${rule.min_qty} Get ${rule.value}`}
+                            {rule.type === 'percentage' && `${rule.discount_value}%`}
+                            {rule.type === 'fixed' && `₹${rule.discount_value}`}
+                            {rule.type === 'bogo' && `By ${rule.condition_qty} Get ${rule.reward_qty}`}
                           </td>
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end space-x-2">
@@ -6036,13 +6030,14 @@ export default function AdminDashboard() {
                               </button>
                               <button 
                                 onClick={() => {
-                                  setNewPromotionRule({
-                                    title: rule.name,
+                                  setNewPromotionRuleData({
+                                    title: rule.title,
                                     type: rule.type,
                                     target_type: rule.target_type,
                                     target_id: rule.target_id || '',
-                                    condition_qty: rule.min_qty || 1,
-                                    discount_value: rule.value,
+                                    condition_qty: rule.condition_qty || 1,
+                                    reward_qty: rule.reward_qty || 1,
+                                    discount_value: rule.discount_value,
                                     active: rule.active
                                   });
                                   setPromotionRuleFormModal({ open: true, mode: 'edit', rule: rule });
@@ -6052,7 +6047,7 @@ export default function AdminDashboard() {
                                 <Settings size={16} />
                               </button>
                               <button 
-                                onClick={() => handleDeletePromotionRule(rule.id)}
+                                onClick={() => handleDeleteRule(rule.id)}
                                 className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
                               >
                                 <Trash2 size={16} />
@@ -7944,7 +7939,7 @@ export default function AdminDashboard() {
               </div>
               <button 
                 onClick={() => {
-                  setNewPromotionRule({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+                  setNewPromotionRuleData({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
                   setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
                 }}
                 className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:bg-stone-800 transition-all active:scale-95 group"
@@ -7999,7 +7994,7 @@ export default function AdminDashboard() {
                              <div className="flex justify-end space-x-2">
                                <button 
                                  onClick={() => {
-                                    setNewPromotionRule({ title: rule.title, type: rule.type, target_type: rule.target_type, target_id: rule.target_id, condition_qty: rule.condition_qty, reward_qty: rule.reward_qty, discount_value: rule.discount_value, active: rule.active });
+                                    setNewPromotionRuleData({ title: rule.title, type: rule.type, target_type: rule.target_type, target_id: rule.target_id, condition_qty: rule.condition_qty, reward_qty: rule.reward_qty, discount_value: rule.discount_value, active: rule.active });
                                     setPromotionRuleFormModal({ open: true, mode: 'edit', rule });
                                  }}
                                  className="text-primary hover:text-primary/80 font-bold"
@@ -9234,8 +9229,8 @@ export default function AdminDashboard() {
                   type="text" 
                   required
                   className="input-field"
-                  value={newPromotionRule.title}
-                  onChange={(e) => setNewPromotionRule({...newPromotionRule, title: e.target.value})}
+                  value={newPromotionRuleData.title}
+                  onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, title: e.target.value})}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -9243,8 +9238,8 @@ export default function AdminDashboard() {
                   <label className="block text-sm font-bold text-stone-700 mb-2">Discount Type</label>
                   <select 
                     className="input-field"
-                    value={newPromotionRule.type}
-                    onChange={(e) => setNewPromotionRule({...newPromotionRule, type: e.target.value})}
+                    value={newPromotionRuleData.type}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, type: e.target.value})}
                   >
                     <option value="percentage">Percentage OFF</option>
                     <option value="fixed">Fixed Amount OFF</option>
@@ -9252,14 +9247,14 @@ export default function AdminDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Discount Value {newPromotionRule.type === 'bogo' && '(Y)'}</label>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Discount Value {newPromotionRuleData.type === 'bogo' && '(Y)'}</label>
                   <input 
                     type="number" 
                     required
                     min="1"
                     className="input-field"
-                    value={newPromotionRule.discount_value}
-                    onChange={(e) => setNewPromotionRule({...newPromotionRule, discount_value: parseFloat(e.target.value)})}
+                    value={newPromotionRuleData.discount_value}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, discount_value: parseFloat(e.target.value)})}
                   />
                 </div>
               </div>
@@ -9268,8 +9263,8 @@ export default function AdminDashboard() {
                   <label className="block text-sm font-bold text-stone-700 mb-2">Target Scope</label>
                   <select 
                     className="input-field"
-                    value={newPromotionRule.target_type}
-                    onChange={(e) => setNewPromotionRule({...newPromotionRule, target_type: e.target.value})}
+                    value={newPromotionRuleData.target_type}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, target_type: e.target.value})}
                   >
                     <option value="all">Entire Store</option>
                     <option value="category">Specific Category</option>
@@ -9277,28 +9272,28 @@ export default function AdminDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Required Qty {newPromotionRule.type === 'bogo' && '(X)'}</label>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Required Qty {newPromotionRuleData.type === 'bogo' && '(X)'}</label>
                   <input 
                     type="number" 
                     required
                     min="1"
                     className="input-field"
-                    value={newPromotionRule.condition_qty}
-                    onChange={(e) => setNewPromotionRule({...newPromotionRule, condition_qty: parseInt(e.target.value)})}
+                    value={newPromotionRuleData.condition_qty}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, condition_qty: parseInt(e.target.value)})}
                   />
                 </div>
               </div>
               
-              {newPromotionRule.target_type !== 'all' && (
+              {newPromotionRuleData.target_type !== 'all' && (
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-2">Target Name / ID</label>
                   <input 
                     type="text" 
                     required
-                    placeholder={newPromotionRule.target_type === 'category' ? "e.g., Electronics" : "Product ID (e.g., 12)"}
+                    placeholder={newPromotionRuleData.target_type === 'category' ? "e.g., Electronics" : "Product ID (e.g., 12)"}
                     className="input-field"
-                    value={newPromotionRule.target_id}
-                    onChange={(e) => setNewPromotionRule({...newPromotionRule, target_id: e.target.value})}
+                    value={newPromotionRuleData.target_id}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, target_id: e.target.value})}
                   />
                 </div>
               )}
@@ -9308,8 +9303,8 @@ export default function AdminDashboard() {
                   type="checkbox" 
                   id="promorule_active"
                   className="w-5 h-5 rounded border-stone-300 text-primary focus:ring-primary"
-                  checked={newPromotionRule.active}
-                  onChange={(e) => setNewPromotionRule({...newPromotionRule, active: e.target.checked})}
+                  checked={newPromotionRuleData.active}
+                  onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, active: e.target.checked})}
                 />
                 <label htmlFor="promorule_active" className="text-sm font-bold text-stone-700">Active</label>
               </div>

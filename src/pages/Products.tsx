@@ -10,8 +10,7 @@ import { Product, cn } from '../types';
 import { useStore } from '../StoreContext';
 import { useDeviceType } from '../lib/device';
 import toast from 'react-hot-toast';
-import { db as fsDb, handleFirestoreError, OperationType } from '../firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where } from '../firebase';
 
 export default function Products() {
   const location = useLocation();

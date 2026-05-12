@@ -162,13 +162,14 @@ export interface Coupon {
 
 export interface PromotionRule {
   id: number;
-  name: string;
+  title: string;
   description?: string;
   type: 'bogo' | 'percentage' | 'fixed';
-  value: number; // Percentage value, or fixed amount, or free quantity for BOGO
-  min_qty?: number; // Minimum quantity for discount/BOGO
+  discount_value: number; 
+  condition_qty?: number;
+  reward_qty?: number;
   target_type: 'all' | 'category' | 'product';
-  target_id?: string | number; // ID for category or product
+  target_id?: string | number;
   active: boolean;
 }
 

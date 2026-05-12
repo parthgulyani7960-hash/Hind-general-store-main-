@@ -14,6 +14,7 @@ import { cn, Product } from '../types';
 import { useEffect } from 'react';
 import WholesaleInsights from '../components/WholesaleInsights';
 import LocationPicker from '../components/LocationPicker';
+import { generateUserExportPDF } from '../services/pdfService';
 
 export default function Profile() {
   const { 
@@ -1483,7 +1484,7 @@ export default function Profile() {
                           const res = await fetch('/api/user/generate-export');
                           if (!res.ok) throw new Error('Not ready');
                           const data = await res.json();
-                          import('../services/pdfService').then(mod => mod.generateUserExportPDF(data));
+                          generateUserExportPDF(data);
                           toast.success('PDF Generated!');
                         } catch (err) {
                            toast.error('Failed to generate PDF');

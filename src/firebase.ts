@@ -1,15 +1,49 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const { firestoreDatabaseId, ...validConfig } = firebaseConfig as any;
 const app = initializeApp(validConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firestoreDatabaseId);
+export const db = getFirestore(app, firestoreDatabaseId || '(default)');
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Re-export common functions to avoid direct firebase/* imports elsewhere
+export { 
+  onAuthStateChanged,
+  collection, 
+  getDocs, 
+  query, 
+  where, 
+  addDoc, 
+  serverTimestamp,
+  ref, 
+  uploadBytesResumable, 
+  getDownloadURL 
+};
+
+export const signInWithGoogle = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const token = await result.user.getIdToken();
+    return { user: result.user, token };
+  } catch (error: any) {
+    if (error.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in cancelled. Please try again.');
+    } else if (error.code === 'auth/popup-blocked') {
+      throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
+    } else {
+        throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please check that Google Auth is ENABLED in your Firebase Console.`);
+    }
+  }
+};
+
+export const signOutUser = async () => {
+  return await signOut(auth);
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -29,11 +63,6 @@ interface FirestoreErrorInfo {
     email?: string | null;
     emailVerified?: boolean | null;
     isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
   }
 }
 
@@ -45,52 +74,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       email: auth.currentUser?.email,
       emailVerified: auth.currentUser?.emailVerified,
       isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
     },
     operationType,
     path
   }
-  console.error('Firestore Error Detail: ', JSON.stringify(errInfo));
-  
-  // Re-throw the error with the internal message so we can see it in the dev server logs,
-  // but also present it to the user.
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(`Firestore operation failed: ${errInfo.error} at ${path}`);
 }
-
-export const signInWithGoogle = async () => {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    const token = await result.user.getIdToken();
-    return { user: result.user, token };
-  } catch (error: any) {
-    console.error('Error signing in with Google', {
-      code: error.code,
-      message: error.message,
-      stack: error.stack,
-      error: error
-    });
-    if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in cancelled. Please try again.');
-    } else if (error.code === 'auth/popup-blocked') {
-      throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
-    } else {
-        throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please check that Google Auth is ENABLED in your Firebase Console (Authentication > Sign-in method > Google).`);
-    }
-  }
-};
-
-export const signUpWithEmail = async (email: string, password: string) => {
-  return await createUserWithEmailAndPassword(auth, email, password);
-};
-
-export const signInWithEmail = async (email: string, password: string) => {
-  return await signInWithEmailAndPassword(auth, email, password);
-};
-
-export const signOutUser = async () => {
-  return await signOut(auth);
-};

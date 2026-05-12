@@ -1046,22 +1046,31 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
     const token = authHeader.split(' ')[1];
     try {
         const decodedToken = await admin.auth().verifyIdToken(token);
-        const email = decodedToken.email;
+        const email = decodedToken.email?.toLowerCase();
         
+        if (!email) {
+            console.warn(`[AUTH FAIL] Token verified but missing email for path: ${req.path}`);
+            return res.status(401).json({ success: false, message: 'Google account must have an email' });
+        }
+
         // Find user by email
-        let user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+        let user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email) as any;
         
         // If user doesn't exist in this instance's DB (common on Vercel/serverless)
-        // we might want to create them if the token is valid.
         if (!user && decodedToken.uid) {
             console.log(`[AUTH] Creating missing user record for verified token: ${email}`);
             try {
-              db.prepare('INSERT INTO users (email, name, role) VALUES (?, ?, ?)').run(
+              const defaultRole = email === getAdminEmail().toLowerCase() ? 'admin' : 'customer';
+              const randSuffix = Math.random().toString(36).substring(7);
+              const username = email.split('@')[0].substring(0, 20) + '_' + randSuffix;
+              
+              db.prepare('INSERT INTO users (email, name, username, role) VALUES (?, ?, ?, ?)').run(
                 email, 
-                decodedToken.name || email.split('@')[0], 
-                'customer'
+                decodedToken.name || email.split('@')[0],
+                username,
+                defaultRole
               );
-              user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email);
+              user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email);
             } catch (insertErr) {
               console.error('Failed to auto-create user in requireAuth', insertErr);
             }
@@ -1091,29 +1100,36 @@ const requireAdmin = async (req: express.Request, res: express.Response, next: e
         const token = authHeader.split(' ')[1];
         try {
             const decodedToken = await admin.auth().verifyIdToken(token);
-            const email = decodedToken.email;
-            let user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
-            
-            // Auto-create user if missing in this instance
-            if (!user && decodedToken.uid) {
-                try {
-                  db.prepare('INSERT INTO users (email, name, role) VALUES (?, ?, ?)').run(
-                    email, 
-                    decodedToken.name || email.split('@')[0], 
-                    'customer'
-                  );
-                  user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email);
-                } catch (insertErr) {
-                  console.error('Failed to auto-create user in requireAdmin', insertErr);
+            const email = decodedToken.email?.toLowerCase();
+            if (email) {
+                let user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email) as any;
+                
+                // Auto-create user if missing
+                if (!user && decodedToken.uid) {
+                    try {
+                      const defaultRole = email === getAdminEmail().toLowerCase() ? 'admin' : 'customer';
+                      const randSuffix = Math.random().toString(36).substring(7);
+                      const username = email.split('@')[0].substring(0, 20) + '_' + randSuffix;
+                      
+                      db.prepare('INSERT INTO users (email, name, username, role) VALUES (?, ?, ?, ?)').run(
+                        email, 
+                        decodedToken.name || email.split('@')[0], 
+                        username,
+                        defaultRole
+                      );
+                      user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email);
+                    } catch (insertErr) {
+                      console.error('Failed to auto-create user in requireAdmin', insertErr);
+                    }
+                }
+
+                if (user) {
+                    req.session.userId = user.id;
+                    req.session.role = user.role;
                 }
             }
-
-            if (user) {
-                req.session.userId = user.id;
-                req.session.role = user.role;
-            }
-        } catch (e) {
-            console.error('Invalid Firebase token in Authorization header', e);
+        } catch (e: any) {
+            console.error('Invalid Firebase token in Authorization header', e.message);
         }
     }
   }
@@ -1387,27 +1403,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/returns', requireAdmin, (req, res) => {
-    try {
-        const returns = db.prepare('SELECT r.*, o.order_id as order_num, u.name as user_name, p.name as product_name FROM returns r JOIN orders o ON r.order_id = o.id JOIN users u ON r.user_id = u.id JOIN products p ON r.product_id = p.id ORDER BY r.created_at DESC').all();
-        res.json(returns);
-    } catch (err: any) {
-        handleAppError(err, 'Failed to fetch returns', 'fetchReturns');
-        res.status(500).json({ success: false, message: 'Failed to fetch returns' });
-    }
-  });
 
-  app.post('/api/admin/returns/:id/status', requireAdmin, (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body;
-    try {
-        db.prepare('UPDATE returns SET status = ? WHERE id = ?').run(status, id);
-        res.json({ success: true, message: 'Status updated' });
-    } catch (err: any) {
-        handleAppError(err, 'Failed to update return status', 'updateReturnStatus');
-        res.status(500).json({ success: false, message: 'Failed to update status' });
-    }
-  });
 
   app.post('/api/admin/purchases', requireAdmin, (req, res) => {
     const { supplier_id, product_id, quantity, cost_price, invoice_number, batch_number, expiry_date } = req.body;
@@ -1579,17 +1575,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/config', (req, res) => {
+  app.get('/api/admin/config', requireAdmin, (req, res) => {
     const config = db.prepare('SELECT * FROM settings').all();
     res.json(config);
   });
 
-  app.get('/api/admin/runners', (req, res) => {
+  app.get('/api/admin/runners', requireAdmin, (req, res) => {
     const runners = db.prepare('SELECT * FROM runners').all();
     res.json(runners);
   });
 
-  app.post('/api/admin/runners', (req, res) => {
+  app.post('/api/admin/runners', requireAdmin, (req, res) => {
     const { name, phone, vehicle_type } = req.body;
     try {
       db.prepare('INSERT INTO runners (name, phone, vehicle_type, status) VALUES (?, ?, ?, ?)').run(name, phone, vehicle_type || 'Bike', 'active');
@@ -1598,28 +1594,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.status(400).json({ success: false, message: e.message });
     }
   });
-
-  app.get('/api/admin/suspicious-activities', (req, res) => {
-    const activities = db.prepare(`
-      SELECT s.*, u.name as user_name 
-      FROM suspicious_activities s 
-      LEFT JOIN users u ON s.user_id = u.id 
-      ORDER BY s.created_at DESC 
-      LIMIT 100
-    `).all();
-    res.json(activities);
-  });
-
-  app.post('/api/admin/suspicious-activities/:id/resolve', (req, res) => {
-    const { id } = req.params;
-    try {
-      db.prepare('DELETE FROM suspicious_activities WHERE id = ?').run(id);
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
-    }
-  });
-
 
 
   app.post('/api/admin/orders/:id/assign-runner', (req, res) => {
@@ -1681,8 +1655,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ products, orders, users, suspicious });
   });
 
-  app.get('/api/admin/system-logs', (req, res) => {
-    const logs = db.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100').all();
+  app.get('/api/admin/system-logs', requireAdmin, (req, res) => {
+    const logs = db.prepare('SELECT *, level as type, stack as details FROM system_logs ORDER BY created_at DESC LIMIT 100').all();
     res.json(logs);
   });
 
@@ -1704,20 +1678,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/suspicious-activities', (req, res) => {
-    const activities = db.prepare(`
-      SELECT s.*, u.name as user_name, u.phone as user_phone 
-      FROM suspicious_activities s
-      LEFT JOIN users u ON s.user_id = u.id
-      ORDER BY s.created_at DESC
-    `).all();
-    res.json(activities);
+  app.get('/api/admin/suspicious-activities', requireAdmin, (req, res) => {
+    try {
+      const activities = db.prepare(`
+        SELECT s.*, s.activity_type as type, 'medium' as severity, u.name as user_name, u.phone as user_phone 
+        FROM suspicious_activities s
+        LEFT JOIN users u ON s.user_id = u.id
+        ORDER BY s.created_at DESC
+        LIMIT 100
+      `).all();
+      res.json(activities);
+    } catch (err: any) {
+      console.error('Failed to fetch suspicious activities:', err);
+      res.status(500).json({ success: false, message: 'Failed to fetch suspicious activities' });
+    }
   });
 
-  app.post('/api/admin/suspicious-activities/:id/resolve', (req, res) => {
+  app.post('/api/admin/suspicious-activities/:id/resolve', requireAdmin, (req, res) => {
     const { id } = req.params;
-    db.prepare("UPDATE suspicious_activities SET severity = 'resolved' WHERE id = ?").run(id);
-    res.json({ success: true });
+    try {
+      // Since severity column might not exist, we just delete or mark as resolved by deleting
+      // Or we can just use delete which was in the other definition
+      db.prepare("DELETE FROM suspicious_activities WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
   });
 
   app.post('/api/admin/users/:id/alert', (req, res) => {
@@ -1741,7 +1727,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/admin/settings', (req, res) => {
+  app.post('/api/admin/settings', requireAdmin, (req, res) => {
     const { key, value } = req.body;
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
     
@@ -1925,8 +1911,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(activities);
   });
 
-  app.get('/api/auth/me', (req, res) => {
+  app.get('/api/auth/me', async (req, res) => {
     try {
+      // If session is missing, but Authorization header is present, try to restore session
+      if (!req.session.userId) {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          const token = authHeader.split(' ')[1];
+          try {
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            const email = decodedToken.email?.toLowerCase();
+            if (email) {
+              let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email) as any;
+              if (user) {
+                req.session.userId = user.id;
+                req.session.role = user.role;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
       if (!req.session.userId) {
         return res.status(401).json({ success: false, message: 'Not authenticated' });
       }
@@ -2048,11 +2053,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           return res.status(500).json({ success: false, message: 'Session initialization failed' });
         }
         
-        // Generate a simple token for fallback auth
-        const tokenPayload = { userId: user.id, role: user.role, timestamp: Date.now() };
-        const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
-        
-        res.json({ success: true, user, isNewUser: !user.phone, token });
+        res.json({ success: true, user, isNewUser: !user.phone });
       });
     } catch (e: any) {
       console.error('Firebase login error details:', {
@@ -2130,7 +2131,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/newsletter', (req, res) => {
+  app.get('/api/admin/newsletter', requireAdmin, (req, res) => {
     const subscribers = db.prepare(`
       SELECT n.*, u.name as user_name, u.phone as user_phone 
       FROM newsletter n 
@@ -2787,16 +2788,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/promotions-rules', (req, res) => {
     try {
-      const records = db.prepare('SELECT * FROM promotional_rules').all();
+      const records = db.prepare('SELECT * FROM promotional_rules').all() as any[];
       const rules = records.map((r: any) => ({
-        id: r.id,
-        name: r.title,
-        description: r.title, // Map title to description 
-        type: r.type,
-        value: r.discount_value,
-        min_qty: r.condition_qty,
-        target_type: r.target_type,
-        target_id: r.target_id,
+        ...r,
         active: r.active === 1
       }));
       res.json(rules);
@@ -3333,18 +3327,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true, coupon });
   });
 
-  app.get('/api/admin/expenses', (req, res) => {
+  app.get('/api/admin/expenses', requireAdmin, (req, res) => {
     const expenses = db.prepare('SELECT * FROM expenses ORDER BY date DESC').all();
     res.json(expenses);
   });
 
-  app.post('/api/admin/expenses', (req, res) => {
+  app.post('/api/admin/expenses', requireAdmin, (req, res) => {
     const { description, amount, category, date } = req.body;
     db.prepare('INSERT INTO expenses (description, amount, category, date) VALUES (?, ?, ?, ?)').run(description, amount, category, date);
     res.json({ success: true });
   });
 
-  app.delete('/api/admin/expenses/:id', (req, res) => {
+  app.delete('/api/admin/expenses/:id', requireAdmin, (req, res) => {
     const { id } = req.params;
     db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
     res.json({ success: true });
@@ -3371,7 +3365,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true, ticketId });
   });
 
-  app.get('/api/admin/support/tickets', (req, res) => {
+  app.get('/api/admin/support/tickets', requireAdmin, (req, res) => {
     const tickets = db.prepare(`
       SELECT t.*, u.name as user_name, u.phone as user_phone 
       FROM support_tickets t 
@@ -3474,7 +3468,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/bugs', (req, res) => {
+  app.get('/api/admin/bugs', requireAdmin, (req, res) => {
     try {
       const bugs = db.prepare('SELECT * FROM bug_reports ORDER BY created_at DESC').all();
       res.json(bugs);
@@ -3483,7 +3477,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.delete('/api/admin/bugs/:id', (req, res) => {
+  app.delete('/api/admin/bugs/:id', requireAdmin, (req, res) => {
     try {
       db.prepare('DELETE FROM bug_reports WHERE id = ?').run(req.params.id);
       res.json({ success: true });
@@ -3503,7 +3497,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   }
 });
 
-app.get('/api/admin/stats', (req, res) => {
+app.get('/api/admin/stats', requireAdmin, (req, res) => {
     try {
       const stats: any = {
         orders: 0,
@@ -3602,15 +3596,14 @@ app.get('/api/admin/stats', (req, res) => {
   });
 
   // Purchase and Expiry Endpoints
-  app.get('/api/admin/inventory/expiring', (req, res) => {
+  app.get('/api/admin/inventory/expiring', requireAdmin, (req, res) => {
     try {
       const expiring = db.prepare(`
-        SELECT id, name, batch_number, expiry_date, stock 
+        SELECT id, name, batch_number, expiry_date, stock, reorder_point
         FROM products 
-        WHERE expiry_date IS NOT NULL 
-        AND expiry_date <= date('now', '+30 days')
-        AND stock > 0
-        ORDER BY expiry_date ASC
+        WHERE (expiry_date IS NOT NULL AND expiry_date <= date('now', '+30 days'))
+        OR stock <= reorder_point
+        ORDER BY expiry_date ASC, stock ASC
       `).all();
       res.json(expiring);
     } catch (err: any) {
@@ -3833,13 +3826,13 @@ app.get('/api/admin/stats', (req, res) => {
     res.json({ success: true });
   });
 
-  app.get('/api/admin/wallet/requests', (req, res) => {
+  app.get('/api/admin/wallet/requests', requireAdmin, (req, res) => {
     try {
       const requests = db.prepare(`
-        SELECT wt.*, u.name as user_name, u.phone as user_phone 
+        SELECT wt.*, u.name as user_name, u.phone as user_phone, u.wallet_balance as current_balance
         FROM wallet_transactions wt
         JOIN users u ON wt.user_id = u.id
-        WHERE wt.status = 'pending'
+        WHERE wt.type = 'credit' AND wt.status = 'pending'
         ORDER BY wt.created_at DESC
       `).all();
       res.json(requests);
@@ -4541,7 +4534,7 @@ app.get('/api/admin/stats', (req, res) => {
     }
   });
 
-  app.post('/api/admin/config/update', (req, res) => {
+  app.post('/api/admin/config/update', requireAdmin, (req, res) => {
     const settings = req.body; // Expecting an object of key-value pairs
     const update = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
     const updateMany = db.transaction((data) => {
@@ -4563,7 +4556,7 @@ app.get('/api/admin/stats', (req, res) => {
         query += ' WHERE user_id = ?';
         params.push(userId);
       }
-      query += ' ORDER BY date DESC LIMIT 100';
+      query += ' ORDER BY created_at DESC LIMIT 100';
       const activities = db.prepare(query).all(...params);
       res.json(activities);
     } catch (err) {
@@ -4587,10 +4580,10 @@ app.get('/api/admin/stats', (req, res) => {
   });
 
   // Returns logic
-  app.get('/api/admin/returns', (req, res) => {
+  app.get('/api/admin/returns', requireAdmin, (req, res) => {
     try {
       const returnsInfo = db.prepare(`
-        SELECT r.*, o.id as order_num, p.name as product_name, u.name as user_name
+        SELECT r.*, o.order_id as order_num, p.name as product_name, u.name as user_name
         FROM returns r
         JOIN orders o ON r.order_id = o.id
         JOIN products p ON r.product_id = p.id

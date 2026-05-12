@@ -1,6 +1,6 @@
 import React from 'react';
 import toast from 'react-hot-toast';
-import { cn } from '../../lib/utils';
+import { cn, getAuthHeaders } from '../../lib/utils';
 import { Settings } from 'lucide-react';
 import * as motion from 'motion/react-client';
 
@@ -23,7 +23,10 @@ export default function FeatureToggles({ config, onUpdate }: FeatureTogglesProps
     try {
       const res = await fetch('/api/admin/config/update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json' 
+        },
         body: JSON.stringify({ [key]: newValue })
       });
       if (res.ok) {

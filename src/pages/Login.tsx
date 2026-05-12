@@ -53,8 +53,8 @@ export default function Login() {
       const data = await res.json();
 
       if (data.success) {
-        if (data.token) {
-          localStorage.setItem('hgs_token', data.token);
+        if (token) {
+          localStorage.setItem('hgs_token', token);
         }
         setUser(data.user);
         toast.success('Welcome!');

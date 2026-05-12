@@ -1,63 +1,28 @@
+
 const fs = require('fs');
 const content = fs.readFileSync('src/pages/AdminDashboard.tsx', 'utf8');
+const lines = content.split('\n');
 
-const stack = [];
-let line = 1;
+let tryCount = 0;
+let catchCount = 0;
 
-for (let i = 0; i < content.length; i++) {
-  if (content[i] === '\n') {
-    line++;
-    continue;
-  }
-  
-  if (content[i] === '<') {
-    const isClosing = content[i+1] === '/';
-    let tagEnd = i + 1;
-    while (tagEnd < content.length && content[tagEnd] !== '>') {
-      tagEnd++;
-    }
-    const fullTag = content.substring(i, tagEnd + 1);
+lines.forEach((line, index) => {
+    const tries = (line.match(/\btry\b/g) || []).length;
+    const catches = (line.match(/\bcatch\b/g) || []).length;
+    const dots = (line.match(/\.catch/g) || []).length;
     
-    // Ignore self-closing
-    if (fullTag.endsWith('/>')) {
-      i = tagEnd;
-      continue;
-    }
+    // a catch block is a catch that is NOT a .catch call
+    const catchBlocks = catches - dots;
     
-    // Extract tag name
-    let tagNameMatch = fullTag.match(/<\/?([a-zA-Z0-9\.]+)/);
-    if (!tagNameMatch) continue;
-    let tagName = tagNameMatch[1];
+    tryCount += tries;
+    catchCount += catchBlocks;
     
-    // Only care about structural tags
-    if (!['div', 'section', 'main', 'header', 'footer', 'aside', 'nav', 'motion.div', 'AnimatePresence'].includes(tagName)) {
-      i = tagEnd;
-      continue;
+    if (catchCount > tryCount) {
+        console.log(`Mismatch at line ${index + 1}: tryCount=${tryCount}, catchCount=${catchCount}`);
+        console.log(`Line content: ${line}`);
+        // Only stop if they actually diverged
+        // process.exit(1);
     }
+});
 
-    if (!isClosing) {
-      stack.push({ tag: tagName, line: line, col: i, fullLength: fullTag.length });
-    } else {
-      if (stack.length === 0) {
-        console.log(`Unmatched closing tag at line ${line}: ${fullTag}`);
-        break;
-      }
-      const last = stack.pop();
-      if (last.tag !== tagName) {
-        console.log(`Mismatch at line ${line}! Expected </${last.tag}> (opened at ${last.line}), but found ${fullTag}`);
-        break;
-      }
-    }
-    i = tagEnd;
-  }
-}
-
-if (stack.length > 0) {
-  console.log(`Found ${stack.length} unclosed tags.`);
-  console.log('Last unclosed tags:');
-  for (let i = Math.max(0, stack.length - 10); i < stack.length; i++) {
-    console.log(`  <${stack[i].tag}> opened at line ${stack[i].line}`);
-  }
-} else {
-  console.log('All matched!');
-}
+console.log(`Final counts: try=${tryCount}, catch=${catchCount}`);
