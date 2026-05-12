@@ -752,6 +752,7 @@ try { db.prepare('ALTER TABLE users ADD COLUMN khata_limit REAL DEFAULT 0').run(
 try { db.prepare('ALTER TABLE users ADD COLUMN khata_balance REAL DEFAULT 0').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN khata_due_date DATETIME').run(); } catch (e) {}
 try { db.prepare("ALTER TABLE users ADD COLUMN segment TEXT DEFAULT 'Regular'").run(); } catch (e) {}
+try { db.prepare('ALTER TABLE users ADD COLUMN acquisition_source TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE users ADD COLUMN profile_photo TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE support_tickets ADD COLUMN name TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE support_tickets ADD COLUMN email TEXT').run(); } catch (e) {}
@@ -1527,12 +1528,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     `).all(searchTerm, searchTerm, searchTerm, searchTerm);
 
     const suspicious = db.prepare(`
-      SELECT s.*, u.name as user_name
+      SELECT s.*, u.name as user_name, u.email as user_email, u.phone as user_phone, u.username as user_username
       FROM suspicious_activities s
       LEFT JOIN users u ON s.user_id = u.id
-      WHERE s.activity_type LIKE ? OR s.description LIKE ? OR u.name LIKE ?
-      LIMIT 5
-    `).all(searchTerm, searchTerm, searchTerm);
+      WHERE s.activity_type LIKE ? OR s.description LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?
+      LIMIT 10
+    `).all(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
 
     res.json({ products, orders, users, suspicious });
   });
@@ -1816,7 +1817,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
 
   app.post('/api/auth/complete-profile', requireAuth, (req, res) => {
-    const { name, phone, profile_photo } = req.body;
+    const { name, phone, profile_photo, acquisition_source } = req.body;
     try {
       if (!phone || phone.length < 10) {
         return res.status(400).json({ success: false, message: 'Invalid phone number' });
@@ -1835,8 +1836,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
 
       const formattedName = capitalizeName(name);
-      db.prepare('UPDATE users SET name = ?, phone = ?, profile_photo = ? WHERE id = ?')
-        .run(formattedName, phone, profile_photo, req.session.userId);
+      db.prepare('UPDATE users SET name = ?, phone = ?, profile_photo = ?, acquisition_source = ? WHERE id = ?')
+        .run(formattedName, phone, profile_photo, acquisition_source || 'direct', req.session.userId);
       const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId) as any;
       delete user.password;
       res.json({ success: true, user });
@@ -2252,26 +2253,33 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
 
       // Base stats with date filtering
-      const totalSales = db.prepare(`
-        SELECT SUM(o.total) as total 
+      const baseStats = db.prepare(`
+        SELECT 
+          SUM(o.total) as total_sales,
+          COUNT(o.id) as total_orders,
+          COUNT(DISTINCT o.user_id) as total_customers,
+          SUM(o.total) / COUNT(o.id) as average_order_value
         FROM orders o
         JOIN users u ON o.user_id = u.id
         ${orderFilter}
       `).get(...params) as any;
 
-      const totalOrders = db.prepare(`
-        SELECT COUNT(o.id) as count 
-        FROM orders o
-        JOIN users u ON o.user_id = u.id
-        ${orderFilter}
-      `).get(...params) as any;
-
-      const totalCustomers = db.prepare(`
-        SELECT COUNT(DISTINCT u.id) as count 
-        FROM users u
-        JOIN orders o ON u.id = o.user_id
-        ${orderFilter}
-      `).get(...params) as any;
+      // CLV Estimate (Average lifetime spend per user among those who bought at least once)
+      const clvEstimate = db.prepare(`
+          SELECT AVG(total_spend) as clv 
+          FROM (
+              SELECT SUM(total) as total_spend 
+              FROM orders 
+              WHERE status = "delivered" 
+              GROUP BY user_id
+          )
+      `).get() as any;
+      
+      const totalSales = baseStats.total_sales || 0;
+      const totalOrders = baseStats.total_orders || 0;
+      const totalCustomers = baseStats.total_customers || 0;
+      const aov = baseStats.average_order_value || 0;
+      const clv = clvEstimate.clv || 0;
       
       // Popular products with category filter
       let productFilter = 'WHERE o.status = "delivered"';
@@ -2349,9 +2357,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         LEFT JOIN orders o ON u.id = o.user_id AND o.status = "delivered"
         GROUP BY u.id
       `).all() as any[];
+      console.log('Customer data fetched:', customerData.length);
 
       // Simple RFM Scoring & Segment Assignment
       const enrichedCustomerData = customerData.map(c => {
+        // Log if c or order_count is null/undefined
+        if (c.order_count === null) console.log('Null order count found for user:', c.id);
         const rScore = c.recency_days < 30 ? 3 : c.recency_days < 90 ? 2 : 1;
         const fScore = c.order_count > 10 ? 3 : c.order_count > 3 ? 2 : 1;
         const mScore = c.total_spent > 5000 ? 3 : c.total_spent > 1000 ? 2 : 1;
@@ -2367,6 +2378,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
         return { ...c, rfmSegment, rScore, fScore, mScore };
       });
+      console.log('Customer data enriched');
 
       const rfmSegmentMap = enrichedCustomerData.reduce((acc: any, curr: any) => {
         acc[curr.rfmSegment] = (acc[curr.rfmSegment] || 0) + 1;
@@ -2375,13 +2387,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       const rfmSegmentData = Object.entries(rfmSegmentMap).map(([name, value]) => ({ name, value }));
 
-      // Mocking acquisition sources
-      const acquisitionSources = [
-        { name: 'Direct', value: 45 },
-        { name: 'WhatsApp', value: 30 },
-        { name: 'Google Search', value: 15 },
-        { name: 'Referral', value: 10 }
-      ];
+      // Real acquisition sources
+      const acquisitionSourcesRaw = db.prepare(`
+        SELECT COALESCE(acquisition_source, 'direct') as source, COUNT(*) as value
+        FROM users
+        GROUP BY source
+      `).all() as any[];
+      
+      const acquisitionSources = acquisitionSourcesRaw.map(a => ({
+          name: a.source.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+          value: a.value
+      }));
 
       // Conversion data based on filtered orders
       const totalVisitors = (salesOverTime || []).reduce((acc: number, d: any) => acc + Math.floor(d.orders * (12 + Math.random() * 8)), 0);
@@ -2401,9 +2417,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }));
 
       res.json({
-        totalSales: totalSales?.total || 0,
-        totalOrders: totalOrders?.count || 0,
-        totalCustomers: totalCustomers?.count || 0,
+        totalSales,
+        totalOrders,
+        totalCustomers,
+        aov,
+        clv,
         popularProducts: popularProducts || [],
         salesOverTime: salesOverTime || [],
         salesByCategory: salesByCategory || [],

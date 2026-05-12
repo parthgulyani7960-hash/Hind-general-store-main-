@@ -37,6 +37,7 @@ import {
   generateAdminCustomerReportPDF
 } from '../services/pdfService';
 import { logErrorToFirestore } from '../services/errorLogger';
+import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -227,24 +228,22 @@ export default function AdminDashboard() {
   }, [user]);
 
   if (!user) {
-    return <div className="p-8 text-center">Please log in to access the admin dashboard.</div>;
+    return <div className="p-8 text-center text-stone-600">Please log in to access the admin dashboard.</div>;
   }
   if (user.role !== 'admin') {
     return <div className="p-8 text-center text-red-500">Access denied. Your role is {user.role}. Admin privileges are required.</div>;
   }
 
+
   const fetchStats = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/admin/stats');
-      if (!res.ok) {
-        throw new Error('Failed to fetch stats');
-      }
-      setStats(await res.json());
+      if (!res.ok) throw new Error('Stats failure');
+      const data = await res.json();
+      setStats(data || {});
     } catch (err: any) {
-      handleAppError(err, 'Unable to load dashboard stats', 'fetchStats');
-    } finally {
-      setLoading(false);
+      console.error('Stats fetch error:', err);
+      toast.error('Unable to load dashboard stats');
     }
   };
 
@@ -421,6 +420,7 @@ export default function AdminDashboard() {
     }
   }, [orderModal.open, orderModal.order?.id]);
   const [globalSearchResults, setGlobalSearchResults] = useState<{ products: any[], orders: any[], users: any[], suspicious?: any[] } | null>(null);
+  const [searchFilter, setSearchFilter] = useState<'all' | 'products' | 'orders' | 'users' | 'suspicious'>('all');
   const [isGlobalSearching, setIsGlobalSearching] = useState(false);
   const [customerActivities, setCustomerActivities] = useState<any[]>([]);
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
@@ -1335,23 +1335,37 @@ export default function AdminDashboard() {
     const loadData = async () => {
       setLoading(true);
       try {
+        const fetchJSON = (url: string) => fetch(url).then(r => {
+          if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+          return r.json();
+        }).catch(err => {
+          console.error(`Fetch failed for ${url}:`, err);
+          return null;
+        });
+
         const [statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes, expiringRes] = await Promise.all([
-          fetch('/api/admin/stats').then(r => r.json()),
-          fetch('/api/admin/orders').then(r => r.json()),
-          fetch('/api/admin/config').then(r => r.json()),
-          fetch('/api/admin/users').then(r => r.json()),
-          fetch('/api/products').then(r => r.json()),
-          fetch('/api/categories').then(r => r.json()),
-          fetch('/api/admin/inventory/expiring').then(r => r.json()).catch(() => [])
+          fetchJSON('/api/admin/stats'),
+          fetchJSON('/api/admin/orders'),
+          fetchJSON('/api/admin/config'),
+          fetchJSON('/api/admin/users'),
+          fetchJSON('/api/products'),
+          fetchJSON('/api/categories'),
+          fetchJSON('/api/admin/inventory/expiring')
         ]);
-        setStats(statsRes);
-        setOrders(ordersRes);
-        setConfig(configRes);
-        setUsers(usersRes);
-        setAllProducts(productsRes);
-        setLowStockProducts(productsRes.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-        setCategories(categoriesRes);
-        setExpiringSoon(expiringRes);
+
+        setStats(statsRes || {});
+        setOrders(ordersRes || []);
+        setConfig(configRes || []);
+        setUsers(usersRes || []);
+        if (productsRes) {
+          setAllProducts(productsRes);
+          setLowStockProducts(productsRes.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+        } else {
+          setAllProducts([]);
+          setLowStockProducts([]);
+        }
+        setCategories(categoriesRes || []);
+        setExpiringSoon(expiringRes || []);
       } catch (err) {
         console.error('Failed to load initial admin data', err);
       } finally {
@@ -2449,16 +2463,30 @@ export default function AdminDashboard() {
               />
               
               {globalSearchResults && (
-                <div className="absolute top-full right-0 mt-2 w-[400px] bg-white rounded-2xl shadow-2xl border border-stone-100 overflow-hidden z-50">
+                <div className="absolute top-full right-0 mt-2 w-[500px] bg-white rounded-2xl shadow-2xl border border-stone-100 overflow-hidden z-50">
+                  <div className="flex p-2 border-b border-stone-100 gap-1 overflow-x-auto">
+                    {(['all', 'products', 'orders', 'users', 'suspicious'] as const).map(filter => (
+                      <button
+                        key={filter}
+                        onClick={() => setSearchFilter(filter)}
+                        className={cn(
+                          "px-3 py-1 text-[10px] uppercase font-bold rounded-full transition-colors",
+                          searchFilter === filter ? "bg-primary text-white" : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                        )}
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
                   <div className="p-4 max-h-[500px] overflow-y-auto space-y-4">
-                    {globalSearchResults.products.length > 0 && (
+                    {(searchFilter === 'all' || searchFilter === 'products') && globalSearchResults.products.length > 0 && (
                       <div>
                         <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Products</h4>
                         <div className="space-y-2">
                           {globalSearchResults.products.map(p => (
                             <button 
                               key={p.id} 
-                              onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(p.name); setGlobalSearchResults(null); setGlobalSearchQuery(''); }}
+                              onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(p.name); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
                               className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
                             >
                               <div className="w-8 h-8 bg-stone-100 rounded-md overflow-hidden">
@@ -2474,14 +2502,14 @@ export default function AdminDashboard() {
                       </div>
                     )}
                     
-                    {globalSearchResults.orders.length > 0 && (
+                    {(searchFilter === 'all' || searchFilter === 'orders') && globalSearchResults.orders.length > 0 && (
                       <div>
                         <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Orders</h4>
                         <div className="space-y-2">
                           {globalSearchResults.orders.map(o => (
                             <button 
                               key={o.id} 
-                              onClick={() => { setActiveTab('Orders'); setOrderSearchTerm(`#ORD-${o.id}`); setGlobalSearchResults(null); setGlobalSearchQuery(''); }}
+                              onClick={() => { setActiveTab('Orders'); setOrderSearchTerm(`#ORD-${o.id}`); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
                               className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
                             >
                               <div className="w-8 h-8 bg-primary/10 text-primary rounded-md flex items-center justify-center">
@@ -2497,14 +2525,14 @@ export default function AdminDashboard() {
                       </div>
                     )}
                     
-                    {globalSearchResults.users.length > 0 && (
+                    {(searchFilter === 'all' || searchFilter === 'users') && globalSearchResults.users.length > 0 && (
                       <div>
                         <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Customers</h4>
                         <div className="space-y-2">
                           {globalSearchResults.users.map(u => (
                             <button 
                               key={u.id} 
-                              onClick={() => { setActiveTab('Customers'); setGlobalSearchResults(null); setGlobalSearchQuery(''); }}
+                              onClick={() => { setActiveTab('Customers'); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
                               className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
                             >
                               <div className="w-8 h-8 bg-stone-100 rounded-md flex items-center justify-center text-stone-400">
@@ -2520,14 +2548,14 @@ export default function AdminDashboard() {
                       </div>
                     )}
                     
-                    {globalSearchResults.suspicious && globalSearchResults.suspicious.length > 0 && (
+                    {(searchFilter === 'all' || searchFilter === 'suspicious') && globalSearchResults.suspicious && globalSearchResults.suspicious.length > 0 && (
                       <div>
                         <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Security Alerts</h4>
                         <div className="space-y-2">
                           {globalSearchResults.suspicious.map(s => (
                             <button 
                               key={s.id} 
-                              onClick={() => { setActiveTab('Suspicious Activities'); setGlobalSearchResults(null); setGlobalSearchQuery(''); }}
+                              onClick={() => { setActiveTab('Suspicious Activities'); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
                               className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
                             >
                               <div className="w-8 h-8 bg-red-50 text-red-500 rounded-md flex items-center justify-center">
@@ -2543,9 +2571,16 @@ export default function AdminDashboard() {
                       </div>
                     )}
                     
-                    {globalSearchResults.products.length === 0 && globalSearchResults.orders.length === 0 && globalSearchResults.users.length === 0 && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0) && (
+                    { (searchFilter === 'all' && globalSearchResults.products.length === 0 && globalSearchResults.orders.length === 0 && globalSearchResults.users.length === 0 && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0)) ||
+                      (searchFilter !== 'all' && (
+                        (searchFilter === 'products' && globalSearchResults.products.length === 0) ||
+                        (searchFilter === 'orders' && globalSearchResults.orders.length === 0) ||
+                        (searchFilter === 'users' && globalSearchResults.users.length === 0) ||
+                        (searchFilter === 'suspicious' && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0))
+                      )) 
+                    && (
                       <div className="p-8 text-center">
-                        <p className="text-sm text-stone-400">No results found for "{globalSearchQuery}"</p>
+                        <p className="text-sm text-stone-400">No {searchFilter !== 'all' ? searchFilter : ''} results found for "{globalSearchQuery}"</p>
                       </div>
                     )}
                   </div>
@@ -2597,34 +2632,15 @@ export default function AdminDashboard() {
             }}
             className="space-y-10"
           >
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Dashboard Overview</h2>
-                <p className="text-stone-500 mt-1 text-base font-medium">Quick summary of your store's current performance.</p>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="bg-white px-5 py-3 rounded-2xl border border-stone-200 shadow-sm flex items-center space-x-3">
-                  <Calendar size={18} className="text-stone-900" />
-                  <span className="text-xs font-black text-stone-700 tracking-tight uppercase tracking-widest">{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                </div>
-                <motion.button 
-                  whileHover={{ rotate: 180 }}
-                  transition={{ duration: 0.5 }}
-                  onClick={() => fetchStats()}
-                  className="p-3 bg-white border border-stone-200 rounded-2xl text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all shadow-sm active:scale-90"
-                >
-                  <RefreshCw size={20} />
-                </motion.button>
-              </div>
-            </header>
+            <OverviewTabHeader fetchStats={fetchStats} />
 
             {/* Core Operational metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
-                { label: 'New Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '+3.2%', color: 'amber', key: 'orders' },
-                { label: 'Refunds Given', value: `₹${stats?.totalRefunds || 0}`, icon: <RotateCcw size={22} />, trend: '-2.4%', color: 'red' },
-                { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '+18.1%', color: 'purple' }
+                { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '', color: 'emerald', key: 'revenue' },
+                { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '', color: 'amber', key: 'orders' },
+                { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={22} />, trend: 'Live', color: 'blue' },
+                { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '', color: 'purple' }
               ].map((stat, i) => (
                 <motion.div 
                   key={i}
@@ -2645,12 +2661,6 @@ export default function AdminDashboard() {
                     )}>
                       {stat.icon}
                     </div>
-                    <span className={cn(
-                      "text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border",
-                      stat.trend.startsWith('+') ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-red-50 text-red-600 border-red-100"
-                    )}>
-                      {stat.trend}
-                    </span>
                   </div>
                   <p className="text-stone-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1">{stat.label}</p>
                   <h3 className="text-3xl font-black text-stone-900 tracking-tighter">{stat.value}</h3>
@@ -5194,11 +5204,11 @@ export default function AdminDashboard() {
 
         {activeTab === 'Categories' && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Intelligence Header */}
+            {/* Header */}
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Category Sales</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Domain-specific grouping and inventory allocation logic.</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Product Categories</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Manage how your products are grouped and displayed.</p>
               </div>
               <button 
                 onClick={() => setCategoryModal({ open: true, mode: 'add' })}
@@ -5207,7 +5217,7 @@ export default function AdminDashboard() {
                 <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-90 transition-transform duration-500">
                   <Plus size={20} />
                 </div>
-                <span>Provision Category</span>
+                <span>Add Category</span>
               </button>
             </header>
 
@@ -5420,7 +5430,7 @@ export default function AdminDashboard() {
                                 onClick={() => handleApproveWalletRequest(req.id)}
                                 className="bg-stone-900 text-white px-7 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-xl shadow-stone-900/10 active:scale-95"
                               >
-                                Normalize
+                                Approve
                               </motion.button>
                             </div>
                           </td>
@@ -5730,8 +5740,8 @@ export default function AdminDashboard() {
                   <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse text-stone-300">
                     <Users size={40} />
                   </div>
-                  <h4 className="text-2xl font-black text-stone-900 tracking-tight">No Records Found</h4>
-                  <p className="text-stone-400 font-medium mt-2">No human matching this segment was located.</p>
+                  <h4 className="text-2xl font-black text-stone-900 tracking-tight">No Customers Found</h4>
+                  <p className="text-stone-400 font-medium mt-2">No users matching your search were found.</p>
                 </div>
               )}
             </div>
@@ -6153,16 +6163,16 @@ export default function AdminDashboard() {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-stone-100 pb-10">
               <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Global Configuration</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Platform architecture, security nodes, and operational logic.</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Store Settings</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Manage your store's general information, security, and delivery settings.</p>
               </div>
               <div className="bg-white px-6 py-4 rounded-[2rem] shadow-sm border border-stone-100 flex items-center space-x-4">
-                <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" />
-                <span className="text-xs font-black text-stone-900 uppercase tracking-widest">Protocol Stale: Live Sync Active</span>
+                <div className="w-3 h-3 bg-emerald-500 rounded-full" />
+                <span className="text-xs font-black text-stone-900 uppercase tracking-widest">Settings are synced</span>
               </div>
             </div>
 
-            {/* Emergency Broadcast - Mission Critical Interface */}
+            {/* Announcement Broadcast */}
             <section className="relative group">
               <div className="absolute inset-0 bg-gradient-to-br from-red-600 to-red-700 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity" />
               <div className="relative bg-white border-4 border-red-50 rounded-[3rem] shadow-2xl shadow-red-200/40 p-10 overflow-hidden">
@@ -6174,45 +6184,45 @@ export default function AdminDashboard() {
                       <ShieldAlert size={40} />
                     </div>
                     <div>
-                      <h3 className="text-3xl font-black text-stone-900 tracking-tight leading-none mb-2">Emergency Broadcast Layer</h3>
-                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em]">Synchronous Global Interruption • Low Latency Pipeline</p>
+                      <h3 className="text-3xl font-black text-stone-900 tracking-tight leading-none mb-2">Send Urgent Alert</h3>
+                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em]">Send an alert message to all online customers</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4">
                     <div className="space-y-4">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Alert Header Architecture</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Alert Title</label>
                       <input 
                         id="broadcast-title"
                         type="text" 
-                        placeholder="Intercept Title (e.g. SYSTEM REBOOT)"
+                        placeholder="e.g. SHOP CLOSED TODAY"
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 placeholder:text-stone-300 outline-none focus:border-red-500 focus:bg-white transition-all font-black uppercase tracking-widest text-sm"
                       />
                     </div>
                     <div className="space-y-4">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Threat/Response Level</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Priority Level</label>
                       <select 
                         id="broadcast-type"
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 outline-none focus:border-red-500 focus:bg-white transition-all font-black uppercase tracking-widest text-sm appearance-none cursor-pointer"
                       >
-                        <option value="critical">Critical Intervention (Level 5)</option>
-                        <option value="warning">Service Advisory (Level 3)</option>
-                        <option value="info">Deployment Node (Level 1)</option>
-                        <option value="success">Protocol Restored (Level 0)</option>
+                        <option value="critical">Critical (Level 5)</option>
+                        <option value="warning">Warning (Level 3)</option>
+                        <option value="info">Info (Level 1)</option>
+                        <option value="success">Success (Level 0)</option>
                       </select>
                     </div>
                     <div className="lg:col-span-2 space-y-4">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Audience Segment</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Alert Message</label>
                       <textarea 
                         id="broadcast-message"
-                        placeholder="Detailed interruption context..."
+                        placeholder="Write your message here..."
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[2rem] px-8 py-6 text-stone-900 placeholder:text-stone-300 outline-none focus:border-red-500 focus:bg-white transition-all font-medium h-40 resize-none"
                       />
                     </div>
                   </div>
 
                   <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-stone-100 bg-stone-50/50 -mx-10 -mb-10 p-10">
-                    <p className="text-xs text-stone-400 font-bold max-w-sm italic">Warning: Initiating this broadcast will lock all active sessions globally for 8 seconds. This bypasses client-side suppression logic.</p>
+                    <p className="text-xs text-stone-400 font-bold max-w-sm italic">Warning: This will immediately show an alert to every customer currently on the website.</p>
                     <button 
                       onClick={async () => {
                         const title = (document.getElementById('broadcast-title') as HTMLInputElement).value;
@@ -6224,7 +6234,7 @@ export default function AdminDashboard() {
                           return;
                         }
                         
-                        if (!window.confirm('DEPLOY GLOBAL INTERCEPT? This action will interrupt all users.')) return;
+                        if (!window.confirm('SEND ALERT TO ALL USERS?')) return;
                         
                         try {
                           const res = await fetch('/api/admin/broadcast-alert', {
@@ -6237,38 +6247,38 @@ export default function AdminDashboard() {
                             })
                           });
                           if (res.ok) {
-                            toast.success('Broadcast Layer Deployed');
+                            toast.success('Alert Sent');
                             (document.getElementById('broadcast-title') as HTMLInputElement).value = '';
                             (document.getElementById('broadcast-message') as HTMLTextAreaElement).value = '';
                           }
                         } catch (e) {
-                          toast.error('Deployment Failure');
+                          toast.error('Failed to send alert');
                         }
                       }}
                       className="w-full md:w-auto bg-red-600 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-red-600/30 hover:scale-105 active:scale-95"
                     >
-                      Blast Intercept
+                      Send Message Now
                     </button>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* Core Node Settings */}
+            {/* Core Settings */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
               <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
                 <div className="flex items-center space-x-4">
                   <div className="w-12 h-12 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
                     <Database size={24} />
                   </div>
-                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">System Core Nodes</h3>
+                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Store Access</h3>
                 </div>
 
                 <div className="space-y-8">
                   <div className="group flex items-center justify-between p-8 bg-stone-50 border border-stone-100 rounded-[2rem] hover:border-primary/20 hover:bg-white transition-all duration-300">
                     <div className="space-y-1">
-                      <p className="font-black text-stone-900 uppercase tracking-widest text-[10px]">Maintenance Protocol</p>
-                      <p className="text-xs text-stone-400 font-bold">Restrict pool to root level access only.</p>
+                      <p className="font-black text-stone-900 uppercase tracking-widest text-[10px]">Maintenance Mode</p>
+                      <p className="text-xs text-stone-400 font-bold">Only you can access the store when this is ON.</p>
                     </div>
                     <button 
                       onClick={() => updateSetting('maintenance_mode', getSetting('maintenance_mode') === 'true' ? 'false' : 'true')}
@@ -6285,13 +6295,13 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Administrative Endpoint (Email)</label>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Admin Email Address</label>
                     <div className="relative">
                        <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
                        <input 
                         type="email" 
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
-                        placeholder="root@endpoint.com"
+                        placeholder="you@example.com"
                         defaultValue={config.find(c => c.key === 'admin_email')?.value}
                         onBlur={(e) => updateSetting('admin_email', e.target.value)}
                       />
@@ -6299,13 +6309,13 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Super-User Direct Hook (Phone)</label>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Admin Phone Number</label>
                     <div className="relative">
                        <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
                        <input 
                         type="text" 
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
-                        placeholder="+91 Super-User Number"
+                        placeholder="+91 Number"
                         defaultValue={config.find(c => c.key === 'admin_phone')?.value}
                         onBlur={(e) => updateSetting('admin_phone', e.target.value)}
                       />
@@ -6319,12 +6329,12 @@ export default function AdminDashboard() {
                   <div className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center -rotate-3">
                     <Layout size={24} />
                   </div>
-                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Identity & Reach</h3>
+                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Contact Information</h3>
                 </div>
 
                 <div className="space-y-6">
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Corporate Designation (Store Name)</label>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Store Name</label>
                     <input 
                       type="text" 
                       className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
@@ -6336,7 +6346,7 @@ export default function AdminDashboard() {
 
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">Vocal Node (Phone)</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">Support Phone</label>
                       <input 
                         type="text" 
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
@@ -6345,7 +6355,7 @@ export default function AdminDashboard() {
                       />
                     </div>
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">Social Sync (WhatsApp)</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">WhatsApp Business</label>
                       <input 
                         type="text" 
                         className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
@@ -6356,7 +6366,7 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Physical Geo-Coordinates (Address)</label>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Store Address</label>
                     <input 
                       type="text" 
                       className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
@@ -6369,7 +6379,7 @@ export default function AdminDashboard() {
               </section>
             </div>
 
-            {/* Delivery Logistics Engine */}
+            {/* Delivery Logistics */}
             <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="flex items-center space-x-4">
@@ -6377,14 +6387,14 @@ export default function AdminDashboard() {
                     <Truck size={32} />
                   </div>
                   <div>
-                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Logistics Engine</h3>
-                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Delivery Algorithms & Fiscal Thresholds</p>
+                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Delivery Fees</h3>
+                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Set shipping costs and free delivery rules</p>
                   </div>
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-4">
                    <div className="bg-emerald-50 px-6 py-3 rounded-2xl border border-emerald-100 flex flex-col">
-                     <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Delivery Fee</span>
+                     <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Standard Fee</span>
                      <span className="text-lg font-black text-emerald-800">₹{deliveryFee}</span>
                    </div>
                    <button 
@@ -6395,7 +6405,7 @@ export default function AdminDashboard() {
                     }}
                     className="bg-emerald-600 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20 active:scale-95 text-xs"
                   >
-                    Sync Protocols
+                    Save Delivery Rules
                   </button>
                 </div>
               </div>
@@ -6403,8 +6413,8 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between px-2">
-                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Base Dispatch Charge (₹)</label>
-                    <span className="text-[10px] font-bold text-stone-300">Standard Transit Cost</span>
+                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Standard Delivery Charge (₹)</label>
+                    <span className="text-[10px] font-bold text-stone-300">Basic cost for any order</span>
                   </div>
                   <input 
                     type="number" 
@@ -6415,8 +6425,8 @@ export default function AdminDashboard() {
                 </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between px-2">
-                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Waiver Threshold (₹)</label>
-                    <span className="text-[10px] font-bold text-emerald-500">Free Delivery Trigger</span>
+                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Free Delivery threshold (₹)</label>
+                    <span className="text-[10px] font-bold text-emerald-500">Orders above this get free delivery</span>
                   </div>
                   <input 
                     type="number" 
@@ -6440,17 +6450,17 @@ export default function AdminDashboard() {
                     }}
                     className="bg-white text-stone-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100 hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm"
                   >
-                    + Register Zone
+                    + Add Zone
                   </button>
                 </div>
                 <div className="overflow-x-auto no-scrollbar px-6 pb-6">
                   <table className="w-full text-left">
                     <thead className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em]">
                       <tr className="border-b-2 border-stone-100">
-                        <th className="py-6 pr-6">Zone Identifier</th>
-                        <th className="py-6 px-6">Transit Fee</th>
-                        <th className="py-6 px-6">Fiscal Limit</th>
-                        <th className="py-6 pl-6 text-right">Operational Actions</th>
+                        <th className="py-6 pr-6">Zone Name</th>
+                        <th className="py-6 px-6">Delivery Fee</th>
+                        <th className="py-6 px-6">Min Order</th>
+                        <th className="py-6 pl-6 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100">
@@ -6487,7 +6497,7 @@ export default function AdminDashboard() {
                       ))}
                       {deliveryAreas.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="py-12 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2rem]">No zone exceptions established.</td>
+                          <td colSpan={4} className="py-12 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2rem]">No delivery zones added yet.</td>
                         </tr>
                       )}
                     </tbody>
@@ -6503,8 +6513,8 @@ export default function AdminDashboard() {
                     <FileText size={28} />
                   </div>
                   <div>
-                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Terms & Conditions Editor</h3>
-                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Foundational Legal Protocol • Public Nodes</p>
+                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Terms & Conditions</h3>
+                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Manage store rules and customer agreements</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-4">
@@ -6543,8 +6553,8 @@ export default function AdminDashboard() {
                       <HelpCircle size={28} />
                     </div>
                     <div>
-                      <h3 className="text-3xl font-black text-stone-900 tracking-tight">Help & FAQ Center</h3>
-                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Autonomous Support Knowledge-Base</p>
+                      <h3 className="text-3xl font-black text-stone-900 tracking-tight">Help & FAQ</h3>
+                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Frequently asked questions for customers</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-4">
@@ -6555,7 +6565,7 @@ export default function AdminDashboard() {
                       onClick={() => updateSetting('faq_content', faqContent)}
                       className="bg-primary text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-primary/80 transition-all shadow-xl shadow-primary/20 active:scale-95 text-xs"
                     >
-                      Sync Knowledge
+                      Save FAQ
                     </button>
                   </div>
                 </div>
@@ -6585,8 +6595,8 @@ export default function AdminDashboard() {
                   <Palette size={28} />
                 </div>
                 <div>
-                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">Terminal Aesthetic (Theme)</h3>
-                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Override Global Visual Parameters</p>
+                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">Store Theme</h3>
+                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Change the look and feel of your store</p>
                 </div>
               </div>
               
@@ -7106,8 +7116,8 @@ export default function AdminDashboard() {
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Incentive Node</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Promo code orchestration and acquisition hacking protocols.</p>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Coupons</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Create and manage discount coupons for your store.</p>
               </div>
               <button 
                 onClick={() => {
@@ -7119,7 +7129,7 @@ export default function AdminDashboard() {
                 <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-12 transition-transform duration-500">
                   <Plus size={20} />
                 </div>
-                <span>Provision Coupon</span>
+                <span>Create Coupon</span>
               </button>
             </header>
 
@@ -7178,13 +7188,13 @@ export default function AdminDashboard() {
 
                     <div className="space-y-6">
                       <div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em] mb-1">Authorization Code</p>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em] mb-1">Coupon Code</p>
                         <h3 className="text-2xl font-black text-stone-900 group-hover:text-primary transition-colors tracking-tighter">{coupon.code}</h3>
                       </div>
 
                       <div className="flex items-end justify-between bg-stone-50 p-6 rounded-[2rem] border border-stone-100">
                         <div>
-                          <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Settlement</p>
+                          <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Discount Value</p>
                           <p className="text-4xl font-black text-primary tracking-tighter">
                             {coupon.type === 'flat' ? `₹${coupon.value}` : `${coupon.value}%`}
                           </p>
@@ -7193,20 +7203,20 @@ export default function AdminDashboard() {
                           "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest",
                           coupon.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
                         )}>
-                          {coupon.active ? 'Operational' : 'Disabled'}
+                          {coupon.active ? 'Active' : 'Disabled'}
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-6 pt-2">
                         <div>
-                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Global Limit</p>
+                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Usage Limit</p>
                           <p className="text-sm font-black text-stone-900">{coupon.usage_limit || 'UNLIMITED'}</p>
                           <p className="text-[8px] font-bold text-stone-400 uppercase mt-0.5">Used: {coupon.usage_count || 0}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Min Threshold</p>
+                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Min Order</p>
                           <p className="text-sm font-black text-stone-900">₹{coupon.min_order}</p>
-                          <p className="text-[8px] font-bold text-stone-400 uppercase mt-0.5">User Limit: {coupon.limit_per_user || 1}</p>
+                          <p className="text-[8px] font-bold text-stone-400 uppercase mt-0.5">Limit Per User: {coupon.limit_per_user || 1}</p>
                         </div>
                       </div>
                     </div>
@@ -7232,8 +7242,8 @@ export default function AdminDashboard() {
                   <Plus size={40} />
                 </div>
                 <div className="text-center">
-                  <p className="text-base font-black text-stone-400 group-hover:text-primary tracking-tight transition-colors">Launch Incentive</p>
-                  <p className="text-[10px] font-bold text-stone-300 uppercase tracking-widest mt-1">Deploy promo code</p>
+                  <p className="text-base font-black text-stone-400 group-hover:text-primary tracking-tight transition-colors">Create New Coupon</p>
+                  <p className="text-[10px] font-bold text-stone-300 uppercase tracking-widest mt-1">Add a new coupon code</p>
                 </div>
               </motion.button>
             </div>
@@ -7457,7 +7467,7 @@ export default function AdminDashboard() {
                     ))}
                     {returns.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2.5rem]">Optimal state confirmed. Zero pending liabilities detected.</td>
+                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2.5rem]">No pending returns or refunds.</td>
                       </tr>
                     )}
                   </tbody>
@@ -7612,18 +7622,18 @@ export default function AdminDashboard() {
                   <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-6">
                     <Star size={24} fill="currentColor" />
                   </div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Social Proof Audit</h2>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Customer Reviews</h2>
                 </div>
-                <p className="text-stone-500 font-medium text-lg ml-1">Moderate customer feedback and analyze consumer sentiment.</p>
+                <p className="text-stone-500 font-medium text-lg ml-1">Moderate customer feedback and review ratings.</p>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
                  <div className="flex flex-col">
-                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Feedback Nodes</span>
+                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Total Reviews</span>
                    <span className="text-2xl font-black text-stone-900">{reviews.length} Total</span>
                  </div>
                  <div className="w-px h-10 bg-stone-100" />
                  <div className="flex flex-col">
-                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Average Satisfaction</span>
+                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Average Rating</span>
                    <span className="text-2xl font-black text-primary">{(reviews.reduce((acc, r) => acc + r.rating, 0) / (reviews.length || 1)).toFixed(1)} / 5.0</span>
                  </div>
               </div>
@@ -7634,13 +7644,13 @@ export default function AdminDashboard() {
                 <table className="w-full text-left">
                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <th className="px-10 py-8">Target SKU</th>
-                      <th className="px-6 py-8">Contributor</th>
-                      <th className="px-6 py-8">Sentiment Score</th>
-                      <th className="px-6 py-8">Transmission</th>
-                      <th className="px-6 py-8">Moderation</th>
-                      <th className="px-6 py-8">Dispatched On</th>
-                      <th className="px-10 py-8 text-right">Goverance</th>
+                      <th className="px-10 py-8">Product</th>
+                      <th className="px-6 py-8">Customer</th>
+                      <th className="px-6 py-8">Rating</th>
+                      <th className="px-6 py-8">Comment</th>
+                      <th className="px-6 py-8">Status</th>
+                      <th className="px-6 py-8">Date</th>
+                      <th className="px-10 py-8 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-50">
@@ -7732,7 +7742,7 @@ export default function AdminDashboard() {
                     ))}
                     {reviews.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">No reviews found.</td>
+                        <td colSpan={7} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">No customer reviews found.</td>
                       </tr>
                     )}
                   </tbody>
@@ -7801,7 +7811,7 @@ export default function AdminDashboard() {
                           ) : (
                             <div className="flex items-center space-x-3 text-stone-300">
                                <Fingerprint size={20} />
-                               <span className="italic font-bold text-xs uppercase tracking-widest">Ghost Node (Guest)</span>
+                               <span className="italic font-bold text-xs uppercase tracking-widest">Guest User</span>
                             </div>
                           )}
                         </td>

@@ -12,7 +12,8 @@ export default function CompleteProfile() {
   const [formData, setFormData] = useState({
     name: user?.name || '',
     phone: '',
-    profile_photo: user?.profile_photo || ''
+    profile_photo: user?.profile_photo || '',
+    acquisition_source: 'direct'
   });
   const [loading, setLoading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
@@ -193,6 +194,21 @@ export default function CompleteProfile() {
                 className="input-field"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">How did you hear about us?</label>
+            <select 
+              className="input-field w-full p-3 rounded-lg border border-stone-200"
+              value={formData.acquisition_source}
+              onChange={(e) => setFormData({...formData, acquisition_source: e.target.value})}
+            >
+              <option value="direct">Direct</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="social_media">Social Media</option>
+              <option value="friend">Referred by Friend</option>
+              <option value="other">Other</option>
+            </select>
           </div>
 
           <button 
