@@ -227,7 +227,9 @@ export default function Navbar() {
             )}
             
             <Link to="/wishlist" className="relative p-2 text-stone-600 hover:text-primary transition-colors hidden md:block">
-              <Heart size={24} />
+              <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+                <Heart size={24} />
+              </motion.div>
               {wishlistCount > 0 && (
                 <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
                   {wishlistCount}
@@ -243,7 +245,9 @@ export default function Navbar() {
               onMouseLeave={() => setIsMiniCartOpen(false)}
             >
               <Link to="/cart" className="relative p-2 text-stone-600 hover:text-primary transition-colors block">
-                <ShoppingCart size={24} />
+                <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+                    <ShoppingCart size={24} />
+                </motion.div>
                 {cartCount > 0 && (
                   <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
                     {cartCount}
@@ -268,10 +272,12 @@ export default function Navbar() {
                 </Link>
               </div>
             ) : (
-              <Link to="/login" className="btn-primary hidden md:flex items-center space-x-2">
-                <User size={18} />
-                <span>Login</span>
-              </Link>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Link to="/login" className="btn-primary hidden md:flex items-center space-x-2">
+                    <User size={18} />
+                    <span>Login</span>
+                  </Link>
+              </motion.div>
             )}
 
             <div className="flex items-center space-x-2 md:hidden">

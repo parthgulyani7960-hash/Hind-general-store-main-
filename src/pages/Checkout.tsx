@@ -955,25 +955,37 @@ export default function Checkout() {
                     <h2 className="text-3xl font-bold">Order Confirmed!</h2>
                     <p className="text-stone-500">Thank you for shopping with General Store Karyana Shop.</p>
                   </div>
-                  <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 inline-block text-left">
+                  <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 inline-block text-left w-full">
                     <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">{t('order_details') || 'Order Details'}</p>
-                    <div className="space-y-2">
-                      <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">{t('order_id') || 'Order ID'}</span>
-                        <span className="text-sm font-bold uppercase">{pendingOrder?.order_id || '#HGS-PENDING'}</span>
-                      </div>
-                      <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">{t('payment_status') || 'Payment Status'}</span>
-                        <span className="text-sm font-bold text-emerald-600 uppercase">{t('paid') || 'Paid'}</span>
-                      </div>
-                      <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">{t('delivery_method') || 'Delivery Method'}</span>
-                        <span className="text-sm font-bold">{t('standard_delivery') || 'Standard Delivery'}</span>
-                      </div>
-                      <div className="flex justify-between space-x-12">
-                        <span className="text-sm text-stone-500">{t('estimated_arrival') || 'Estimated Arrival'}</span>
-                        <span className="text-sm font-bold">2-4 {(t('business_days') || 'Business Days')}</span>
-                      </div>
+                    <div className="grid md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                            <div className="flex justify-between space-x-12">
+                                <span className="text-sm text-stone-500">{t('order_id') || 'Order ID'}</span>
+                                <span className="text-sm font-bold uppercase">{pendingOrder?.order_id || '#HGS-PENDING'}</span>
+                            </div>
+                            <div className="flex justify-between space-x-12">
+                                <span className="text-sm text-stone-500">{t('payment_status') || 'Payment Status'}</span>
+                                <span className="text-sm font-bold text-emerald-600 uppercase">{t('paid') || 'Paid'}</span>
+                            </div>
+                            <div className="flex justify-between space-x-12">
+                                <span className="text-sm text-stone-500">{t('delivery_method') || 'Delivery Method'}</span>
+                                <span className="text-sm font-bold">{t('standard_delivery') || 'Standard Delivery'}</span>
+                            </div>
+                            <div className="flex justify-between space-x-12">
+                                <span className="text-sm text-stone-500">{t('estimated_arrival') || 'Estimated Arrival'}</span>
+                                <span className="text-sm font-bold">2-4 {(t('business_days') || 'Business Days')}</span>
+                            </div>
+                        </div>
+                        {pendingOrder?.payment_method === 'upi' && (
+                            <div className="bg-white p-4 rounded-2xl flex flex-col items-center shadow-sm border border-stone-100">
+                                <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Payment QR</p>
+                                <QRCodeCanvas 
+                                  value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tn=${pendingOrder.order_id}`}
+                                  size={120}
+                                  level="L"
+                                />
+                            </div>
+                        )}
                     </div>
                   </div>
                   <div className="flex flex-col sm:flex-row justify-center gap-4">

@@ -4,6 +4,35 @@ import App from './App.tsx';
 import { StoreProvider } from './StoreContext';
 import './index.css';
 import ErrorBoundary from './components/ErrorBoundary';
+import { reportError, flushQueue } from './lib/errorReporter';
+
+// Global interaction tracker
+let lastInteractedElement = 'None';
+window.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement;
+  lastInteractedElement = `${target.tagName}#${target.id}.${target.className}`;
+}, true);
+
+// Global Error Handlers
+window.addEventListener('error', (event) => {
+  reportError({
+    message: event.message,
+    path: window.location.pathname,
+    interactedElement: lastInteractedElement,
+    logs: [event.error?.stack || 'No stack']
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  reportError({
+    message: event.reason?.message || 'Unhandled Rejection',
+    path: window.location.pathname,
+    interactedElement: lastInteractedElement,
+    logs: [JSON.stringify(event.reason)]
+  });
+});
+
+window.addEventListener('online', flushQueue);
 
 // Auth Interceptor: Automatically injects token into every fetch request
 try {
@@ -18,6 +47,12 @@ try {
         }
         return originalFetch(input, { ...init, headers }).then(async (response) => {
           if (!response.ok) {
+            reportError({
+              message: `HTTP error! status: ${response.status}`,
+              path: window.location.pathname,
+              interactedElement: String(input),
+              logs: [`Status: ${response.status}`]
+            });
             const error = new Error(`HTTP error! status: ${response.status}`);
             (error as any).response = response;
             throw error;

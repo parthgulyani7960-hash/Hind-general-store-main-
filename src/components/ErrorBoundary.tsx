@@ -1,5 +1,6 @@
 import React, { ErrorInfo, ReactNode } from 'react';
 import toast from 'react-hot-toast';
+import { reportError } from '../lib/errorReporter';
 
 interface Props {
   children: ReactNode;
@@ -25,31 +26,12 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     console.error("Uncaught error:", error, errorInfo);
     toast.error("An unexpected error occurred. Please refresh the page.");
     
-    // Auto-report bug
-    try {
-      const userStr = localStorage.getItem('hgs_user');
-      let userId = null;
-      let reporterName = 'System Auto (Guest)';
-      
-      if (userStr) {
-        const user = JSON.parse(userStr);
-        userId = user.id;
-        reporterName = user.name || user.phone || 'System Auto (User)';
-      }
-      
-      fetch('/api/bugs/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          reporter_name: reporterName,
-          message: error.message || 'Unknown render error',
-          why: errorInfo.componentStack?.substring(0, 500) || 'No stack trace',
-          path: window.location.pathname,
-          action_log: 'Automatically captured by ErrorBoundary'
-        })
-      }).catch(err => console.error("Failed to auto-report bug", err));
-    } catch(e) {}
+    reportError({
+      message: error.message || 'Unknown render error',
+      componentStack: errorInfo.componentStack?.substring(0, 500) || 'No stack trace',
+      path: window.location.pathname,
+      logs: []
+    });
   }
 
   public render() {

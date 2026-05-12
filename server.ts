@@ -1332,6 +1332,52 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
   });
 
+  app.post('/api/returns', requireAuth, (req, res) => {
+    const { order_id, product_id, quantity, reason } = req.body;
+    try {
+      db.prepare('INSERT INTO returns (order_id, product_id, user_id, quantity, reason, status) VALUES (?, ?, ?, ?, ?, ?)').run(order_id, product_id, req.session.userId, quantity, reason, 'pending');
+      res.json({ success: true, message: 'Return request submitted successfully' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to submit return request', 'submitReturnRequest');
+      res.status(500).json({ success: false, message: 'Failed to submit request' });
+    }
+  });
+
+  app.get('/api/admin/returns', requireAdmin, (req, res) => {
+    try {
+        const returns = db.prepare('SELECT r.*, o.order_id as order_num, u.name as user_name, p.name as product_name FROM returns r JOIN orders o ON r.order_id = o.id JOIN users u ON r.user_id = u.id JOIN products p ON r.product_id = p.id ORDER BY r.created_at DESC').all();
+        res.json(returns);
+    } catch (err: any) {
+        handleAppError(err, 'Failed to fetch returns', 'fetchReturns');
+        res.status(500).json({ success: false, message: 'Failed to fetch returns' });
+    }
+  });
+
+  app.post('/api/admin/returns/:id/status', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    try {
+        db.prepare('UPDATE returns SET status = ? WHERE id = ?').run(status, id);
+        res.json({ success: true, message: 'Status updated' });
+    } catch (err: any) {
+        handleAppError(err, 'Failed to update return status', 'updateReturnStatus');
+        res.status(500).json({ success: false, message: 'Failed to update status' });
+    }
+  });
+
+  app.post('/api/admin/purchases', requireAdmin, (req, res) => {
+    const { supplier_id, product_id, quantity, cost_price, invoice_number, batch_number, expiry_date } = req.body;
+    try {
+      db.prepare('INSERT INTO purchase_records (supplier_id, product_id, quantity, cost_price, invoice_number, batch_number, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        supplier_id, product_id, quantity, cost_price, invoice_number, batch_number, expiry_date
+      );
+      db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(quantity, product_id);
+      res.json({ success: true, message: 'Purchase recorded successfully' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to record purchase', 'recordPurchase');
+      res.status(500).json({ success: false, message: 'Failed to record purchase' });
+    }
+  });
   app.get('/api/user/generate-export', requireAuth, (req, res) => {
     try {
       console.log('Generating export for user:', req.session.userId);
@@ -3410,7 +3456,7 @@ app.get('/api/admin/stats', (req, res) => {
       stats.totalRefunds = refundsSum?.sum || 0;
       stats.newUserCount = newUserCountRes?.count || 0;
       stats.netRevenue = stats.revenue - stats.totalRefunds;
-      stats.activeUsers = currentActive;
+      stats.activeUsers = 0;
 
       stats.revenueByDay = executeQuery(`
         SELECT strftime('%Y-%m-%d', created_at) as date, SUM(total) as revenue, COUNT(*) as orders

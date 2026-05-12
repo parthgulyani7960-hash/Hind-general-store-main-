@@ -120,12 +120,22 @@ export default function TermsAndConditions() {
                       <section class="border-l-4 border-stone-100 pl-8 transition-all hover:border-primary/40 group">
                         <h3 class="text-2xl font-black text-stone-900 mb-6 uppercase tracking-tight flex items-center">
                           <span class="w-8 h-8 bg-stone-100 text-stone-400 group-hover:bg-primary group-hover:text-white rounded-lg flex items-center justify-center text-sm mr-4 transition-colors">06</span>
-                          Returns, Quality Claims & Refunds
+                          Return Policy
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p><strong>Perishables (Dairy, Veg, Fruit):</strong> Must be checked in the presence of the runner. Returns are not accepted once the runner departs. If the item is poor quality, hand it back immediately for a full refund to your wallet.</p>
-                          <p><strong>Staples & Groceries:</strong> Unopened items can be returned within 48 hours for store credit. Items with broken seals or signs of use cannot be returned unless there is a clear manufacturing defect.</p>
-                          <p><strong>Refund Timing:</strong> Approved refunds to General Store Karyana Shop Wallet are instantaneous. Refunds to original payment methods (Bank/Card) can take 5-7 business days as per banking standards.</p>
+                          <p><strong>Return Window:</strong> All return requests must be initiated within 48 hours of order delivery.</p>
+                          <p><strong>Perishables (Dairy, Veg, Fruit):</strong> Must be inspected at the time of delivery. Returns will only be accepted in the presence of the delivery runner. If you find the items to be of poor quality, please hand them back immediately for an instant refund to your General Store Karyana Shop Wallet.</p>
+                          <p><strong>Non-Perishables (Staples, Groceries, Packaged Goods):</strong> Unopened and undamaged items can be returned within 48 hours. Items with broken seals, signs of use, or missing original packaging will not be accepted unless there is a clear manufacturing defect.</p>
+                          <p><strong>How to Initiate a Return:</strong>
+                            <ol class="list-decimal pl-6 space-y-2">
+                              <li>Navigate to your "Order History" in your Profile.</li>
+                              <li>Select the relevant order.</li>
+                              <li>Click the "Return" button on the item(s) you wish to return.</li>
+                              <li>Select the product, specify quantity, and provide a valid reason for the return.</li>
+                              <li>Submit the request. Your request will be reviewed by our admin team, and you will be notified of the status.</li>
+                            </ol>
+                          </p>
+                          <p><strong>Refund Policy:</strong> Once a return request is approved by our admin, refunds will be credited to your General Store Karyana Shop Wallet. Refunds to original payment methods (Bank/Card) may take 5-7 business days as per banking standards.</p>
                         </div>
                       </section>
 

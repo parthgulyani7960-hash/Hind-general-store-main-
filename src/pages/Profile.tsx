@@ -314,10 +314,11 @@ export default function Profile() {
     
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/orders/${showReturnModal.orderId}/return`, {
+      const res = await fetch(`/api/returns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          order_id: showReturnModal.orderId,
           product_id: returnProductId,
           quantity: returnQuantity,
           reason: returnReason

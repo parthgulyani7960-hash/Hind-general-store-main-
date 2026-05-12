@@ -289,6 +289,16 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchReturns = async () => {
+    try {
+        const res = await fetch('/api/admin/returns');
+        if (!res.ok) throw new Error('Failed to fetch returns');
+        setReturns(await res.json());
+    } catch (err: any) {
+        handleAppError(err, 'Failed to fetch returns', 'fetchReturns');
+    }
+  };
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
@@ -460,7 +470,27 @@ export default function AdminDashboard() {
 
   // Stock Entry State
   const [stockEntryModal, setStockEntryModal] = useState<{ open: boolean, product: any }>({ open: false, product: null });
-  const [purchaseForm, setPurchaseForm] = useState({ supplier_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
+  const [purchaseForm, setPurchaseForm] = useState({ supplier_id: '', product_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
+
+  const handlePurchaseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/admin/purchases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(purchaseForm)
+      });
+      if (res.ok) {
+        toast.success('Purchase recorded successfully');
+        setPurchaseForm({ supplier_id: '', product_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
+      } else {
+        const data = await res.json();
+        toast.error(data.message || 'Failed to record purchase');
+      }
+    } catch (err) {
+      toast.error('Failed to record purchase');
+    }
+  };
 
   const [walletRequests, setWalletRequests] = useState<any[]>([]);
   const [runners, setRunners] = useState<any[]>([]);
@@ -616,17 +646,6 @@ export default function AdminDashboard() {
   const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', email: '', phone: '', address: '' });
   const [returns, setReturns] = useState<any[]>([]);
 
-  const fetchReturns = async () => {
-    try {
-      const res = await fetch('/api/admin/returns');
-      if (res.ok) {
-        const data = await res.json();
-        setReturns(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch returns:', err);
-    }
-  };
 
   const handleApproveReturn = async (returnObj: any) => {
     const amount = prompt(`Enter refund amount to drop in ${returnObj.user_name}'s wallet for Order #${returnObj.order_num}:`, returnObj.refund_amount || 0);
