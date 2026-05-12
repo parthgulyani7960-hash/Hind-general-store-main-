@@ -1923,6 +1923,23 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             const email = decodedToken.email?.toLowerCase();
             if (email) {
               let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email) as any;
+              
+              if (!user && decodedToken.uid) {
+                  try {
+                    const defaultRole = email === getAdminEmail().toLowerCase() ? 'admin' : 'customer';
+                    const randSuffix = Math.random().toString(36).substring(7);
+                    const username = email.split('@')[0].substring(0, 20) + '_' + randSuffix;
+                    
+                    db.prepare('INSERT INTO users (email, name, username, role) VALUES (?, ?, ?, ?)').run(
+                      email, 
+                      decodedToken.name || email.split('@')[0],
+                      username,
+                      defaultRole
+                    );
+                    user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email) as any;
+                  } catch (err) {}
+              }
+
               if (user) {
                 req.session.userId = user.id;
                 req.session.role = user.role;

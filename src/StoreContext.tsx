@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
-import { auth, signOutUser, onAuthStateChanged } from './firebase'; // Import from local firebase.ts
+import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './firebase'; // Import from local firebase.ts
 import { getAuthHeaders } from './lib/utils';
 
 interface StoreContextType {
@@ -79,7 +79,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           try {
             const token = await firebaseUser.getIdToken();
@@ -122,6 +122,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     try {
       const res = await fetch('/api/alerts', { headers: getAuthHeaders() });
+      if (res.status === 401) {
+        if (auth.currentUser) {
+          try {
+            await auth.currentUser.getIdToken(true);
+          } catch (e) {
+            checkAuth();
+          }
+        } else {
+          checkAuth();
+        }
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         if (data.length > 0) {
