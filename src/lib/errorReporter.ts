@@ -26,13 +26,19 @@ export const flushQueue = async () => {
   const queue = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
   if (queue.length === 0) return;
   
+  const token = localStorage.getItem('hgs_token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+
   const successfulLogs: ErrorLog[] = [];
   
   for (const log of queue) {
     try {
       const response = await fetch('/api/bugs/report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           ...log,
           why: log.componentStack,
@@ -44,9 +50,8 @@ export const flushQueue = async () => {
         successfulLogs.push(log);
       }
     } catch (err) {
-      console.error('Failed to flush log', err);
-      // Keep in queue
-      break; 
+      console.error('Failed to flush log', log, err);
+      // Skip this log and try the next one
     }
   }
   

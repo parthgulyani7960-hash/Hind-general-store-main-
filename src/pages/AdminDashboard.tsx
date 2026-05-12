@@ -48,7 +48,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports' | 'Data Exports';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports' | 'Data Exports' | 'Promotional Rules';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -391,8 +391,7 @@ export default function AdminDashboard() {
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
   const [promotionRules, setPromotionRules] = useState<any[]>([]);
-  const [promotionRuleModal, setPromotionRuleModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
-  const [newPromotionRule, setNewPromotionRule] = useState({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
+
   const [promotionModal, setPromotionModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
   const [promotionProductsModal, setPromotionProductsModal] = useState({ open: false, promotionId: null as number | null });
   const [linkedProductIds, setLinkedProductIds] = useState<number[]>([]);
@@ -645,6 +644,59 @@ export default function AdminDashboard() {
   const [supplierModal, setSupplierModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', supplier: null as any });
   const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', email: '', phone: '', address: '' });
   const [returns, setReturns] = useState<any[]>([]);
+  const [promotionalRules, setPromotionalRules] = useState<any[]>([]);
+
+  const fetchPromotionalRules = async () => {
+    try {
+      const res = await fetch('/api/admin/promotional-rules');
+      if (res.ok) setPromotionalRules(await res.json());
+    } catch (err) {
+      console.error('Failed to fetch promotional rules', err);
+    }
+  };
+
+  const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as any });
+  const [newPromotionRule, setNewPromotionRule] = useState({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+
+  const handlePromotionRuleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const url = promotionRuleFormModal.mode === 'add' ? '/api/admin/promotional-rules' : `/api/admin/promotional-rules/${promotionRuleFormModal.rule.id}`;
+      const method = promotionRuleFormModal.mode === 'add' ? 'POST' : 'PUT';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPromotionRule)
+      });
+      if (res.ok) {
+        toast.success(promotionRuleFormModal.mode === 'add' ? 'Rule created' : 'Rule updated');
+        fetchPromotionalRules();
+        setPromotionRuleFormModal({ open: false, mode: 'add', rule: null });
+      } else {
+        const data = await res.json();
+        toast.error(data.message || 'Failed to save rule');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to save rule');
+    }
+  };
+
+  const handleDeleteRule = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this rule?')) return;
+    try {
+      const res = await fetch(`/api/admin/promotional-rules/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Rule deleted');
+        fetchPromotionalRules();
+      } else {
+        toast.error('Failed to delete rule');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete rule');
+    }
+  };
 
 
   const handleApproveReturn = async (returnObj: any) => {
@@ -753,6 +805,12 @@ export default function AdminDashboard() {
     active: true
   });
 
+
+  useEffect(() => {
+    if (activeTab === 'Promotional Rules') {
+      fetchPromotionalRules();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === 'Bulk Discounts') {
@@ -1518,37 +1576,15 @@ export default function AdminDashboard() {
   const handleDeletePromotionRule = async (id: number) => {
     if (!window.confirm('Delete this rule?')) return;
     try {
-      const res = await fetch(`/api/admin/promotions-rules/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/promotional-rules/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete rule');
       toast.success('Discount rule deleted');
-      fetchPromotionRules();
+      fetchPromotionalRules();
     } catch (err: any) {
       handleAppError(err, 'Failed to delete rule', 'deletePromotionRule', true);
     }
   };
 
-  const handlePromotionRuleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const url = promotionRuleModal.mode === 'add' ? '/api/admin/promotions-rules' : `/api/admin/promotions-rules/${promotionRuleModal.id}`;
-    const method = promotionRuleModal.mode === 'add' ? 'POST' : 'PUT';
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newPromotionRule)
-      });
-      if (!res.ok) throw new Error(`Failed to ${promotionRuleModal.mode} rule`);
-      const data = await res.json();
-      if (data.success) {
-        toast.success(`Discount rule ${promotionRuleModal.mode === 'add' ? 'created' : 'updated'} successfully`);
-        setPromotionRuleModal({ open: false, mode: 'add', id: null });
-        setNewPromotionRule({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
-        fetchPromotionRules();
-      }
-    } catch (err: any) {
-      handleAppError(err, 'Failed to save rule', 'savePromotionRule', true);
-    }
-  };
 
   const togglePromotionRuleStatus = async (id: number) => {
     try {
@@ -2356,7 +2392,7 @@ export default function AdminDashboard() {
     'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 'Product Catalog', 'Categories', 
     'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Roles', 'Support Tickets', 'Newsletter', 
     'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'Suspicious Activities', 'Promotions', 
-    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Bug Reports', 'Data Exports'
+    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Bug Reports', 'Data Exports', 'Promotional Rules'
   ];
 
   if (showPOPrint && poData) {
@@ -5932,7 +5968,7 @@ export default function AdminDashboard() {
                 <button 
                   onClick={() => {
                     setNewPromotionRule({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
-                    setPromotionRuleModal({ open: true, mode: 'add', id: null });
+                    setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
                   }}
                   className="bg-stone-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center space-x-2"
                 >
@@ -6002,7 +6038,7 @@ export default function AdminDashboard() {
                                     discount_value: rule.value,
                                     active: rule.active
                                   });
-                                  setPromotionRuleModal({ open: true, mode: 'edit', id: rule.id });
+                                  setPromotionRuleFormModal({ open: true, mode: 'edit', rule: rule });
                                 }}
                                 className="p-2 text-stone-400 hover:text-primary hover:bg-stone-100 rounded-xl transition-colors"
                               >
@@ -7892,6 +7928,90 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {activeTab === 'Promotional Rules' && (
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Promotional Rule Configuration</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Manage BOGO, discounts, and tiered logic for products and categories.</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setNewPromotionRule({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+                  setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
+                }}
+                className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:bg-stone-800 transition-all active:scale-95 group"
+              >
+                <Plus size={18} />
+                <span className="uppercase tracking-widest text-xs">Architect New Rule</span>
+              </button>
+            </header>
+            
+            <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100">
+                 <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                    <h3 className="font-bold text-lg">Existing Rules</h3>
+                 </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-stone-50 border-b border-stone-100 uppercase text-[10px] font-black text-stone-500 tracking-wider">
+                        <th className="p-4">Status</th>
+                        <th className="p-4">Title</th>
+                        <th className="p-4">Type</th>
+                        <th className="p-4">Target</th>
+                        <th className="p-4">Condition</th>
+                        <th className="p-4">Reward</th>
+                        <th className="p-4">Value</th>
+                        <th className="p-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {promotionalRules.map((rule) => (
+                        <tr key={rule.id} className="hover:bg-stone-50 transition-colors">
+                          <td className="p-4">
+                            <span className={cn(
+                              "px-2 py-1 flex w-min items-center rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                              rule.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-500"
+                            )}>
+                              {rule.active ? 'Active' : 'Paused'}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold max-w-[200px] truncate">{rule.title}</td>
+                          <td className="p-4 uppercase text-[10px] font-black text-stone-500 tracking-widest">{rule.type}</td>
+                          <td className="p-4">
+                            <span className="bg-stone-100 px-2 py-1 rounded text-xs font-bold text-stone-600">
+                              {rule.target_type === 'all' ? 'Entire Store' : `${rule.target_type}: ${rule.target_id}`}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold">{rule.condition_qty || 0}</td>
+                          <td className="p-4 font-bold">{rule.reward_qty || 0}</td>
+                          <td className="p-4 font-bold text-emerald-600">
+                            {rule.type === 'percentage' ? `${rule.discount_value}%` : `₹${rule.discount_value || 0}`}
+                          </td>
+                          <td className="p-4 text-right">
+                             <div className="flex justify-end space-x-2">
+                               <button 
+                                 onClick={() => {
+                                    setNewPromotionRule({ title: rule.title, type: rule.type, target_type: rule.target_type, target_id: rule.target_id, condition_qty: rule.condition_qty, reward_qty: rule.reward_qty, discount_value: rule.discount_value, active: rule.active });
+                                    setPromotionRuleFormModal({ open: true, mode: 'edit', rule });
+                                 }}
+                                 className="text-primary hover:text-primary/80 font-bold"
+                               >Edit</button>
+                               <button 
+                                 onClick={() => handleDeleteRule(rule.id)}
+                                 className="text-red-500 hover:text-red-700 font-bold"
+                               >Delete</button>
+                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'Data Exports' && (
           <DataExportsView />
         )}
@@ -9090,7 +9210,7 @@ export default function AdminDashboard() {
       )}
 
       {/* Promotion Rule Modal */}
-      {promotionRuleModal.open && (
+      {promotionRuleFormModal.open && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
@@ -9098,7 +9218,7 @@ export default function AdminDashboard() {
             className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl relative max-h-[90vh] overflow-y-auto"
           >
             <h3 className="text-2xl font-bold mb-6">
-              {promotionRuleModal.mode === 'add' ? 'Create Target Rule' : 'Edit Target Rule'}
+              {promotionRuleFormModal.mode === 'add' ? 'Create Target Rule' : 'Edit Target Rule'}
             </h3>
             <form onSubmit={handlePromotionRuleSubmit} className="space-y-4">
               <div>
@@ -9189,7 +9309,7 @@ export default function AdminDashboard() {
               <div className="flex space-x-3 pt-4">
                 <button 
                   type="button"
-                  onClick={() => setPromotionRuleModal({ open: false, mode: 'add', id: null })}
+                  onClick={() => setPromotionRuleFormModal({ open: false, mode: 'add', rule: null })}
                   className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50 transition-colors"
                 >
                   Cancel

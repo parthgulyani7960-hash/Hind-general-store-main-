@@ -4,8 +4,14 @@ export const fetchWithHandling = async <T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T | null> => {
+  const token = localStorage.getItem('hgs_token');
+  const headers = {
+    ...options.headers,
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { ...options, headers });
     
     if (!res.ok) {
         let errorMessage = `Error: ${res.status}`;

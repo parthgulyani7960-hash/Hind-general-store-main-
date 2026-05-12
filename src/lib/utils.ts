@@ -5,6 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('hgs_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+}
+
 export function calculateBulkDiscount(product: any, quantity: number, bulkDiscounts: any[]) {
   if (!bulkDiscounts || bulkDiscounts.length === 0) return 0;
 

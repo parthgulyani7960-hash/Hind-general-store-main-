@@ -1378,6 +1378,53 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.status(500).json({ success: false, message: 'Failed to record purchase' });
     }
   });
+  app.get('/api/admin/promotional-rules', requireAdmin, (req, res) => {
+    try {
+      res.json(db.prepare('SELECT * FROM promotional_rules ORDER BY created_at DESC').all());
+    } catch (err: any) {
+      handleAppError(err, 'Failed to fetch promotional rules', 'fetchPromotionalRules');
+      res.status(500).json({ success: false, message: 'Failed to fetch rules' });
+    }
+  });
+
+  app.post('/api/admin/promotional-rules', requireAdmin, (req, res) => {
+    const { title, type, target_type, target_id, condition_qty, reward_qty, discount_value, active } = req.body;
+    try {
+      db.prepare('INSERT INTO promotional_rules (title, type, target_type, target_id, condition_qty, reward_qty, discount_value, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        title, type, target_type, target_id, condition_qty, reward_qty, discount_value, active
+      );
+      res.json({ success: true, message: 'Rule created' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to create promotional rule', 'createRule');
+      res.status(500).json({ success: false, message: 'Failed to create rule' });
+    }
+  });
+
+  app.put('/api/admin/promotional-rules/:id', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { title, type, target_type, target_id, condition_qty, reward_qty, discount_value, active } = req.body;
+    try {
+      db.prepare('UPDATE promotional_rules SET title=?, type=?, target_type=?, target_id=?, condition_qty=?, reward_qty=?, discount_value=?, active=? WHERE id=?').run(
+        title, type, target_type, target_id, condition_qty, reward_qty, discount_value, active, id
+      );
+      res.json({ success: true, message: 'Rule updated' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to update promotional rule', 'updateRule');
+      res.status(500).json({ success: false, message: 'Failed to update rule' });
+    }
+  });
+
+  app.delete('/api/admin/promotional-rules/:id', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare('DELETE FROM promotional_rules WHERE id=?').run(id);
+      res.json({ success: true, message: 'Rule deleted' });
+    } catch (err: any) {
+      handleAppError(err, 'Failed to delete promotional rule', 'deleteRule');
+      res.status(500).json({ success: false, message: 'Failed to delete rule' });
+    }
+  });
+
   app.get('/api/user/generate-export', requireAuth, (req, res) => {
     try {
       console.log('Generating export for user:', req.session.userId);

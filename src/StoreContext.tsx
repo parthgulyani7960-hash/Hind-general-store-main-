@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
 import { onAuthStateChanged } from 'firebase/auth'; // Import this
 import { auth, signOutUser } from './firebase'; // Import auth
+import { getAuthHeaders } from './lib/utils';
 
 interface StoreContextType {
   user: User | null;
@@ -107,7 +108,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const fetchAlerts = async () => {
     if (!user) return;
     try {
-      const res = await fetch('/api/alerts');
+      const res = await fetch('/api/alerts', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.length > 0) {
@@ -122,7 +123,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const markAlertAsRead = async (id: number) => {
     try {
-      await fetch(`/api/alerts/${id}/read`, { method: 'POST' });
+      await fetch(`/api/alerts/${id}/read`, { method: 'POST', headers: getAuthHeaders() });
       setPendingAlerts(prev => prev.filter(a => a.id !== id));
       if (currentAlert?.id === id) {
         setCurrentAlert(null);
