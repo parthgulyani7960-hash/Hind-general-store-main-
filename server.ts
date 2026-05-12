@@ -93,7 +93,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https:;");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss://ais-dev-dplwcc6nxjtzkx2dwfmb3j-323698998999.asia-southeast1.run.app;");
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
@@ -1023,7 +1023,7 @@ const createAlert = (userId: number | null, title: string, message: string, deta
 };
 
 // Middlewares
-const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   // Check session
   if (req.session.userId) {
     return next();
@@ -1034,14 +1034,20 @@ const requireAuth = (req: express.Request, res: express.Response, next: express.
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     try {
-        const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
-        if (decoded && decoded.userId) {
-            req.session.userId = decoded.userId;
-            req.session.role = decoded.role;
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const email = decodedToken.email;
+        
+        // Find user by email
+        const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+        if (user) {
+            req.session.userId = user.id;
+            req.session.role = user.role;
             return next();
+        } else {
+            console.warn(`[AUTH FAIL] User not found for email: ${email}`);
         }
     } catch (e) {
-        console.error('Invalid token in Authorization header', e);
+        console.error('Invalid Firebase token in Authorization header', e);
     }
   }
 
@@ -1049,19 +1055,21 @@ const requireAuth = (req: express.Request, res: express.Response, next: express.
   return res.status(401).json({ success: false, message: 'Authentication required' });
 };
 
-const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const requireAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!req.session.userId) {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.split(' ')[1];
         try {
-            const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
-            if (decoded && decoded.userId) {
-                req.session.userId = decoded.userId;
-                req.session.role = decoded.role;
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            const email = decodedToken.email;
+            const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+            if (user) {
+                req.session.userId = user.id;
+                req.session.role = user.role;
             }
         } catch (e) {
-            console.error('Invalid token in Authorization header', e);
+            console.error('Invalid Firebase token in Authorization header', e);
         }
     }
   }
@@ -1093,10 +1101,6 @@ const requireAdmin = (req: express.Request, res: express.Response, next: express
     return res.status(500).json({ success: false, message: 'Internal server error verifying permissions' });
   }
 };
-
-
-
-
 
 // Middleware for auditing admin actions
 const auditAdminAction = (req: any, res: any, next: any) => {
@@ -1152,15 +1156,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   }));
 
   // Token-based fallback for iframe / cross-site environments
-  app.use((req, res, next) => {
+  app.use(async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const token = authHeader.split(' ')[1];
-        const payload = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
-        if (payload && payload.userId) {
-          req.session.userId = payload.userId;
-          req.session.role = payload.role;
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const email = decodedToken.email;
+        const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+        if (user) {
+            req.session.userId = user.id;
+            req.session.role = user.role;
         }
       } catch (e) {
         // Invalid token
@@ -1266,7 +1272,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/user/export-data', requireAuth, (req, res) => {
     try {
-      const pending = db.prepare('SELECT count(*) as count FROM data_exports WHERE user_id = ? AND status = "PENDING_REVIEW"').get(req.session.userId) as any;
+      const pending = db.prepare('SELECT count(*) as count FROM data_exports WHERE user_id = ? AND status = \'PENDING_REVIEW\'').get(req.session.userId) as any;
       if (pending && pending.count > 0) {
         return res.status(400).json({ success: false, message: 'You already have a pending export request.' });
       }
@@ -1302,7 +1308,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       try {
           const { id } = req.params;
           const exportRequest = db.prepare('SELECT user_id FROM data_exports WHERE id = ?').get(id) as any;
-          db.prepare('UPDATE data_exports SET status = "APPROVED", approved_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);                
+          db.prepare('UPDATE data_exports SET status = \'APPROVED\', approved_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);                
           db.prepare('INSERT INTO notifications (user_id, message, link) VALUES (?, ?, ?)').run(
               exportRequest.user_id,
               'Your data export request has been approved!',
@@ -1318,7 +1324,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/admin/data-exports/:id/reject', requireAdmin, (req, res) => {
       try {
           const { id } = req.params;
-          db.prepare('UPDATE data_exports SET status = "REJECTED" WHERE id = ?').run(id);                
+          db.prepare('UPDATE data_exports SET status = \'REJECTED\' WHERE id = ?').run(id);                
           res.json({ success: true });
       } catch (err: any) {
           handleAppError(err, 'Failed to reject export', 'rejectExport');
@@ -1329,7 +1335,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/user/generate-export', requireAuth, (req, res) => {
     try {
       console.log('Generating export for user:', req.session.userId);
-      const exportRequest = db.prepare('SELECT * FROM data_exports WHERE user_id = ? AND status = "APPROVED" ORDER BY approved_at DESC LIMIT 1').get(req.session.userId) as any;
+      const exportRequest = db.prepare('SELECT * FROM data_exports WHERE user_id = ? AND status = \'APPROVED\' ORDER BY approved_at DESC LIMIT 1').get(req.session.userId) as any;
       
       if (!exportRequest) {
         console.log('Export not approved or not found for user:', req.session.userId);
@@ -2232,7 +2238,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       const { startDate, endDate, category, segment } = req.query;
       
-      let orderFilter = 'WHERE o.status = "delivered"';
+      let orderFilter = 'WHERE o.status = \'delivered\'';
       let params: any[] = [];
       
       if (startDate) {
@@ -2270,7 +2276,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           FROM (
               SELECT SUM(total) as total_spend 
               FROM orders 
-              WHERE status = "delivered" 
+              WHERE status = \'delivered\' 
               GROUP BY user_id
           )
       `).get() as any;
@@ -2282,7 +2288,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const clv = clvEstimate.clv || 0;
       
       // Popular products with category filter
-      let productFilter = 'WHERE o.status = "delivered"';
+      let productFilter = 'WHERE o.status = \'delivered\'';
       let productParams: any[] = [];
       if (category && category !== 'all') {
         productFilter += ' AND p.category = ?';
@@ -2322,7 +2328,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         JOIN orders o ON oi.order_id = o.id
-        WHERE o.status = "delivered"
+        WHERE o.status = \'delivered\'
         ${startDate ? ' AND o.created_at >= ?' : ''}
         ${endDate ? ' AND o.created_at <= ?' : ''}
         GROUP BY p.category
@@ -2354,7 +2360,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           MAX(o.created_at) as last_order,
           (julianday('now') - julianday(COALESCE(MAX(o.created_at), u.created_at))) as recency_days
         FROM users u
-        LEFT JOIN orders o ON u.id = o.user_id AND o.status = "delivered"
+        LEFT JOIN orders o ON u.id = o.user_id AND o.status = \'delivered\'
         GROUP BY u.id
       `).all() as any[];
       console.log('Customer data fetched:', customerData.length);
@@ -2460,9 +2466,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const stats = {
         is_polling: !!process.env.GMAIL_REFRESH_TOKEN,
         last_poll: new Date().toISOString(),
-        matched_today: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = "MATCHED" AND date(created_at) = date("now")').get() as any,
-        review_required: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = "REVIEW_REQUIRED"').get() as any,
-        failed_today: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = "FAILED" AND date(created_at) = date("now")').get() as any
+        matched_today: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = \'MATCHED\' AND date(created_at) = date(\'now\')').get() as any,
+        review_required: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = \'REVIEW_REQUIRED\'').get() as any,
+        failed_today: db.prepare('SELECT COUNT(*) as count FROM emails_log WHERE match_status = \'FAILED\' AND date(created_at) = date(\'now\')').get() as any
       };
       res.json(stats);
     } catch (err: any) {
@@ -3027,7 +3033,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/products/:id/reviews', (req, res) => {
     const { id } = req.params;
-    const reviews = db.prepare('SELECT * FROM reviews WHERE product_id = ? AND status = "approved" ORDER BY created_at DESC').all(id);
+    const reviews = db.prepare('SELECT * FROM reviews WHERE product_id = ? AND status = \'approved\' ORDER BY created_at DESC').all(id);
     res.json(reviews);
   });
 
@@ -3392,9 +3398,9 @@ app.get('/api/admin/stats', (req, res) => {
       const totalRevenue: any = executeQuery('SELECT SUM(total) as sum FROM orders');
       const totalUsers: any = executeQuery('SELECT COUNT(*) as count FROM users');
       const lowStock: any = executeQuery('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point');
-      const pendingOrdersCount: any = executeQuery('SELECT COUNT(*) as count FROM orders WHERE status = "pending"');
-      const refundsSum: any = executeQuery('SELECT SUM(refund_amount) as sum FROM returns WHERE status = "approved"');
-      const newUserCountRes: any = executeQuery('SELECT COUNT(*) as count FROM users WHERE created_at >= date("now")');
+      const pendingOrdersCount: any = executeQuery('SELECT COUNT(*) as count FROM orders WHERE status = \'pending\'');
+      const refundsSum: any = executeQuery('SELECT SUM(refund_amount) as sum FROM returns WHERE status = \'approved\'');
+      const newUserCountRes: any = executeQuery('SELECT COUNT(*) as count FROM users WHERE created_at >= date(\'now\')');
 
       stats.orders = totalOrders?.count || 0;
       stats.revenue = totalRevenue?.sum || 0;
@@ -3404,6 +3410,7 @@ app.get('/api/admin/stats', (req, res) => {
       stats.totalRefunds = refundsSum?.sum || 0;
       stats.newUserCount = newUserCountRes?.count || 0;
       stats.netRevenue = stats.revenue - stats.totalRefunds;
+      stats.activeUsers = currentActive;
 
       stats.revenueByDay = executeQuery(`
         SELECT strftime('%Y-%m-%d', created_at) as date, SUM(total) as revenue, COUNT(*) as orders

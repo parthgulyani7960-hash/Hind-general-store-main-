@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
+import { withErrorReporting } from '../lib/uiUtils';
 import { handleAppError } from '../lib/errorUtils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -75,56 +76,58 @@ export default function AdminDashboard() {
           .catch(err => console.error('Error fetching data exports:', err));
     }, []);
     
-    const approve = async (id: number) => {
+    const approve = withErrorReporting(async (id: number) => {
         const res = await fetch(`/api/admin/data-exports/${id}/approve`, { method: 'POST' });
         if (res.ok) {
             setExports(exports.map(e => e.id === id ? {...e, status: 'APPROVED'} : e));
             toast.success('Approved');
         } else {
-            toast.error('Failed to approve');
+            throw new Error('Failed to approve export');
         }
-    };
+    }, 'Approve Export Request');
 
-    const reject = async (id: number) => {
+    const reject = withErrorReporting(async (id: number) => {
         const res = await fetch(`/api/admin/data-exports/${id}/reject`, { method: 'POST' });
         if (res.ok) {
             setExports(exports.map(e => e.id === id ? {...e, status: 'REJECTED'} : e));
             toast.success('Rejected');
         } else {
-            toast.error('Failed to reject');
+            throw new Error('Failed to reject export');
         }
-    };
+    }, 'Reject Export Request');
 
     return (
         <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm">
             <h2 className="text-2xl font-bold mb-6">Data Export Requests</h2>
-            <table className="w-full text-left">
-                <thead className="text-[10px] uppercase font-black tracking-widest text-stone-400">
-                    <tr>
-                        <th className="py-2">User</th>
-                        <th className="py-2">Date Requested</th>
-                        <th className="py-2">Status</th>
-                        <th className="py-2">Action</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                    {exports.map((e: any) => (
-                        <tr key={e.id}>
-                            <td className="py-4 text-sm font-bold">{e.user_name}</td>
-                            <td className="py-4 text-xs">{new Date(e.created_at).toLocaleString()}</td>
-                            <td className="py-4 text-xs font-black">{e.status}</td>
-                            <td className="py-4">
-                                {e.status === 'PENDING_REVIEW' && (
-                                    <div className="flex gap-2">
-                                        <button onClick={() => approve(e.id)} className="bg-primary text-white p-2 rounded text-[10px] font-bold">Approve</button>
-                                        <button onClick={() => reject(e.id)} className="bg-red-500 text-white p-2 rounded text-[10px] font-bold">Reject</button>
-                                    </div>
-                                )}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                  <thead className="text-[10px] uppercase font-black tracking-widest text-stone-400">
+                      <tr>
+                          <th className="py-2">User</th>
+                          <th className="py-2 text-center">Date Requested</th>
+                          <th className="py-2 text-center">Status</th>
+                          <th className="py-2 text-right">Action</th>
+                      </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                      {exports.map((e: any) => (
+                          <tr key={e.id}>
+                              <td className="py-4 text-sm font-bold">{e.user_name}</td>
+                              <td className="py-4 text-xs text-center">{new Date(e.created_at).toLocaleString()}</td>
+                              <td className="py-4 text-xs font-black text-center">{e.status}</td>
+                              <td className="py-4 text-right">
+                                  {e.status === 'PENDING_REVIEW' && (
+                                      <div className="flex gap-2 justify-end">
+                                          <button onClick={() => approve(e.id)} className="bg-emerald-600 text-white p-2 rounded text-[10px] font-bold hover:bg-emerald-700">Approve</button>
+                                          <button onClick={() => reject(e.id)} className="bg-red-500 text-white p-2 rounded text-[10px] font-bold hover:bg-red-600">Reject</button>
+                                      </div>
+                                  )}
+                              </td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+            </div>
         </div>
     );
 };
@@ -238,12 +241,13 @@ export default function AdminDashboard() {
   const fetchStats = async () => {
     try {
       const res = await fetch('/api/admin/stats');
-      if (!res.ok) throw new Error('Stats failure');
+      if (!res.ok) throw new Error(`Stats failure: ${res.status}`);
       const data = await res.json();
       setStats(data || {});
     } catch (err: any) {
       console.error('Stats fetch error:', err);
-      toast.error('Unable to load dashboard stats');
+      logErrorToFirestore(err, 'Dashboard Stats Fetch Failure');
+      toast.error('Unable to load dashboard stats - error reported to admin console');
     }
   };
 
@@ -2608,7 +2612,7 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto no-scrollbar p-6 lg:p-12 space-y-12">
+        <main className="flex-1 overflow-y-auto w-full p-6 lg:p-12 space-y-12">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}

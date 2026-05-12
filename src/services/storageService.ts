@@ -10,7 +10,7 @@ export interface UploadOptions {
 }
 
 export const uploadFile = async (options: UploadOptions): Promise<string> => {
-  const { path, file, maxSizeInBytes = 5 * 1024 * 1024, allowedTypes = ['image/jpeg', 'image/png', 'image/webp'], onProgress } = options;
+  const { path, file, maxSizeInBytes = 5 * 1024 * 1024, allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'], onProgress } = options;
 
   // 1. Validation
   if (file.size > maxSizeInBytes) {

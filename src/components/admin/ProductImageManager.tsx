@@ -105,7 +105,7 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
                 <Star size={16} fill={primary === url ? 'currentColor' : 'none'} />
               </button>
               <button 
-                onClick={() => handleDelete(index)}
+                onClick={() => handleDelete(url)}
                 className="p-1 rounded text-white hover:text-red-400"
                 title="Delete"
               >
