@@ -47,15 +47,15 @@ try {
         }
         return originalFetch(input, { ...init, headers }).then(async (response) => {
           if (!response.ok) {
-            reportError({
-              message: `HTTP error! status: ${response.status}`,
-              path: window.location.pathname,
-              interactedElement: String(input),
-              logs: [`Status: ${response.status}`]
-            });
-            const error = new Error(`HTTP error! status: ${response.status}`);
-            (error as any).response = response;
-            throw error;
+            // Only report 500s or unexpected errors to reduce noise, 401s and 400s are often expected
+            if (response.status >= 500) {
+              reportError({
+                message: `HTTP error! status: ${response.status}`,
+                path: window.location.pathname,
+                interactedElement: String(input),
+                logs: [`Status: ${response.status}`]
+              });
+            }
           }
           return response;
         });
