@@ -152,6 +152,7 @@ export default function AdminDashboard() {
 
   const DataExportsView = () => {
     const [exports, setExports] = useState<any[]>([]);
+    const [isExporting, setIsExporting] = useState<string | null>(null);
     
     useEffect(() => {
         fetchWithHandling<any[]>('/api/admin/data-exports', { headers: getAuthHeaders() })
@@ -180,37 +181,92 @@ export default function AdminDashboard() {
         }
     }, 'Reject Export Request');
 
+    const handleSystemExport = async (entity: string) => {
+        try {
+            setIsExporting(entity);
+            const response = await fetch(`/api/admin/export/${entity}`, {
+               headers: getAuthHeaders()
+            });
+
+            if (!response.ok) throw new Error('Export failed');
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${entity}_export_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            toast.success(`${entity.toUpperCase()} export completed.`);
+        } catch (err) {
+            toast.error('Export failed');
+            console.error(err);
+        } finally {
+            setIsExporting(null);
+        }
+    };
+
     return (
-        <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm">
-            <h2 className="text-2xl font-bold mb-6">Data Export Requests</h2>
-            <div className="responsive-table-container">
-              <table className="w-full text-left">
-                  <thead className="text-[10px] uppercase font-black tracking-widest text-stone-400">
-                      <tr>
-                          <th className="py-2">User</th>
-                          <th className="py-2 text-center">Date Requested</th>
-                          <th className="py-2 text-center">Status</th>
-                          <th className="py-2 text-right">Action</th>
-                      </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                      {exports.map((e: any) => (
-                          <tr key={e.id}>
-                              <td className="py-4 text-sm font-bold">{e.user_name}</td>
-                              <td className="py-4 text-xs text-center">{new Date(e.created_at).toLocaleString()}</td>
-                              <td className="py-4 text-xs font-black text-center">{e.status}</td>
-                              <td className="py-4 text-right">
-                                  {e.status === 'PENDING_REVIEW' && (
-                                      <div className="flex gap-2 justify-end">
-                                          <button onClick={() => approve(e.id)} className="bg-emerald-600 text-white p-2 rounded text-[10px] font-bold hover:bg-emerald-700">Approve</button>
-                                          <button onClick={() => reject(e.id)} className="bg-red-500 text-white p-2 rounded text-[10px] font-bold hover:bg-red-600">Reject</button>
-                                      </div>
-                                  )}
-                              </td>
-                          </tr>
-                      ))}
-                  </tbody>
-              </table>
+        <div className="space-y-8">
+            <div className="bg-white rounded-[2.5rem] p-8 border border-stone-100 shadow-sm relative overflow-hidden">
+                 <div className="absolute top-0 right-0 p-8 opacity-5">
+                    <Database size={200} />
+                 </div>
+                 <h2 className="text-2xl font-black mb-2 flex items-center gap-2 relative z-10"><Download className="text-primary" /> System Data Exports</h2>
+                 <p className="text-stone-500 mb-8 relative z-10">Scalable backend CSV generation for large datasets. Safe for 10,000+ records.</p>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+                    {['orders', 'users', 'products', 'wallet_transactions'].map((ent) => (
+                        <button 
+                            key={ent}
+                            onClick={() => handleSystemExport(ent)}
+                            disabled={isExporting !== null}
+                            className="p-6 border border-stone-200 rounded-2xl hover:border-primary hover:bg-stone-50 transition-all text-left group"
+                        >
+                             <div className="w-12 h-12 bg-stone-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
+                                 {isExporting === ent ? <RefreshCw className="animate-spin text-primary" /> : <Download className="group-hover:text-primary transition-colors text-stone-600" />}
+                             </div>
+                             <h3 className="font-bold text-lg text-stone-900 capitalize mb-1">{ent.replace('_', ' ')}</h3>
+                             <p className="text-xs text-stone-400">Export all records</p>
+                        </button>
+                    ))}
+                 </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] p-8 border border-stone-100 shadow-sm">
+                <h2 className="text-2xl font-bold mb-6">User Export Requests</h2>
+                <div className="responsive-table-container">
+                <table className="w-full text-left">
+                    <thead className="text-[10px] uppercase font-black tracking-widest text-stone-400">
+                        <tr>
+                            <th className="py-2">User</th>
+                            <th className="py-2 text-center">Date Requested</th>
+                            <th className="py-2 text-center">Status</th>
+                            <th className="py-2 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                        {exports.map((e: any) => (
+                            <tr key={e.id}>
+                                <td className="py-4 text-sm font-bold">{e.user_name}</td>
+                                <td className="py-4 text-xs text-center">{new Date(e.created_at).toLocaleString()}</td>
+                                <td className="py-4 text-xs font-black text-center">{e.status}</td>
+                                <td className="py-4 text-right">
+                                    {e.status === 'PENDING_REVIEW' && (
+                                        <div className="flex gap-2 justify-end">
+                                            <button onClick={() => approve(e.id)} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold hover:bg-emerald-700 uppercase tracking-widest transition-colors">Approve</button>
+                                            <button onClick={() => reject(e.id)} className="bg-red-500 text-white px-4 py-2 rounded-xl text-[10px] font-bold hover:bg-red-600 uppercase tracking-widest transition-colors">Reject</button>
+                                        </div>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                </div>
             </div>
         </div>
     );
@@ -4869,7 +4925,10 @@ export default function AdminDashboard() {
                                         </button>
                                       ))}
                                       <div className="h-px bg-stone-100 my-4 mx-6" />
-                                      <button className="flex items-center space-x-4 px-8 py-4 hover:bg-stone-50 group transition-all">
+                                      <button 
+                                        onClick={() => generateOrderInvoicePDF(order, config)}
+                                        className="flex items-center space-x-4 px-8 py-4 hover:bg-stone-50 group transition-all"
+                                      >
                                         <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                                           <Receipt size={16} />
                                         </div>

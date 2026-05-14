@@ -4295,8 +4295,15 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
           );
 
           // Inventory Management
+          if (product.stock < item.quantity) {
+             throw new Error(`Order Blocked: Insufficient stock for ${product.name}. Available: ${product.stock}`);
+          }
           db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(item.quantity, item.id);
           if (item.variant_id) {
+            const variantStock = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id) as any;
+            if (variantStock && variantStock.stock < item.quantity) {
+               throw new Error(`Order Blocked: Insufficient stock for variant ${variantName}. Available: ${variantStock.stock}`);
+            }
             db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?').run(item.quantity, item.variant_id);
           }
 
@@ -4382,7 +4389,16 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 
       res.json({ success: true, order: result.order });
     } catch (err: any) {
-      // Create a "failed" order record so it shows in user history as requested
+      // Differentiate between generic server errors and business logic validations
+      const isValidationError = err.message.includes('Order Blocked:') || 
+                                err.message.includes('Insufficient') || 
+                                err.message.includes('Credit limit');
+
+      if (isValidationError) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+
+      // Create a "failed" order record for unexpected SYSTEM errors
       try {
         const failedOrder = db.prepare('INSERT INTO orders (user_id, total, address, status, notes) VALUES (?, ?, ?, ?, ?)').run(
           user_id, total, address, 'failed', `Error: ${err.message}`
@@ -5371,6 +5387,62 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 
   setInterval(runSystemIntegrityAudit, 3600000); // Hourly
   runSystemIntegrityAudit();
+
+  // Admin Native Scalable Export API
+  app.get('/api/admin/export/:entity', requireAdmin, (req, res) => {
+    const { entity } = req.params;
+    let query = '';
+    
+    switch (entity) {
+      case 'orders':
+        query = 'SELECT * FROM orders ORDER BY created_at DESC';
+        break;
+      case 'users':
+        query = 'SELECT id, name, email, phone, role, status, created_at, wallet_balance, khata_balance FROM users ORDER BY created_at DESC';
+        break;
+      case 'products':
+        query = 'SELECT * FROM products ORDER BY name ASC';
+        break;
+      case 'wallet_transactions':
+        query = 'SELECT * FROM wallet_transactions ORDER BY created_at DESC';
+        break;
+      default:
+        return res.status(400).json({ message: 'Invalid entity to export' });
+    }
+
+    try {
+      const data = db.prepare(query).all();
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=${entity}_export_${new Date().toISOString().split('T')[0]}.csv`);
+      
+      if (data.length === 0) {
+        return res.send('No Data Available');
+      }
+      
+      const keys = Object.keys(data[0] || {});
+      res.write(keys.join(',') + '\n');
+      
+      data.forEach((row: any) => {
+        const values = keys.map(key => {
+          let val = row[key];
+          if (val === null || val === undefined) val = '';
+          return `"${String(val).replace(/"/g, '""')}"`;
+        });
+        res.write(values.join(',') + '\n');
+      });
+      
+      res.end();
+      
+      db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+        .run(req.session.userId, 'EXPORT_DATA', 'SYSTEM', 0, `Exported ${data.length} records from ${entity}`);
+    } catch(err) {
+      console.error('Export Error:', err);
+      if (!res.headersSent) {
+          res.status(500).json({ success: false, message: 'Export failed' });
+      }
+    }
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {

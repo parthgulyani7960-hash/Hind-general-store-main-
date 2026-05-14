@@ -23,6 +23,36 @@ export default function DeliveryDashboard() {
     fetchOrders();
   }, []);
 
+  useEffect(() => {
+    // Periodically update runner's location to the server
+    let watchId: number;
+    if (navigator.geolocation && user) {
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          try {
+            await fetchWithHandling('/api/runners/location', {
+              method: 'POST',
+              body: JSON.stringify({
+                runner_id: user.id,
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              })
+            });
+          } catch (err) {
+            console.error('Failed to update location', err);
+          }
+        },
+        (error) => {
+          console.warn('Geolocation error:', error);
+        },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+      );
+    }
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [user]);
+
   const updateOrderStatus = async (id: number, status: string) => {
     try {
       const data = await fetchWithHandling<any>(`/api/runner/orders/${id}/status`, {
