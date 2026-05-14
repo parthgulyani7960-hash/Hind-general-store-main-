@@ -128,7 +128,11 @@ try {
           } catch (refreshErr) {
             console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
             if (!isLocalAuthMe && window.location.pathname !== '/login') {
-                window.dispatchEvent(new Event('auth_error'));
+                const lastErr = window.sessionStorage.getItem('last_auth_error');
+                if (!lastErr || Date.now() - Number(lastErr) > 30000) {
+                    window.sessionStorage.setItem('last_auth_error', String(Date.now()));
+                    window.dispatchEvent(new CustomEvent('auth_error', { detail: { url: inputUrl } }));
+                }
             }
           }
         }

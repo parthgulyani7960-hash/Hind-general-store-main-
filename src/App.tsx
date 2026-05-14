@@ -7,6 +7,7 @@ import MobileBottomNav from './components/MobileBottomNav';
 import FloatingCart from './components/FloatingCart';
 import BackToTop from './components/BackToTop';
 import FullScreenAlert from './components/FullScreenAlert';
+import AuthErrorReloader from './components/AuthErrorReloader';
 
 // Shared Vibration Helper for Flash Messages
 export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') => {
@@ -207,6 +208,7 @@ export default function App() {
   return (
     <Router>
       <ScrollToTopOnNavigate />
+      <AuthErrorReloader />
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <NetworkBanner />

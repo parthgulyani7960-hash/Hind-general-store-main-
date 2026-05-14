@@ -31,24 +31,36 @@ export const fetchWithHandling = async <T>(
         } else if (res.status === 401) {
           // 401 is handled by main.tsx fetch wrapper (token refresh). 
           // If it still reaches here, it means refresh failed or was not possible.
-          const isSilent = url.includes('/api/auth/me') || 
-                          url.includes('/api/products') || 
-                          url.includes('/api/categories') ||
-                          url.includes('/api/admin/stats') ||
-                          url.includes('/api/settings');
+          const silentEndpoints = [
+            '/api/auth/me',
+            '/api/products',
+            '/api/categories',
+            '/api/admin/stats',
+            '/api/settings',
+            '/api/promotions',
+            '/api/bulk-discounts',
+            '/api/config',
+            '/api/analytics'
+          ];
+          
+          const isSilent = silentEndpoints.some(endpoint => url.includes(endpoint));
           
           if (isSilent) return null;
 
           console.warn(`[API] 401 Unauthorized for ${url}`);
           errorMessage = "Session expired";
           
-          // Signal global auth error only once
-          if (!window.sessionStorage.getItem('last_auth_error') || 
-              Date.now() - Number(window.sessionStorage.getItem('last_auth_error')) > 10000) {
+          // Signal global auth error only once every 30 seconds to prevent toast flooding
+          const lastErr = window.sessionStorage.getItem('last_auth_error');
+          if (!lastErr || Date.now() - Number(lastErr) > 30000) {
             window.sessionStorage.setItem('last_auth_error', String(Date.now()));
             window.dispatchEvent(new CustomEvent('auth_error', { detail: { url } }));
           }
-        } else if (res.status === 403) {
+          
+          // Return null for read operations that failed with 401 to prevent UI crashes
+          if (options.method === 'GET' || !options.method) return null;
+        }
+ else if (res.status === 403) {
           errorMessage = "You do not have permission to perform this action";
         } else if (res.status >= 500) {
           errorMessage = "Server error. Please try again later.";
@@ -75,7 +87,7 @@ export const fetchWithHandling = async <T>(
                        url.includes('/api/user/export-status') ||
                        url.includes('/api/user/deletion-request');
 
-    if (!isBackground) {
+    if (!isBackground && err.status !== 401) {
         toast.error(err.message || 'Something went wrong');
         errorService.report({
           type: ErrorType.API_ERROR,

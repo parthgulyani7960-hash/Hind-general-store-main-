@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone, FileRejection } from 'react-dropzone';
-import { Trash2, Star, Camera, Upload, Loader } from 'lucide-react';
+import { Trash2, Star, Camera, Upload, Loader, ChevronLeft, ChevronRight } from 'lucide-react';
 import { uploadFile } from '../../services/storageService';
 import toast from 'react-hot-toast';
 import { handleAppError } from '../../lib/errorUtils';
@@ -75,6 +75,22 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
     onUpdate(images, url);
   };
 
+  const moveLeft = (index: number) => {
+    if (index === 0) return;
+    const updated = [...images];
+    [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]];
+    setImages(updated);
+    onUpdate(updated, primary);
+  };
+
+  const moveRight = (index: number) => {
+    if (index === images.length - 1) return;
+    const updated = [...images];
+    [updated[index], updated[index + 1]] = [updated[index + 1], updated[index]];
+    setImages(updated);
+    onUpdate(updated, primary);
+  };
+
   return (
     <div className="space-y-4">
       <div 
@@ -97,20 +113,40 @@ export default function ProductImageManager({ allImages, primaryImage, onUpdate 
           <div key={url} className="relative group aspect-square rounded-xl overflow-hidden border border-stone-200">
             <img src={url} alt={`Product ${index}`} className="w-full h-full object-cover" />
             <div className="absolute inset-x-0 bottom-0 bg-black/50 p-2 flex justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-              <button 
-                onClick={() => setAsPrimary(url)}
-                className={`p-1 rounded ${primary === url ? 'text-yellow-400' : 'text-white'}`}
-                title="Set as primary"
-              >
-                <Star size={16} fill={primary === url ? 'currentColor' : 'none'} />
-              </button>
-              <button 
-                onClick={() => handleDelete(url)}
-                className="p-1 rounded text-white hover:text-red-400"
-                title="Delete"
-              >
-                <Trash2 size={16} />
-              </button>
+              <div className="flex space-x-1">
+                <button 
+                  onClick={() => moveLeft(index)}
+                  className={`p-1 rounded text-white hover:text-primary ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                  disabled={index === 0}
+                  title="Move Left"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button 
+                  onClick={() => moveRight(index)}
+                  className={`p-1 rounded text-white hover:text-primary ${index === images.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                  disabled={index === images.length - 1}
+                  title="Move Right"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="flex space-x-1">
+                <button 
+                  onClick={() => setAsPrimary(url)}
+                  className={`p-1 rounded ${primary === url ? 'text-yellow-400' : 'text-white'}`}
+                  title="Set as primary"
+                >
+                  <Star size={16} fill={primary === url ? 'currentColor' : 'none'} />
+                </button>
+                <button 
+                  onClick={() => handleDelete(url)}
+                  className="p-1 rounded text-white hover:text-red-400"
+                  title="Delete"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
             {primary === url && (
               <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded">Primary</div>
