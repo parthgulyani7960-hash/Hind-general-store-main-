@@ -972,6 +972,8 @@ try { db.prepare('ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0').run
 try { db.prepare('ALTER TABLE products ADD COLUMN consumable_days INTEGER DEFAULT NULL').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE products ADD COLUMN supplier_id INTEGER').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE products ADD COLUMN lead_time_days INTEGER DEFAULT 0').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN unit TEXT DEFAULT "kg"').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE products ADD COLUMN is_subscribable BOOLEAN DEFAULT 0').run(); } catch (e) {}
 
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_id TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN payment_screenshot TEXT').run(); } catch (e) {}
@@ -1163,6 +1165,8 @@ try { db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"); } ca
 try { db.exec("ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT 0"); } catch(e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN profile_complete BOOLEAN DEFAULT 0"); } catch(e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN notification_orders BOOLEAN DEFAULT 1"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN notification_promotions BOOLEAN DEFAULT 1"); } catch(e) {}
 try { db.exec("ALTER TABLE notifications ADD COLUMN is_read BOOLEAN DEFAULT 0"); } catch(e) {}
 
 // Seed initial categories
@@ -2044,7 +2048,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/cart', (req, res) => {
     const userId = req.query.userId;
     if (!userId) return res.status(400).json({ message: 'User ID required' });
-    if (Number(userId) !== req.session.userId) return res.status(403).json({ message: 'Unauthorized' });
+    if (String(userId) !== String(req.session.userId)) return res.status(403).json({ message: 'Unauthorized' });
     const items = db.prepare(`
       SELECT c.*, p.name, p.price, p.image_url, p.stock, p.category
       FROM cart_items c
@@ -2057,7 +2061,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/cart/sync', (req, res) => {
     const { userId, items } = req.body;
     if (!userId) return res.status(400).json({ message: 'User ID required' });
-    if (Number(userId) !== req.session.userId) return res.status(403).json({ message: 'Unauthorized' });
+    if (String(userId) !== String(req.session.userId)) return res.status(403).json({ message: 'Unauthorized' });
     
     db.transaction(() => {
       db.prepare('DELETE FROM cart_items WHERE user_id = ?').run(userId);
@@ -2372,7 +2376,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // Delivery Areas
   app.get('/api/user/insights/:userId', requireAuth, (req, res) => {
     const { userId } = req.params;
-    if (parseInt(userId) !== req.session.userId && req.session.role !== 'admin') {
+    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -2438,7 +2442,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/user/khata/history/:userId', requireAuth, (req, res) => {
     const { userId } = req.params;
-    if (parseInt(userId) !== req.session.userId && req.session.role !== 'admin') {
+    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -2847,45 +2851,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(reviews);
   });
 
-  app.get('/api/user/insights/:userId', (req, res) => {
-    const { userId } = req.params;
-    if (Number(userId) !== req.session.userId && req.session.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
-    }
-    const orders = db.prepare(`
-      SELECT o.*, oi.product_name, oi.quantity, oi.price, p.category
-      FROM orders o
-      JOIN order_items oi ON o.id = oi.order_id
-      JOIN products p ON oi.product_id = p.id
-      WHERE o.user_id = ? AND o.status = 'delivered'
-    `).all(userId);
-
-    const categories: { [key: string]: number } = {};
-    const monthlySpending: { [key: string]: number } = {};
-    let totalSavings = 0;
-
-    orders.forEach((o: any) => {
-      // Category insights
-      categories[o.category] = (categories[o.category] || 0) + (o.price * o.quantity);
-      
-      // Monthly trends
-      const month = new Date(o.created_at).toLocaleString('en-US', { month: 'short' });
-      monthlySpending[month] = (monthlySpending[month] || 0) + (o.price * o.quantity);
-
-      // Savings (estimate vs retail)
-      // This is a simplified calculation for demo
-      totalSavings += (o.price * 0.1); 
-    });
-
-    res.json({
-      categories: Object.entries(categories).map(([name, value]) => ({ name, value })),
-      trends: Object.entries(monthlySpending).map(([month, amount]) => ({ month, amount })),
-      totalSpent: orders.reduce((acc: number, o: any) => acc + (o.price * o.quantity), 0),
-      totalSavings,
-      orderCount: new Set(orders.map((o: any) => o.id)).size
-    });
-  });
-
   app.post('/api/admin/reviews/:id/status', (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
@@ -3196,7 +3161,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/wallet-history/:userId', (req, res) => {
     const { userId } = req.params;
-    if (Number(userId) !== req.session.userId && req.session.role !== 'admin') {
+    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
     const history = db.prepare('SELECT * FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
@@ -3260,25 +3225,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
               };
             });
             
-            // Sync to SQLite (optional but recommended for speed)
-            const insert = db.prepare(`
-              INSERT OR REPLACE INTO products (id, name, description, price, wholesale_price, retail_price, category, stock, unit, image_url, images, specifications, batch_number, expiry_date)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-            const insertTx = db.transaction((prods) => {
-              for (const p of prods) {
-                insert.run(p.id, p.name, p.description, p.price, p.wholesale_price, p.retail_price, p.category, p.stock, p.unit, p.image_url, 
-                  typeof p.images === 'string' ? p.images : JSON.stringify(p.images || []),
-                  typeof p.specifications === 'string' ? p.specifications : JSON.stringify(p.specifications || {}),
-                  p.batch_number || null,
-                  p.expiry_date || null
-                );
-              }
-            });
-            insertTx(fbProducts);
-            
             finalProducts = fbProducts;
-            console.log(`[FIREBASE] Fetched and synced ${finalProducts.length} products.`);
+            console.log(`[FIREBASE] Fetched ${finalProducts.length} products.`);
           }
         } catch (fbErr: any) {
           if (fbErr.code === 5 || fbErr.message?.includes('NOT_FOUND')) {
@@ -4688,24 +4636,28 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
     }
 
     try {
+      const authRole = (req.session as any)?.role;
+      const cleanPhone = String(phone).replace(/\D/g, '').slice(-10); // get last 10 digits
+
       const order = db.prepare(`
         SELECT o.*,
-               u.phone,
+               u.phone, u.name as user_name, u.phone as user_phone,
                r.name as runner_name, r.phone as runner_phone, r.current_lat, r.current_lng
         FROM orders o 
         LEFT JOIN users u ON o.user_id = u.id 
         LEFT JOIN runners r ON o.assigned_runner_id = r.id
-        WHERE (o.id = ? OR o.order_id = ?) AND (u.phone = ? OR ? = 'admin')
-      `).get(id, id, phone, (req.session as any)?.role) as any;
+        WHERE (o.id = ? OR o.order_id = ?) AND (u.phone LIKE ? OR ? = 'admin')
+      `).get(id, id, `%${cleanPhone}%`, authRole) as any;
 
       if (!order) {
         return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
       }
 
       const items = db.prepare(`
-        SELECT oi.*, p.name, p.image_url 
+        SELECT oi.*, p.name, p.image_url, r.status as return_status
         FROM order_items oi 
         LEFT JOIN products p ON oi.product_id = p.id 
+        LEFT JOIN returns r ON r.order_id = oi.order_id AND r.product_id = oi.product_id
         WHERE oi.order_id = ?
       `).all(order.id);
       order.items = items;
@@ -4719,40 +4671,11 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   app.get('/api/orders/user/:userId', (req, res) => {
     const { userId } = req.params;
     // Security check: only allow users to fetch their own orders unless they are admin
-    if (req.session.userId !== Number(userId) && req.session.role !== 'admin') {
+    if (String(req.session.userId) !== String(userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
     const orders = db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC').all(userId);
     res.json(orders);
-  });
-
-  app.get('/api/public/orders/:id', (req, res) => {
-    const { id } = req.params;
-    const { phone } = req.query;
-    if (!phone) return res.status(400).json({ success: false, message: 'Phone number required' });
-    
-    try {
-      const order = db.prepare(`
-        SELECT o.*, u.name as user_name, u.phone as user_phone
-        FROM orders o
-        JOIN users u ON o.user_id = u.id
-        WHERE (o.id = ? OR o.order_id = ?) AND u.phone = ?
-      `).get(id, id, phone) as any;
-
-      if (!order) return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
-      
-      const items = db.prepare(`
-        SELECT oi.*, p.name as product_name, p.image_url, r.status as return_status
-        FROM order_items oi
-        LEFT JOIN products p ON oi.product_id = p.id
-        LEFT JOIN returns r ON r.order_id = oi.order_id AND r.product_id = oi.product_id
-        WHERE oi.order_id = ?
-      `).all(order.id);
-      
-      res.json({ success: true, order: { ...order, items } });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
   });
 
   app.get('/api/orders/:id', (req, res) => {
@@ -4871,9 +4794,12 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   });
 
   app.post('/api/user/update-profile', requireAuth, (req, res) => {
-    let { id, name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone } = req.body;
+    let { id, name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone, notification_orders, notification_promotions } = req.body;
     id = req.session.userId; // FORBID arbitrary id updates
     try {
+      const currentUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+      if (!currentUser) return res.status(404).json({ message: 'User not found' });
+
       // Check for duplicate phone
       if (phone) {
         const existingPhone = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone, id);
@@ -4890,14 +4816,40 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         }
       }
 
-      const formattedName = name ? capitalizeName(name) : name;
+      const merged = {
+        name: name !== undefined ? name : currentUser.name,
+        email: email !== undefined ? email : currentUser.email,
+        shop_name: shop_name !== undefined ? shop_name : currentUser.shop_name,
+        pin_code: pin_code !== undefined ? pin_code : currentUser.pin_code,
+        address: address !== undefined ? address : currentUser.address,
+        profile_photo: profile_photo !== undefined ? profile_photo : currentUser.profile_photo,
+        username: username !== undefined ? username : currentUser.username,
+        street_address: street_address !== undefined ? street_address : currentUser.street_address,
+        city: city !== undefined ? city : currentUser.city,
+        state: state !== undefined ? state : currentUser.state,
+        zip_code: zip_code !== undefined ? zip_code : currentUser.zip_code,
+        phone: phone !== undefined ? phone : currentUser.phone,
+        notification_orders: notification_orders !== undefined ? (notification_orders ? 1 : 0) : currentUser.notification_orders,
+        notification_promotions: notification_promotions !== undefined ? (notification_promotions ? 1 : 0) : currentUser.notification_promotions
+      };
+
+      const formattedName = merged.name ? capitalizeName(merged.name) : merged.name;
       db.prepare(`
         UPDATE users SET 
         name = ?, email = ?, shop_name = ?, pin_code = ?, address = ?, 
-        profile_photo = ?, username = ?, street_address = ?, city = ?, state = ?, zip_code = ?, phone = ?
+        profile_photo = ?, username = ?, street_address = ?, city = ?, state = ?, zip_code = ?, phone = ?,
+        notification_orders = ?, notification_promotions = ?
         WHERE id = ?
-      `).run(formattedName, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone, id);
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      `).run(formattedName, merged.email, merged.shop_name, merged.pin_code, merged.address, merged.profile_photo, merged.username, merged.street_address, merged.city, merged.state, merged.zip_code, merged.phone, merged.notification_orders, merged.notification_promotions, id);
+      
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+      
+      // Convert boolean integers back to true booleans for frontend
+      if (user) {
+        user.notification_orders = user.notification_orders !== 0;
+        user.notification_promotions = user.notification_promotions !== 0;
+      }
+      
       res.json({ success: true, user });
     } catch (err: any) {
       console.error('Update profile error:', err);

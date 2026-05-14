@@ -191,13 +191,25 @@ export default function Profile() {
               const road = addr.road || '';
               const neighbourhood = addr.neighbourhood || addr.suburb || '';
 
+              const street_address = `${road}${neighbourhood ? ', ' + neighbourhood : ''}`;
+
               setFormData(prev => ({
                 ...prev,
-                street_address: `${road}${neighbourhood ? ', ' + neighbourhood : ''}`,
+                street_address,
                 city: city,
                 state: state,
                 pin_code: postcode.slice(0, 6)
               }));
+
+              const saInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
+              const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
+              const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
+              const pinInput = document.querySelector('input[name="pin_code"]') as HTMLInputElement;
+              if (saInput) saInput.value = street_address;
+              if (cityInput) cityInput.value = city;
+              if (stateInput) stateInput.value = state;
+              if (pinInput) pinInput.value = postcode.slice(0, 6);
+
               toast.success('Location updated successfully', { id: 'geo' });
             } else {
               setFormData(prev => ({ ...prev, address: `${latitude}, ${longitude}` }));
@@ -808,14 +820,40 @@ export default function Profile() {
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <span>Order Status Updates</span>
-                            <div className="w-12 h-6 bg-stone-200 rounded-full cursor-pointer relative" onClick={() => toast.success('Preference updated')}>
-                                <div className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full"></div>
+                            <div 
+                              className={cn("w-12 h-6 rounded-full cursor-pointer relative transition-colors duration-300", user?.notification_orders !== false ? "bg-primary" : "bg-stone-200")} 
+                              onClick={async () => {
+                                const val = user?.notification_orders !== false ? false : true;
+                                const res = await fetchWithHandling<any>('/api/user/update-profile', {
+                                  method: 'POST',
+                                  headers: getAuthHeaders(),
+                                  body: JSON.stringify({ notification_orders: val })
+                                });
+                                if (res?.success) {
+                                  setUser(res.user);
+                                  toast.success('Preference updated');
+                                }
+                              }}>
+                                <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-300", user?.notification_orders !== false ? "left-7" : "left-1")}></div>
                             </div>
                         </div>
                          <div className="flex items-center justify-between">
                             <span>Promotions</span>
-                            <div className="w-12 h-6 bg-primary rounded-full cursor-pointer relative" onClick={() => toast.success('Preference updated')}>
-                                <div className="absolute top-1 left-7 w-4 h-4 bg-white rounded-full"></div>
+                            <div 
+                              className={cn("w-12 h-6 rounded-full cursor-pointer relative transition-colors duration-300", user?.notification_promotions !== false ? "bg-primary" : "bg-stone-200")} 
+                              onClick={async () => {
+                                const val = user?.notification_promotions !== false ? false : true;
+                                const res = await fetchWithHandling<any>('/api/user/update-profile', {
+                                  method: 'POST',
+                                  headers: getAuthHeaders(),
+                                  body: JSON.stringify({ notification_promotions: val })
+                                });
+                                if (res?.success) {
+                                  setUser(res.user);
+                                  toast.success('Preference updated');
+                                }
+                              }}>
+                                <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-300", user?.notification_promotions !== false ? "left-7" : "left-1")}></div>
                             </div>
                         </div>
                     </div>
@@ -1932,7 +1970,7 @@ export default function Profile() {
 
                   <div>
                     <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">City / Town</label>
-                    <input name="city" required defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700" />
+                    <input name="city" required readOnly defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-100 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-600" />
                   </div>
 
                   <div className="col-span-2">

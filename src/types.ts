@@ -39,6 +39,8 @@ export interface User {
   city?: string;
   state?: string;
   zip_code?: string;
+  notification_orders?: boolean;
+  notification_promotions?: boolean;
 }
 
 export interface Product {
