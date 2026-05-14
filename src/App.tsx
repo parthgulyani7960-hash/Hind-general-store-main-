@@ -98,18 +98,26 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
 
 function AnimatedRoutes() {
   const location = useLocation();
-  const { isMaintenance, user } = useStore();
+  const { isMaintenance, user, isAuthChecking } = useStore();
   
   // Secret bypass check: if URL has ?bypass=admin_bypass_2024
   const hasBypass = new URLSearchParams(window.location.search).get('bypass') === 'admin_bypass_2024';
   const isAdmin = user?.role === 'admin';
 
+  if (isAuthChecking) {
+    return <LoadingFallback message="Synchronizing secure session..." />;
+  }
+
   if (isMaintenance && !isAdmin && !hasBypass) {
-    return <MaintenancePage />;
+    return (
+      <Suspense fallback={<LoadingFallback message="Entering maintenance mode..." />}>
+        <MaintenancePage />
+      </Suspense>
+    );
   }
 
   return (
-    <>
+    <Suspense fallback={<LoadingFallback />}>
       <AnimatePresence mode="wait">
         {/* @ts-ignore */}
         <Routes location={location} key={location.pathname}>
@@ -135,7 +143,7 @@ function AnimatedRoutes() {
           <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
         </Routes>
       </AnimatePresence>
-    </>
+    </Suspense>
   );
 }
 

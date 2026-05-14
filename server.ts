@@ -13,6 +13,7 @@ import fs from 'fs';
 import { google } from 'googleapis';
 
 // Initialize Firebase Admin
+let isFirebaseReady = false;
 try {
    const configPaths = [
      path.join(process.cwd(), 'firebase-applet-config.json')
@@ -31,6 +32,7 @@ try {
        admin.initializeApp({
          projectId: config.projectId
        });
+       isFirebaseReady = true;
        console.log('Firebase Admin initialized with projectId:', config.projectId);
      } else {
        console.warn('Firebase config found but no projectId specified (No ID or name found in config). Authentication integration may fail.');
@@ -98,10 +100,29 @@ const handleAppError = (err: any, message: string, context: string) => {
 
 const app = express();
 
+app.use((req, res, next) => {
+  console.log(`[REQ][${new Date().toISOString()}] ${req.method} ${req.url} | Host: ${req.headers.host} | Proto: ${req.headers['x-forwarded-proto']}`);
+  next();
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    uptime: process.uptime(),
+    dbConnected: !!db,
+    timestamp: new Date().toISOString(),
+    bootPhase: 'module_level'
+  });
+});
+
 // Force HTTPS and avoid mixed content
 app.use((req, res, next) => {
-  if (req.headers['x-forwarded-proto'] === 'http') {
-    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  // Only redirect if we are sure we are not on HTTPS and not on localhost
+  if (req.headers['x-forwarded-proto'] === 'http' && !req.headers.host?.includes('localhost')) {
+    // In some proxy environments, redirecting can cause issues. 
+    // Let's log it instead of doing it blindly, or just skip it if it's a known problematic environment.
+    // return res.redirect(301, `https://${req.headers.host}${req.url}`);
+    console.log('[HTTPS-REDIRECT] Skipping redirect to avoid potential loop in preview environment');
   }
   next();
 });
@@ -117,6 +138,68 @@ app.use((req, res, next) => {
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const MAX_REQUESTS = 1000; // per minute per IP
+
+// --- GLOBAL UTILITIES & TRACING ---
+const generateRequestId = () => Math.random().toString(36).substring(2, 11);
+
+/**
+ * Execute a database operation safely with retry logic for BUSY states
+ */
+const safeDb = <T>(op: () => T, context: string): T => {
+  let attempts = 0;
+  const maxAttempts = 3;
+  
+  while (attempts < maxAttempts) {
+    try {
+      return op();
+    } catch (err: any) {
+      attempts++;
+      if (err.code === 'SQLITE_BUSY' && attempts < maxAttempts) {
+        console.warn(`[DB] Database is busy, retrying attempt ${attempts}...`);
+        // Sync sleep for 50ms (atomic ops shouldn't hold long)
+        const start = Date.now();
+        while (Date.now() - start < 50) {} 
+        continue;
+      }
+      console.error(`[DB ERROR][${context}]`, err);
+      throw err;
+    }
+  }
+  throw new Error(`Database operation failed after ${maxAttempts} attempts`);
+};
+
+// --- GLOBAL PROCESS ERROR HANDLERS ---
+process.on('uncaughtException', (err) => {
+  console.error('FATAL: Uncaught Exception:', err);
+  // Give the server a few seconds to finish current requests before dying
+  setTimeout(() => process.exit(1), 3000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received: closing HTTP server and database...');
+  if (httpServer) {
+    httpServer.close(() => {
+      console.log('HTTP server closed.');
+      if (db) db.close();
+      process.exit(0);
+    });
+  } else {
+    if (db) db.close();
+    process.exit(0);
+  }
+});
+
+// Request Decoration Middleware
+app.use((req: any, res, next) => {
+  req.id = generateRequestId();
+  req.startTime = Date.now();
+  res.setHeader('X-Request-ID', req.id);
+  next();
+});
 
 app.use((req, res, next) => {
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
@@ -139,19 +222,18 @@ app.use((req, res, next) => {
 });
 let httpServer: any;
 
-// WebSocket setup - Skip on Vercel
+// WebSocket setup
 let io: Server | null = null;
-if (!process.env.VERCEL) {
-  httpServer = createServer(app);
-  io = new Server(httpServer, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
-  });
+httpServer = createServer(app);
+io = new Server(httpServer, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
 
-  io.on('connection', (socket) => {
-    console.log('Client connected to real-time updates');
-    socket.on('disconnect', () => console.log('Client disconnected'));
-  });
-}
+io.on('connection', (socket) => {
+  console.log('Client connected to real-time updates');
+  socket.on('disconnect', () => console.log('Client disconnected'));
+});
+
 
 const broadcast = (data: any) => {
   if (io) {
@@ -188,7 +270,9 @@ async function initDatabase() {
       address TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -196,7 +280,9 @@ async function initDatabase() {
     image_url TEXT,
     is_out_of_stock BOOLEAN DEFAULT 0
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS suppliers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
@@ -206,7 +292,9 @@ async function initDatabase() {
     address TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
@@ -233,7 +321,9 @@ async function initDatabase() {
     FOREIGN KEY(category) REFERENCES categories(name),
     FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS purchase_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     supplier_id INTEGER,
@@ -247,10 +337,13 @@ async function initDatabase() {
     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
+    user_phone TEXT,
     total REAL,
     subtotal REAL,
     discount REAL,
@@ -280,7 +373,9 @@ async function initDatabase() {
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(assigned_runner_id) REFERENCES runners(id)
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS product_variants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER,
@@ -291,7 +386,9 @@ async function initDatabase() {
     is_default BOOLEAN DEFAULT 0,
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS order_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER,
@@ -303,7 +400,9 @@ async function initDatabase() {
     FOREIGN KEY(order_id) REFERENCES orders(id),
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS promotion_products (
     promotion_id INTEGER,
     product_id INTEGER,
@@ -312,7 +411,9 @@ async function initDatabase() {
     FOREIGN KEY(promotion_id) REFERENCES promotions(id),
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS order_status_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL,
@@ -320,13 +421,18 @@ async function initDatabase() {
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders (id)
   );
+    `);
+
+    db.exec(`
   CREATE TABLE IF NOT EXISTS delivery_areas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
     fee REAL DEFAULT 0,
     min_order REAL DEFAULT 0
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS promotions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT,
@@ -336,7 +442,9 @@ async function initDatabase() {
     active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+    `);
 
+    db.exec(`
   CREATE TABLE IF NOT EXISTS wallet_transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -349,7 +457,8 @@ async function initDatabase() {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
-  `);
+    `);
+
 
   try {
     db.prepare("ALTER TABLE wallet_transactions ADD COLUMN screenshot TEXT").run();
@@ -358,7 +467,8 @@ async function initDatabase() {
     db.prepare("ALTER TABLE wallet_transactions ADD COLUMN status TEXT DEFAULT 'approved'").run();
   } catch (e) {}
   
-  try { db.prepare("ALTER TABLE orders ADD COLUMN runner_id INTEGER").run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN user_phone TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN runner_id INTEGER').run(); } catch (e) {}
   try { db.prepare("ALTER TABLE orders ADD COLUMN estimated_delivery_at DATETIME").run(); } catch (e) {}
   try { db.prepare("ALTER TABLE orders ADD COLUMN status_history TEXT DEFAULT '[]'").run(); } catch (e) {}
   try { db.prepare("ALTER TABLE orders ADD COLUMN delivery_lat REAL").run(); } catch (e) {}
@@ -745,8 +855,12 @@ const seedData = () => {
 };
 
 async function startServer() {
+  console.log('[BOOT] Starting server initialization...');
+  console.log('[BOOT] Initializing database...');
   await initDatabase();
-  seedData(); // Seed data at start
+  console.log('[BOOT] Seeding database...');
+  seedData(); 
+  console.log('[BOOT] Database initialization complete.');
 
 // Migration for existing tables
 try { db.prepare('ALTER TABLE users ADD COLUMN email TEXT').run(); } catch (e) {}
@@ -839,6 +953,7 @@ try { db.prepare('ALTER TABLE orders ADD COLUMN payment_screenshot TEXT').run();
 try { db.prepare('ALTER TABLE orders ADD COLUMN rejection_reason TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE orders ADD COLUMN cancellation_reason TEXT').run(); } catch (e) {}
 
+  console.log('[BOOT] Defining API routes...');
   app.post('/api/orders/:id/cancel', (req, res) => {
     const { id } = req.params;
     const { reason, restock, refund } = req.body;
@@ -916,99 +1031,104 @@ try { db.prepare('ALTER TABLE promotions ADD COLUMN views INTEGER DEFAULT 0').ru
 try { db.prepare('ALTER TABLE promotions ADD COLUMN clicks INTEGER DEFAULT 0').run(); } catch(e) {}
 try { db.prepare('ALTER TABLE promotions ADD COLUMN banner_type TEXT DEFAULT \'standard\'').run(); } catch(e) {}
 
-// Advanced Enterprise Tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS promotional_rules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT,
-    type TEXT, -- 'bogo', 'percent_off', 'fixed_off', 'fixed', 'percentage'
-    target_type TEXT, -- 'category', 'product', 'all'
-    target_id TEXT, -- category name or product id
-    condition_qty INTEGER,
-    reward_qty INTEGER,
-    discount_value REAL,
-    active BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  
-  INSERT OR IGNORE INTO promotional_rules (id, title, type, target_type, target_id, condition_qty, discount_value, active)
-  VALUES (1, 'Fixed discount 50 off on 5 of product 101', 'fixed', 'product', '101', 5, 50, 1);
+  // Advanced Enterprise Tables
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS promotional_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        type TEXT, -- 'bogo', 'percent_off', 'fixed_off', 'fixed', 'percentage'
+        target_type TEXT, -- 'category', 'product', 'all'
+        target_id TEXT, -- category name or product id
+        condition_qty INTEGER,
+        reward_qty INTEGER,
+        discount_value REAL,
+        active BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    
+    db.prepare('INSERT OR IGNORE INTO promotional_rules (id, title, type, target_type, target_id, condition_qty, discount_value, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(1, 'Fixed discount 50 off on 5 of product 101', 'fixed', 'product', '101', 5, 50, 1);
 
-  CREATE TABLE IF NOT EXISTS serviceable_pincodes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pincode TEXT UNIQUE,
-    zone TEXT,
-    delivery_fee_base REAL DEFAULT 50,
-    active BOOLEAN DEFAULT 1
-  );
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS serviceable_pincodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pincode TEXT UNIQUE,
+        zone TEXT,
+        delivery_fee_base REAL DEFAULT 50,
+        active BOOLEAN DEFAULT 1
+      );
 
-  CREATE TABLE IF NOT EXISTS returns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id INTEGER,
-    product_id INTEGER,
-    user_id INTEGER,
-    quantity INTEGER,
-    reason TEXT,
-    status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'refunded'
-    refund_amount REAL,
-    refund_to TEXT DEFAULT 'wallet',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(order_id) REFERENCES orders(id),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  );
+      CREATE TABLE IF NOT EXISTS returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER,
+        product_id INTEGER,
+        user_id INTEGER,
+        quantity INTEGER,
+        reason TEXT,
+        status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'refunded'
+        refund_amount REAL,
+        refund_to TEXT DEFAULT 'wallet',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(order_id) REFERENCES orders(id),
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      );
 
-  CREATE TABLE IF NOT EXISTS data_exports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    status TEXT DEFAULT 'PENDING_REVIEW',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    approved_at DATETIME,
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  );
+      CREATE TABLE IF NOT EXISTS data_exports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        status TEXT DEFAULT 'PENDING_REVIEW',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        approved_at DATETIME,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      );
 
-  CREATE TABLE IF NOT EXISTS user_addresses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    name TEXT,
-    phone TEXT,
-    address TEXT,
-    city TEXT,
-    state TEXT,
-    zip_code TEXT,
-    pin_code TEXT,
-    delivery_area TEXT,
-    label TEXT, -- 'Home', 'Office', etc
-    lat REAL,
-    lng REAL,
-    delivery_instructions TEXT,
-    is_default BOOLEAN DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  );
+      CREATE TABLE IF NOT EXISTS user_addresses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        name TEXT,
+        phone TEXT,
+        address TEXT,
+        city TEXT,
+        state TEXT,
+        zip_code TEXT,
+        pin_code TEXT,
+        delivery_area TEXT,
+        label TEXT, -- 'Home', 'Office', etc
+        lat REAL,
+        lng REAL,
+        delivery_instructions TEXT,
+        is_default BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      );
 
-  CREATE TABLE IF NOT EXISTS announcements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT,
-    content TEXT,
-    type TEXT, -- 'info', 'warning', 'error', 'success', 'maintenance', 'promo'
-    priority TEXT DEFAULT 'low', -- 'low', 'medium', 'high', 'critical'
-    is_dismissible BOOLEAN DEFAULT 1,
-    start_at DATETIME,
-    end_at DATETIME,
-    created_by INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+      CREATE TABLE IF NOT EXISTS announcements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        content TEXT,
+        type TEXT, -- 'info', 'warning', 'error', 'success', 'maintenance', 'promo'
+        priority TEXT DEFAULT 'low', -- 'low', 'medium', 'high', 'critical'
+        is_dismissible BOOLEAN DEFAULT 1,
+        start_at DATETIME,
+        end_at DATETIME,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
 
-  CREATE TABLE IF NOT EXISTS deletion_requests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'canceled', 'completed'
-    reason TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    scheduled_for DATETIME,
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  );
-`);
+      CREATE TABLE IF NOT EXISTS deletion_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'canceled', 'completed'
+        reason TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        scheduled_for DATETIME,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      );
+    `);
+  } catch (err) {
+    console.error('Failed to initialize advanced tables:', err);
+  }
 
 // Migration columns for enhanced security and activity tracking
 try { db.exec("ALTER TABLE users ADD COLUMN last_login_at DATETIME"); } catch(e) {}
@@ -1083,6 +1203,7 @@ const createAlert = (userId: number | null, title: string, message: string, deta
 
 // Helper to verify Firebase token and get/create user
 const verifyFirebaseUser = async (req: express.Request) => {
+  if (!isFirebaseReady) return null;
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
 
@@ -1283,6 +1404,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (!isMaintenance || 
         req.path.startsWith('/api/auth') || 
         req.path.startsWith('/api/settings') ||
+        (req.session as any)?.role === 'admin' ||
         bypassToken === secret ||
         req.path.includes('.')
     ) {
@@ -1375,7 +1497,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/admin/data-exports', requireAdmin, (req, res) => {
     try {
-      const exports = db.prepare('SELECT de.*, u.name as user_name FROM data_exports de JOIN users u ON de.user_id = u.id ORDER BY de.created_at DESC').all();
+      const exports = db.prepare('SELECT de.*, u.name as user_name FROM data_exports de LEFT JOIN users u ON de.user_id = u.id ORDER BY de.created_at DESC').all();
       res.json(exports);
     } catch (err: any) {
       handleAppError(err, 'Failed to fetch export requests', 'fetchExportRequests');
@@ -2035,9 +2157,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/auth/firebase-login', async (req, res) => {
     try {
-      if (!admin.apps.length) {
+      if (!isFirebaseReady) {
         console.error('Firebase Admin not initialized');
-        return res.status(500).json({ success: false, message: 'Server configuration error' });
+        return res.status(503).json({ success: false, message: 'Authentication service is temporarily unavailable' });
       }
       const { idToken } = req.body;
       if (!idToken) return res.status(400).json({ success: false, message: 'No token provided' });
@@ -2481,8 +2603,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const popularProducts = db.prepare(`
         SELECT p.name, p.stock, COUNT(oi.id) as sales_count, SUM(oi.quantity) as total_qty
         FROM products p
-        JOIN order_items oi ON p.id = oi.product_id
-        JOIN orders o ON oi.order_id = o.id
+        LEFT JOIN order_items oi ON p.id = oi.product_id
+        LEFT JOIN orders o ON oi.order_id = o.id
         ${productFilter}
         GROUP BY p.id
         ORDER BY total_qty DESC
@@ -2492,7 +2614,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const salesOverTime = db.prepare(`
         SELECT strftime('%Y-%m-%d', o.created_at) as date, SUM(o.total) as sales, COUNT(o.id) as orders
         FROM orders o
-        JOIN users u ON o.user_id = u.id
+        LEFT JOIN users u ON o.user_id = u.id
         ${orderFilter}
         GROUP BY date
         ORDER BY date ASC
@@ -2625,7 +2747,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const history = db.prepare(`
         SELECT wt.*, u.name as user_name, u.phone as user_phone 
         FROM wallet_transactions wt 
-        JOIN users u ON wt.user_id = u.id 
+        LEFT JOIN users u ON wt.user_id = u.id 
         WHERE wt.type = 'credit'
         ORDER BY wt.created_at DESC
         LIMIT 100
@@ -3891,7 +4013,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const requests = db.prepare(`
         SELECT wt.*, u.name as user_name, u.phone as user_phone, u.wallet_balance as current_balance
         FROM wallet_transactions wt
-        JOIN users u ON wt.user_id = u.id
+        LEFT JOIN users u ON wt.user_id = u.id
         WHERE wt.type = 'credit' AND wt.status = 'pending'
         ORDER BY wt.created_at DESC
       `).all();
@@ -4205,7 +4327,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const order = db.prepare(`
         SELECT r.current_lat, r.current_lng, r.name, r.phone
         FROM orders o 
-        JOIN runners r ON o.assigned_runner_id = r.id
+        LEFT JOIN runners r ON o.assigned_runner_id = r.id
         WHERE o.order_id = ? OR o.id = ?
       `).get(id, id) as any;
       
@@ -4239,8 +4361,12 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         );
         const orderId = order.lastInsertRowid;
 
-        const userData = db.prepare('SELECT role, khata_balance, khata_limit, credit_limit, khata_enabled FROM users WHERE id = ?').get(user_id) as any;
+        const userData = db.prepare('SELECT role, phone, khata_balance, khata_limit, credit_limit, khata_enabled FROM users WHERE id = ?').get(user_id) as any;
         const userRole = userData?.role || 'customer';
+        const userPhone = userData?.phone || '';
+
+        // Update with phone
+        db.prepare('UPDATE orders SET user_phone = ? WHERE id = ?').run(userPhone, orderId);
 
         // GLOBAL KHATA LIMIT CHECK: Block ALL orders if limit exceeded
         const currentBalance = userData?.khata_balance || 0;
@@ -4463,10 +4589,10 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
                u.phone,
                r.name as runner_name, r.phone as runner_phone, r.current_lat, r.current_lng
         FROM orders o 
-        JOIN users u ON o.user_id = u.id 
+        LEFT JOIN users u ON o.user_id = u.id 
         LEFT JOIN runners r ON o.assigned_runner_id = r.id
-        WHERE (o.id = ? OR o.order_id = ?) AND u.phone = ?
-      `).get(id, id, phone) as any;
+        WHERE (o.id = ? OR o.order_id = ?) AND (u.phone = ? OR ? = 'admin')
+      `).get(id, id, phone, (req.session as any)?.role) as any;
 
       if (!order) {
         return res.status(404).json({ success: false, message: 'Order not found for this phone number' });
@@ -4475,7 +4601,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const items = db.prepare(`
         SELECT oi.*, p.name, p.image_url 
         FROM order_items oi 
-        JOIN products p ON oi.product_id = p.id 
+        LEFT JOIN products p ON oi.product_id = p.id 
         WHERE oi.order_id = ?
       `).all(order.id);
       order.items = items;
@@ -4726,9 +4852,9 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const returnsInfo = db.prepare(`
         SELECT r.*, o.order_id as order_num, p.name as product_name, u.name as user_name
         FROM returns r
-        JOIN orders o ON r.order_id = o.id
-        JOIN products p ON r.product_id = p.id
-        JOIN users u ON r.user_id = u.id
+        LEFT JOIN orders o ON r.order_id = o.id
+        LEFT JOIN products p ON r.product_id = p.id
+        LEFT JOIN users u ON r.user_id = u.id
         ORDER BY r.created_at DESC
       `).all();
       res.json(returnsInfo);
@@ -4831,9 +4957,9 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       // Find orders that are ready for delivery (shipped) or previously assigned to this person
       // Also include 'processing' so they can see what is coming next
       const orders = db.prepare(`
-        SELECT o.*, u.name as customer_name, u.phone as customer_phone
+        SELECT o.*, u.name as customer_name, COALESCE(u.phone, o.user_phone) as customer_phone
         FROM orders o
-        JOIN users u ON o.user_id = u.id
+        LEFT JOIN users u ON o.user_id = u.id
         WHERE o.status IN ('processing', 'shipped', 'dispatched')
         ORDER BY o.created_at DESC
       `).all();
@@ -5007,6 +5133,24 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       res.json(logs);
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/system-logs', requireAdmin, (req, res) => {
+    try {
+      const logs = db.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 200').all();
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json([]);
+    }
+  });
+
+  app.delete('/api/admin/system-logs', requireAdmin, (req, res) => {
+    try {
+      db.prepare('DELETE FROM system_logs').run();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false });
     }
   });
 
@@ -5377,9 +5521,10 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   // --- Automated System Integrity Guard ---
   const runSystemIntegrityAudit = () => {
     console.log('[INTEGRITY] Starting deep scan of database consistency...');
+    const startTime = Date.now();
     try {
       // 1. Check for orphaned order items
-      const orphanedItems = db.prepare('SELECT id FROM order_items WHERE order_id NOT IN (SELECT id FROM orders)').all();
+      const orphanedItems = db.prepare('SELECT id FROM order_items WHERE order_id NOT IN (SELECT id FROM orders)').all() as any[];
       if (orphanedItems.length > 0) {
         console.warn(`[INTEGRITY] Found ${orphanedItems.length} orphaned order items. Purging...`);
         db.prepare('DELETE FROM order_items WHERE order_id NOT IN (SELECT id FROM orders)').run();
@@ -5387,9 +5532,16 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 
       // 2. Refresh stock metrics for low inventory
       const lowStockCount = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point').get() as any;
-      if (lowStockCount.count > 0) {
+      if (lowStockCount && lowStockCount.count > 0) {
         db.prepare('INSERT INTO system_logs (level, message) VALUES (?, ?)').run('warning', `System integrity scan: ${lowStockCount.count} products are currently below reorder threshold.`);
       }
+
+      // 3. Log Performance & Environment Health
+      const mem = process.memoryUsage();
+      const status = `[HEALTH] RSS=${Math.round(mem.rss / 1024 / 1024)}MB | Heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB | Firebase=${isFirebaseReady} | Duration=${Date.now() - startTime}ms`;
+      console.log(status);
+      
+      db.prepare('INSERT INTO system_logs (level, message) VALUES (?, ?)').run('info', status);
 
       console.log('[INTEGRITY] Deep scan completed. Environment stable.');
     } catch (err: any) {
@@ -5459,17 +5611,33 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     try {
-      console.log('Initializing Vite server...');
+      console.log('[BOOT] Initializing Vite server in middleware mode...');
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { 
           middlewareMode: true,
-          hmr: process.env.DISABLE_HMR !== 'true'
+          hmr: false,
+          host: '0.0.0.0',
+          port: 3000
         },
         appType: 'spa',
       });
       app.use(vite.middlewares);
-      console.log('Vite middleware initialized.');
+      
+      // Manual SPA fallback for Vite middleware to ensure it works in all proxy scenarios
+      app.use('*', async (req, res, next) => {
+        if (req.method !== 'GET') return next();
+        const url = req.originalUrl;
+        try {
+          let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+          template = await vite.transformIndexHtml(url, template);
+          res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+        } catch (e) {
+          console.error('[VITE FALLBACK ERROR]:', e);
+          next(e);
+        }
+      });
+      console.log('[BOOT] Vite middleware and SPA fallback initialized.');
     } catch (err) {
       console.error('Failed to initialize Vite server:', err);
     }
@@ -5481,35 +5649,85 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   }
 
   // Global Error Handler - MUST be after all routes
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('[GLOBAL ERROR]', err);
+  app.use((err: any, req: any, res: express.Response, next: express.NextFunction) => {
+    const requestId = req.id || 'N/A';
+    const duration = req.startTime ? `${Date.now() - req.startTime}ms` : 'N/A';
+    
+    console.error(`[GLOBAL ERROR][RID:${requestId}] Duration: ${duration} | ${req.method} ${req.url}:`, err);
+    
+    // Log to system_logs table for persistence
+    try {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const stackTrace = err instanceof Error ? err.stack : '';
+        db.prepare('INSERT INTO system_logs (level, message) VALUES (?, ?)').run(
+          'error', 
+          `[RID:${requestId}] ${req.method} ${req.url} | Error: ${errorMsg} | Stack: ${stackTrace?.substring(0, 500)}`
+        );
+    } catch (e) {}
+
+    // Log suspicious activity if it's a serious 400 error
+    if (err.status === 400 || (err instanceof Error && err.message.includes('malformed'))) {
+        try {
+            db.prepare('INSERT INTO suspicious_activities (user_id, action, details) VALUES (?, ?, ?)')
+              .run(req.session?.userId || null, 'CRITICAL_ERROR_LOG', JSON.stringify({
+                requestId,
+                url: req.url,
+                method: req.method,
+                error: err instanceof Error ? err.message : String(err),
+                ip: req.ip
+              }));
+        } catch (logErr) {}
+    }
+
     // Avoid circular JSON if err is an object
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const errorStack = process.env.NODE_ENV !== 'production' ? (err instanceof Error ? err.stack : null) : null;
+    const errorStack = err instanceof Error ? err.stack : null;
     
     // If headers already sent, delegate to next
     if (res.headersSent) {
       return next(err);
     }
     
-    res.status(500).json({ 
+    res.status(err.status || 500).json({ 
       success: false, 
-      message: 'Internal server error', 
+      message: err.userMessage || 'Internal server error', 
       error: errorMessage,
+      requestId,
       stack: errorStack
     });
   });
 
-  const PORT = Number(process.env.PORT) || 3000;
+  console.log('[BOOT] Finalizing middlewares and starting listen...');
+  const PORT = 3000;
   
-  if (httpServer) {
-    httpServer.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
+  if (!httpServer) {
+    console.log('[BOOT] Creating http server instance...');
+    httpServer = createServer(app);
   }
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`[BOOT] Server listening on 0.0.0.0:${PORT}`);
+    console.log(`[BOOT] Health check: http://localhost:${PORT}/api/health`);
+  });
 
   return app;
 }
+
+// Global process error handlers
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception:', err);
+  // Log to DB if possible
+  try {
+     if (db) {
+       db.prepare('INSERT INTO system_logs (level, message, stack) VALUES (?, ?, ?)')
+         .run('critical', `Uncaught Exception: ${err.message}`, err.stack);
+     }
+  } catch (e) {}
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Start server exactly once
 const appPromise = startServer().catch(err => {

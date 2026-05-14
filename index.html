@@ -11,6 +11,8 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      console.log('Index.html loaded, starting scripts...');
+      window.addEventListener('load', () => console.log('Window load event fired'));
       // Prevent double-tap to zoom
       let lastTouchEnd = 0;
       document.addEventListener('touchend', function (event) {

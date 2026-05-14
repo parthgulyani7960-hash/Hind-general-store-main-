@@ -40,149 +40,48 @@ window.addEventListener('online', flushQueue);
 try {
   if (!(window.fetch as any)._isWrapped) {
     const originalFetch = window.fetch.bind(window);
-    let refreshPromise: Promise<string | null> | null = null;
-    let failedRefreshAttempts = 0;
-    const MAX_REFRESH_ATTEMPTS = 2;
-
-    const performRefresh = async (): Promise<string | null> => {
-        try {
-            await auth.authStateReady();
-            const user = auth.currentUser;
-            if (user) {
-              const newToken = await user.getIdToken(true);
-              localStorage.setItem('hgs_token', newToken);
-              return newToken;
-            } else {
-              if (localStorage.getItem('hgs_token')) {
-                localStorage.removeItem('hgs_token');
-                localStorage.removeItem('hgs_user');
-              }
-              return null;
-            }
-        } catch (err) {
-            failedRefreshAttempts++;
-            if (failedRefreshAttempts >= MAX_REFRESH_ATTEMPTS) {
-                localStorage.removeItem('hgs_token');
-                localStorage.removeItem('hgs_user');
-            }
-            throw err;
-        } finally {
-            refreshPromise = null;
-        }
-    };
 
     Object.defineProperty(window, 'fetch', {
       value: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const inputUrl = typeof input === 'string' ? input : (input as Request).url || input.toString();
-        
-        const isReporting = inputUrl.includes('/api/bugs/report');
-        const isFirebaseAuth = inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com') || inputUrl.includes('googleapis.com');
-        const isLocalAuth = inputUrl.includes('/api/auth/');
+        let inputUrl = '';
+        try {
+          if (typeof input === 'string') {
+            inputUrl = input;
+          } else if (input instanceof URL) {
+            inputUrl = input.toString();
+          } else if (input instanceof Request) {
+            inputUrl = input.url;
+          }
+        } catch (e) {}
 
-        // Bypass interceptor completely for Firebase / external Google APIs
+        // Auto-correct hardcoded localhost URLs to relative
+        if (inputUrl && inputUrl.includes('localhost:3000')) {
+          console.warn('[Fetch Interceptor] Auto-correcting localhost:', inputUrl);
+          inputUrl = inputUrl.replace(/https?:\/\/localhost:3000/, '');
+          if (input instanceof Request) {
+            input = new Request(inputUrl, init || input);
+          } else {
+            input = inputUrl;
+          }
+        }
+        
+        const isFirebaseAuth = inputUrl && (inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com'));
+
         if (isFirebaseAuth) {
             return originalFetch(input, init);
         }
 
-        const getHeaders = (token: string | null) => {
-          let baseHeaders;
-          if (init?.headers) {
-            baseHeaders = init.headers;
-          } else if (typeof input === 'object' && 'headers' in input) {
-            baseHeaders = (input as Request).headers;
-          }
-          const headers = new Headers(baseHeaders || {});
-          
-          if (token) {
-            headers.set('Authorization', `Bearer ${token}`);
-          }
-          return headers;
-        };
-
-        const executeFetch = async (token: string | null) => {
-          let fetchOptions = { ...init, headers: getHeaders(token) };
-          if (typeof input === 'object' && input instanceof Request) {
-             return originalFetch(input, fetchOptions);
-          } else {
-             return originalFetch(input, fetchOptions);
-          }
-        };
-
-        // If a refresh is already in progress, wait for it before even sending the request
-        if (refreshPromise) {
-            try {
-                const refreshedToken = await refreshPromise;
-                return executeFetch(refreshedToken);
-            } catch (err) {
-                // If refresh failed, proceed without token or just fail
-            }
+        const token = localStorage.getItem('hgs_token');
+        if (token) {
+           const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : {}));
+           if (!headers.has('Authorization')) {
+             headers.set('Authorization', `Bearer ${token}`);
+             const options = { ...init, headers };
+             return originalFetch(input, options);
+           }
         }
 
-        const initialToken = localStorage.getItem('hgs_token');
-        let response = await executeFetch(initialToken);
-
-        // Handle 401: Unexpected session loss or expired token
-        if (response.status === 401 && !isLocalAuth && !isReporting && !isFirebaseAuth) {
-          console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting token refresh...`);
-          
-          if (failedRefreshAttempts >= MAX_REFRESH_ATTEMPTS) {
-              console.warn('[AUTH INTERCEPTOR] Max backend 401s reached. Clearing invalid session.');
-              localStorage.removeItem('hgs_token');
-              localStorage.removeItem('hgs_user');
-              try { await signOutUser(); } catch(e) {}
-
-              // We only redirect if we are not already on the login page or we aren't testing auth status
-              if (!inputUrl.includes('/api/auth/me') && window.location.pathname !== '/login') {
-                  window.dispatchEvent(new Event('auth_error'));
-                  window.location.replace('/login');
-              }
-              return response; 
-          }
-
-          if (!refreshPromise) {
-              refreshPromise = performRefresh();
-          }
-
-          try {
-              const newToken = await refreshPromise;
-              if (newToken) {
-                  console.log(`[AUTH INTERCEPTOR] Token refreshed. Retrying ${inputUrl}...`);
-                  response = await executeFetch(newToken);
-                  
-                  if (response.status === 401) {
-                      // Backend STILL returned 401 after forced refresh
-                      console.error(`[AUTH INTERCEPTOR] Backend rejected freshly minted token. Aborting.`);
-                      failedRefreshAttempts++;
-                      if (failedRefreshAttempts >= MAX_REFRESH_ATTEMPTS) {
-                          localStorage.removeItem('hgs_token');
-                          localStorage.removeItem('hgs_user');
-                          try { await signOutUser(); } catch(e) {}
-                          if (!inputUrl.includes('/api/auth/me') && window.location.pathname !== '/login') {
-                              window.dispatchEvent(new Event('auth_error'));
-                              window.location.replace('/login');
-                          }
-                      }
-                  } else {
-                      failedRefreshAttempts = 0; // Success, we can reset the backend 401 counter
-                  }
-              }
-          } catch (refreshErr) {
-              console.error('[AUTH INTERCEPTOR] Refresh failed:', refreshErr);
-          }
-        }
-
-        if (!response.ok && !isReporting) {
-          if (response.status >= 500) {
-            reportError({
-              message: `HTTP error! status: ${response.status}`,
-              path: window.location.pathname,
-              interactedElement: String(inputUrl),
-              logs: [`Status: ${response.status}`]
-            });
-          }
-        }
-        
-        return response;
+        return originalFetch(input, init);
       },
       configurable: true,
       writable: true

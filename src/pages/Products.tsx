@@ -13,6 +13,8 @@ import toast from 'react-hot-toast';
 import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '../firebase';
 import { fetchWithHandling } from '../lib/api';
 
+import { io } from 'socket.io-client';
+
 export default function Products() {
   const location = useLocation();
   const [products, setProducts] = useState<Product[]>([]);
@@ -97,27 +99,22 @@ export default function Products() {
   useEffect(() => {
     fetchProducts();
 
-    // Real-Time Inventory Management WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    const socket = new WebSocket(wsUrl);
+    // Real-Time Inventory Management Socket.io
+    const socket = io();
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'INVENTORY_UPDATE') {
-          setProducts(prevProducts => prevProducts.map(p => {
-            if (p.id === data.product_id) {
-              return { ...p, stock: data.stock };
-            }
-            return p;
-          }));
-        }
-      } catch (e) {}
-    };
+    socket.on('data', (data) => {
+      if (data.type === 'INVENTORY_UPDATE') {
+        setProducts(prevProducts => prevProducts.map(p => {
+          if (p.id === data.product_id) {
+            return { ...p, stock: data.stock };
+          }
+          return p;
+        }));
+      }
+    });
 
     return () => {
-      socket.close();
+      socket.disconnect();
     };
   }, [user?.role]);
 

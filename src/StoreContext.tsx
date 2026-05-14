@@ -57,6 +57,7 @@ interface StoreContextType {
   isTablet: boolean;
   isSyncingCart: boolean;
   syncCartToBackend: (cartItems: CartItem[]) => Promise<void>;
+  isAuthChecking: boolean;
   currentAlert: any;
   setCurrentAlert: (alert: any) => void;
   markAlertAsRead: (id: number) => Promise<void>;
@@ -105,8 +106,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const initAuth = async () => {
         try {
-            await auth.authStateReady();
-            // Wait a small amount for onIdTokenChanged to potentially fire first, or just rely on current user
+            // Set a timeout for authStateReady to prevent infinite hang if Firebase fails
+            const authReadyPromise = auth.authStateReady();
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Firebase auth timeout')), 3000)
+            );
+            
+            try {
+                await Promise.race([authReadyPromise, timeoutPromise]);
+            } catch (e) {
+                console.warn('Firebase authStateReady timed out or failed, proceeding with fallback auth check');
+            }
+
             const firebaseUser = auth.currentUser;
             if (firebaseUser) {
                 const token = await firebaseUser.getIdToken();
@@ -115,6 +126,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 await checkAuth();
             }
         } catch(e) {
+            console.error('Auth initialization error:', e);
             await checkAuth();
         } finally {
             setIsAuthChecking(false);
@@ -763,11 +775,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
       isOnline, isProfileComplete,
       isMobile, isTablet, lastAddedId, isSyncingCart, syncCartToBackend,
+      isAuthChecking,
       logActivity,
       currentAlert, setCurrentAlert, markAlertAsRead,
       hasPermission,
       calculateDiscount
-    }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts, promotions]);
+    }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts, promotions, isAuthChecking]);
 
   return (
     <StoreContext.Provider value={contextValue}>

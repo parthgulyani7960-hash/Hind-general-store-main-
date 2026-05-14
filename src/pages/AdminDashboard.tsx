@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import { withErrorReporting } from '../lib/uiUtils';
 import { handleAppError } from '../lib/errorUtils';
@@ -47,7 +48,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -266,7 +267,115 @@ export default function AdminDashboard() {
             </div>
         </div>
     );
-};
+  };
+
+  const SystemLogsView = () => {
+    const [logs, setLogs] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchLogs = async () => {
+        setLoading(true);
+        try {
+            const data = await fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() });
+            if (data) setLogs(data);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchLogs();
+    }, []);
+
+    const clearLogs = async () => {
+        if (!confirm('Clear all system logs? This action is irreversible.')) return;
+        try {
+            const data = await fetchWithHandling<any>('/api/admin/system-logs', { 
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            if (data) {
+                setLogs([]);
+                toast.success('Logs cleared successfully');
+            }
+        } catch (err) {
+            toast.error('Failed to clear logs');
+        }
+    };
+
+    return (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h2 className="text-4xl font-black tracking-tighter text-stone-900 flex items-center gap-3">
+                        <div className="p-3 bg-red-100 rounded-3xl text-red-600"><Bug size={32} /></div>
+                        SYSTEM HEALTH REGISTRY
+                    </h2>
+                    <p className="text-stone-500 font-medium mt-1">Real-time monitoring of environment errors and integrity audits.</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={fetchLogs} className="bg-stone-100 text-stone-600 px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-200 transition-all flex items-center gap-2">
+                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+                    </button>
+                    <button onClick={clearLogs} className="bg-stone-950 text-white px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-800 transition-all shadow-lg shadow-stone-200">
+                         Purge All Logs
+                    </button>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden">
+                <div className="p-8 border-b border-stone-50 bg-stone-50/10 flex items-center gap-4">
+                     <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-200"></div>
+                     <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Stream Online: Capturing Environment Exception Buffers</span>
+                </div>
+                <div className="divide-y divide-stone-50 overflow-y-auto max-h-[70vh]">
+                    {logs.map((log: any) => (
+                        <div key={log.id} className="p-8 hover:bg-stone-50/50 transition-colors group">
+                            <div className="flex items-start justify-between mb-4">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${log.level === 'error' ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
+                                        {log.level === 'error' ? <AlertTriangle size={20} /> : <Activity size={20} />}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${log.level === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                {log.level}
+                                            </span>
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-stone-300">| Registry Entry #{log.id}</span>
+                                        </div>
+                                        <p className="text-xs text-stone-400 font-mono">{new Date(log.created_at).toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-stone-950 p-6 rounded-3xl overflow-hidden">
+                                 <pre className="text-emerald-400 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all selection:bg-emerald-400 selection:text-stone-950">
+                                     {log.message}
+                                 </pre>
+                            </div>
+                        </div>
+                    ))}
+                    {logs.length === 0 && !loading && (
+                        <div className="py-32 text-center">
+                            <div className="w-24 h-24 bg-stone-50 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-stone-200">
+                                <CheckCircle2 size={48} />
+                            </div>
+                            <h3 className="text-xl font-black text-stone-900 uppercase tracking-tighter">Environment Stable</h3>
+                            <p className="text-stone-400 text-sm mt-2 max-w-xs mx-auto">No significant errors or integrity issues have been registered in the system logs buffer.</p>
+                        </div>
+                    )}
+                    {loading && (
+                        <div className="py-32 flex flex-col items-center justify-center">
+                            <Loader2 className="animate-spin text-primary mb-4" size={48} />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Syncing with Registry...</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+  };
   const [newProduct, setNewProduct] = useState({ 
     name: '', description: '', price: '', stock: '', category: 'Grocery', image: '', 
     retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
@@ -1107,18 +1216,14 @@ export default function AdminDashboard() {
   }, [promotionProductsModal.open, promotionProductsModal.promotionId]);
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    const socket = new WebSocket(wsUrl);
+    const socket = io();
     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
-    socket.onopen = () => {
-      console.log('Connected to admin notification center');
-    };
+    socket.on('connect', () => {
+      console.log('Connected to admin notification center (Socket.io)');
+    });
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
+    socket.on('data', (data) => {
         audio.play().catch(e => console.log('Audio play failed:', e));
         
         switch (data.type) {
@@ -1184,19 +1289,10 @@ export default function AdminDashboard() {
             }
             break;
         }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-
-    socket.onclose = () => {
-      console.log('Disconnected from notification center');
-    };
+    });
 
     return () => {
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-        socket.close();
-      }
+      socket.disconnect();
     };
   }, [selectedTicket]);
 
@@ -2657,8 +2753,9 @@ export default function AdminDashboard() {
       items: [
         { name: 'Store Settings' as Tab, icon: Settings },
         { name: 'System Status' as Tab, icon: Activity },
+        { name: 'System Logs' as Tab, icon: Bug },
         { name: 'Suspicious Activities' as Tab, icon: AlertTriangle },
-        { name: 'Automatic Reports' as Tab, icon: Bug },
+        { name: 'Automatic Reports' as Tab, icon: List },
         { name: 'Feature Toggles' as Tab, icon: Layout },
       ]
     }
@@ -8415,6 +8512,8 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {activeTab === 'System Logs' && <SystemLogsView />}
 
         {activeTab === 'Suspicious Activities' && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
