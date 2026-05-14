@@ -9,6 +9,7 @@ import { useStore } from '../StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { fetchWithHandling } from '../lib/api';
 import { getAuthHeaders } from '../lib/utils';
+import { Skeleton } from '../components/ui/Skeleton';
 import L from 'leaflet';
 import { io } from 'socket.io-client';
 import 'leaflet/dist/leaflet.css';
@@ -270,7 +271,47 @@ export default function TrackOrder() {
         </div>
 
         {/* Results */}
-        {order && (
+        {loading ? (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
+              <div className="flex justify-between items-center mb-12">
+                <div className="space-y-4">
+                  <Skeleton className="h-8 w-64" />
+                  <Skeleton className="h-4 w-48" />
+                </div>
+                <Skeleton className="h-10 w-32 rounded-full" />
+              </div>
+              <div className="space-y-12">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="flex items-center space-x-6">
+                    <Skeleton className="w-12 h-12 rounded-2xl shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-5 w-1/3" />
+                      <Skeleton className="h-4 w-2/3" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
+              <Skeleton className="h-6 w-48 mb-6" />
+              <div className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <Skeleton className="w-12 h-12 rounded-xl" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-5 w-20" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : order && (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

@@ -27,6 +27,7 @@ import { useStore } from '../StoreContext';
 import { cn, Order, PromotionRule } from '../types';
 import { getAuthHeaders } from '../lib/utils';
 import { fetchWithHandling } from '../lib/api';
+import { StatSkeleton, TableRowSkeleton, OrderSkeleton } from '../components/ui/Skeleton';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import FeatureToggles from '../components/admin/FeatureToggles';
@@ -485,6 +486,7 @@ export default function AdminDashboard() {
 
 
   const fetchStats = async () => {
+    setLoading(true);
     try {
       const data = await fetchWithHandling<any>('/api/admin/stats', { headers: getAuthHeaders() });
       if (data) {
@@ -492,6 +494,8 @@ export default function AdminDashboard() {
       }
     } catch (err: any) {
       console.error('Stats fetch error:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1503,6 +1507,7 @@ export default function AdminDashboard() {
   };
 
   const fetchPromotions = async () => {
+    setLoading(true);
     try {
       const data = await fetchWithHandling<any[]>('/api/promotions', { headers: getAuthHeaders() });
       if (data) {
@@ -1510,10 +1515,13 @@ export default function AdminDashboard() {
       }
     } catch (err) {
       console.error('Promotions fetch error:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchPromotionRules = async () => {
+    setLoading(true);
     try {
       const data = await fetchWithHandling<any[]>('/api/admin/promotional-rules', {
         headers: getAuthHeaders()
@@ -1523,10 +1531,13 @@ export default function AdminDashboard() {
       }
     } catch (err: any) {
       handleAppError(err, 'Failed to fetch promotion rules', 'fetchPromotionRules');
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchBulkDiscounts = async () => {
+    setLoading(true);
     try {
       const data = await fetchWithHandling<any[]>('/api/admin/bulk-discounts', { headers: getAuthHeaders() });
       if (data) {
@@ -1534,6 +1545,8 @@ export default function AdminDashboard() {
       }
     } catch (err) {
       console.error('Bulk discounts fetch error:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -3113,7 +3126,9 @@ export default function AdminDashboard() {
 
             {/* Core Operational metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
+              {loading ? (
+                [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
+              ) : [
                 { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '', color: 'emerald', key: 'revenue' },
                 { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '', color: 'amber', key: 'orders' },
                 { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={22} />, trend: 'Live', color: 'blue' },
@@ -4720,7 +4735,9 @@ export default function AdminDashboard() {
 
              {/* Logistics Hub Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
+              {loading ? (
+                [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
+              ) : [
                 { label: 'Pending Review', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', trend: 'Response Required' },
                 { label: 'Active Fulfillment', val: orders.filter(o => o.status === 'processing').length, icon: Settings, color: 'blue', trend: 'In Preparations' },
                 { label: 'In Transit', val: orders.filter(o => o.status === 'shipped').length, icon: Truck, color: 'purple', trend: 'Logistics Network' },
@@ -4877,7 +4894,29 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-50">
-                      {orders
+                      {loading ? (
+                        [...Array(5)].map((_, i) => (
+                           <tr key={i}>
+                             <td colSpan={7}>
+                               <TableRowSkeleton columns={6} />
+                             </td>
+                           </tr>
+                        ))
+                      ) : orders.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-10 py-20 text-center">
+                            <div className="flex flex-col items-center space-y-4">
+                              <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center text-stone-200">
+                                <ShoppingBag size={32} />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="font-bold text-stone-900">Archive Is Null</p>
+                                <p className="text-sm text-stone-400">No transactions recorded matching the current filter scope.</p>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : orders
                         .filter(order => {
                           const matchesStatus = orderStatusFilter === 'All' || order.status === orderStatusFilter;
                           const orderDate = new Date(order.created_at).toISOString().split('T')[0];

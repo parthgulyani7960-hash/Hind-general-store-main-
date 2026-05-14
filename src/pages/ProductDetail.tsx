@@ -15,6 +15,8 @@ import toast from 'react-hot-toast';
 import { triggerFeedback } from '../App';
 import { handleAppError } from '../lib/errorUtils';
 import { fetchWithHandling } from '../lib/api';
+import LoadingFallback from '../components/LoadingFallback';
+import { Skeleton } from '../components/ui/Skeleton';
 import { getAuthHeaders } from '../lib/utils';
 
 export default function ProductDetail() {
@@ -364,7 +366,7 @@ export default function ProductDetail() {
     }
   };
 
-  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+  if (loading) return <LoadingFallback />;
   if (!product) return <div className="text-center py-20">Product not found</div>;
 
   return (

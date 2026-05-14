@@ -12,6 +12,7 @@ import { useDeviceType } from '../lib/device';
 import toast from 'react-hot-toast';
 import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '../firebase';
 import { fetchWithHandling } from '../lib/api';
+import { ProductSkeleton } from '../components/ui/Skeleton';
 
 import { io } from 'socket.io-client';
 
@@ -183,10 +184,11 @@ export default function Products() {
   }, []);
 
   if (loading) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="flex flex-col items-center space-y-4">
-        <Loader2 className="animate-spin h-12 w-12 text-primary" />
-        <p className="text-stone-500 font-medium">{t('loading_products') || 'Loading products...'}</p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {[...Array(8)].map((_, i) => (
+          <ProductSkeleton key={i} />
+        ))}
       </div>
     </div>
   );

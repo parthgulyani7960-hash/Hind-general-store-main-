@@ -7,6 +7,7 @@ import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
 import { fetchWithHandling } from '../lib/api';
+import LoadingFallback from '../components/LoadingFallback';
 
 import ErrorBoundary from '../components/ErrorBoundary';
 
@@ -55,6 +56,8 @@ function HomeInner() {
     const interval = setInterval(fetchHomeData, 60000);
     return () => clearInterval(interval);
   }, [previewPromoId]);
+
+  if (loadingCats) return <LoadingFallback />;
 
   const handleBannerClick = (id: number) => {
     fetchWithHandling(`/api/promotions/${id}/click`, { method: 'POST' });

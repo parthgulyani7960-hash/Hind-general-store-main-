@@ -40,6 +40,28 @@ window.addEventListener('online', flushQueue);
 try {
   if (!(window.fetch as any)._isWrapped) {
     const originalFetch = window.fetch.bind(window);
+    let refreshPromise: Promise<string | null> | null = null;
+
+    const performRefresh = async (): Promise<string | null> => {
+        try {
+            await auth.authStateReady();
+            const user = auth.currentUser;
+            if (user) {
+              const newToken = await user.getIdToken(true);
+              localStorage.setItem('hgs_token', newToken);
+              return newToken;
+            } else {
+              localStorage.removeItem('hgs_token');
+              localStorage.removeItem('hgs_user');
+              return null;
+            }
+        } catch (err) {
+            console.error('[AUTH] Token refresh failed:', err);
+            throw err;
+        } finally {
+            refreshPromise = null;
+        }
+    };
 
     Object.defineProperty(window, 'fetch', {
       value: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -66,22 +88,52 @@ try {
         }
         
         const isFirebaseAuth = inputUrl && (inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com'));
+        const isLocalAuthMe = inputUrl && inputUrl.includes('/api/auth/me');
 
         if (isFirebaseAuth) {
             return originalFetch(input, init);
         }
 
-        const token = localStorage.getItem('hgs_token');
-        if (token) {
-           const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : {}));
-           if (!headers.has('Authorization')) {
-             headers.set('Authorization', `Bearer ${token}`);
-             const options = { ...init, headers };
-             return originalFetch(input, options);
-           }
+        const executeFetch = async (token: string | null) => {
+          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : {}));
+          if (token && !headers.has('Authorization')) {
+            headers.set('Authorization', `Bearer ${token}`);
+          }
+          const options = { ...init, headers };
+          try {
+             return await originalFetch(input, options);
+          } catch (err) {
+             console.error('[Fetch Network Error]:', err, inputUrl);
+             throw err;
+          }
+        };
+
+        const initialToken = localStorage.getItem('hgs_token');
+        let response = await executeFetch(initialToken);
+
+        // Handle 401 unauthorized
+        if (response.status === 401 && !isFirebaseAuth) {
+          console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
+          
+          if (!refreshPromise) {
+            refreshPromise = performRefresh();
+          }
+
+          try {
+            const newToken = await refreshPromise;
+            if (newToken) {
+              console.log(`[AUTH INTERCEPTOR] Refresh success, retrying ${inputUrl}`);
+              response = await executeFetch(newToken);
+            }
+          } catch (refreshErr) {
+            console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
+            if (!isLocalAuthMe && window.location.pathname !== '/login') {
+                window.dispatchEvent(new Event('auth_error'));
+            }
+          }
         }
 
-        return originalFetch(input, init);
+        return response;
       },
       configurable: true,
       writable: true

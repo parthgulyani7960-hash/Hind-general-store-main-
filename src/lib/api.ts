@@ -29,11 +29,25 @@ export const fetchWithHandling = async <T>(
           console.warn(`[API] Resource not found: ${url}`);
           errorMessage = "Requested resource not found";
         } else if (res.status === 401) {
-          if (url.includes('/api/auth/me')) {
-            return null;
-          }
+          // 401 is handled by main.tsx fetch wrapper (token refresh). 
+          // If it still reaches here, it means refresh failed or was not possible.
+          const isSilent = url.includes('/api/auth/me') || 
+                          url.includes('/api/products') || 
+                          url.includes('/api/categories') ||
+                          url.includes('/api/admin/stats') ||
+                          url.includes('/api/settings');
+          
+          if (isSilent) return null;
+
           console.warn(`[API] 401 Unauthorized for ${url}`);
-          errorMessage = "Session expired or unauthorized access";
+          errorMessage = "Session expired";
+          
+          // Signal global auth error only once
+          if (!window.sessionStorage.getItem('last_auth_error') || 
+              Date.now() - Number(window.sessionStorage.getItem('last_auth_error')) > 10000) {
+            window.sessionStorage.setItem('last_auth_error', String(Date.now()));
+            window.dispatchEvent(new CustomEvent('auth_error', { detail: { url } }));
+          }
         } else if (res.status === 403) {
           errorMessage = "You do not have permission to perform this action";
         } else if (res.status >= 500) {
@@ -55,7 +69,11 @@ export const fetchWithHandling = async <T>(
                        url.includes('/api/alerts') || 
                        url.includes('/api/notifications') ||
                        url.includes('/runner-location') ||
-                       url.includes('/api/cart/sync');
+                       url.includes('/api/cart/sync') ||
+                       url.includes('/api/admin/stats') ||
+                       url.includes('/api/settings') ||
+                       url.includes('/api/user/export-status') ||
+                       url.includes('/api/user/deletion-request');
 
     if (!isBackground) {
         toast.error(err.message || 'Something went wrong');

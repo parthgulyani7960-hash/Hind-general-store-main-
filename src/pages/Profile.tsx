@@ -16,6 +16,7 @@ import WholesaleInsights from '../components/WholesaleInsights';
 import LocationPicker from '../components/LocationPicker';
 import { fetchWithHandling } from '../lib/api';
 import { getAuthHeaders } from '../lib/utils';
+import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '../components/ui/Skeleton';
 
 export default function Profile() {
   const { 
@@ -984,7 +985,11 @@ export default function Profile() {
                 </div>
                 <div className="divide-y divide-stone-50">
                   {loadingOrders ? (
-                    <div className="p-12 text-center text-stone-400">Loading orders...</div>
+                    <div className="p-6 space-y-4">
+                      <OrderSkeleton />
+                      <OrderSkeleton />
+                      <OrderSkeleton />
+                    </div>
                   ) : orders.length === 0 ? (
                     <div className="p-12 flex flex-col items-center text-center space-y-4">
                       <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center text-stone-300">
@@ -1200,7 +1205,10 @@ export default function Profile() {
                 </div>
                 <div className="p-6">
                   {loadingWishlist ? (
-                    <div className="py-12 text-center text-stone-400 italic">Loading wishlist...</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <ProductSkeleton />
+                      <ProductSkeleton />
+                    </div>
                   ) : wishlistProducts.length === 0 ? (
                     <div className="py-12 text-center text-stone-400 italic">Your wishlist is empty.</div>
                   ) : (
@@ -1288,7 +1296,11 @@ export default function Profile() {
                     
                     <div className="divide-y divide-stone-50">
                         {loadingHistory ? (
-                            <div className="p-12 text-center text-stone-400 italic">Syncing transactions...</div>
+                            <div className="p-6 space-y-4">
+                                <TableRowSkeleton columns={3} />
+                                <TableRowSkeleton columns={3} />
+                                <TableRowSkeleton columns={3} />
+                            </div>
                         ) : walletHistory.length === 0 ? (
                             <div className="p-12 text-center text-stone-400 italic">No transactions yet</div>
                         ) : (
