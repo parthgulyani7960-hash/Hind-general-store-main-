@@ -27,10 +27,14 @@ try {
    }
 
    if (config && !admin.apps.length) {
-     admin.initializeApp({
-       projectId: config.projectId
-     });
-     console.log('Firebase Admin initialized with projectId:', config.projectId);
+     if (config.projectId) {
+       admin.initializeApp({
+         projectId: config.projectId
+       });
+       console.log('Firebase Admin initialized with projectId:', config.projectId);
+     } else {
+       console.warn('Firebase config found but no projectId specified (No ID or name found in config). Authentication integration may fail.');
+     }
    } else if (!config) {
      console.warn('Firebase config file NOT found in:', configPaths);
    }
@@ -94,12 +98,20 @@ const handleAppError = (err: any, message: string, context: string) => {
 
 const app = express();
 
+// Force HTTPS and avoid mixed content
+app.use((req, res, next) => {
+  if (req.headers['x-forwarded-proto'] === 'http') {
+    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  }
+  next();
+});
+
 // Security Headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss://ais-dev-dplwcc6nxjtzkx2dwfmb3j-323698998999.asia-southeast1.run.app;");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; worker-src 'self' blob:;");
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
@@ -684,9 +696,9 @@ async function initDatabase() {
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Order Delay', 'My order #ORD-1 is delayed by 2 days.', 'open');
     db.prepare('INSERT INTO support_tickets (user_id, subject, message, status) VALUES (?, ?, ?, ?)').run(1, 'Payment Issue', 'Payment failed but amount deducted.', 'open');
   }
-    db.exec(`ALTER TABLE orders ADD COLUMN tracking_id TEXT`).catch(() => {});
-    db.exec(`ALTER TABLE products ADD COLUMN batch_number TEXT`).catch(() => {});
-    db.exec(`ALTER TABLE products ADD COLUMN expiry_date DATETIME`).catch(() => {});
+try { db.exec(`ALTER TABLE orders ADD COLUMN tracking_id TEXT`); } catch (e) {}
+    try { db.exec(`ALTER TABLE products ADD COLUMN batch_number TEXT`); } catch (e) {}
+    try { db.exec(`ALTER TABLE products ADD COLUMN expiry_date DATETIME`); } catch (e) {}
 
     console.log('Database initialized successfully.');
   } catch (err) {
@@ -999,16 +1011,16 @@ db.exec(`
     scheduled_for DATETIME,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
-
-  -- Migration columns for enhanced security and activity tracking
-  try { db.exec("ALTER TABLE users ADD COLUMN last_login_at DATETIME"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN ip_address TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN device_info TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT 0"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN profile_complete BOOLEAN DEFAULT 0"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"); } catch(e) {}
 `);
+
+// Migration columns for enhanced security and activity tracking
+try { db.exec("ALTER TABLE users ADD COLUMN last_login_at DATETIME"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN ip_address TEXT"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN device_info TEXT"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT 0"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN profile_complete BOOLEAN DEFAULT 0"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"); } catch(e) {}
 
 // Seed initial categories
 try {

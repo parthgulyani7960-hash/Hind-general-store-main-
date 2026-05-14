@@ -38,27 +38,28 @@ function ScrollToTopOnNavigate() {
   return null;
 }
 
-// Standard imports to avoid Suspense blanking issues with AnimatePresence
 import Home from './pages/Home';
 import Products from './pages/Products';
-import ProductDetail from './pages/ProductDetail';
-import Cart from './pages/Cart';
-import Checkout from './pages/Checkout';
-import Invoice from './pages/Invoice';
 import Login from './pages/Login';
-import CompleteProfile from './pages/CompleteProfile';
-import Support from './pages/Support';
-import Wishlist from './pages/Wishlist';
-import Profile from './pages/Profile';
-import Promotions from './pages/Promotions';
-import AboutUs from './pages/AboutUs';
-import TermsAndConditions from './pages/TermsAndConditions';
-import LegalPage from './pages/LegalPage';
-import AdminDashboard from './pages/AdminDashboard';
-import AdminPayments from './pages/AdminPayments';
-import DeliveryDashboard from './pages/DeliveryDashboard';
-import MaintenancePage from './pages/MaintenancePage';
-import TrackOrder from './pages/TrackOrder';
+
+// Aggressive Route-based Code Splitting to optimize 3.5MB bundle size
+const ProductDetail = lazy(() => import('./pages/ProductDetail'));
+const Cart = lazy(() => import('./pages/Cart'));
+const Checkout = lazy(() => import('./pages/Checkout'));
+const Invoice = lazy(() => import('./pages/Invoice'));
+const CompleteProfile = lazy(() => import('./pages/CompleteProfile'));
+const Support = lazy(() => import('./pages/Support'));
+const Wishlist = lazy(() => import('./pages/Wishlist'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Promotions = lazy(() => import('./pages/Promotions'));
+const AboutUs = lazy(() => import('./pages/AboutUs'));
+const TermsAndConditions = lazy(() => import('./pages/TermsAndConditions'));
+const LegalPage = lazy(() => import('./pages/LegalPage'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminPayments = lazy(() => import('./pages/AdminPayments'));
+const DeliveryDashboard = lazy(() => import('./pages/DeliveryDashboard'));
+const MaintenancePage = lazy(() => import('./pages/MaintenancePage'));
+const TrackOrder = lazy(() => import('./pages/TrackOrder'));
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
   const { user, isAuthChecking } = useStore();
@@ -147,7 +148,9 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="page-transition-wrapper"
     >
-      {children}
+      <Suspense fallback={<LoadingFallback message="Loading content..." />}>
+         {children}
+      </Suspense>
     </motion.div>
   );
 }

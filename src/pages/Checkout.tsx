@@ -360,179 +360,220 @@ export default function Checkout() {
                        {t('shipping_address') || 'Shipping Address'}
                        <InfoButton title="Shipping" message="Ensure your delivery address is accurate for timely delivery." />
                     </h2>
-                    {addresses.length > 0 && (
-                      <button 
-                        onClick={() => setUseCustomAddress(!useCustomAddress)}
-                        className="text-xs font-bold text-primary flex items-center space-x-1 hover:underline"
-                      >
-                        <MapPin size={14} />
-                        <span>{useCustomAddress ? 'Select Saved Address' : 'Enter Custom Address'}</span>
-                      </button>
-                    )}
                   </div>
 
                   {!useCustomAddress && addresses.length > 0 ? (
-                    <div className="grid grid-cols-1 gap-4">
-                      {addresses.map((addr) => (
-                        <button
-                          key={addr.id}
-                          onClick={() => {
-                            setSelectedAddressId(addr.id);
-                            setAddressData({
-                              name: addr.name,
-                              phone: addr.phone,
-                              address: addr.address,
-                              city: addr.city,
-                              state: addr.state,
-                              zip_code: addr.zip_code,
-                              pin_code: addr.pin_code,
-                              delivery_area: addr.delivery_area
-                            });
-                          }}
-                          className={cn(
-                            "text-left p-6 rounded-2xl border-2 transition-all relative",
-                            selectedAddressId === addr.id ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
-                          )}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="space-y-1">
-                               <div className="flex items-center space-x-2">
-                                  <p className="font-bold text-stone-800 text-lg">{addr.name}</p>
-                                  {addr.is_default && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
-                               </div>
-                               <p className="text-sm text-stone-600 font-medium">{addr.phone}</p>
-                               <p className="text-sm text-stone-500 max-w-[80%] leading-relaxed">{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}</p>
-                               <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
-                            </div>
-                            {selectedAddressId === addr.id && (
-                              <div className="text-primary bg-primary/10 rounded-full p-1 shadow-sm">
-                                <CheckCircle2 size={20} />
-                              </div>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                         <h3 className="text-sm font-bold text-stone-500 uppercase">Saved Addresses</h3>
+                         <button 
+                           onClick={() => setUseCustomAddress(true)}
+                           className="text-xs font-bold text-primary flex items-center space-x-1 hover:bg-primary/5 px-3 py-1.5 rounded-full transition-colors"
+                         >
+                           <Plus size={14} />
+                           <span>Add New Address</span>
+                         </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4">
+                        {addresses.map((addr) => (
+                          <button
+                            key={addr.id}
+                            onClick={() => {
+                              setSelectedAddressId(addr.id);
+                              setAddressData({
+                                name: addr.name,
+                                phone: addr.phone,
+                                address: addr.address,
+                                city: addr.city,
+                                state: addr.state,
+                                zip_code: addr.zip_code,
+                                pin_code: addr.pin_code,
+                                delivery_area: addr.delivery_area
+                              });
+                            }}
+                            className={cn(
+                              "text-left p-6 rounded-2xl border-2 transition-all relative",
+                              selectedAddressId === addr.id ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
                             )}
-                          </div>
-                        </button>
-                      ))}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                 <div className="flex items-center space-x-2">
+                                    <p className="font-bold text-stone-800 text-lg">{addr.name}</p>
+                                    {addr.is_default && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
+                                 </div>
+                                 <p className="text-sm text-stone-600 font-medium">{addr.phone}</p>
+                                 <p className="text-sm text-stone-500 max-w-[80%] leading-relaxed">{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}</p>
+                                 <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
+                              </div>
+                              {selectedAddressId === addr.id && (
+                                <div className="text-primary bg-primary/10 rounded-full p-1 shadow-sm">
+                                  <CheckCircle2 size={20} />
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Full Name</label>
-                        <input 
-                          type="text" 
-                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                          value={addressData.name}
-                          onChange={(e) => setAddressData({...addressData, name: e.target.value})}
-                        />
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-bold text-stone-500 uppercase">New Address</h3>
+                        {addresses.length > 0 && (
+                          <button 
+                            onClick={() => { setUseCustomAddress(false); setSelectedAddressId(addresses[0]?.id || null); }}
+                            className="text-xs font-bold text-stone-500 hover:text-stone-800 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        )}
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
-                        <input 
-                          type="text" 
-                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                          value={addressData.phone}
-                          onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
-                        />
-                      </div>
-                      <div className="md:col-span-2 space-y-1">
-                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Street Address</label>
-                        <textarea 
-                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[100px]"
-                          value={addressData.address}
-                          onChange={(e) => setAddressData({...addressData, address: e.target.value})}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">City</label>
-                        <input 
-                          type="text" 
-                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                          value={addressData.city}
-                          onChange={(e) => setAddressData({...addressData, city: e.target.value})}
-                        />
-                      </div>
-                      <div className="space-y-1 col-span-2 md:col-span-1">
-                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Postcode</label>
-                        <div className="relative">
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         {/* Address Mode Cards */}
+                         <button 
+                           onClick={() => {
+                             if ("geolocation" in navigator) {
+                               toast.loading('Fetching precise location...', { id: 'geo_checkout' });
+                               navigator.geolocation.getCurrentPosition(
+                                 async (pos) => {
+                                   const { latitude, longitude } = pos.coords;
+                                   try {
+                                     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+                                     const data = await res.json();
+                                     if (data && data.address) {
+                                       const addr = data.address;
+                                       setAddressData(prev => ({
+                                         ...prev,
+                                         address: `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`,
+                                         city: addr.city || addr.town || addr.village || '',
+                                         state: addr.state || '',
+                                         pin_code: addr.postcode?.slice(0, 6) || ''
+                                       }));
+                                       toast.success('Live location secured!', { id: 'geo_checkout' });
+                                     }
+                                   } catch(err) {
+                                     toast.error('Could not reverse geocode', { id: 'geo_checkout' });
+                                   }
+                                 },
+                                 (err) => toast.error('Location denied', { id: 'geo_checkout' }),
+                                 { enableHighAccuracy: true }
+                               );
+                             }
+                           }}
+                           className="col-span-1 md:col-span-2 flex items-center justify-center space-x-3 p-5 rounded-2xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors text-primary"
+                         >
+                            <MapPin size={24} />
+                            <div className="text-left">
+                               <p className="font-bold text-lg">Deliver to Current Location</p>
+                               <p className="text-xs opacity-80">Automatically fetch and fill your precise live location</p>
+                            </div>
+                         </button>
+
+                         <div className="col-span-1 md:col-span-2 flex items-center gap-4 py-2">
+                            <div className="flex-1 h-px bg-stone-200"></div>
+                            <p className="text-xs font-bold text-stone-400 uppercase tracking-widest">OR TYPE MANUALLY</p>
+                            <div className="flex-1 h-px bg-stone-200"></div>
+                         </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Full Name</label>
                           <input 
                             type="text" 
-                            className="w-full px-4 py-3 pr-12 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                            value={addressData.pin_code}
-                            placeholder="6 digit PIN"
-                            onChange={async (e) => {
-                              const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                              setAddressData({...addressData, pin_code: val});
-                              if (val.length === 6) {
-                                try {
-                                  const res = await fetch(`https://api.postalpincode.in/pincode/${val}`);
-                                  const data = await res.json();
-                                  if (data[0].Status === 'Success') {
-                                    const po = data[0].PostOffice[0];
-                                    setAddressData(prev => ({
-                                      ...prev,
-                                      city: po.District,
-                                      state: po.State
-                                    }));
-                                  }
-                                } catch (err) {
-                                  console.error('Pincode lookup failed');
-                                }
-                              }
-                            }}
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                            value={addressData.name}
+                            onChange={(e) => setAddressData({...addressData, name: e.target.value})}
                           />
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              if ("geolocation" in navigator) {
-                                toast.loading('Fetching location...', { id: 'geo_checkout' });
-                                navigator.geolocation.getCurrentPosition(
-                                  async (pos) => {
-                                    const { latitude, longitude } = pos.coords;
-                                    try {
-                                      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-                                      const data = await res.json();
-                                      if (data && data.address) {
-                                        const addr = data.address;
-                                        setAddressData(prev => ({
-                                          ...prev,
-                                          address: `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`,
-                                          city: addr.city || addr.town || addr.village || '',
-                                          state: addr.state || '',
-                                          pin_code: addr.postcode?.slice(0, 6) || ''
-                                        }));
-                                        toast.success('Location found!', { id: 'geo_checkout' });
-                                      } else {
-                                        setAddressData(prev => ({...prev, address: `${latitude}, ${longitude}`}));
-                                        toast.success('Location coordinates captured', { id: 'geo_checkout' });
-                                      }
-                                    } catch(err) {
-                                      toast.error('Could not reverse geocode', { id: 'geo_checkout' });
-                                    }
-                                  },
-                                  (err) => toast.error('Location denied', { id: 'geo_checkout' })
-                                );
-                              }
-                            }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-xl hover:bg-primary/20 transition-all"
-                            title="Use My Current Location"
-                          >
-                            <MapPin size={16} />
-                          </button>
                         </div>
-                      </div>
-                      <div className="col-span-2 space-y-1">
-                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Delivery Area</label>
-                        <select 
-                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                          value={addressData.delivery_area}
-                          onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
-                        >
-                          <option value="">Select your delivery area...</option>
-                          {deliveryAreas.map(area => (
-                            <option key={area.id} value={area.name}>
-                               {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})
-                            </option>
-                          ))}
-                        </select>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
+                          <input 
+                            type="text" 
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                            value={addressData.phone}
+                            onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
+                          />
+                        </div>
+                        <div className="space-y-1 col-span-2 md:col-span-1">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Postcode</label>
+                          <div className="relative">
+                            <input 
+                              type="text" 
+                              disabled
+                              className="w-full px-4 py-3 pr-12 bg-stone-200 border border-stone-200 rounded-2xl outline-none font-bold text-stone-700"
+                              value={addressData.pin_code}
+                              placeholder="Auto-filled via location"
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                if ("geolocation" in navigator) {
+                                  toast.loading('Fetching location...', { id: 'geo_pin' });
+                                  navigator.geolocation.getCurrentPosition(
+                                    async (pos) => {
+                                      const { latitude, longitude } = pos.coords;
+                                      try {
+                                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+                                        const data = await res.json();
+                                        if (data && data.address) {
+                                          const addr = data.address;
+                                          const pin = addr.postcode?.slice(0, 6);
+                                          setAddressData(prev => ({
+                                            ...prev,
+                                            pin_code: pin || '',
+                                            city: addr.city || addr.town || addr.village || '',
+                                            state: addr.state || ''
+                                          }));
+                                          toast.success('Pincode & City updated automatically', { id: 'geo_pin' });
+                                        }
+                                      } catch(err) {
+                                        toast.error('Could not reverse geocode', { id: 'geo_pin' });
+                                      }
+                                    },
+                                    (err) => toast.error('Location denied', { id: 'geo_pin' })
+                                  );
+                                }
+                              }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/20 text-primary rounded-xl hover:bg-primary transition-all hover:text-white"
+                              title="Fetch Pin Code via Location"
+                            >
+                              <MapPin size={16} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">City (Auto-filled by Pin Code)</label>
+                          <input 
+                            type="text" 
+                            disabled
+                            className="w-full px-4 py-3 bg-stone-200 text-stone-500 border border-stone-200 rounded-2xl outline-none font-bold"
+                            value={addressData.city}
+                          />
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Street Address</label>
+                          <textarea 
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[80px]"
+                            value={addressData.address}
+                            onChange={(e) => setAddressData({...addressData, address: e.target.value})}
+                          />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Delivery Area</label>
+                          <select 
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                            value={addressData.delivery_area}
+                            onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
+                          >
+                            <option value="">Select your delivery area...</option>
+                            {deliveryAreas.map(area => (
+                              <option key={area.id} value={area.name}>
+                                 {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1015,21 +1056,36 @@ export default function Checkout() {
                     key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
                     className="flex items-center space-x-4 border-b border-stone-50 pb-4 last:border-0 last:pb-0"
                   >
-                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100 shrink-0">
-                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100 shrink-0 bg-stone-50">
+                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover mix-blend-multiply" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold line-clamp-1">{item.name}</p>
-                      <p className="text-xs text-stone-500 mt-0.5">Qty: {item.quantity}</p>
+                      <p className="text-xs font-bold line-clamp-1 text-stone-800">{item.name}</p>
+                      <p className="text-[10px] text-stone-500 mt-0.5 font-medium">{item.quantity} x ₹{item.finalPrice}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-black">₹{item.finalPrice * item.quantity}</p>
+                      <p className="text-sm font-black text-stone-900">₹{item.finalPrice * item.quantity}</p>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="space-y-3 pt-6 border-t border-stone-100">
+              {step !== 'address' && step !== 'confirmation' && addressData.name && (
+                <div className="pt-4 border-t border-stone-100">
+                  <div className="bg-stone-50 rounded-2xl p-4 border border-stone-100 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">
+                      <span>Delivery Details</span>
+                      <button onClick={() => setStep('address')} className="text-primary hover:underline">Edit</button>
+                    </div>
+                    <p className="text-sm font-bold text-stone-800">{addressData.name}</p>
+                    <p className="text-xs text-stone-600 leading-relaxed">{addressData.address}</p>
+                    <p className="text-xs text-stone-500">{addressData.city}, {addressData.state} {addressData.pin_code}</p>
+                    <p className="text-xs text-stone-500">Phone: {addressData.phone}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3 pt-4 border-t border-stone-100">
                 <div className="flex justify-between text-sm">
                   <span className="text-stone-500">Subtotal</span>
                   <span className="font-bold text-stone-800">₹{subtotal}</span>

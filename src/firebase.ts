@@ -36,6 +36,8 @@ export const signInWithGoogle = async () => {
       throw new Error('Sign-in cancelled. Please try again.');
     } else if (error.code === 'auth/popup-blocked') {
       throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
+    } else if (error.code === 'auth/unauthorized-domain') {
+      throw new Error(`Domain not authorized. Please go to Firebase Console -> Authentication -> Settings -> Authorized Domains and add: ${window.location.hostname}`);
     } else {
         throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please check that Google Auth is ENABLED in your Firebase Console.`);
     }

@@ -53,7 +53,9 @@ export const fetchWithHandling = async <T>(
     // Silent for background/common checks
     const isBackground = url.includes('/api/auth/me') || 
                        url.includes('/api/alerts') || 
-                       url.includes('/api/notifications');
+                       url.includes('/api/notifications') ||
+                       url.includes('/runner-location') ||
+                       url.includes('/api/cart/sync');
 
     if (!isBackground) {
         toast.error(err.message || 'Something went wrong');

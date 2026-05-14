@@ -104,8 +104,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initAuth = async () => {
-        await checkAuth();
-        setIsAuthChecking(false);
+        try {
+            await auth.authStateReady();
+            // Wait a small amount for onIdTokenChanged to potentially fire first, or just rely on current user
+            const firebaseUser = auth.currentUser;
+            if (firebaseUser) {
+                const token = await firebaseUser.getIdToken();
+                await checkAuth(token);
+            } else {
+                await checkAuth();
+            }
+        } catch(e) {
+            await checkAuth();
+        } finally {
+            setIsAuthChecking(false);
+        }
     };
     initAuth();
     checkMaintenance();
@@ -498,21 +511,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   useEffect(() => {
-    if (cartLoadedFromStorage && cart.length === 0) {
-      const hasSeeded = localStorage.getItem('hgs_seeded_cart');
-      if (!hasSeeded) {
-        // Add a default welcome product if available
-        fetchWithHandling<any[]>('/api/products')
-          .then(products => {
-            if (products && products.length > 0) {
-              const welcomeProduct = products[0];
-              addToCart(welcomeProduct, undefined, 1);
-              localStorage.setItem('hgs_seeded_cart', 'true');
-            }
-          })
-          .catch(() => {});
-      }
-    }
+    // Seeded cart logic removed
   }, [cart.length, cartLoadedFromStorage]);
 
   useEffect(() => {
@@ -541,8 +540,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    checkAuth();
-    checkMaintenance();
     // Poll every 60 seconds for fast updates
     const interval = setInterval(() => {
       checkMaintenance();
