@@ -13,7 +13,7 @@ import {
   Settings, CreditCard, Activity, TrendingUp, AlertTriangle,
   ChevronRight, ChevronLeft, Search, Filter, MoreVertical, Tag, Receipt, ArrowRight,
   BarChart3, Plus, Trash2, Download, Star, Clock, CheckCircle2,
-  Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera, Printer,
+  Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera, Printer, CheckCheck, AlertCircle,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink, LogOut,
   StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy,
@@ -383,7 +383,9 @@ export default function AdminDashboard() {
     images: [] as string[],
     specifications: {} as Record<string, string>,
     batch_number: '',
-    expiry_date: ''
+    expiry_date: '',
+    unit: 'kg',
+    is_subscribable: false
   });
   const [stats, setStats] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -1261,6 +1263,7 @@ export default function AdminDashboard() {
               });
             });
             fetchAllProducts();
+            fetchNotifications();
             break;
             
           case 'NEW_TICKET':
@@ -1275,6 +1278,7 @@ export default function AdminDashboard() {
               }
             });
             fetchTickets();
+            fetchNotifications();
             break;
             
           case 'NEW_MESSAGE':
@@ -1787,14 +1791,15 @@ export default function AdminDashboard() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [statsData, ordersData, configData, usersData, productsData, categoriesData, expiringData] = await Promise.all([
+        const [statsData, ordersData, configData, usersData, productsData, categoriesData, expiringData, notifData] = await Promise.all([
           fetchWithHandling<any>('/api/admin/stats', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/admin/config', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/categories', { headers: getAuthHeaders() }),
-          fetchWithHandling<any[]>('/api/admin/inventory/expiring', { headers: getAuthHeaders() })
+          fetchWithHandling<any[]>('/api/admin/inventory/expiring', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/notifications', { headers: getAuthHeaders() })
         ]);
 
         if (statsData) setStats(statsData);
@@ -1807,6 +1812,7 @@ export default function AdminDashboard() {
         }
         if (categoriesData) setCategories(categoriesData);
         if (expiringData) setExpiringSoon(expiringData);
+        if (notifData) setNotifications(notifData);
 
       } catch (err) {
         console.error('Failed to load initial admin data', err);
@@ -2018,7 +2024,9 @@ export default function AdminDashboard() {
           images: [],
           specifications: {},
           batch_number: '',
-          expiry_date: ''
+          expiry_date: '',
+          unit: 'kg',
+          is_subscribable: false
         } as any);
         fetchAllProducts();
       }
@@ -2666,7 +2674,7 @@ export default function AdminDashboard() {
       if (data) {
         toast.success(couponModal.mode === 'edit' ? 'Coupon updated' : 'Coupon added');
         setCouponModal({ open: false, mode: 'add' });
-        setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1' });
+        setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1', expiry_date: '' });
         const couponsData = await fetchWithHandling<any[]>('/api/admin/coupons', { headers: getAuthHeaders() });
         if (couponsData) setCoupons(couponsData);
       }
@@ -3034,7 +3042,11 @@ export default function AdminDashboard() {
           title="Notifications"
         >
           <Bell size={20} />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+          {notifications.filter(n => !n.is_read).length > 0 && (
+            <span className="absolute top-0 right-0 min-w-[16px] h-4 bg-red-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white px-1">
+              {notifications.filter(n => !n.is_read).length}
+            </span>
+          )}
         </button>
         <button 
           onClick={() => setActiveTab('Store Settings')}
@@ -3422,13 +3434,30 @@ export default function AdminDashboard() {
                 <h2 className="text-4xl font-black text-stone-900 tracking-tighter">Broadcast Center</h2>
                 <p className="text-stone-500 mt-2 text-lg max-w-md">Communicate with your customers in real-time. Alerts, updates, and promotions.</p>
               </div>
-              <button 
-                onClick={() => setNotificationModal({ open: true })}
-                className="relative z-10 w-full lg:w-auto flex items-center justify-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
-              >
-                <Plus size={20} />
-                <span>New Announcement</span>
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 relative z-10 w-full lg:w-auto">
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <button 
+                    onClick={async () => {
+                      try {
+                        await fetchWithHandling('/api/admin/notifications/mark-read', { method: 'POST', headers: getAuthHeaders() });
+                        fetchNotifications();
+                        toast.success('All alerts acknowledged');
+                      } catch (err) {}
+                    }}
+                    className="flex items-center justify-center space-x-3 bg-stone-100 text-stone-600 px-8 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-200 transition-all active:scale-95 border border-stone-200"
+                  >
+                    <CheckCheck size={20} />
+                    <span>Acknowledge All</span>
+                  </button>
+                )}
+                <button 
+                  onClick={() => setNotificationModal({ open: true })}
+                  className="w-full lg:w-auto flex items-center justify-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
+                >
+                  <Plus size={20} />
+                  <span>New Announcement</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-8">
@@ -3436,7 +3465,10 @@ export default function AdminDashboard() {
                 <motion.div 
                   layout
                   key={n.id} 
-                  className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/20 border border-stone-100 group hover:border-primary/30 transition-all relative overflow-hidden"
+                  className={cn(
+                    "bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/20 border border-stone-100 group hover:border-primary/30 transition-all relative overflow-hidden",
+                    n.is_read && "opacity-60 grayscale-[0.5]"
+                  )}
                 >
                   <div className={cn(
                     "absolute top-0 left-0 w-1.5 h-full transition-colors",
@@ -3448,20 +3480,22 @@ export default function AdminDashboard() {
                     <div className="flex space-x-6">
                       <div className={cn(
                         "w-16 h-16 rounded-[1.5rem] flex items-center justify-center shrink-0 shadow-lg transition-transform group-hover:scale-110",
+                        n.type === 'system' ? 'bg-indigo-50 text-indigo-500' :
                         n.priority === 'high' ? 'bg-red-50 text-red-500' :
                         n.priority === 'medium' ? 'bg-amber-50 text-amber-500' : 'bg-blue-50 text-blue-500'
                       )}>
-                        {n.type === 'alert' ? <ShieldAlert size={32} /> : <Bell size={32} />}
+                        {n.type === 'system' ? <AlertCircle size={32} /> : n.type === 'alert' ? <ShieldAlert size={32} /> : <Bell size={32} />}
                       </div>
                       <div className="space-y-3">
                         <div className="flex items-center space-x-4">
                           <h4 className="text-2xl font-black text-stone-900 tracking-tight">{n.title}</h4>
                           <span className={cn(
                             "text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border-2",
+                            n.type === 'system' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
                             n.priority === 'high' ? 'bg-red-50 text-red-600 border-red-100' :
                             n.priority === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'
                           )}>
-                            {n.priority}
+                            {n.type === 'system' ? 'System' : n.priority}
                           </span>
                         </div>
                         <div 
@@ -3487,6 +3521,20 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="flex flex-row md:flex-col items-center justify-center md:items-end gap-3 shrink-0">
+                      {!n.is_read && (
+                        <button 
+                          onClick={async () => {
+                            try {
+                              await fetchWithHandling(`/api/admin/notifications/${n.id}/mark-read`, { method: 'POST', headers: getAuthHeaders() });
+                              fetchNotifications();
+                            } catch (err) {}
+                          }}
+                          className="w-12 h-12 flex items-center justify-center bg-stone-50 text-stone-400 hover:bg-emerald-50 hover:text-emerald-500 rounded-2xl transition-all shadow-sm border border-stone-100"
+                          title="Acknowledge Alert"
+                        >
+                          <Check size={20} />
+                        </button>
+                      )}
                       <button 
                         onClick={() => handleDeleteNotification(n.id)}
                         className="w-12 h-12 flex items-center justify-center bg-stone-50 text-stone-400 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all shadow-sm border border-stone-100"
@@ -5253,7 +5301,12 @@ export default function AdminDashboard() {
                 setNewProduct({ 
                   name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
                   retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
-                  images: []
+                  images: [],
+                  specifications: {},
+                  batch_number: '',
+                  expiry_date: '',
+                  unit: 'kg',
+                  is_subscribable: false
                 } as any);
               }}
               className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 group"
@@ -7922,7 +7975,7 @@ export default function AdminDashboard() {
               <button 
                 onClick={() => {
                   setCouponModal({ open: true, mode: 'add' });
-                  setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1' });
+                  setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1', expiry_date: '' });
                 }}
                 className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
               >
@@ -7964,7 +8017,8 @@ export default function AdminDashboard() {
                               value: coupon.value.toString(),
                               min_order: coupon.min_order.toString(),
                               usage_limit: coupon.usage_limit ? coupon.usage_limit.toString() : '',
-                              limit_per_user: coupon.limit_per_user ? coupon.limit_per_user.toString() : '1'
+                              limit_per_user: coupon.limit_per_user ? coupon.limit_per_user.toString() : '1',
+                              expiry_date: coupon.expiry_date || ''
                             });
                           }}
                           className="p-3 bg-stone-50 hover:bg-stone-200 text-stone-600 rounded-2xl transition-all"
@@ -8034,7 +8088,7 @@ export default function AdminDashboard() {
                 animate={{ opacity: 1, scale: 1 }}
                 onClick={() => {
                   setCouponModal({ open: true, mode: 'add' });
-                  setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1' });
+                  setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1', expiry_date: '' });
                 }}
                 className="group border-4 border-dashed border-stone-100 rounded-[2.5rem] p-8 flex flex-col items-center justify-center space-y-6 hover:border-primary/20 hover:bg-primary/5 transition-all duration-500 min-h-[300px]"
               >
@@ -9413,16 +9467,6 @@ export default function AdminDashboard() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Total Limit</label>
-                  <input 
-                    type="number" 
-                    className="input-field"
-                    placeholder="Unlimited"
-                    value={newCoupon.usage_limit}
-                    onChange={(e) => setNewCoupon({...newCoupon, usage_limit: e.target.value})}
-                  />
-                </div>
-                <div>
                   <label className="block text-sm font-bold text-stone-700 mb-2">Limit Per User</label>
                   <input 
                     type="number" 
@@ -9430,6 +9474,15 @@ export default function AdminDashboard() {
                     className="input-field"
                     value={newCoupon.limit_per_user}
                     onChange={(e) => setNewCoupon({...newCoupon, limit_per_user: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Expiry Date</label>
+                  <input 
+                    type="date" 
+                    className="input-field"
+                    value={(newCoupon as any).expiry_date || ''}
+                    onChange={(e) => setNewCoupon({...newCoupon, expiry_date: e.target.value} as any)}
                   />
                 </div>
               </div>
@@ -9667,6 +9720,33 @@ export default function AdminDashboard() {
                   >
                     {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Unit</label>
+                  <select 
+                    className="input-field"
+                    value={(newProduct as any).unit || 'kg'}
+                    onChange={(e) => setNewProduct({...newProduct, unit: e.target.value} as any)}
+                  >
+                    <option value="kg">kilogram (kg)</option>
+                    <option value="gm">gram (gm)</option>
+                    <option value="ltr">liter (ltr)</option>
+                    <option value="ml">milliliter (ml)</option>
+                    <option value="pcs">pieces (pcs)</option>
+                    <option value="pkt">packet (pkt)</option>
+                    <option value="dozen">dozen</option>
+                    <option value="bunch">bunch</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2 flex items-center space-x-3 bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                  <input 
+                    type="checkbox"
+                    id="is_subscribable"
+                    className="w-5 h-5 rounded-lg border-stone-300 text-primary focus:ring-primary"
+                    checked={(newProduct as any).is_subscribable}
+                    onChange={(e) => setNewProduct({...newProduct, is_subscribable: e.target.checked} as any)}
+                  />
+                  <label htmlFor="is_subscribable" className="text-sm font-bold text-stone-700">Enable Subscription (Daily/Weekly delivery)</label>
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-stone-700 mb-2">Supplier</label>

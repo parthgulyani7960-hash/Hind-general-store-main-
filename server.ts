@@ -241,6 +241,14 @@ const broadcast = (data: any) => {
   }
 };
 
+const createNotification = (title: string, message: string, type: string = 'system', priority: string = 'medium', target_role: string = 'all') => {
+  try {
+    db.prepare('INSERT INTO notifications (title, message, type, priority, target_role) VALUES (?, ?, ?, ?, ?)').run(title, message, type, priority, target_role);
+  } catch (err) {
+    console.error('Failed to create notification:', err);
+  }
+};
+
 async function initDatabase() {
   try {
     console.log('Initializing database schema...');
@@ -439,10 +447,26 @@ async function initDatabase() {
     description TEXT,
     image_url TEXT,
     link TEXT,
+    target_role TEXT DEFAULT 'all',
+    start_time DATETIME,
+    end_time DATETIME,
+    banner_type TEXT DEFAULT 'standard',
+    is_default BOOLEAN DEFAULT 0,
     active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
     `);
+
+    // Ensure columns exist (for migration)
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[];
+    if (tables.some(t => t.name === 'promotions')) {
+      const cols = db.prepare("PRAGMA table_info(promotions)").all() as any[];
+      if (!cols.some(c => c.name === 'target_role')) db.exec("ALTER TABLE promotions ADD COLUMN target_role TEXT DEFAULT 'all'");
+      if (!cols.some(c => c.name === 'start_time')) db.exec("ALTER TABLE promotions ADD COLUMN start_time DATETIME");
+      if (!cols.some(c => c.name === 'end_time')) db.exec("ALTER TABLE promotions ADD COLUMN end_time DATETIME");
+      if (!cols.some(c => c.name === 'banner_type')) db.exec("ALTER TABLE promotions ADD COLUMN banner_type TEXT DEFAULT 'standard'");
+      if (!cols.some(c => c.name === 'is_default')) db.exec("ALTER TABLE promotions ADD COLUMN is_default BOOLEAN DEFAULT 0");
+    }
 
     db.exec(`
   CREATE TABLE IF NOT EXISTS wallet_transactions (
@@ -563,6 +587,7 @@ async function initDatabase() {
     type TEXT, -- 'ad', 'system', 'order', 'announcement'
     priority TEXT DEFAULT 'medium', -- 'low', 'medium', 'high'
     target_role TEXT DEFAULT 'all', -- 'all', 'admin', 'user', 'delivery'
+    is_read BOOLEAN DEFAULT 0,
     expires_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -1138,6 +1163,7 @@ try { db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"); } ca
 try { db.exec("ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT 0"); } catch(e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN profile_complete BOOLEAN DEFAULT 0"); } catch(e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"); } catch(e) {}
+try { db.exec("ALTER TABLE notifications ADD COLUMN is_read BOOLEAN DEFAULT 0"); } catch(e) {}
 
 // Seed initial categories
 try {
@@ -1362,7 +1388,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         if (admin.apps.length > 0) {
           const decodedToken = await admin.auth().verifyIdToken(token);
           const email = decodedToken.email;
-          const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+          const phone = decodedToken.phone_number;
+          
+          let user;
+          if (email) {
+            user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+          }
+          if (!user && phone) {
+            // Firebase phone is usually +91... but our DB might have without +91 or etc.
+            const cleanPhone = phone.replace(/[^0-9]/g, '').slice(-10);
+            user = db.prepare('SELECT id, role FROM users WHERE phone LIKE ?').get(`%${cleanPhone}`) as any;
+          }
+
           if (user) {
               req.session.userId = user.id;
               req.session.role = user.role;
@@ -1768,7 +1805,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const products = db.prepare(`
       SELECT * FROM products 
       WHERE name LIKE ? OR description LIKE ? OR category LIKE ?
-      LIMIT 10
+      LIMIT 100
     `).all(searchTerm, searchTerm, searchTerm);
 
     const orders = db.prepare(`
@@ -1776,13 +1813,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       FROM orders o 
       LEFT JOIN users u ON o.user_id = u.id
       WHERE o.id LIKE ? OR u.name LIKE ? OR u.phone LIKE ?
-      LIMIT 10
+      LIMIT 100
     `).all(searchTerm, searchTerm, searchTerm);
 
     const users = db.prepare(`
       SELECT * FROM users 
       WHERE name LIKE ? OR phone LIKE ? OR email LIKE ? OR shop_name LIKE ?
-      LIMIT 10
+      LIMIT 100
     `).all(searchTerm, searchTerm, searchTerm, searchTerm);
 
     const suspicious = db.prepare(`
@@ -1790,7 +1827,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       FROM suspicious_activities s
       LEFT JOIN users u ON s.user_id = u.id
       WHERE s.activity_type LIKE ? OR s.description LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?
-      LIMIT 10
+      LIMIT 100
     `).all(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
 
     res.json({ products, orders, users, suspicious });
@@ -2258,9 +2295,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.post('/api/admin/categories', (req, res) => {
-    const { name, icon, image_url } = req.body;
+    const { name, icon, image_url, is_out_of_stock } = req.body;
     try {
-      db.prepare('INSERT INTO categories (name, icon, image_url) VALUES (?, ?, ?)').run(name, icon, image_url);
+      db.prepare('INSERT INTO categories (name, icon, image_url, is_out_of_stock) VALUES (?, ?, ?, ?)').run(name, icon, image_url, is_out_of_stock ? 1 : 0);
       res.json({ success: true });
     } catch (err) {
       res.status(400).json({ success: false, message: 'Category already exists' });
@@ -2926,6 +2963,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       
       if (alerts.length > 0) {
         broadcast({ type: 'LOW_STOCK', payload: alerts });
+        alerts.forEach(item => {
+          createNotification(
+            'Low Stock Alert',
+            `Product "${item.name}" is running low on stock (${item.stock} left).`,
+            'system',
+            'high',
+            'admin'
+          );
+        });
       }
     } else if (action === 'category') {
       query = `UPDATE products SET category = ? WHERE id IN (${placeholders})`;
@@ -3190,7 +3236,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
           FROM products p
           WHERE p.is_listed = 1 OR ? = 'admin'
-          LIMIT 100
+          ORDER BY p.created_at DESC
+          LIMIT 500
         `).all(req.session?.role || 'guest') as any[];
       } catch (e) {
         console.error('[DB] SQLite Product Fetch Failed:', e);
@@ -3215,14 +3262,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             
             // Sync to SQLite (optional but recommended for speed)
             const insert = db.prepare(`
-              INSERT OR REPLACE INTO products (id, name, description, price, wholesale_price, retail_price, category, stock, unit, image_url, images, specifications)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              INSERT OR REPLACE INTO products (id, name, description, price, wholesale_price, retail_price, category, stock, unit, image_url, images, specifications, batch_number, expiry_date)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             const insertTx = db.transaction((prods) => {
               for (const p of prods) {
                 insert.run(p.id, p.name, p.description, p.price, p.wholesale_price, p.retail_price, p.category, p.stock, p.unit, p.image_url, 
                   typeof p.images === 'string' ? p.images : JSON.stringify(p.images || []),
-                  typeof p.specifications === 'string' ? p.specifications : JSON.stringify(p.specifications || {})
+                  typeof p.specifications === 'string' ? p.specifications : JSON.stringify(p.specifications || {}),
+                  p.batch_number || null,
+                  p.expiry_date || null
                 );
               }
             });
@@ -3425,8 +3474,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.post('/api/admin/coupons', (req, res) => {
-    const { code, type, value, min_order, usage_limit, limit_per_user } = req.body;
-    db.prepare('INSERT INTO coupons (code, type, value, min_order, usage_limit, limit_per_user) VALUES (?, ?, ?, ?, ?, ?)').run(code, type, value, min_order, usage_limit, limit_per_user);
+    const { code, type, value, min_order, usage_limit, limit_per_user, expiry_date } = req.body;
+    db.prepare('INSERT INTO coupons (code, type, value, min_order, usage_limit, limit_per_user, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(code, type, value, min_order, usage_limit, limit_per_user, expiry_date || null);
     res.json({ success: true });
   });
 
@@ -3447,12 +3496,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.put('/api/admin/coupons/:id', (req, res) => {
     const { id } = req.params;
-    const { code, type, value, min_order, usage_limit, limit_per_user } = req.body;
+    const { code, type, value, min_order, usage_limit, limit_per_user, expiry_date } = req.body;
     db.prepare(`
       UPDATE coupons 
-      SET code = ?, type = ?, value = ?, min_order = ?, usage_limit = ?, limit_per_user = ? 
+      SET code = ?, type = ?, value = ?, min_order = ?, usage_limit = ?, limit_per_user = ?, expiry_date = ? 
       WHERE id = ?
-    `).run(code, type, value, min_order, usage_limit, limit_per_user, id);
+    `).run(code, type, value, min_order, usage_limit, limit_per_user, expiry_date || null, id);
     res.json({ success: true });
   });
 
@@ -3462,6 +3511,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     
     if (!coupon) {
       return res.json({ success: false, message: 'Invalid or expired coupon' });
+    }
+
+    if (coupon.expiry_date && new Date(coupon.expiry_date) < new Date()) {
+      return res.json({ success: false, message: 'This coupon has expired' });
     }
     
     if (Number(total) < coupon.min_order) {
@@ -3521,6 +3574,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         created_at: new Date().toISOString()
       }
     });
+
+    createNotification(
+      'New Support Ticket',
+      `Subject: ${subject} from ${name || email || 'Anonymous'}`,
+      'system',
+      'medium',
+      'admin'
+    );
 
     res.json({ success: true, ticketId });
   });
@@ -3876,7 +3937,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const sortCol = validSortColumns[sortBy as string] || 'o.created_at';
       const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
       
-      query += ` ORDER BY ${sortCol} ${order} LIMIT 100`;
+      query += ` ORDER BY ${sortCol} ${order} LIMIT 500`;
       
       const orders = db.prepare(query).all(...params);
       res.json(orders);
@@ -3887,8 +3948,27 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   });
 
   app.get('/api/notifications', (req, res) => {
-    const notifications = db.prepare('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 20').all();
+    const notifications = db.prepare('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50').all();
     res.json(notifications);
+  });
+
+  app.post('/api/admin/notifications/mark-read', requireAdmin, (req, res) => {
+    try {
+      db.prepare('UPDATE notifications SET is_read = 1 WHERE target_role = "admin" OR target_role = "all"').run();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/notifications/:id/mark-read', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
   });
 
   app.post('/api/admin/orders/:id/estimated-delivery', requireAdmin, (req, res) => {
@@ -4188,11 +4268,11 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   });
 
   app.post('/api/admin/products', (req, res) => {
-    const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id } = req.body;
+    const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id, batch_number, expiry_date, unit, is_subscribable } = req.body;
     const result = db.prepare(`
-      INSERT INTO products (name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image_url, images, specifications, supplier_id) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null);
+      INSERT INTO products (name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image_url, images, specifications, supplier_id, batch_number, expiry_date, unit, is_subscribable) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null, batch_number || null, expiry_date || null, unit || 'kg', is_subscribable ? 1 : 0);
     
     const s = Number(stock);
     const rp = Number(reorder_point || 5);
@@ -4201,6 +4281,13 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         type: 'LOW_STOCK',
         payload: [{ id: result.lastInsertRowid, name, stock: s }]
       });
+      createNotification(
+        'Low Stock Alert (New Product)',
+        `Product "${name}" was created with low stock (${s} left).`,
+        'system',
+        'medium',
+        'admin'
+      );
     }
 
     res.json({ success: true, id: result.lastInsertRowid });
@@ -4209,7 +4296,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   app.put('/api/admin/products/:id', (req, res) => {
     const { id } = req.params;
     const adminId = req.session.userId;
-    const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id } = req.body;
+    const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id, batch_number, expiry_date, unit, is_subscribable } = req.body;
     
     const oldState = db.prepare('SELECT * FROM products WHERE id = ?').get(id) as any;
     if (!oldState) return res.status(404).json({ message: 'Product not found' });
@@ -4218,9 +4305,10 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       UPDATE products SET 
       name = ?, description = ?, price = ?, wholesale_price = ?, retail_price = ?, 
       discount = ?, discount_price = ?, stock = ?, reorder_point = ?, 
-      max_qty = ?, is_listed = ?, category = ?, image_url = ?, images = ?, specifications = ?, supplier_id = ?
+      max_qty = ?, is_listed = ?, category = ?, image_url = ?, images = ?, specifications = ?, supplier_id = ?,
+      batch_number = ?, expiry_date = ?, unit = ?, is_subscribable = ?
       WHERE id = ?
-    `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null, id);
+    `).run(name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed ? 1 : 0, category, image, JSON.stringify(images || []), JSON.stringify(specifications || {}), supplier_id || null, batch_number || null, expiry_date || null, unit || 'kg', is_subscribable ? 1 : 0, id);
     
     // Log action with state
     db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
@@ -4237,6 +4325,13 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         type: 'LOW_STOCK',
         payload: [{ id, name, stock: s }]
       });
+      createNotification(
+        'Low Stock Alert (Updated)',
+        `Product "${name}" now has low stock (${s} left).`,
+        'system',
+        'high',
+        'admin'
+      );
     }
 
     res.json({ success: true });
@@ -4522,6 +4617,15 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         broadcast({
           type: 'LOW_STOCK',
           payload: result.lowStockAlerts
+        });
+        result.lowStockAlerts.forEach((item: any) => {
+          createNotification(
+            'Low Stock Alert',
+            `Product "${item.name}" is running low on stock (${item.stock} left).`,
+            'system',
+            'high',
+            'admin'
+          );
         });
       }
 
