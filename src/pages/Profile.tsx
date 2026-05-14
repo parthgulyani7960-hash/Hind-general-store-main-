@@ -14,7 +14,6 @@ import { cn, Product } from '../types';
 import { useEffect } from 'react';
 import WholesaleInsights from '../components/WholesaleInsights';
 import LocationPicker from '../components/LocationPicker';
-import { generateUserExportPDF } from '../services/pdfService';
 import { fetchWithHandling } from '../lib/api';
 import { getAuthHeaders } from '../lib/utils';
 

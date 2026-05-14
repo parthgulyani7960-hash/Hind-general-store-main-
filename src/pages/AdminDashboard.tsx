@@ -34,11 +34,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import AdminDashboardLayout from '../components/admin/AdminDashboardLayout';
 import { EmptyState } from '../components/EmptyState';
-import { 
-  generateOrderInvoicePDF, 
-  generateUserExportPDF,
-  generateAdminReportPDF
-} from '../services/pdfService';
 import { exportData, asyncExportData } from '../services/exportService';
 import { logErrorToFirestore } from '../services/errorLogger';
 import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
@@ -4926,7 +4921,10 @@ export default function AdminDashboard() {
                                       ))}
                                       <div className="h-px bg-stone-100 my-4 mx-6" />
                                       <button 
-                                        onClick={() => generateOrderInvoicePDF(order, config)}
+                                        onClick={async () => {
+                                          const { generateOrderInvoicePDF } = await import('../services/pdfService');
+                                          generateOrderInvoicePDF(order, config);
+                                        }}
                                         className="flex items-center space-x-4 px-8 py-4 hover:bg-stone-50 group transition-all"
                                       >
                                         <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -11156,7 +11154,10 @@ export default function AdminDashboard() {
                 
                 <div className="flex space-x-3 pt-6 border-t border-stone-100">
                    <button 
-                     onClick={() => generateOrderInvoicePDF(orderModal.order, config)}
+                     onClick={async () => {
+                        const { generateOrderInvoicePDF } = await import('../services/pdfService');
+                        generateOrderInvoicePDF(orderModal.order, config);
+                     }}
                      className="flex-1 py-4 bg-stone-900 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-600 flex items-center justify-center space-x-2 shadow-lg transition-all active:scale-95 group"
                    >
                      <FileText size={18} className="group-hover:rotate-12 transition-transform" />

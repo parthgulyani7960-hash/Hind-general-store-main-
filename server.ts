@@ -1,7 +1,6 @@
 import express from 'express';
 import Database from 'better-sqlite3';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import session from 'express-session';
@@ -13,14 +12,10 @@ import admin from 'firebase-admin';
 import fs from 'fs';
 import { google } from 'googleapis';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // Initialize Firebase Admin
 try {
    const configPaths = [
-     path.join(process.cwd(), 'firebase-applet-config.json'),
-     path.join(__dirname, 'firebase-applet-config.json')
+     path.join(process.cwd(), 'firebase-applet-config.json')
    ];
    
    let config: any = null;
@@ -5462,9 +5457,9 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       console.error('Failed to initialize Vite server:', err);
     }
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use(express.static(path.join(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
     });
   }
 

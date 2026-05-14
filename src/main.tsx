@@ -5,6 +5,7 @@ import { StoreProvider } from './StoreContext';
 import './index.css';
 import ErrorBoundary from './components/ErrorBoundary';
 import { reportError, flushQueue } from './lib/errorReporter';
+import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
 
 // Global interaction tracker
 let lastInteractedElement = 'None';
@@ -38,18 +39,21 @@ window.addEventListener('online', flushQueue);
 try {
   if (!(window.fetch as any)._isWrapped) {
     const originalFetch = window.fetch.bind(window);
-    
-    // We'll import auth dynamically to avoid any initialization order issues if possible,
-    // but main.tsx is the entry point, so we can just use the exported auth from our firebase.ts
-    // However, to keep it clean, let's use a dynamic import for the refresh logic only when needed.
+    let isRefreshing = false;
+    let failedRefreshAttempts = 0;
+    const MAX_REFRESH_ATTEMPTS = 2;
 
     Object.defineProperty(window, 'fetch', {
       value: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const inputUrl = typeof input === 'string' ? input : (input as Request).url || input.toString();
         
+        const isReporting = inputUrl.includes('/api/bugs/report');
+        const isFirebaseAuth = inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com');
+        const isLocalAuth = inputUrl.includes('/api/auth/');
+
         const getHeaders = (token: string | null) => {
           const headers = new Headers(init?.headers || {});
-          if (token) {
+          if (token && !isFirebaseAuth) {
             headers.set('Authorization', `Bearer ${token}`);
           }
           return headers;
@@ -59,21 +63,25 @@ try {
           return originalFetch(input, { ...init, headers: getHeaders(token) });
         };
 
-        const isReporting = inputUrl.includes('/api/bugs/report');
         const initialToken = localStorage.getItem('hgs_token');
         let response = await executeFetch(initialToken);
 
         // Handle 401: Unexpected session loss or expired token
-        if (response.status === 401 && !inputUrl.includes('/api/auth/firebase-login') && !isReporting) {
+        if (response.status === 401 && !isLocalAuth && !isReporting && !isFirebaseAuth) {
           console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting token refresh...`);
           
+          if (isRefreshing || failedRefreshAttempts >= MAX_REFRESH_ATTEMPTS) {
+             if (failedRefreshAttempts >= MAX_REFRESH_ATTEMPTS) {
+                 console.warn('[AUTH INTERCEPTOR] Max refresh attempts reached. Clearing invalid session.');
+                 localStorage.removeItem('hgs_token');
+                 localStorage.removeItem('hgs_user');
+                 try { await signOutUser(); } catch(e) {}
+             }
+             return response; // Cannot refresh right now or limit reached
+          }
+
+          isRefreshing = true;
           try {
-            // Dynamically import auth to ensure it's ready
-            const { auth } = await import('./firebase');
-            
-            // Wait for auth to initialize if it's currently null but auth is exported
-            // Usually auth.currentUser is available after onAuthStateChanged, 
-            // but for immediate direct fetch, we might need to wait or rely on token changed.
             const user = auth.currentUser;
             
             if (user) {
@@ -81,24 +89,33 @@ try {
               localStorage.setItem('hgs_token', newToken);
               
               console.log(`[AUTH INTERCEPTOR] Token refreshed. Retrying ${inputUrl}...`);
+              // Provide new token globally for pending requests here if needed
+              
+              isRefreshing = false;
+              failedRefreshAttempts = 0; // Reset
+              
               // Retry once with new token
               response = await executeFetch(newToken);
             } else {
               console.warn('[AUTH INTERCEPTOR] No user found for refresh. Clearing local session.');
-              // Note: Only clear if it was actually trying to access a protected route
-              // and we had a token.
               if (initialToken) {
                 localStorage.removeItem('hgs_token');
                 localStorage.removeItem('hgs_user');
               }
+              isRefreshing = false;
             }
           } catch (refreshErr) {
             console.error('[AUTH INTERCEPTOR] Refresh failed:', refreshErr);
+            failedRefreshAttempts++;
+            isRefreshing = false;
+            if (failedRefreshAttempts >= MAX_REFRESH_ATTEMPTS) {
+                localStorage.removeItem('hgs_token');
+                localStorage.removeItem('hgs_user');
+            }
           }
         }
 
         if (!response.ok && !isReporting) {
-          // Only report 500s or unexpected errors to reduce noise
           if (response.status >= 500) {
             reportError({
               message: `HTTP error! status: ${response.status}`,

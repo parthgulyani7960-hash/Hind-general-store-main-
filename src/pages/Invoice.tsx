@@ -5,7 +5,6 @@ import toast from 'react-hot-toast';
 import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle, ShieldAlert, FileText, RefreshCw } from 'lucide-react';
 
 import { StoreProvider, useStore } from '../StoreContext';
-import { generateOrderInvoicePDF } from '../services/pdfService';
 import { fetchWithHandling } from '../lib/api';
 import { getAuthHeaders } from '../lib/utils';
 
@@ -29,13 +28,14 @@ export default function Invoice() {
     setTimeout(() => window.print(), 500);
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (order.status === 'cancelled' || order.status === 'returned' || order.status === 'failed') {
       if (user?.role !== 'admin') {
         toast.error('Invoice is disabled for cancelled or returned orders.');
         return;
       }
     }
+    const { generateOrderInvoicePDF } = await import('../services/pdfService');
     generateOrderInvoicePDF(order, config);
     toast.success('Invoice generated successfully!');
   };
