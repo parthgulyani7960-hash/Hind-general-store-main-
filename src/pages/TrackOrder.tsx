@@ -7,6 +7,8 @@ import { cn } from '../types';
 import { handleAppError } from '../lib/errorUtils';
 import { useStore } from '../StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 import L from 'leaflet';
 import { io } from 'socket.io-client';
 import 'leaflet/dist/leaflet.css';
@@ -46,11 +48,8 @@ export default function TrackOrder() {
     if (order && (order.status === 'shipped' || order.status === 'dispatched')) {
       const interval = setInterval(async () => {
         try {
-          const res = await fetch(`/api/orders/${order.order_id}/runner-location`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.location) setRunnerLocation(data);
-          }
+          const data = await fetchWithHandling<any>(`/api/orders/${order.order_id}/runner-location`);
+          if (data && data.location) setRunnerLocation(data);
         } catch (e) {}
       }, 15000);
       return () => clearInterval(interval);
@@ -79,17 +78,15 @@ export default function TrackOrder() {
     if (!cancellationReason.trim()) { toast.error('Please enter a reason'); return; }
     setIsCancelling(true);
     try {
-      const res = await fetch(`/api/orders/${order.order_id}/cancel`, {
+      const data = await fetchWithHandling<any>(`/api/orders/${order.order_id}/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ reason: cancellationReason })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Order cancelled successfully');
         setOrder({...order, status: 'cancelled'});
         setShowCancelModal(false);
-      } else {
-        toast.error('Failed to cancel order');
       }
     } catch (err: any) {
       handleAppError(err, 'Error cancelling order', 'cancelOrder', user?.role === 'admin');
@@ -104,18 +101,17 @@ export default function TrackOrder() {
     
     setIsReturning(true);
     try {
-      const res = await fetch(`/api/orders/${order.id}/return`, {
+      const data = await fetchWithHandling<any>(`/api/orders/${order.id}/return`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ product_id: returnItem.product_id, quantity: returnQuantity, reason: returnReason })
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         toast.success('Return requested successfully');
         setShowReturnModal(false);
         // Refresh order data (could use original id, but autoTrack handles formatting)
         handleTrackAuto(orderId || order.id, phoneNumber || order.user_phone);
-      } else {
+      } else if (data) {
         toast.error(data.message || 'Failed to request return');
       }
     } catch (err: any) {
@@ -143,11 +139,8 @@ export default function TrackOrder() {
   const handleTrackAuto = async (id: string, phone: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/public/orders/${encodeURIComponent(id.trim())}?phone=${encodeURIComponent(phone.trim())}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) setOrder(data.order);
-      }
+      const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(id.trim())}?phone=${encodeURIComponent(phone.trim())}`);
+      if (data && data.success) setOrder(data.order);
     } catch (err) {}
     finally { setLoading(false); }
   };
@@ -179,22 +172,11 @@ export default function TrackOrder() {
       const cleanOrderId = orderId.trim();
       const cleanPhone = phoneNumber.trim().replace(/\D/g, ''); // Extract only digits for server check or keep if using PhoneInput
 
-      const res = await fetch(`/api/public/orders/${encodeURIComponent(cleanOrderId)}?phone=${encodeURIComponent(phoneNumber.trim())}`);
+      const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(cleanOrderId)}?phone=${encodeURIComponent(phoneNumber.trim())}`);
       
-      if (!res.ok) {
-        let errorMessage = 'Failed to fetch order status';
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (e) {
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setOrder(data.order);
-      } else {
+      } else if (data) {
         toast.error(data.message || 'Order not found');
         setOrder(null);
       }

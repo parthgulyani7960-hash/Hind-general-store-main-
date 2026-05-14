@@ -7,11 +7,12 @@ import { cn } from '../types';
 export default function MobileBottomNav() {
   const location = useLocation();
   const { cart, wishlist, lastAddedId } = useStore();
+  const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: ShoppingBag, label: 'Shop', path: '/products' },
-    { icon: ShoppingCart, label: 'Cart', path: '/cart', badge: cart.length, highlight: !!lastAddedId },
+    { icon: ShoppingCart, label: 'Cart', path: '/cart', badge: cartCount, highlight: !!lastAddedId },
     { icon: Heart, label: 'Saved', path: '/wishlist', badge: wishlist.length },
     { icon: User, label: 'Profile', path: '/profile' }
   ];
@@ -51,7 +52,7 @@ export default function MobileBottomNav() {
                       animate={{ scale: 1 }}
                       exit={{ scale: 0 }}
                       key={item.badge}
-                      className="absolute -top-1 -right-1 bg-accent text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-white shadow-sm"
+                      className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-white shadow-sm"
                     >
                       {item.badge}
                     </motion.span>

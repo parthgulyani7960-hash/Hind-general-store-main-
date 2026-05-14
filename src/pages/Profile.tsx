@@ -15,6 +15,8 @@ import { useEffect } from 'react';
 import WholesaleInsights from '../components/WholesaleInsights';
 import LocationPicker from '../components/LocationPicker';
 import { generateUserExportPDF } from '../services/pdfService';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 
 export default function Profile() {
   const { 
@@ -38,19 +40,57 @@ export default function Profile() {
   const [exportStatus, setExportStatus] = useState<{ status: string; created_at: string } | null>(null);
 
   const fetchExportStatus = async () => {
-    try {
-      const res = await fetch('/api/user/export-status');
-      if (res.ok) {
-        const data = await res.json();
-        setExportStatus(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch export status');
-    }
+    fetchWithHandling<any>('/api/user/export-status', { headers: getAuthHeaders() })
+      .then(data => {
+        if (data) setExportStatus(data);
+      });
   };
 
   useEffect(() => {
     fetchExportStatus();
+  }, []);
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportData = async (format: 'pdf' | 'json') => {
+    setIsExporting(true);
+    try {
+      const data = { user, orders, wallet: walletHistory };
+      
+      if (format === 'json') {
+        const jsonString = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `my_data_${user?.name?.replace(/\s+/g, '_')}.json`;
+        link.click();
+        toast.success('JSON Data Exported');
+      } else {
+        const { generateUserExportPDF } = await import('../services/pdfService');
+        generateUserExportPDF(data);
+        toast.success('Professional PDF Report Generated');
+      }
+      logActivity('DATA_EXPORT', `User exported personal data as ${format.toUpperCase()}`);
+    } catch (err) {
+      toast.error('Failed to compile data archive');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const [deletionStatus, setDeletionStatus] = useState<any>(null);
+
+  const fetchDeletionStatus = async () => {
+    try {
+      const data = await fetchWithHandling<any>('/api/user/deletion-request', { headers: getAuthHeaders() });
+      if (data) setDeletionStatus(data);
+    } catch (err) {}
+  };
+
+  useEffect(() => {
+    fetchExportStatus();
+    fetchDeletionStatus();
   }, []);
 
   const handleDataRequest = async (type: 'export' | 'delete') => {
@@ -58,27 +98,34 @@ export default function Profile() {
 
     if (type === 'export') {
       try {
-        const res = await fetch('/api/user/export-data', { method: 'POST' });
-        const data = await res.json();
-        if (data.success) {
+        const data = await fetchWithHandling<any>('/api/user/export-data', { 
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (data && data.success) {
           toast.success('Export requested. Admin will review soon.');
           fetchExportStatus();
-        } else {
+        } else if (data) {
           toast.error(data.message || 'Failed to request export');
         }
       } catch (err) {
-        toast.error('Failed to request export');
+        console.error('Failed to request export:', err);
       }
     } else {
-      // Simulate data request
-      toast.promise(
-        new Promise(resolve => setTimeout(resolve, 2000)),
-        {
-          loading: 'Processing deletion request...',
-          success: t('data_deleted_success'),
-          error: 'Failed to process request'
+      const reason = window.prompt("Optional: Please tell us why you wish to delete your account:");
+      try {
+        const data = await fetchWithHandling<any>('/api/user/deletion-request', { 
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ reason })
+        });
+        if (data && data.success) {
+          toast.success(data.message);
+          fetchDeletionStatus();
         }
-      );
+      } catch (err) {
+        toast.error('Failed to process deletion request');
+      }
     }
   };
   const [showAddressModal, setShowAddressModal] = useState(false);
@@ -86,10 +133,10 @@ export default function Profile() {
   const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/api/delivery-areas')
-      .then(res => res.json())
-      .then(setDeliveryAreas)
-      .catch(console.error);
+    fetchWithHandling<any[]>('/api/delivery-areas')
+      .then(data => {
+        if (data) setDeliveryAreas(data);
+      });
   }, []);
 
   const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
@@ -214,11 +261,10 @@ export default function Profile() {
     if (!user) return;
     setLoadingOrders(true);
     try {
-      const res = await fetch(`/api/orders/user/${user.id}`);
-      const data = await res.json();
-      setOrders(data);
+      const data = await fetchWithHandling<any[]>(`/api/orders/user/${user.id}`, { headers: getAuthHeaders() });
+      if (data) setOrders(data);
     } catch (err) {
-      console.error('Failed to fetch orders');
+      console.error('Failed to fetch orders:', err);
     } finally {
       setLoadingOrders(false);
     }
@@ -231,11 +277,10 @@ export default function Profile() {
     if (!user) return;
     setLoadingHistory(true);
     try {
-      const res = await fetch(`/api/wallet-history/${user.id}`);
-      const data = await res.json();
-      setWalletHistory(data);
+      const data = await fetchWithHandling<any[]>(`/api/wallet-history/${user.id}`, { headers: getAuthHeaders() });
+      if (data) setWalletHistory(data);
     } catch (err) {
-      console.error('Failed to fetch wallet history');
+      console.error('Failed to fetch wallet history:', err);
     } finally {
       setLoadingHistory(false);
     }
@@ -263,11 +308,10 @@ export default function Profile() {
     if (!user) return;
     setLoadingKhata(true);
     try {
-      const res = await fetch(`/api/user/khata/history/${user.id}`);
-      const data = await res.json();
-      setKhataHistory(data);
+      const data = await fetchWithHandling<any[]>(`/api/user/khata/history/${user.id}`, { headers: getAuthHeaders() });
+      if (data) setKhataHistory(data);
     } catch (err) {
-      console.error('Failed to fetch Khata history');
+      console.error('Failed to fetch Khata history:', err);
     } finally {
       setLoadingKhata(false);
     }
@@ -293,19 +337,16 @@ export default function Profile() {
 
   const openReturnModal = async (orderId: number) => {
     try {
-      const res = await fetch(`/api/orders/${orderId}`);
-      if (res.ok) {
-        const orderData = await res.json();
+      const orderData = await fetchWithHandling<any>(`/api/orders/${orderId}`, { headers: getAuthHeaders() });
+      if (orderData) {
         setShowReturnModal({ open: true, orderId: orderData.id, orderItems: orderData.items });
         if (orderData.items && orderData.items.length > 0) {
             setReturnProductId(orderData.items[0].product_id);
             setReturnQuantity(1);
         }
-      } else {
-        toast.error('Failed to load order items for return');
       }
     } catch(err) {
-      toast.error('Failed to load order details');
+      console.error('Failed to load order details:', err);
     }
   };
 
@@ -315,9 +356,9 @@ export default function Profile() {
     
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/returns`, {
+      const data = await fetchWithHandling<any>(`/api/returns`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           order_id: showReturnModal.orderId,
           product_id: returnProductId,
@@ -325,16 +366,13 @@ export default function Profile() {
           reason: returnReason
         })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Return initiated! Admin will review your request.');
         setShowReturnModal({ open: false, orderId: null, orderItems: [] });
         setReturnReason('');
-      } else {
-         const data = await res.json();
-         toast.error(data.message || 'Failed to initiate return');
       }
     } catch(err) {
-      toast.error('Failed to initiate return');
+      console.error('Failed to initiate return:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -349,9 +387,9 @@ export default function Profile() {
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/reviews', {
+      const data = await fetchWithHandling<any>('/api/reviews', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           order_id: showReviewModal.orderId,
           rating: reviewRating,
@@ -359,16 +397,14 @@ export default function Profile() {
           user_name: user.name
         })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Review submitted successfully!');
         setShowReviewModal({ open: false, orderId: null });
         setReviewComment('');
         setReviewRating(5);
-      } else {
-        toast.error('Failed to submit review');
       }
     } catch (err) {
-      toast.error('Error submitting review');
+      console.error('Error submitting review:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -415,9 +451,9 @@ export default function Profile() {
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/wallet/add', {
+      const data = await fetchWithHandling<any>('/api/wallet/add', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           userId: user.id,
           amount: Number(addAmount),
@@ -425,19 +461,18 @@ export default function Profile() {
           screenshot
         })
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         toast.success(data.message);
         setShowAddMoney(false);
         setAddAmount('');
         setPaymentId('');
         setScreenshot(null);
         fetchWalletHistory();
-      } else {
+      } else if (data) {
         toast.error(data.message);
       }
     } catch (err) {
-      toast.error('Failed to submit request');
+      console.error('Failed to submit request:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -1443,86 +1478,71 @@ export default function Profile() {
               <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mt-1">Manage your personal information</p>
             </div>
             <div className="divide-y divide-stone-50">
-              <div 
-                onClick={() => {
-                  const data = JSON.stringify({ user, orders, walletHistory }, null, 2);
-                  const blob = new Blob([data], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = `my_data_${user.name.replace(/\s+/g, '_')}.json`;
-                  link.click();
-                  logActivity('DATA_EXPORT', 'User exported personal data (profile, orders, wallet)');
-                  toast.success('Your data has been compiled and downloaded.');
-                }}
-                className="p-6 transition-colors"
-              >
+              <div className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    <div className="p-3 bg-stone-100 rounded-2xl text-stone-500">
+                    <div className={cn(
+                      "p-3 rounded-2xl transition-colors",
+                      isExporting ? "bg-amber-100 text-amber-600 animate-pulse" : "bg-stone-100 text-stone-500"
+                    )}>
                       <Download size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-stone-700">Export My Data (PDF)</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Request export or download approved PDF</p>
+                      <p className="font-bold text-stone-700">Export My Data Archive</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Download a structured copy of your profile and history</p>
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    { (!exportStatus || exportStatus.status === 'NONE') && (
-                      <button onClick={async (e) => {
-                        e.stopPropagation();
-                        await handleDataRequest('export');
-                      }} className="bg-primary text-white p-2 rounded-xl text-[10px] font-bold uppercase">{t('request_export')}</button>
-                    )}
-                    { exportStatus?.status === 'PENDING_REVIEW' && (
-                      <button className="bg-amber-500 text-white p-2 rounded-xl text-[10px] font-bold uppercase cursor-not-allowed" disabled>Pending Review</button>
-                    )}
-                    { exportStatus?.status === 'APPROVED' && (
-                      <button onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          const res = await fetch('/api/user/generate-export');
-                          if (!res.ok) throw new Error('Not ready');
-                          const data = await res.json();
-                          generateUserExportPDF(data);
-                          toast.success('PDF Generated!');
-                        } catch (err) {
-                           toast.error('Failed to generate PDF');
-                        }
-                      }} className="bg-emerald-600 text-white p-2 rounded-xl text-[10px] font-bold uppercase">Download</button>
-                    )}
+                    <button 
+                      disabled={isExporting}
+                      onClick={() => handleExportData('pdf')} 
+                      className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50"
+                    >
+                      {isExporting ? 'Compiling...' : 'PDF'}
+                    </button>
+                    <button 
+                      disabled={isExporting}
+                      onClick={() => handleExportData('json')} 
+                      className="px-4 py-2 bg-stone-100 text-stone-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-200 transition-all disabled:opacity-50"
+                    >
+                      JSON
+                    </button>
                   </div>
                 </div>
               </div>
-              <div 
-                onClick={async () => {
-                  if (window.confirm('Are you absolutely sure? This will send a request to our administrators to permanently delete your account and all associated data.')) {
-                    try {
-                      await fetch('/api/user/data-request', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ type: 'deletion', reason: 'User requested in profile settings' })
-                      });
-                      logActivity('DATA_DELETION_REQUEST', 'User requested permanent account and data deletion', 'medium');
-                      toast.success('Deletion request sent to administrators. We will process this within 48 hours.');
-                    } catch (e) {
-                      toast.success('Deletion request sent to administrators.');
-                    }
-                  }
-                }}
-                className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
-              >
+              <div className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-red-50 group-hover:text-red-600 transition-colors">
                       <Trash2 size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-stone-700">Request Data Deletion</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Permanently remove your account and data</p>
+                      <p className="font-bold text-stone-700">Permanent Account Deletion</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Request removal of all your data</p>
                     </div>
                   </div>
-                  <ChevronRight size={18} className="text-stone-300 group-hover:text-red-600 transition-colors" />
+                  <div>
+                    { (!deletionStatus || deletionStatus.status === 'NONE') ? (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDataRequest('delete'); }} 
+                        className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
+                      >
+                        Request Deletion
+                      </button>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <span className={cn(
+                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
+                          deletionStatus.status === 'PENDING' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                        )}>
+                          {deletionStatus.status}
+                        </span>
+                        {deletionStatus.scheduled_for && (
+                          <p className="text-[8px] text-stone-400 mt-1">Scheduled: {new Date(deletionStatus.scheduled_for).toLocaleDateString()}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1795,10 +1815,10 @@ export default function Profile() {
               className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
             >
               <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                <h3 className="font-black text-xl text-stone-800">
-                  {editingAddress ? t('edit_address') : t('add_new_address')}
+                <h3 className="font-black text-xl text-stone-800 uppercase tracking-tight">
+                  {editingAddress ? 'Edit Address' : 'Safe Delivery Location'}
                 </h3>
-                <button onClick={() => setShowAddressModal(false)} className="p-2 hover:bg-white rounded-xl transition-colors">
+                <button onClick={() => setShowAddressModal(false)} className="p-2 hover:bg-stone-100 rounded-xl transition-colors">
                   <X size={20} />
                 </button>
               </div>
@@ -1815,140 +1835,114 @@ export default function Profile() {
                   } as any);
                   setShowAddressModal(false);
                 }}
-                className="p-6 space-y-4 max-h-[70vh] overflow-y-auto"
+                className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar"
               >
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Name</label>
-                      <input 
-                        name="name"
-                        required
-                        defaultValue={editingAddress?.name}
-                        className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                      />
-                    </div>
-                    <div className="col-span-2 flex items-center justify-between">
-                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Location</label>
-                      <LocationPicker onLocationFound={(lat, lng) => {
-                          const latInput = document.querySelector('input[name="lat"]') as HTMLInputElement;
-                          const lngInput = document.querySelector('input[name="lng"]') as HTMLInputElement;
-                          if (latInput) latInput.value = lat.toString();
-                          if (lngInput) lngInput.value = lng.toString();
-                          toast.success('Location pin updated');
-                      }} />
-                      <input type="hidden" name="lat" defaultValue={editingAddress?.lat} />
-                      <input type="hidden" name="lng" defaultValue={editingAddress?.lng} />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">House / Flat / Apt Number</label>
-                      <input 
-                        name="house_number"
-                        required
-                        defaultValue={editingAddress?.house_number}
-                        className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                      />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Address Nickname</label>
+                    <div className="flex gap-2">
+                      {['Home', 'Office', 'Shop', 'Other'].map(l => (
+                        <label key={l} className="flex-1">
+                          <input type="radio" name="label" value={l} className="hidden peer" defaultChecked={editingAddress?.label === l || (!editingAddress?.label && l === 'Home')} />
+                          <div className="text-center py-2 rounded-xl border-2 border-stone-100 peer-checked:border-primary peer-checked:bg-primary/5 text-[10px] font-bold uppercase transition-all cursor-pointer">
+                            {l}
+                          </div>
+                        </label>
+                      ))}
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Phone Number</label>
+                  
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Full Name</label>
+                    <input 
+                      name="name"
+                      required
+                      defaultValue={editingAddress?.name}
+                      placeholder="Receiver's name"
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 placeholder:text-stone-300"
+                    />
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Mobile Number</label>
                     <input 
                       name="phone"
                       required
                       defaultValue={editingAddress?.phone}
-                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                      placeholder="10 digit number"
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 placeholder:text-stone-300"
                     />
                   </div>
-                  <div className="col-span-2 md:col-span-1">
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Code</label>
+
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">House / Flat / Area</label>
                     <div className="relative">
                       <input 
-                        name="pin_code"
+                        name="street_address"
                         required
-                        placeholder="6 digit PIN"
-                        defaultValue={editingAddress?.pin_code}
-                        onChange={async (e) => {
-                          const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                          e.target.value = val;
-                          if (val.length === 6) {
-                            const data = await lookupPincode(val, 'address');
-                            if (data) {
-                              const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
-                              const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
-                              if (cityInput) cityInput.value = data.city;
-                              if (stateInput) stateInput.value = data.state;
-                            }
-                          }
-                        }}
-                        className="w-full px-4 py-3 pr-10 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                        defaultValue={editingAddress?.street_address}
+                        placeholder="e.g. H.No 123, Sector 4"
+                        className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 pr-10 placeholder:text-stone-300"
                       />
                       <button 
                         type="button"
-                        onClick={() => {
-                          if ("geolocation" in navigator) {
-                            toast.loading('Fetching location...', { id: 'geo_prof_modal' });
-                            navigator.geolocation.getCurrentPosition(
-                              async (pos) => {
-                                const { latitude, longitude } = pos.coords;
-                                try {
-                                  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-                                  const data = await res.json();
-                                  if (data && data.address) {
-                                    const addr = data.address;
-                                    const pcInput = document.querySelector('input[name="pin_code"]') as HTMLInputElement;
-                                    const stInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
-                                    const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
-                                    const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
-                                    
-                                    if (pcInput && addr.postcode) pcInput.value = addr.postcode.slice(0, 6);
-                                    if (stInput) stInput.value = `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`;
-                                    if (cityInput && (addr.city || addr.town || addr.village)) cityInput.value = addr.city || addr.town || addr.village;
-                                    if (stateInput && addr.state) stateInput.value = addr.state;
-                                    
-                                    toast.success('Location found!', { id: 'geo_prof_modal' });
-                                  } else {
-                                    toast.success('Location coordinates captured', { id: 'geo_prof_modal' });
-                                  }
-                                } catch(err) {
-                                  toast.error('Could not reverse geocode', { id: 'geo_prof_modal' });
-                                }
-                              },
-                              (err) => toast.error('Location denied', { id: 'geo_prof_modal' })
-                            );
-                          }
-                        }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
-                        title="Use My Current Location"
+                        onClick={getCurrentLocation}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-all"
+                        title="Detect my current location"
                       >
                         <Navigation2 size={16} />
                       </button>
                     </div>
                   </div>
 
+                  <div>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Pin Code</label>
+                    <input 
+                      name="pin_code"
+                      required
+                      defaultValue={editingAddress?.pin_code}
+                      placeholder="6 digit PIN"
+                      onChange={async (e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                        e.target.value = val;
+                        if (val.length === 6) {
+                          const data = await lookupPincode(val, 'address');
+                          if (data) {
+                            const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
+                            const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
+                            if (cityInput) cityInput.value = data.city;
+                            if (stateInput) stateInput.value = data.state;
+                          }
+                        }
+                      }}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 placeholder:text-stone-300"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">City / Town</label>
+                    <input name="city" required defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700" />
+                  </div>
+
                   <div className="col-span-2">
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Street Address</label>
-                    <input name="street_address" required defaultValue={editingAddress?.street_address} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Delivery Instructions</label>
+                    <textarea 
+                      name="delivery_instructions"
+                      placeholder="e.g. Leave at gate, Call before arriving"
+                      defaultValue={editingAddress?.delivery_instructions}
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 min-h-[80px] placeholder:text-stone-300"
+                    />
                   </div>
-                  
-                  <div className="col-span-2 md:col-span-1">
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
-                    <input name="city" required defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
-                  </div>
-                  
-                  <div className="col-span-2 md:col-span-1">
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
-                    <input name="state" required defaultValue={editingAddress?.state} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
-                  </div>
-                  
+
                   <div className="col-span-2">
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Area</label>
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Delivery Area Zone</label>
                     <select
                       name="delivery_area"
                       required
                       defaultValue={editingAddress?.delivery_area}
-                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                      className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700"
                     >
-                      <option value="">Select Area</option>
+                      <option value="">Select Zone</option>
                       {deliveryAreas.map(area => (
                         <option key={area.id} value={area.name}>{area.name}</option>
                       ))}
@@ -1956,290 +1950,20 @@ export default function Profile() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Address</label>
-                  <textarea 
-                    name="address"
-                    required
-                    defaultValue={editingAddress?.address}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors min-h-[80px] font-bold text-stone-700"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
-                    <input 
-                      name="city"
-                      required
-                      defaultValue={editingAddress?.city || 'Samana'}
-                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
-                    <input 
-                      name="state"
-                      required
-                      defaultValue={editingAddress?.state || 'Punjab'}
-                      className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Zone</label>
-                  <select 
-                    name="delivery_area"
-                    required
-                    defaultValue={editingAddress?.delivery_area}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                <div className="pt-4">
+                  <button 
+                    type="submit"
+                    className="w-full bg-primary text-white py-4 rounded-2xl font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-[0.2em] text-xs"
                   >
-                    <option value="">Select a zone</option>
-                    {deliveryAreas.map(area => (
-                      <option key={area.id} value={area.name}>{area.name}</option>
-                    ))}
-                  </select>
+                    Confirm & Save Address
+                  </button>
                 </div>
-
-                <button 
-                  type="submit"
-                  className="w-full bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all mt-4"
-                >
-                  Save Address
-                </button>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </div>
-
-    {showAddressModal && (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-        <motion.div 
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
-        >
-          <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-            <h3 className="font-black text-xl text-stone-800">
-              {editingAddress ? t('edit_address') : t('add_new_address')}
-            </h3>
-            <button onClick={() => setShowAddressModal(false)} className="p-2 hover:bg-white rounded-xl transition-colors">
-              <X size={20} />
-            </button>
-          </div>
-
-          <form 
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              const data = Object.fromEntries(formData);
-              await saveAddress({
-                ...data,
-                id: editingAddress?.id,
-                is_default: editingAddress?.is_default || false
-              } as any);
-              setShowAddressModal(false);
-            }}
-            className="p-6 space-y-4 max-h-[70vh] overflow-y-auto"
-          >
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Name</label>
-                  <input 
-                    name="name"
-                    required
-                    defaultValue={editingAddress?.name}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                  />
-                </div>
-                <div className="col-span-2 flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Location</label>
-                  <LocationPicker onLocationFound={(lat, lng) => {
-                      const latInput = document.querySelector('input[name="lat"]') as HTMLInputElement;
-                      const lngInput = document.querySelector('input[name="lng"]') as HTMLInputElement;
-                      if (latInput) latInput.value = lat.toString();
-                      if (lngInput) lngInput.value = lng.toString();
-                      toast.success('Location pin updated');
-                  }} />
-                  <input type="hidden" name="lat" defaultValue={editingAddress?.lat} />
-                  <input type="hidden" name="lng" defaultValue={editingAddress?.lng} />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">House / Flat / Apt Number</label>
-                  <input 
-                    name="house_number"
-                    required
-                    defaultValue={editingAddress?.house_number}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Phone Number</label>
-                <input 
-                  name="phone"
-                  required
-                  defaultValue={editingAddress?.phone}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                />
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Pin Code</label>
-                <div className="relative">
-                  <input 
-                    name="pin_code"
-                    required
-                    placeholder="6 digit PIN"
-                    defaultValue={editingAddress?.pin_code}
-                    onChange={async (e) => {
-                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      e.target.value = val;
-                      if (val.length === 6) {
-                        const data = await lookupPincode(val, 'address');
-                        if (data) {
-                          const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
-                          const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
-                          if (cityInput) cityInput.value = data.city;
-                          if (stateInput) stateInput.value = data.state;
-                        }
-                      }
-                    }}
-                    className="w-full px-4 py-3 pr-10 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      if ("geolocation" in navigator) {
-                        toast.loading('Fetching location...', { id: 'geo_prof_modal' });
-                        navigator.geolocation.getCurrentPosition(
-                          async (pos) => {
-                            const { latitude, longitude } = pos.coords;
-                            try {
-                              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-                              const data = await res.json();
-                              if (data && data.address) {
-                                const addr = data.address;
-                                const pcInput = document.querySelector('input[name="pin_code"]') as HTMLInputElement;
-                                const stInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
-                                const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
-                                const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
-                                
-                                if (pcInput && addr.postcode) pcInput.value = addr.postcode.slice(0, 6);
-                                if (stInput) stInput.value = `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`;
-                                if (cityInput && (addr.city || addr.town || addr.village)) cityInput.value = addr.city || addr.town || addr.village;
-                                if (stateInput && addr.state) stateInput.value = addr.state;
-                                
-                                toast.success('Location found!', { id: 'geo_prof_modal' });
-                              } else {
-                                toast.success('Location coordinates captured', { id: 'geo_prof_modal' });
-                              }
-                            } catch(err) {
-                              toast.error('Could not reverse geocode', { id: 'geo_prof_modal' });
-                            }
-                          },
-                          (err) => toast.error('Location denied', { id: 'geo_prof_modal' })
-                        );
-                      }
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all"
-                    title="Use My Current Location"
-                  >
-                    <Navigation2 size={16} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="col-span-2">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Street Address</label>
-                <input name="street_address" required defaultValue={editingAddress?.street_address} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
-              </div>
-              
-              <div className="col-span-2 md:col-span-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
-                <input name="city" required defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
-              </div>
-              
-              <div className="col-span-2 md:col-span-1">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
-                <input name="state" required defaultValue={editingAddress?.state} className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700" />
-              </div>
-              
-              <div className="col-span-2">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Area</label>
-                <select
-                  name="delivery_area"
-                  required
-                  defaultValue={editingAddress?.delivery_area}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                >
-                  <option value="">Select Area</option>
-                  {deliveryAreas.map(area => (
-                    <option key={area.id} value={area.name}>{area.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Full Address</label>
-              <textarea 
-                name="address"
-                required
-                defaultValue={editingAddress?.address}
-                className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors min-h-[80px] font-bold text-stone-700"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">City</label>
-                <input 
-                  name="city"
-                  required
-                  defaultValue={editingAddress?.city || 'Samana'}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">State</label>
-                <input 
-                  name="state"
-                  required
-                  defaultValue={editingAddress?.state || 'Punjab'}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5 block">Delivery Zone</label>
-              <select 
-                name="delivery_area"
-                required
-                defaultValue={editingAddress?.delivery_area}
-                className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-              >
-                <option value="">Select a zone</option>
-                {deliveryAreas.map(area => (
-                  <option key={area.id} value={area.name}>{area.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <button 
-              type="submit"
-              className="w-full bg-primary text-white py-4 rounded-2xl font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all mt-4"
-            >
-              Save Address
-            </button>
-          </form>
-        </motion.div>
       </div>
-    )}
     </>
   );
 }

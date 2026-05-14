@@ -1,263 +1,337 @@
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { format } from 'date-fns';
 
-const PRIMARY_COLOR = [22, 163, 74]; // Emerald-600
-const SECONDARY_COLOR = [15, 23, 42]; // Slate-900
-const ACCENT_COLOR = [245, 158, 11]; // Amber-500
+// Professional Color Palette
+const COLORS = {
+  PRIMARY: [22, 163, 74] as [number, number, number],    // Emerald-600
+  SECONDARY: [15, 23, 42] as [number, number, number],   // Slate-900
+  ACCENT: [245, 158, 11] as [number, number, number],    // Amber-500
+  MUTED: [100, 116, 139] as [number, number, number],    // Slate-500
+  BORDER: [226, 232, 240] as [number, number, number]   // Slate-200
+};
 
-export const generateOrderInvoicePDF = (order: any, storeConfig: any[]) => {
+/**
+ * Enhanced PDF Logistics Engine
+ * Provides enterprise-grade document formatting with grid-alignment and vector branding
+ */
+
+/**
+ * Professional Order Invoice Generator
+ */
+export const generateOrderInvoicePDF = (order: any, config: any[]) => {
   const doc = new jsPDF();
-  const storeName = storeConfig.find(c => c.key === 'store_name')?.value || 'Hind General Store';
-  const storeAddress = storeConfig.find(c => c.key === 'store_address')?.value || 'Nayagaon, India';
-  const storePhone = storeConfig.find(c => c.key === 'store_phone')?.value || '+91 98765 43210';
-  const currency = 'INR';
+  const margin = 20;
+  const pageWidth = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
 
-  // Aesthetic Header Background
-  doc.setFillColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-  doc.rect(0, 0, 210, 60, 'F');
-  
-  // Store Logo / Name
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(24);
+  const storeName = config.find(c => c.key === 'store_name')?.value || 'Hind General Store';
+  const storePhone = config.find(c => c.key === 'store_phone')?.value || '+91 99882-27755';
+  const storeAddr = config.find(c => c.key === 'store_address')?.value || 'Shop No. 5, Main Market, Nayagaon';
+
+  // --- BRANDING HEADER ---
+  // Accent Bar
+  doc.setFillColor(COLORS.PRIMARY[0], COLORS.PRIMARY[1], COLORS.PRIMARY[2]);
+  doc.rect(0, 0, pageWidth, 5, 'F');
+
+  // Store Identity
+  doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+  doc.setFontSize(22);
   doc.setFont('helvetica', 'bold');
-  doc.text(storeName.toUpperCase(), 14, 25);
-  
-  doc.setFontSize(10);
+  doc.text(storeName.toUpperCase(), margin, 25);
+
+  doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(storeAddress, 14, 35);
-  doc.text(`Tel: ${storePhone}`, 14, 40);
+  doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+  doc.text([storeAddr, `Contact: ${storePhone}`], margin, 32);
 
-  // Invoice Label
-  doc.setFontSize(40);
-  doc.setTextColor(PRIMARY_COLOR[0], PRIMARY_COLOR[1], PRIMARY_COLOR[2]);
-  doc.text('INVOICE', 200, 35, { align: 'right' });
-  
-  // Order Stats on Header
-  doc.setFontSize(10);
-  doc.setTextColor(255, 255, 255);
-  doc.text(`ORDER ID: #ORD-${order.id}`, 200, 45, { align: 'right' });
-  doc.text(`DATE: ${new Date(order.created_at).toLocaleDateString()}`, 200, 50, { align: 'right' });
-
-  // Bill To & Payment sections
-  doc.setTextColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-  doc.setFontSize(12);
+  // Document Title
+  doc.setFontSize(32);
   doc.setFont('helvetica', 'bold');
-  doc.text('BILL TO:', 14, 75);
-  doc.text('PAYMENT INFO:', 120, 75);
+  doc.setTextColor(COLORS.BORDER[0], COLORS.BORDER[1], COLORS.BORDER[2]);
+  doc.text('INVOICE', pageWidth - margin, 30, { align: 'right' });
+
+  // --- ORDER METADATA ---
+  doc.setDrawColor(COLORS.BORDER[0], COLORS.BORDER[1], COLORS.BORDER[2]);
+  doc.line(margin, 45, pageWidth - margin, 45);
+
+  // Billing Details
+  doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BILL TO:', margin, 55);
+
+  let customerAddr: any = {};
+  try {
+    customerAddr = typeof order.address === 'string' ? JSON.parse(order.address) : order.address;
+  } catch (e) {
+    customerAddr = { name: order.user_name || 'Customer', address: order.address };
+  }
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
   doc.text([
-    order.user_name,
-    order.user_phone,
-    order.address || 'N/A'
-  ], 14, 82);
+    customerAddr.name || 'N/A',
+    customerAddr.phone || 'N/A',
+    customerAddr.address || 'N/A',
+    customerAddr.city ? `${customerAddr.city}, ${customerAddr.state}` : ''
+  ].filter(Boolean), margin, 60);
 
+  // Invoice Metadata
+  doc.setFont('helvetica', 'bold');
+  doc.text('INVOICE DETAILS:', pageWidth - 80, 55);
+  doc.setFont('helvetica', 'normal');
   doc.text([
-    `METHOD: ${order.payment_method?.toUpperCase() || 'COD'}`,
-    `PAY ID: ${order.payment_id || order.payment_utr || 'N/A'}`,
-    `STATUS: ${order.status?.toUpperCase() || 'PAID'}`
-  ], 120, 82);
+    `Invoice ID: #INV-${order.id}`,
+    `Order Date: ${format(new Date(order.created_at), 'dd MMM yyyy')}`,
+    `Payment: ${String(order.payment_method).toUpperCase()}`,
+    `Status: ${String(order.status).toUpperCase()}`
+  ], pageWidth - 80, 60);
 
-  // Table
+  // --- ITEMIZATION TABLE ---
   (doc as any).autoTable({
-    startY: 110,
-    head: [['Product Description', 'Quantity', 'Rate', 'Total']],
-    body: order.items.map((item: any) => [
-      item.product_name,
+    startY: 85,
+    margin: { left: margin, right: margin },
+    head: [['#', 'Item Description', 'Qty', 'Unit Price', 'Total']],
+    body: order.items.map((item: any, i: number) => [
+      i + 1,
+      item.product_name || item.name,
       item.quantity,
       `₹${item.price}`,
-      `₹${item.price * item.quantity}`
+      `₹${(item.price * item.quantity).toFixed(2)}`
     ]),
+    theme: 'striped',
     headStyles: {
-      fillColor: PRIMARY_COLOR,
+      fillColor: COLORS.SECONDARY,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
+      fontSize: 9,
       halign: 'center'
     },
-    styles: {
-      lineColor: [240, 240, 240],
-      lineWidth: 0.1,
+    bodyStyles: {
+      fontSize: 8,
+      textColor: COLORS.SECONDARY
     },
     columnStyles: {
-      1: { halign: 'center' },
-      2: { halign: 'right' },
-      3: { halign: 'right' }
+      0: { halign: 'center', width: 10 },
+      1: { halign: 'left' },
+      2: { halign: 'center', width: 20 },
+      3: { halign: 'right', width: 30 },
+      4: { halign: 'right', width: 30, fontStyle: 'bold' }
     }
   });
 
+  // --- SUMMARY SECTION ---
   const finalY = (doc as any).lastAutoTable.finalY + 10;
+  const summaryX = pageWidth - margin - 60;
+  let currentSummaryY = finalY;
 
-  // Totals
-  doc.setFont('helvetica', 'bold');
-  doc.text('Subtotal:', 150, finalY);
-  doc.text('Delivery:', 150, finalY + 7);
-  doc.setFontSize(14);
-  doc.setTextColor(PRIMARY_COLOR[0], PRIMARY_COLOR[1], PRIMARY_COLOR[2]);
-  doc.text('Total Amount:', 150, finalY + 16);
+  const summaryLine = (label: string, value: string, isTotal = false) => {
+    doc.setFont('helvetica', isTotal ? 'bold' : 'normal');
+    doc.setFontSize(isTotal ? 12 : 9);
+    doc.setTextColor(isTotal ? COLORS.PRIMARY[0] : COLORS.SECONDARY[0], isTotal ? COLORS.PRIMARY[1] : COLORS.SECONDARY[1], isTotal ? COLORS.PRIMARY[2] : COLORS.SECONDARY[2]);
+    doc.text(label, summaryX, currentSummaryY);
+    doc.text(value, pageWidth - margin, currentSummaryY, { align: 'right' });
+  };
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-  doc.text(`₹${order.total}`, 195, finalY, { align: 'right' });
-  doc.text('FREE', 195, finalY + 7, { align: 'right' });
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`₹${order.total}`, 195, finalY + 16, { align: 'right' });
+  summaryLine('Subtotal:', `₹${order.subtotal || order.total}`);
+  currentSummaryY += 6;
+  if (order.discount > 0) {
+    summaryLine('Discount:', `-₹${order.discount}`);
+    currentSummaryY += 6;
+  }
+  summaryLine('Delivery Fee:', `₹${order.delivery_fee || 0}`);
+  currentSummaryY += 10;
+  summaryLine('TOTAL AMOUNT:', `₹${order.total}`, true);
 
-  // Footer Branding
-  doc.setFillColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-  doc.rect(0, 277, 210, 20, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10);
-  doc.text('Thank you for choosing Hind General Store!', 105, 287, { align: 'center' });
+  // --- FOOTER & SIGNATURE ---
+  const footerY = pageHeight - 40;
+  doc.setDrawColor(COLORS.BORDER[0], COLORS.BORDER[1], COLORS.BORDER[2]);
+  doc.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
+
   doc.setFontSize(8);
-  doc.text('This is a computer-generated invoice. No physical signature is required.', 105, 292, { align: 'center' });
+  doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TERMS & CONDITIONS:', margin, footerY);
+  doc.setFont('helvetica', 'normal');
+  doc.text([
+    '1. Items once sold can only be returned within 24 hours if damaged or expired.',
+    '2. This is a computer-generated document and does not require a physical signature.',
+    '3. For any support, please contact us at ' + storePhone
+  ], margin, footerY + 5, { maxWidth: pageWidth - margin * 2 });
+
+  // Page Numbers
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+  }
 
   doc.save(`Invoice_#ORD-${order.id}.pdf`);
 };
 
+/**
+ * Professional User Data Dossier
+ */
 export const generateUserExportPDF = (data: any) => {
   const doc = new jsPDF();
-  
-  const addHeader = (d: any, title: string) => {
-    d.setFillColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-    d.rect(0, 0, 210, 40, 'F');
-    d.setTextColor(255, 255, 255);
-    d.setFontSize(22);
-    d.setFont('helvetica', 'bold');
-    d.text(title, 14, 20);
-    d.setFontSize(10);
-    d.setFont('helvetica', 'normal');
-    d.text(`Member: ${data.user.name} | Data Exported: ${new Date().toLocaleString()}`, 14, 30);
-    d.setTextColor(0, 0, 0);
+  const margin = 15;
+  const pageWidth = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
+
+  const header = (title: string) => {
+    doc.setFillColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, margin, 20);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`DATA ARCHIVE FOR: ${String(data.user.name).toUpperCase()}`, margin, 30);
+    doc.text(`EXPORTED ON: ${format(new Date(), 'dd MMMM yyyy, HH:mm')}`, pageWidth - margin, 30, { align: 'right' });
   };
 
-  addHeader(doc, 'ACCOUNT DATA DOSSIER');
+  header('ACCOUNT DATA EXPORT');
 
-  // Summary Cards (visualized as colored boxes)
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 50, 182, 40, 3, 3, 'F');
-  
-  doc.setFontSize(12);
+  // Profile Overview Section
+  doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('PERFORMANCE ANALYTICS', 20, 60);
-  
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  const totalSpent = (data.orders || []).reduce((acc: number, o: any) => acc + (parseFloat(o.total) || 0), 0);
-  doc.text(`Total Lifetime Orders: ${data.orders?.length || 0}`, 20, 70);
-  doc.text(`Total Order Value: ₹${totalSpent.toFixed(2)}`, 20, 76);
-  doc.text(`Wallet Liquidity: ₹${data.user.wallet_balance || 0}`, 20, 82);
+  doc.text('1. PROFILE INFRASTRUCTURE', margin, 55);
 
-  // Tables
   (doc as any).autoTable({
-    startY: 100,
-    head: [['Entity', 'Details']],
+    startY: 60,
+    margin: { left: margin, right: margin },
+    head: [['Attribute', 'Data Point']],
     body: [
-      ['Customer Identity', data.user.name],
+      ['Full Legal Name', data.user.name],
       ['Primary Contact', data.user.phone],
-      ['Verified Email', data.user.email || 'N/A'],
-      ['Store Segment', data.user.segment || 'REGULAR'],
-      ['Khata Facility', data.user.khata_enabled ? 'ACTIVE' : 'INACTIVE'],
-      ['Default Address', data.user.address || 'N/A']
+      ['Email Address', data.user.email || 'NOT REGISTERED'],
+      ['Account Status', (data.user.status || 'ACTIVE').toUpperCase()],
+      ['Wallet Liquidity', `₹${data.user.wallet_balance || 0}`],
+      ['Khata Eligibility', data.user.khata_enabled ? 'AUTHORIZED' : 'RESTRICTED'],
+      ['Primary Node (Address)', data.user.address || 'N/A']
     ],
-    theme: 'striped',
-    headStyles: { fillColor: PRIMARY_COLOR }
+    theme: 'grid',
+    headStyles: { fillColor: COLORS.SECONDARY },
+    columnStyles: { 0: { fontStyle: 'bold', width: 50 } }
   });
 
-  // Orders
+  // Order History
   if (data.orders && data.orders.length > 0) {
     doc.addPage();
-    addHeader(doc, 'ORDER ARCHIVE');
+    header('ORDER HISTORY ARCHIVE');
+    doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('2. COMMERCIAL TRANSACTIONS', margin, 55);
+
     (doc as any).autoTable({
-      startY: 50,
-      head: [['ID', 'Value', 'Method', 'ID Proof', 'Status', 'Timestamp']],
+      startY: 60,
+      margin: { left: margin, right: margin },
+      head: [['ID', 'Date', 'Value', 'Method', 'Status', 'Protocol ID']],
       body: data.orders.map((o: any) => [
-        o.order_id || `#${o.id}`,
+        `#ORD-${o.id}`,
+        format(new Date(o.created_at), 'dd/MM/yy'),
         `₹${o.total}`,
-        o.payment_method,
-        o.payment_id || 'N/A',
-        o.status,
-        new Date(o.created_at).toLocaleDateString()
+        o.payment_method?.toUpperCase(),
+        o.status?.toUpperCase(),
+        o.payment_id || o.payment_utr || 'N/A'
       ]),
-      headStyles: { fillColor: SECONDARY_COLOR }
+      headStyles: { fillColor: COLORS.PRIMARY },
+      styles: { fontSize: 8 }
     });
   }
 
-  // Transactions
+  // Wallet
   if (data.wallet && data.wallet.length > 0) {
     doc.addPage();
-    addHeader(doc, 'FINANCIAL LEDGER');
+    header('FINANCIAL LEDGER');
+    doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('3. WALLET OPERATIONS', margin, 55);
+
     (doc as any).autoTable({
-      startY: 50,
-      head: [['Ref', 'Flow', 'Value', 'Context', 'Execution Date']],
-      body: data.wallet.map((t: any) => [
-        t.id.toString().slice(-6).toUpperCase(),
-        t.type === 'credit' ? 'INFLOW' : 'OUTFLOW',
-        `₹${t.amount}`,
-        t.description || 'Generic Transfer',
-        new Date(t.created_at).toLocaleDateString()
+      startY: 60,
+      margin: { left: margin, right: margin },
+      head: [['Execution Date', 'Type', 'Value', 'Reference / Description']],
+      body: data.wallet.map((w: any) => [
+        format(new Date(w.created_at), 'dd/MM HH:mm'),
+        w.type === 'credit' ? 'INFLOW' : 'OUTFLOW',
+        `₹${w.amount}`,
+        w.description || 'N/A'
       ]),
-      headStyles: { fillColor: ACCENT_COLOR }
+      headStyles: { fillColor: COLORS.ACCENT },
+      styles: { fontSize: 8 }
     });
   }
 
-  doc.save(`HindStore_Data_${data.user.name.replace(/\s+/g, '_')}.pdf`);
+  // Page Numbers
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+  }
+
+  doc.save(`HindStore_Export_${data.user.name.replace(/\s+/g, '_')}.pdf`);
 };
 
-export const generateAdminCustomerReportPDF = (users: any[]) => {
+/**
+ * Enterprise Admin Report PDF Generator
+ */
+export const generateAdminReportPDF = (
+  title: string,
+  data: any[],
+  columns: { header: string; dataKey: string; halign?: 'left' | 'center' | 'right' }[]
+) => {
   const doc = new jsPDF();
-  
-  // Header
-  doc.setFillColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-  doc.rect(0, 0, 210, 45, 'F');
+  const margin = 15;
+  const pageWidth = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
+
+  // Header Bar
+  doc.setFillColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+  doc.rect(0, 0, pageWidth, 25, 'F');
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22);
+  doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text('CUSTOMER INTELLIGENCE REPORT', 14, 22);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Total Intelligence Pool: ${users.length} members | Generation Date: ${new Date().toLocaleString()}`, 14, 32);
+  doc.text(title.toUpperCase(), margin, 15);
+  doc.setFontSize(8);
+  doc.text(`GENERATED: ${format(new Date(), 'dd MMM yyyy, HH:mm')}`, pageWidth - margin, 15, { align: 'right' });
 
-  // Stats Summary
-  const totalWallet = users.reduce((acc, u) => acc + (parseFloat(u.wallet_balance) || 0), 0);
-  const totalKhata = users.reduce((acc, u) => acc + (parseFloat(u.khata_balance) || 0), 0);
-  const totalSpent = users.reduce((acc, u) => acc + (parseFloat(u.total_spent) || 0), 0);
-
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 55, 182, 35, 3, 3, 'F');
-  doc.setTextColor(SECONDARY_COLOR[0], SECONDARY_COLOR[1], SECONDARY_COLOR[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('AGGREGATED COMMERCIAL METRICS', 20, 65);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Total Liquid Wallet Exposure: ₹${totalWallet.toLocaleString()}`, 20, 75);
-  doc.text(`Total Credit (Khata) Utilization: ₹${totalKhata.toLocaleString()}`, 20, 81);
-  doc.text(`Aggregated Lifetime Sales: ₹${totalSpent.toLocaleString()}`, 110, 75);
-
-  // Table
   (doc as any).autoTable({
-    startY: 100,
-    head: [['Name', 'Phone', 'Segment', 'Wallet', 'Khata', 'Spent', 'Orders']],
-    body: users.map((u: any) => [
-      u.name,
-      u.phone,
-      u.computed_segment || u.segment || 'REGULAR',
-      `₹${u.wallet_balance}`,
-      `₹${u.khata_balance || 0}`,
-      `₹${u.total_spent || 0}`,
-      u.total_orders || 0
-    ]),
-    headStyles: { fillColor: PRIMARY_COLOR },
-    styles: { fontSize: 8 },
-    columnStyles: {
-      3: { halign: 'right' },
-      4: { halign: 'right' },
-      5: { halign: 'right' },
-      6: { halign: 'center' }
+    startY: 35,
+    margin: { left: margin, right: margin },
+    head: [columns.map(c => c.header)],
+    body: data.map(item => columns.map(c => item[c.dataKey])),
+    theme: 'striped',
+    headStyles: { fillColor: COLORS.PRIMARY, fontSize: 8 },
+    styles: { 
+      fontSize: 7,
+      cellPadding: 2,
+      overflow: 'linebreak'
+    },
+    columnStyles: columns.reduce((acc: any, c, idx) => {
+      if (c.halign) acc[idx] = { halign: c.halign };
+      return acc;
+    }, {}),
+    didDrawPage: (data: any) => {
+      const totalPages = doc.getNumberOfPages();
+      doc.setFontSize(8);
+      doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+      doc.text(
+        `Page ${data.pageNumber} of ${totalPages}`,
+        pageWidth / 2,
+        pageHeight - 5,
+        { align: 'center' }
+      );
     }
   });
 
-  doc.save(`Customer_Intelligence_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+  doc.save(`${title.replace(/\s+/g, '_')}_${format(new Date(), 'yyyyMMdd_HHmm')}.pdf`);
 };
-

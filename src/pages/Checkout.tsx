@@ -13,6 +13,8 @@ import { cn, calculateBulkDiscount } from '../lib/utils';
 import { handleAppError } from '../lib/errorUtils';
 import { QRCodeCanvas } from 'qrcode.react';
 import InfoButton from '../components/InfoButton';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 
 type Step = 'address' | 'payment_method' | 'review' | 'awaiting_payment' | 'confirmation';
 
@@ -100,10 +102,10 @@ export default function Checkout() {
   const isLoggedIn = !!user;
 
   useEffect(() => {
-    fetch('/api/delivery-areas')
-      .then(res => res.json())
-      .then(data => setDeliveryAreas(data))
-      .catch(console.error);
+    fetchWithHandling<any[]>('/api/delivery-areas')
+      .then(data => {
+        if (data) setDeliveryAreas(data);
+      });
   }, []);
 
   const [addressConfirmed, setAddressConfirmed] = useState(false);
@@ -236,9 +238,9 @@ export default function Checkout() {
 
     setIsProcessing(true);
     try {
-      const res = await fetch('/api/orders', {
+      const data = await fetchWithHandling<any>('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           user_id: user?.id || null,
           items: cartWithDiscounts.map(item => ({
@@ -260,21 +262,17 @@ export default function Checkout() {
         })
       });
 
-      const data = await res.json();
+      if (data) {
+        setPendingOrder(data.order);
 
-      if (!res.ok) {
-        throw new Error(data.message || 'Failed to place order.');
-      }
-
-      setPendingOrder(data.order);
-
-      if (method === 'upi') {
-        setStep('awaiting_payment');
-      } else {
-        toast.success('Order placed successfully!');
-        clearCart();
-        fetchUser(); 
-        setStep('confirmation');
+        if (method === 'upi') {
+          setStep('awaiting_payment');
+        } else {
+          toast.success('Order placed successfully!');
+          clearCart();
+          fetchUser(); 
+          setStep('confirmation');
+        }
       }
 
     } catch (err: any) {
@@ -290,14 +288,13 @@ export default function Checkout() {
     if (step === 'awaiting_payment' && pendingOrder) {
       interval = setInterval(async () => {
         try {
-          const res = await fetch(`/api/orders/${pendingOrder.id}`);
-          const data = await res.json();
-          if (data.status === 'paid' || data.status === 'PAID') {
+          const data = await fetchWithHandling<any>(`/api/orders/${pendingOrder.id}`, { headers: getAuthHeaders() });
+          if (data && (data.status === 'paid' || data.status === 'PAID')) {
             toast.success('Payment received successfully! ✅');
             clearCart();
             fetchUser();
             setStep('confirmation');
-          } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+          } else if (data && (data.status === 'FAILED' || data.status === 'EXPIRED')) {
             toast.error('Payment verification failed or expired.');
             setStep('payment_method');
           }
@@ -347,8 +344,8 @@ export default function Checkout() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 xl:gap-12">
+          <div className="xl:col-span-2">
             <AnimatePresence mode="wait">
               {step === 'address' && (
                 <motion.div 

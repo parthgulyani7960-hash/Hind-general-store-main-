@@ -1,6 +1,6 @@
 import React, { ErrorInfo, ReactNode } from 'react';
 import toast from 'react-hot-toast';
-import { reportError } from '../lib/errorReporter';
+import { errorService, ErrorType } from '../lib/errorReporting';
 
 interface Props {
   children: ReactNode;
@@ -11,9 +11,6 @@ interface State {
 }
 
 export default class ErrorBoundary extends React.Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-  }
   public state: State = {
     hasError: false
   };
@@ -23,14 +20,13 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
-    toast.error("An unexpected error occurred. Please refresh the page.");
+    console.error("Uncaught render error:", error, errorInfo);
     
-    reportError({
-      message: error.message || 'Unknown render error',
-      componentStack: errorInfo.componentStack?.substring(0, 500) || 'No stack trace',
-      path: window.location.pathname,
-      logs: []
+    errorService.report({
+      type: ErrorType.RENDER_ERROR,
+      message: error.message || 'React Render Crash',
+      stack: errorInfo.componentStack || undefined,
+      metadata: { component: 'GlobalErrorBoundary' }
     });
   }
 

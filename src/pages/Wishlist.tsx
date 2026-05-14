@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { Product } from '../types';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
+import { fetchWithHandling } from '../lib/api';
 
 export default function Wishlist() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -12,11 +13,12 @@ export default function Wishlist() {
   const { wishlist, toggleWishlist, addToCart } = useStore();
 
   useEffect(() => {
-    fetch('/api/products')
-      .then(res => res.json())
+    fetchWithHandling<any>('/api/products')
       .then(data => {
-        setProducts(data.filter((p: Product) => wishlist.includes(p.id)));
-        setLoading(false);
+        if (data) {
+          setProducts(data.filter((p: Product) => wishlist.includes(p.id)));
+          setLoading(false);
+        }
       });
   }, [wishlist]);
 

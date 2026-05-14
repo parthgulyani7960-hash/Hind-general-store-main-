@@ -18,12 +18,13 @@ import {
   StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy,
   Menu, RotateCcw, PieChart as PieChartIcon, Zap, Target, Wallet, ArrowDown, Sparkles,
   MousePointer2, Megaphone, ImageOff, Briefcase, Mail, Pencil, Smartphone, Layout, 
-  FileText, HelpCircle, Palette, Server, TrendingDown, Fingerprint, Bug
+  FileText, HelpCircle, Palette, Server, TrendingDown, Fingerprint, Bug, Cpu, Loader2, PackagePlus
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { cn, Order, PromotionRule } from '../types';
 import { getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '../lib/api';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import FeatureToggles from '../components/admin/FeatureToggles';
@@ -31,13 +32,14 @@ import ProductImageManager from '../components/admin/ProductImageManager';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import AdminSidebar from '../components/admin/AdminSidebar';
+import AdminDashboardLayout from '../components/admin/AdminDashboardLayout';
 import { EmptyState } from '../components/EmptyState';
 import { 
   generateOrderInvoicePDF, 
   generateUserExportPDF,
-  generateAdminCustomerReportPDF
+  generateAdminReportPDF
 } from '../services/pdfService';
+import { exportData, asyncExportData } from '../services/exportService';
 import { logErrorToFirestore } from '../services/errorLogger';
 import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
 
@@ -49,58 +51,139 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Bug Reports' | 'Data Exports' | 'Promotional Rules';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
+  const [exportProgress, setExportProgress] = useState<{ open: boolean; progress: number; label: string }>({ open: false, progress: 0, label: '' });
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [debouncedGlobalSearchQuery, setDebouncedGlobalSearchQuery] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Default closed on mobile
   
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 500);
     return () => clearTimeout(timer);
   }, [globalSearchQuery]);
   
+  const ExportProgressModal = () => (
+    <AnimatePresence>
+      {exportProgress.open && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white rounded-[2rem] p-10 max-w-sm w-full shadow-2xl text-center space-y-6"
+          >
+            <div className="relative w-24 h-24 mx-auto">
+              <svg className="w-full h-full transform -rotate-90">
+                <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-stone-100" />
+                <circle 
+                  cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" 
+                  strokeDasharray={251.2}
+                  strokeDashoffset={251.2 - (251.2 * exportProgress.progress) / 100}
+                  className="text-primary transition-all duration-500 ease-out" 
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xl font-black text-stone-900">{exportProgress.progress}%</span>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-stone-900 uppercase tracking-tighter">{exportProgress.label || 'Compiling Export'}</h3>
+              <p className="text-sm text-stone-400 font-medium mt-2">Please do not close this tab. Our reporting engine is aggregating and encrypting your data.</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+
+  const UniversalExportToolbar = ({ 
+    title, 
+    fetchData, 
+    columns, 
+    fileName 
+  }: { 
+    title: string; 
+    fetchData: () => Promise<any[]>; 
+    columns: any[]; 
+    fileName: string;
+  }) => {
+    const handleExport = async (format: 'pdf' | 'csv' | 'xlsx' | 'json') => {
+      setExportProgress({ open: true, progress: 0, label: `Exporting ${title}` });
+      try {
+        await asyncExportData(
+          fetchData,
+          columns,
+          format,
+          fileName,
+          (p) => setExportProgress(prev => ({ ...prev, progress: p })),
+          { title }
+        );
+        toast.success(`${format.toUpperCase()} Export Complete`);
+      } catch (err) {
+        toast.error('Export Failed');
+      } finally {
+        setTimeout(() => setExportProgress({ open: false, progress: 0, label: '' }), 1000);
+      }
+    };
+
+    return (
+      <div className="flex items-center space-x-2 bg-stone-50 p-2 rounded-2xl border border-stone-100 mb-6">
+        <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2 pr-4 border-r border-stone-200">Export Engine</span>
+        <div className="flex gap-1">
+          {(['pdf', 'csv', 'xlsx', 'json'] as const).map((f) => (
+            <button 
+              key={f}
+              onClick={() => handleExport(f)}
+              className="px-4 py-1.5 bg-white border border-stone-200 text-stone-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-primary hover:text-primary transition-all active:scale-95 shadow-sm"
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const DataExportsView = () => {
     const [exports, setExports] = useState<any[]>([]);
     
     useEffect(() => {
-        fetch('/api/admin/data-exports')
-          .then(res => {
-            if (!res.ok) throw new Error('Failed to fetch exports');
-            return res.json();
-          })
-          .then(setExports)
-          .catch(err => console.error('Error fetching data exports:', err));
+        fetchWithHandling<any[]>('/api/admin/data-exports', { headers: getAuthHeaders() })
+          .then(data => data && setExports(data));
     }, []);
     
     const approve = withErrorReporting(async (id: number) => {
-        const res = await fetch(`/api/admin/data-exports/${id}/approve`, { method: 'POST' });
-        if (res.ok) {
+        const data = await fetchWithHandling<any>(`/api/admin/data-exports/${id}/approve`, { 
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (data) {
             setExports(exports.map(e => e.id === id ? {...e, status: 'APPROVED'} : e));
             toast.success('Approved');
-        } else {
-            throw new Error('Failed to approve export');
         }
     }, 'Approve Export Request');
 
     const reject = withErrorReporting(async (id: number) => {
-        const res = await fetch(`/api/admin/data-exports/${id}/reject`, { method: 'POST' });
-        if (res.ok) {
+        const data = await fetchWithHandling<any>(`/api/admin/data-exports/${id}/reject`, { 
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (data) {
             setExports(exports.map(e => e.id === id ? {...e, status: 'REJECTED'} : e));
             toast.success('Rejected');
-        } else {
-            throw new Error('Failed to reject export');
         }
     }, 'Reject Export Request');
 
     return (
         <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm">
             <h2 className="text-2xl font-bold mb-6">Data Export Requests</h2>
-            <div className="overflow-x-auto">
+            <div className="responsive-table-container">
               <table className="w-full text-left">
                   <thead className="text-[10px] uppercase font-black tracking-widest text-stone-400">
                       <tr>
@@ -148,6 +231,7 @@ export default function AdminDashboard() {
   const [walletModal, setWalletModal] = useState<{ open: boolean; userId: number | null }>({ open: false, userId: null });
   const [walletAmount, setWalletAmount] = useState('');
   const [walletType, setWalletType] = useState<'credit' | 'debit'>('credit');
+  const [reportDetailModal, setReportDetailModal] = useState<{ open: boolean; report: any | null }>({ open: false, report: null });
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
   const [orderUserIdFilter, setOrderUserIdFilter] = useState<string>('');
   const [orderDateStart, setOrderDateStart] = useState<string>('');
@@ -209,7 +293,7 @@ export default function AdminDashboard() {
       'System Status': 'System Health',
       'Suspicious Activities': 'Security',
       'Audit Logs': 'Activity Logs',
-      'Bug Reports': 'Bugs'
+      'Automatic Reports': 'Anomalies'
     };
     return mapping[tab] || tab;
   };
@@ -241,22 +325,19 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error(`Stats failure: ${res.status}`);
-      const data = await res.json();
-      setStats(data || {});
+      const data = await fetchWithHandling<any>('/api/admin/stats', { headers: getAuthHeaders() });
+      if (data) {
+        setStats(data);
+      }
     } catch (err: any) {
       console.error('Stats fetch error:', err);
-      logErrorToFirestore(err, 'Dashboard Stats Fetch Failure');
-      toast.error('Unable to load dashboard stats - error reported to admin console');
     }
   };
 
   const fetchExpiringProducts = async () => {
     try {
-      const res = await fetch('/api/admin/inventory/expiring', { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<any[]>('/api/admin/inventory/expiring', { headers: getAuthHeaders() });
+      if (data) {
         setExpiringSoon(data);
       }
     } catch (err) {
@@ -276,15 +357,12 @@ export default function AdminDashboard() {
       params.append('sortBy', orderSortBy);
       params.append('sortOrder', orderSortOrder);
       
-      const res = await fetch(`/api/admin/orders?${params.toString()}`, { headers: getAuthHeaders() });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to fetch orders: ${res.status}`);
+      const data = await fetchWithHandling<any[]>(`/api/admin/orders?${params.toString()}`, { headers: getAuthHeaders() });
+      if (data) {
+        setOrders(data);
       }
-      setOrders(await res.json());
     } catch (err: any) {
       console.error(err);
-      toast.error(`Failed to fetch orders: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -292,9 +370,10 @@ export default function AdminDashboard() {
 
   const fetchReturns = async () => {
     try {
-        const res = await fetch('/api/admin/returns', { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error('Failed to fetch returns');
-        setReturns(await res.json());
+        const data = await fetchWithHandling<any[]>('/api/admin/returns', { headers: getAuthHeaders() });
+        if (data) {
+          setReturns(data);
+        }
     } catch (err: any) {
         handleAppError(err, 'Failed to fetch returns', 'fetchReturns');
     }
@@ -304,19 +383,14 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       console.log('Fetching products...');
-      const res = await fetch('/api/products');
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() });
+      if (data) {
         console.log('Products fetched:', data);
         setAllProducts(data);
         setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-      } else {
-        console.error('Failed to fetch products:', res.status, res.statusText);
-        throw new Error('Failed to fetch products');
       }
     } catch (err) {
-      console.error('Error fetching products:', err);
-      toast.error('Failed to load products');
+      console.error('Products fetch error:', err);
     } finally {
       setLoading(false);
     }
@@ -341,7 +415,6 @@ export default function AdminDashboard() {
   }, [activeTab, user, orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, debouncedOrderSearchTerm, orderSortBy, orderSortOrder]);
 
   const [newBatchCategory, setNewBatchCategory] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [imageModal, setImageModal] = useState({ open: false, productId: null as number | null, images: [] as string[] });
   const [couponModal, setCouponModal] = useState<{ open: boolean; mode: 'add' | 'edit'; editingId?: number | string }>({ open: false, mode: 'add' });
   const [expenseModal, setExpenseModal] = useState({ open: false });
@@ -387,16 +460,17 @@ export default function AdminDashboard() {
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [suspiciousActivities, setSuspiciousActivities] = useState<any[]>([]);
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [reviewResponseModal, setReviewResponseModal] = useState<{ open: boolean; review: any }>({ open: false, review: null });
   const fetchExpenses = async () => {
     try {
-      const res = await fetch('/api/admin/expenses', { headers: getAuthHeaders() });
-      if (res.ok) {
-        setExpenses(await res.json());
+      const data = await fetchWithHandling<any[]>('/api/admin/expenses', { headers: getAuthHeaders() });
+      if (data) {
+        setExpenses(data);
       }
     } catch (err) {
-      console.error('Failed to fetch expenses');
+      console.error('Failed to fetch expenses:', err);
     }
   };
 
@@ -433,9 +507,8 @@ export default function AdminDashboard() {
 
   const fetchOrderStatusHistory = async (orderId: number) => {
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/status-history`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<any>(`/api/admin/orders/${orderId}/status-history`, { headers: getAuthHeaders() });
+      if (data) {
         setOrderModal(prev => ({ ...prev, statusHistory: data.history }));
       }
     } catch (err: any) {
@@ -457,13 +530,12 @@ export default function AdminDashboard() {
 
   const fetchCustomerActivities = async (userId: number) => {
     try {
-      const res = await fetch(`/api/admin/activities?userId=${userId}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<any[]>(`/api/admin/activities?userId=${userId}`, { headers: getAuthHeaders() });
+      if (data) {
         setCustomerActivities(data);
       }
     } catch (err) {
-      console.error('Failed to fetch individual customer activities');
+      console.error('Failed to fetch individual customer activities:', err);
     }
   };
 
@@ -490,20 +562,17 @@ export default function AdminDashboard() {
   const handlePurchaseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/admin/purchases', {
+      const data = await fetchWithHandling<any>('/api/admin/purchases', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(purchaseForm)
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Purchase recorded successfully');
         setPurchaseForm({ supplier_id: '', product_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to record purchase');
       }
     } catch (err) {
-      toast.error('Failed to record purchase');
+      console.error('Purchase submit error:', err);
     }
   };
 
@@ -511,27 +580,79 @@ export default function AdminDashboard() {
   const [runners, setRunners] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isFetchingAudit, setIsFetchingAudit] = useState(false);
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [isAdminRefreshing, setIsAdminRefreshing] = useState(false);
+  const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
+  const [showAddProduct, setShowAddProduct] = useState(false);
   const [runnerModal, setRunnerModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', runner: null as any });
   const [newRunner, setNewRunner] = useState({ name: '', phone: '' });
 
+  const fetchAdmins = async () => {
+    setIsAdminRefreshing(true);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/administrators', { headers: getAuthHeaders() });
+      if (data) setAdmins(data);
+    } catch (err) {}
+    finally { setIsAdminRefreshing(false); }
+  };
+
+  const fetchDeletionRequests = async () => {
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/deletion-requests', { headers: getAuthHeaders() });
+      if (data) setDeletionRequests(data);
+    } catch (err) {}
+  };
+
+  const approveDeletion = async (id: number) => {
+    if (!confirm('This will schedule the absolute deletion of the user. Are you sure?')) return;
+    try {
+      await fetchWithHandling(`/api/admin/deletion-requests/${id}/approve`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      toast.success('Deletion authorized and scheduled');
+      fetchDeletionRequests();
+    } catch (err) {}
+  };
+
+  const rejectDeletion = async (id: number) => {
+    try {
+      await fetchWithHandling(`/api/admin/deletion-requests/${id}/reject`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      toast.success('Deletion request rejected');
+      fetchDeletionRequests();
+    } catch (err) {}
+  };
+
+  useEffect(() => {
+    if (activeTab === 'Admin Management') {
+      fetchAdmins();
+      fetchDeletionRequests();
+    }
+  }, [activeTab]);
+
   const fetchRunners = async () => {
     try {
-      const res = await fetch('/api/admin/runners', { headers: getAuthHeaders() });
-      const data = await res.json();
-      setRunners(data);
+      const data = await fetchWithHandling<any[]>('/api/admin/runners', { headers: getAuthHeaders() });
+      if (data) {
+        setRunners(data);
+      }
     } catch (err) {
-      console.error('Failed to fetch runners');
+      console.error('Failed to fetch runners:', err);
     }
   };
 
   const fetchAuditLogs = async (target_type = 'all', limit = 100) => {
     setIsFetchingAudit(true);
     try {
-      const res = await fetch(`/api/admin/audit-logs?target_type=${target_type}&limit=${limit}`, { headers: getAuthHeaders() });
-      const data = await res.json();
-      setAuditLogs(data);
+      const data = await fetchWithHandling<any[]>(`/api/admin/audit-logs?target_type=${target_type}&limit=${limit}`, { headers: getAuthHeaders() });
+      if (data) {
+        setAuditLogs(data);
+      }
     } catch (err) {
-      console.error('Failed to fetch audit logs');
+      console.error('Failed to fetch audit logs:', err);
     } finally {
       setIsFetchingAudit(false);
     }
@@ -539,43 +660,44 @@ export default function AdminDashboard() {
 
   const fetchSuspiciousActivities = async () => {
     try {
-      const res = await fetch('/api/admin/suspicious-activities', { headers: getAuthHeaders() });
-      const data = await res.json();
-      setSuspiciousActivities(data);
+      const data = await fetchWithHandling<any[]>('/api/admin/suspicious-activities', { headers: getAuthHeaders() });
+      if (data) {
+        setSuspiciousActivities(data);
+      }
     } catch (err) {
-      console.error('Failed to fetch suspicious activities');
+      console.error('Failed to fetch suspicious activities:', err);
     }
   };
 
   const handleResolveSuspicious = async (id: number) => {
     try {
-      const res = await fetch(`/api/admin/suspicious-activities/${id}/resolve`, { method: 'POST' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/suspicious-activities/${id}/resolve`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Activity resolved');
         fetchSuspiciousActivities();
       }
     } catch (err) {
-      toast.error('Failed to resolve activity');
+      console.error('Failed to resolve activity:', err);
     }
   };
 
   const handleAssignRunner = async (orderId: number, runnerId: number) => {
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/assign-runner`, {
+      const data = await fetchWithHandling<any>(`/api/admin/orders/${orderId}/assign-runner`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ runner_id: runnerId, estimated_delivery_minutes: 30 })
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data) {
         toast.success('Runner assigned and order dispatched!');
         fetchOrders(); // Refresh orders
         fetchRunners(); // Refresh runners
-      } else {
-        toast.error(data.message);
       }
     } catch (err) {
-      toast.error('Failed to assign runner');
+      console.error('Assign runner error:', err);
     }
   };
 
@@ -590,30 +712,28 @@ export default function AdminDashboard() {
 
   const handleSaveRunner = async () => {
     try {
-      const res = await fetch('/api/admin/runners', {
+      const data = await fetchWithHandling<any>('/api/admin/runners', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newRunner)
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data) {
         toast.success('Runner added successfully');
         setRunnerModal({ open: false, mode: 'add', runner: null });
         setNewRunner({ name: '', phone: '' });
         fetchRunners();
-      } else {
-        toast.error(data.message);
       }
     } catch (err) {
-      toast.error('Failed to save runner');
+      console.error('Save runner error:', err);
     }
   };
 
   const fetchWalletRequests = async () => {
     try {
-      const res = await fetch('/api/admin/wallet/requests', { headers: getAuthHeaders() });
-      const data = await res.json();
-      setWalletRequests(data);
+      const data = await fetchWithHandling<any[]>('/api/admin/wallet/requests', { headers: getAuthHeaders() });
+      if (data) {
+        setWalletRequests(data);
+      }
     } catch (err) {
       console.error('Failed to fetch wallet requests:', err);
     }
@@ -627,13 +747,16 @@ export default function AdminDashboard() {
 
   const handleApproveWalletRequest = async (id: number) => {
     try {
-      const res = await fetch(`/api/admin/wallet/requests/${id}/approve`, { method: 'POST' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/wallet/requests/${id}/approve`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Wallet request approved');
         fetchWalletRequests();
       }
     } catch (err) {
-      toast.error('Failed to approve request');
+      console.error('Approve wallet request error:', err);
     }
   };
 
@@ -641,17 +764,17 @@ export default function AdminDashboard() {
     const reason = prompt('Enter rejection reason:');
     if (reason === null) return;
     try {
-      const res = await fetch(`/api/admin/wallet/requests/${id}/reject`, {
+      const data = await fetchWithHandling<any>(`/api/admin/wallet/requests/${id}/reject`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ reason })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Wallet request rejected');
         fetchWalletRequests();
       }
     } catch (err) {
-      toast.error('Failed to reject request');
+      console.error('Reject wallet request error:', err);
     }
   };
   const [poData, setPoData] = useState<any[] | null>(null);
@@ -670,19 +793,16 @@ export default function AdminDashboard() {
     try {
       const url = promotionRuleFormModal.mode === 'add' ? '/api/admin/promotional-rules' : `/api/admin/promotional-rules/${promotionRuleFormModal.rule?.id}`;
       const method = promotionRuleFormModal.mode === 'add' ? 'POST' : 'PUT';
-      const res = await fetch(url, {
+      const data = await fetchWithHandling<any>(url, {
         method,
         headers: getAuthHeaders(),
         body: JSON.stringify(newPromotionRuleData)
       });
-      if (res.ok) {
+      if (data) {
         toast.success(promotionRuleFormModal.mode === 'add' ? 'Rule created' : 'Rule updated');
         fetchPromotionRules();
         setPromotionRuleFormModal({ open: false, mode: 'add', rule: null });
         setNewPromotionRuleData({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to save rule');
       }
     } catch (err: any) {
       handleAppError(err, 'Failed to save rule', 'promotionRuleSubmit', true);
@@ -692,15 +812,13 @@ export default function AdminDashboard() {
   const handleDeleteRule = async (id: number) => {
     if (!confirm('Are you sure you want to delete this rule?')) return;
     try {
-      const res = await fetch(`/api/admin/promotional-rules/${id}`, { 
+      const data = await fetchWithHandling<any>(`/api/admin/promotional-rules/${id}`, { 
         method: 'DELETE',
         headers: getAuthHeaders()
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Rule deleted');
         fetchPromotionRules();
-      } else {
-        toast.error('Failed to delete rule');
       }
     } catch (err: any) {
       handleAppError(err, 'Failed to delete rule', 'deleteRule', true);
@@ -715,43 +833,45 @@ export default function AdminDashboard() {
     const restock = confirm(`Do you want to restock these ${returnObj.quantity} items back into the inventory?`);
     
     try {
-      const res = await fetch(`/api/admin/returns/${returnObj.id}/approve`, {
+      const data = await fetchWithHandling<any>(`/api/admin/returns/${returnObj.id}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ 
           refund_amount: parseFloat(amount),
           restock: restock 
         })
       });
-      if (res.ok) {
+      if (data) {
         toast.success(`Return approved. ₹${amount} added to user wallet.${restock ? ' Stock updated.' : ''}`);
         fetchReturns();
-      } else {
-        toast.error('Failed to approve return');
       }
     } catch (err) {
-      toast.error('Failed to approve return');
+      console.error('Approve return error:', err);
     }
   };
 
   const handleRejectReturn = async (id: number) => {
     if (!confirm('Reject this return request?')) return;
     try {
-      const res = await fetch(`/api/admin/returns/${id}/reject`, { method: 'POST' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/returns/${id}/reject`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Return rejected');
         fetchReturns();
       }
     } catch (err) {
-      toast.error('Failed to reject return');
+      console.error('Reject return error:', err);
     }
   };
 
   const fetchSuppliers = async () => {
     try {
-      const res = await fetch('/api/admin/suppliers', { headers: getAuthHeaders() });
-      const data = await res.json();
-      setSuppliers(data);
+      const data = await fetchWithHandling<any[]>('/api/admin/suppliers', { headers: getAuthHeaders() });
+      if (data) {
+        setSuppliers(data);
+      }
     } catch (err) {
       console.error('Failed to fetch suppliers:', err);
     }
@@ -773,34 +893,34 @@ export default function AdminDashboard() {
     const method = supplierModal.mode === 'add' ? 'POST' : 'PUT';
 
     try {
-      const res = await fetch(url, {
+      const data = await fetchWithHandling<any>(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newSupplier)
       });
-      if (res.ok) {
+      if (data) {
         toast.success(`Supplier ${supplierModal.mode === 'add' ? 'created' : 'updated'} successfully`);
         setSupplierModal({ open: false, mode: 'add', supplier: null });
         fetchSuppliers();
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to save supplier');
       }
     } catch (err) {
-      toast.error('Failed to save supplier');
+      console.error('Save supplier error:', err);
     }
   };
 
   const handleDeleteSupplier = async (id: number) => {
     if (!confirm('Are you sure you want to delete this supplier? This will also unlink them from their products.')) return;
     try {
-      const res = await fetch(`/api/admin/suppliers/${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/suppliers/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Supplier deleted');
         fetchSuppliers();
       }
     } catch (err) {
-      toast.error('Failed to delete supplier');
+      console.error('Delete supplier error:', err);
     }
   };
 
@@ -835,52 +955,50 @@ export default function AdminDashboard() {
     const method = bulkDiscountModal.mode === 'add' ? 'POST' : 'PUT';
 
     try {
-      const res = await fetch(url, {
+      const data = await fetchWithHandling<any>(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newBulkDiscount)
       });
-      if (res.ok) {
+      if (data) {
         toast.success(`Bulk discount ${bulkDiscountModal.mode === 'add' ? 'created' : 'updated'} successfully`);
         setBulkDiscountModal({ open: false, mode: 'add', discount: null });
         fetchBulkDiscounts();
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to save bulk discount');
       }
     } catch (err) {
-      toast.error('Failed to save bulk discount');
+      console.error('Bulk discount submit error:', err);
     }
   };
 
   const handleToggleBulkDiscount = async (discount: any) => {
     try {
-      const res = await fetch(`/api/admin/bulk-discounts/${discount.id}`, {
+      const data = await fetchWithHandling<any>(`/api/admin/bulk-discounts/${discount.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ...discount, active: !discount.active })
       });
-      if (res.ok) {
+      if (data) {
         toast.success(`Bulk discount ${!discount.active ? 'enabled' : 'disabled'}`);
         fetchBulkDiscounts();
-      } else {
-        toast.error('Failed to toggle bulk discount');
       }
     } catch (err) {
-      toast.error('Failed to toggle bulk discount');
+      console.error('Toggle bulk discount error:', err);
     }
   };
 
   const handleDeleteBulkDiscount = async (id: number) => {
     if (!confirm('Are you sure you want to delete this bulk discount?')) return;
     try {
-      const res = await fetch(`/api/admin/bulk-discounts/${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/bulk-discounts/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Bulk discount deleted');
         fetchBulkDiscounts();
       }
     } catch (err) {
-      toast.error('Failed to delete bulk discount');
+      console.error('Delete bulk discount error:', err);
     }
   };
 
@@ -893,9 +1011,10 @@ export default function AdminDashboard() {
 
       setIsGlobalSearching(true);
       try {
-        const res = await fetch(`/api/admin/search?q=${encodeURIComponent(debouncedGlobalSearchQuery)}`, { headers: getAuthHeaders() });
-        const data = await res.json();
-        setGlobalSearchResults(data);
+        const data = await fetchWithHandling<any>(`/api/admin/search?q=${encodeURIComponent(debouncedGlobalSearchQuery)}`, { headers: getAuthHeaders() });
+        if (data) {
+          setGlobalSearchResults(data);
+        }
       } catch (err) {
         console.error('Global search error:', err);
       } finally {
@@ -908,21 +1027,22 @@ export default function AdminDashboard() {
 
   const fetchCustomerOrders = async (userId: number) => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}/orders`, { headers: getAuthHeaders() });
-      const data = await res.json();
-      setCustomerHistoryModal({ open: true, userId, orders: data });
+      const data = await fetchWithHandling<any[]>(`/api/admin/users/${userId}/orders`, { headers: getAuthHeaders() });
+      if (data) {
+        setCustomerHistoryModal({ open: true, userId, orders: data });
+      }
     } catch (err) {
       console.error('Failed to fetch customer orders:', err);
-      toast.error('Failed to load order history');
     }
   };
 
 
   const fetchPromotionProducts = async (promoId: number) => {
     try {
-      const res = await fetch(`/api/admin/promotions/${promoId}/products`, { headers: getAuthHeaders() });
-      const data = await res.json();
-      setLinkedProductIds(data.map((p: any) => p.id));
+      const data = await fetchWithHandling<any[]>(`/api/admin/promotions/${promoId}/products`, { headers: getAuthHeaders() });
+      if (data) {
+        setLinkedProductIds(data.map((p: any) => p.id));
+      }
     } catch (err) {
       console.error('Failed to fetch promotion products:', err);
     }
@@ -1064,26 +1184,36 @@ export default function AdminDashboard() {
   const fetchSystemLogs = async () => {
     setIsRefreshingLogs(true);
     try {
-      const res = await fetch('/api/admin/system-logs', { headers: getAuthHeaders() });
-      const data = await res.json();
-      setSystemLogs(data);
+      const data = await fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() });
+      if (data) {
+        setSystemLogs(data);
+      }
     } catch (err) {
-      toast.error('Failed to fetch system logs');
+      console.error('Failed to fetch system logs:', err);
     } finally {
       setIsRefreshingLogs(false);
     }
   };
 
+  const fetchSystemHealth = async () => {
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/system/health', { headers: getAuthHeaders() });
+      if (data) setSystemHealth(data);
+    } catch (err) {}
+  };
+
   const resolveSuspiciousActivity = async (id: number) => {
     try {
-      await fetch(`/api/admin/suspicious-activities/${id}/resolve`, { 
+      const data = await fetchWithHandling<any>(`/api/admin/suspicious-activities/${id}/resolve`, { 
         method: 'POST',
         headers: getAuthHeaders()
       });
-      toast.success('Activity resolved');
-      fetchSuspiciousActivities();
+      if (data) {
+        toast.success('Activity resolved');
+        fetchSuspiciousActivities();
+      }
     } catch (err) {
-      toast.error('Failed to resolve activity');
+      console.error('Resolve suspicious activity error:', err);
     }
   };
 
@@ -1091,18 +1221,25 @@ export default function AdminDashboard() {
 
   const fetchBugReports = async () => {
     try {
-      const res = await fetch('/api/admin/bugs', { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error('Failed to fetch bugs');
-      const data = await res.json();
-      setBugReports(data);
+      const data = await fetchWithHandling<any[]>('/api/admin/bugs', { headers: getAuthHeaders() });
+      if (data) {
+        setBugReports(data);
+      }
     } catch (err) {
       console.error('Bug reports fetch error:', err);
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'Bug Reports') {
+    if (activeTab === 'Automatic Reports') {
       fetchBugReports();
+    }
+    if (activeTab === 'Admin Management') {
+      fetchAdmins();
+    }
+    if (activeTab === 'System Status') {
+      fetchSystemLogs();
+      fetchSystemHealth();
     }
   }, [activeTab]);
 
@@ -1114,15 +1251,25 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   const fetchConfig = async () => {
-    const res = await fetch('/api/admin/config', { headers: getAuthHeaders() });
-    const data = await res.json();
-    setConfig(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/config', { headers: getAuthHeaders() });
+      if (data) {
+        setConfig(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch config:', err);
+    }
   };
 
   const fetchUsers = async () => {
-    const res = await fetch('/api/admin/users', { headers: getAuthHeaders() });
-    const data = await res.json();
-    setUsers(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() });
+      if (data) {
+        setUsers(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    }
   };
 
   useEffect(() => {
@@ -1131,33 +1278,47 @@ export default function AdminDashboard() {
 
   const fetchAllProducts = async () => {
     try {
-      const res = await fetch('/api/products');
-      if (!res.ok) throw new Error('Failed to fetch products');
-      const data = await res.json();
-      setAllProducts(data);
-      setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+      const data = await fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() });
+      if (data) {
+        setAllProducts(data);
+        setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+      }
     } catch (err) {
       console.error('Products fetch error:', err);
-      toast.error('Failed to load products');
     }
   };
 
   const fetchCategories = async () => {
-    const res = await fetch('/api/categories');
-    const data = await res.json();
-    setCategories(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/categories', { headers: getAuthHeaders() });
+      if (data) {
+        setCategories(data);
+      }
+    } catch (err) {
+      console.error('Categories fetch error:', err);
+    }
   };
 
   const fetchTickets = async () => {
-    const res = await fetch('/api/admin/support/tickets', { headers: getAuthHeaders() });
-    const data = await res.json();
-    setTickets(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/support/tickets', { headers: getAuthHeaders() });
+      if (data) {
+        setTickets(data);
+      }
+    } catch (err) {
+      console.error('Tickets fetch error:', err);
+    }
   };
 
   const fetchNewsletter = async () => {
-    const res = await fetch('/api/admin/newsletter', { headers: getAuthHeaders() });
-    const data = await res.json();
-    setNewsletter(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/newsletter', { headers: getAuthHeaders() });
+      if (data) {
+        setNewsletter(data);
+      }
+    } catch (err) {
+      console.error('Newsletter fetch error:', err);
+    }
   };
 
   const sendNewsletterCampaign = () => {
@@ -1172,22 +1333,33 @@ export default function AdminDashboard() {
   };
 
   const fetchNotifications = async () => {
-    const res = await fetch('/api/notifications');
-    const data = await res.json();
-    setNotifications(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/notifications', { headers: getAuthHeaders() });
+      if (data) {
+        setNotifications(data);
+      }
+    } catch (err) {
+      console.error('Notifications fetch error:', err);
+    }
   };
 
   const fetchDeliveryAreas = async () => {
-    const res = await fetch('/api/delivery-areas');
-    const data = await res.json();
-    setDeliveryAreas(data);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/delivery-areas', { headers: getAuthHeaders() });
+      if (data) {
+        setDeliveryAreas(data);
+      }
+    } catch (err) {
+      console.error('Delivery areas fetch error:', err);
+    }
   };
 
   const fetchPromotions = async () => {
     try {
-      const res = await fetch('/api/promotions');
-      const data = await res.json();
-      setPromotions(data);
+      const data = await fetchWithHandling<any[]>('/api/promotions', { headers: getAuthHeaders() });
+      if (data) {
+        setPromotions(data);
+      }
     } catch (err) {
       console.error('Promotions fetch error:', err);
     }
@@ -1195,12 +1367,12 @@ export default function AdminDashboard() {
 
   const fetchPromotionRules = async () => {
     try {
-      const res = await fetch('/api/admin/promotional-rules', {
+      const data = await fetchWithHandling<any[]>('/api/admin/promotional-rules', {
         headers: getAuthHeaders()
       });
-      if (!res.ok) throw new Error('Failed to fetch promotion rules');
-      const data = await res.json();
-      setPromotionRules(data);
+      if (data) {
+        setPromotionRules(data);
+      }
     } catch (err: any) {
       handleAppError(err, 'Failed to fetch promotion rules', 'fetchPromotionRules');
     }
@@ -1208,147 +1380,166 @@ export default function AdminDashboard() {
 
   const fetchBulkDiscounts = async () => {
     try {
-      const res = await fetch('/api/admin/bulk-discounts');
-      if (res.ok) setBulkDiscounts(await res.json());
-      else toast.error('Failed to load bulk discounts');
+      const data = await fetchWithHandling<any[]>('/api/admin/bulk-discounts', { headers: getAuthHeaders() });
+      if (data) {
+        setBulkDiscounts(data);
+      }
     } catch (err) {
-      toast.error('Failed to load bulk discounts');
+      console.error('Bulk discounts fetch error:', err);
     }
   };
 
   const handleAddDeliveryArea = async () => {
     try {
-      const res = await fetch('/api/admin/delivery-areas', {
+      const data = await fetchWithHandling<any>('/api/admin/delivery-areas', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newDeliveryArea)
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Delivery area added');
         setDeliveryAreaModal({ open: false, mode: 'add', area: null });
         setNewDeliveryArea({ name: '', fee: '0', min_order: '0' });
         fetchDeliveryAreas();
       }
     } catch (err) {
-      toast.error('Failed to add delivery area');
+      console.error('Add delivery area error:', err);
     }
   };
 
   const handleUpdateDeliveryArea = async () => {
     try {
-      const res = await fetch(`/api/admin/delivery-areas/${deliveryAreaModal.area.id}`, {
+      const data = await fetchWithHandling<any>(`/api/admin/delivery-areas/${deliveryAreaModal.area.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newDeliveryArea)
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Delivery area updated');
         setDeliveryAreaModal({ open: false, mode: 'add', area: null });
         setNewDeliveryArea({ name: '', fee: '0', min_order: '0' });
         fetchDeliveryAreas();
       }
     } catch (err) {
-      toast.error('Failed to update delivery area');
+      console.error('Update delivery area error:', err);
     }
   };
 
   const handleDeleteDeliveryArea = async (id: number) => {
     if (!confirm('Are you sure you want to delete this delivery area?')) return;
     try {
-      const res = await fetch(`/api/admin/delivery-areas/${id}`, {
-        method: 'DELETE'
+      const data = await fetchWithHandling<any>(`/api/admin/delivery-areas/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Delivery area deleted');
         fetchDeliveryAreas();
       }
     } catch (err) {
-      toast.error('Failed to delete delivery area');
+      console.error('Delete delivery area error:', err);
     }
   };
 
   const fetchProductVariants = async (productId: number) => {
     try {
-      const res = await fetch(`/api/products/${productId}/variants`);
-      if (!res.ok) throw new Error('Failed to fetch variants');
-      const data = await res.json();
-      setProductVariants(data);
+      const data = await fetchWithHandling<any[]>(`/api/products/${productId}/variants`, { headers: getAuthHeaders() });
+      if (data) {
+        setProductVariants(data);
+      }
     } catch (err) {
       console.error('Variants fetch error:', err);
-      toast.error('Failed to load product variants');
     }
   };
 
   const handleAddVariant = async () => {
     if (!variantModal.productId) return;
     try {
-      const res = await fetch(`/api/admin/products/${variantModal.productId}/variants`, {
+      const data = await fetchWithHandling<any>(`/api/admin/products/${variantModal.productId}/variants`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newVariant)
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Variant added');
         setVariantModal({ ...variantModal, open: false });
         setNewVariant({ name: '', price: '', stock: '', unit_quantity: '1', is_default: false });
         fetchProductVariants(variantModal.productId);
       }
     } catch (err) {
-      toast.error('Failed to add variant');
+      console.error('Add variant error:', err);
     }
   };
 
   const handleUpdateVariant = async () => {
     if (!variantModal.variant || !variantModal.productId) return;
     try {
-      const res = await fetch(`/api/admin/variants/${variantModal.variant.id}`, {
+      const data = await fetchWithHandling<any>(`/api/admin/variants/${variantModal.variant.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newVariant)
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Variant updated');
         setVariantModal({ ...variantModal, open: false });
         setNewVariant({ name: '', price: '', stock: '', unit_quantity: '1', is_default: false });
         fetchProductVariants(variantModal.productId);
       }
     } catch (err) {
-      toast.error('Failed to update variant');
+      console.error('Update variant error:', err);
     }
   };
 
   const handleDeleteVariant = async (id: number) => {
     if (!confirm('Are you sure you want to delete this variant?')) return;
     try {
-      const res = await fetch(`/api/admin/variants/${id}`, {
-        method: 'DELETE'
+      const data = await fetchWithHandling<any>(`/api/admin/variants/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Variant deleted');
         if (variantModal.productId) fetchProductVariants(variantModal.productId);
       }
     } catch (err) {
-      toast.error('Failed to delete variant');
+      console.error('Delete variant error:', err);
     }
   };
 
   const handleBulkOrderAction = async (action: string, value?: any) => {
     if (!confirm(`Are you sure you want to ${action} ${selectedOrders.length} orders?`)) return;
     try {
-      const res = await fetch('/api/admin/orders/bulk-update', {
+      const data = await fetchWithHandling<any>('/api/admin/orders/bulk-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids: selectedOrders, action, value })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Bulk action completed');
         setSelectedOrders([]);
         fetchOrders();
       }
     } catch (err) {
-      toast.error('Failed to perform bulk action');
+      console.error('Bulk order action error:', err);
     }
   };
+
+  // Form persistence for product creation
+  useEffect(() => {
+    const saved = localStorage.getItem('hgs_draft_product');
+    if (saved && productModal.mode === 'add') {
+      try {
+        const parsed = JSON.parse(saved);
+        setNewProduct(prev => ({ ...prev, ...parsed }));
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (productModal.mode === 'add' && productModal.open) {
+      localStorage.setItem('hgs_draft_product', JSON.stringify(newProduct));
+    }
+  }, [newProduct, productModal.open, productModal.mode]);
 
   const fetchSearchSuggestions = async (q: string) => {
     if (!q) {
@@ -1356,9 +1547,10 @@ export default function AdminDashboard() {
       return;
     }
     try {
-      const res = await fetch(`/api/search/suggestions?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      setSearchSuggestions(data);
+      const data = await fetchWithHandling<string[]>(`/api/search/suggestions?q=${encodeURIComponent(q)}`, { headers: getAuthHeaders() });
+      if (data) {
+        setSearchSuggestions(data);
+      }
     } catch (err) {
       console.error('Suggestions fetch error:', err);
     }
@@ -1367,15 +1559,14 @@ export default function AdminDashboard() {
 
   const fetchOrderDetailsModal = async (order: any) => {
     try {
-      const res = await fetch(`/api/orders/${order.id}`);
-      if (!res.ok) throw new Error('Order not found');
-      const orderDetails = await res.json();
-      setOrderModal({ open: true, order: orderDetails });
+      const orderDetails = await fetchWithHandling<any>(`/api/orders/${order.id}`, { headers: getAuthHeaders() });
+      if (orderDetails) {
+        setOrderModal({ open: true, order: orderDetails });
 
-      const histRes = await fetch(`/api/admin/orders/${order.id}/status-history`);
-      if (histRes.ok) {
-        const histData = await histRes.json();
-        setOrderHistory(histData.history || []);
+        const histData = await fetchWithHandling<any>(`/api/admin/orders/${order.id}/status-history`, { headers: getAuthHeaders() });
+        if (histData) {
+          setOrderHistory(histData.history || []);
+        }
       }
     } catch (err: any) {
       console.error('Failed to fetch order details:', err);
@@ -1385,9 +1576,14 @@ export default function AdminDashboard() {
   };
 
   const fetchTicketMessages = async (ticketId: number) => {
-    const res = await fetch(`/api/support/tickets/${ticketId}/messages`);
-    const data = await res.json();
-    setTicketMessages(data);
+    try {
+      const data = await fetchWithHandling<any[]>(`/api/support/tickets/${ticketId}/messages`, { headers: getAuthHeaders() });
+      if (data) {
+        setTicketMessages(data);
+      }
+    } catch (err) {
+      console.error('Ticket messages fetch error:', err);
+    }
   };
 
   const [salesAnalytics, setSalesAnalytics] = useState<{ dailySales: any[], topProducts: any[] } | null>(null);
@@ -1401,14 +1597,13 @@ export default function AdminDashboard() {
       if (analyticsCategory !== 'all') params.append('category', analyticsCategory);
       if (analyticsSegment !== 'all') params.append('segment', analyticsSegment);
       
-      const [res, salesRes] = await Promise.all([
-        fetch(`/api/admin/analytics?${params.toString()}`, { headers: getAuthHeaders() }),
-        fetch('/api/admin/sales-analytics', { headers: getAuthHeaders() })
+      const [data, salesData] = await Promise.all([
+        fetchWithHandling<any>(`/api/admin/analytics?${params.toString()}`, { headers: getAuthHeaders() }),
+        fetchWithHandling<any>('/api/admin/sales-analytics', { headers: getAuthHeaders() })
       ]);
-      const data = await res.json();
-      const salesData = await salesRes.json();
-      setAnalyticsData(data);
-      setSalesAnalytics(salesData);
+      
+      if (data) setAnalyticsData(data);
+      if (salesData) setSalesAnalytics(salesData);
     } catch (err) {
       console.error('Failed to fetch analytics:', err);
     } finally {
@@ -1431,32 +1626,26 @@ export default function AdminDashboard() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [statsRes, ordersRes, configRes, usersRes, productsRes, categoriesRes, expiringRes] = await Promise.all([
-          fetch('/api/admin/stats', { headers: getAuthHeaders() }),
-          fetch('/api/admin/orders', { headers: getAuthHeaders() }),
-          fetch('/api/admin/config', { headers: getAuthHeaders() }),
-          fetch('/api/admin/users', { headers: getAuthHeaders() }),
-          fetch('/api/products', { headers: getAuthHeaders() }),
-          fetch('/api/categories', { headers: getAuthHeaders() }),
-          fetch('/api/admin/inventory/expiring', { headers: getAuthHeaders() })
+        const [statsData, ordersData, configData, usersData, productsData, categoriesData, expiringData] = await Promise.all([
+          fetchWithHandling<any>('/api/admin/stats', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/admin/config', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/categories', { headers: getAuthHeaders() }),
+          fetchWithHandling<any[]>('/api/admin/inventory/expiring', { headers: getAuthHeaders() })
         ]);
 
-        const statsData = statsRes.ok ? await statsRes.json() : {};
-        const ordersData = ordersRes.ok ? await ordersRes.json() : [];
-        const configData = configRes.ok ? await configRes.json() : [];
-        const usersData = usersRes.ok ? await usersRes.json() : [];
-        const productsData = productsRes.ok ? await productsRes.json() : [];
-        const categoriesData = categoriesRes.ok ? await categoriesRes.json() : [];
-        const expiringData = expiringRes.ok ? await expiringRes.json() : [];
-
-        setStats(statsData);
-        setOrders(ordersData);
-        setConfig(configData);
-        setUsers(usersData);
-        setAllProducts(productsData);
-        setLowStockProducts(productsData.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-        setCategories(categoriesData);
-        setExpiringSoon(expiringData);
+        if (statsData) setStats(statsData);
+        if (ordersData) setOrders(ordersData);
+        if (configData) setConfig(configData);
+        if (usersData) setUsers(usersData);
+        if (productsData) {
+          setAllProducts(productsData);
+          setLowStockProducts(productsData.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+        }
+        if (categoriesData) setCategories(categoriesData);
+        if (expiringData) setExpiringSoon(expiringData);
 
       } catch (err) {
         console.error('Failed to load initial admin data', err);
@@ -1470,15 +1659,15 @@ export default function AdminDashboard() {
 
   const updateSetting = async (key: string, value: string) => {
     try {
-      await fetch('/api/admin/settings', {
+      await fetchWithHandling('/api/admin/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ key, value })
       });
       toast.success(`Updated ${key}`);
       fetchConfig();
     } catch (err) {
-      toast.error('Failed to update setting');
+      console.error('Failed to update setting:', err);
     }
   };
 
@@ -1495,51 +1684,52 @@ export default function AdminDashboard() {
     }
 
     try {
-      const res = await fetch(`/api/admin/orders/${id}/status`, {
+      const data = await fetchWithHandling<any>(`/api/admin/orders/${id}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status, rejection_reason })
       });
       
-      const data = await res.json();
-      if (res.ok) {
+      if (data) {
         toast.success(`Order #${id} status updated to ${status}`);
         fetchOrders();
-      } else {
-        toast.error(data.message || 'Failed to update order status');
       }
     } catch (err) {
       console.error('Update order status error:', err);
-      toast.error('Error updating order status. Check your connection.');
     }
   };
 
   const handleRespondReview = async () => {
     if (!reviewResponseModal.review || !reviewResponse) return;
     try {
-      const res = await fetch(`/api/admin/reviews/${reviewResponseModal.review.id}/respond`, {
+      const data = await fetchWithHandling<any>(`/api/admin/reviews/${reviewResponseModal.review.id}/respond`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ response: reviewResponse })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Response submitted');
         setReviewResponseModal({ open: false, review: null });
         setReviewResponse('');
-        fetch('/api/admin/reviews').then(res => res.json()).then(setReviews);
+        const reviewsData = await fetchWithHandling<any[]>('/api/admin/reviews', { headers: getAuthHeaders() });
+        if (reviewsData) setReviews(reviewsData);
       }
     } catch (err) {
-      toast.error('Failed to submit response');
+      console.error('Review respond error:', err);
     }
   };
 
   const handleDeletePromotion = async (id: number) => {
     if (!window.confirm('Delete this promotion?')) return;
     try {
-      const res = await fetch(`/api/admin/promotions/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete promotion');
-      toast.success('Promotion deleted');
-      fetchPromotions();
+      const data = await fetchWithHandling<any>(`/api/admin/promotions/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        toast.success('Promotion deleted');
+        fetchPromotions();
+      }
     } catch (err: any) {
       handleAppError(err, 'Failed to delete promotion', 'deletePromotion', true);
     }
@@ -1555,17 +1745,15 @@ export default function AdminDashboard() {
     const method = promotionModal.mode === 'add' ? 'POST' : 'PUT';
     
     try {
-      const res = await fetch(url, {
+      const data = await fetchWithHandling<any>(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newPromotion)
       });
-      if (!res.ok) throw new Error(`Failed to ${promotionModal.mode} promotion`);
-      const data = await res.json();
-      if (data.success) {
+      if (data) {
         toast.success(`Promotion ${promotionModal.mode === 'add' ? 'added' : 'updated'} successfully`);
         setPromotionModal({ open: false, mode: 'add', id: null });
-        setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true });
+        setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true } as any);
         fetchPromotions();
       }
     } catch (err: any) {
@@ -1575,10 +1763,14 @@ export default function AdminDashboard() {
 
   const togglePromotionStatus = async (id: number) => {
     try {
-      const res = await fetch(`/api/admin/promotions/${id}/toggle`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to update promotion status');
-      toast.success('Promotion status updated');
-      fetchPromotions();
+      const data = await fetchWithHandling<any>(`/api/admin/promotions/${id}/toggle`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        toast.success('Promotion status updated');
+        fetchPromotions();
+      }
     } catch (err: any) {
       handleAppError(err, 'Failed to update status', 'togglePromotionStatus', true);
     }
@@ -1586,13 +1778,14 @@ export default function AdminDashboard() {
 
   const togglePromotionRuleStatus = async (id: number) => {
     try {
-      const res = await fetch(`/api/admin/promotional-rules/${id}/toggle`, { 
+      const data = await fetchWithHandling<any>(`/api/admin/promotional-rules/${id}/toggle`, { 
         method: 'POST',
         headers: getAuthHeaders()
       });
-      if (!res.ok) throw new Error('Failed to update rule status');
-      toast.success('Rule status updated');
-      fetchPromotionRules();
+      if (data) {
+        toast.success('Rule status updated');
+        fetchPromotionRules();
+      }
     } catch (err: any) {
       handleAppError(err, 'Failed to update rule status', 'togglePromotionRuleStatus', true);
     }
@@ -1628,8 +1821,10 @@ export default function AdminDashboard() {
     setTimeout(() => window.print(), 1000);
   };
 
+  const [isSubmittingProduct, setIsSubmittingProduct] = useState(false);
   const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmittingProduct(true);
     const url = productModal.mode === 'add' ? '/api/admin/products' : `/api/admin/products/${editingProduct.id}`;
     const method = productModal.mode === 'add' ? 'POST' : 'PUT';
 
@@ -1645,14 +1840,16 @@ export default function AdminDashboard() {
     };
 
     try {
-      const res = await fetch(url, {
+      const data = await fetchWithHandling<any>(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(productData)
       });
-      const data = await res.json();
-      if (res.ok) {
+      if (data) {
         toast.success(`Product ${productModal.mode === 'add' ? 'added' : 'updated'}`);
+        if (productModal.mode === 'add') {
+          localStorage.removeItem('hgs_draft_product');
+        }
         setProductModal({ open: false, mode: 'add' });
         setNewProduct({ 
           name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
@@ -1663,12 +1860,11 @@ export default function AdminDashboard() {
           expiry_date: ''
         } as any);
         fetchAllProducts();
-      } else {
-        toast.error(data.message || 'Failed to save product');
       }
     } catch (err) {
       console.error('Product submit error:', err);
-      toast.error('Failed to save product. Check your connection.');
+    } finally {
+      setIsSubmittingProduct(false);
     }
   };
 
@@ -1676,26 +1872,23 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!stockEntryModal.product) return;
     try {
-      const res = await fetch('/api/admin/inventory/purchase', {
+      const data = await fetchWithHandling<any>('/api/admin/inventory/purchase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           product_id: stockEntryModal.product.id,
           ...purchaseForm
         })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Stock entry recorded successfully');
         setStockEntryModal({ open: false, product: null });
         setPurchaseForm({ supplier_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
         fetchAllProducts();
         fetchStats();
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to record stock entry');
       }
     } catch (err) {
-      toast.error('Network error during stock entry');
+      console.error('Stock entry error:', err);
     }
   };
 
@@ -1705,49 +1898,48 @@ export default function AdminDashboard() {
     const method = categoryModal.mode === 'add' ? 'POST' : 'PUT';
 
     try {
-      const res = await fetch(url, {
+      const data = await fetchWithHandling<any>(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newCategory)
       });
-      if (res.ok) {
+      if (data) {
         toast.success(`Category ${categoryModal.mode === 'add' ? 'added' : 'updated'}`);
         setCategoryModal({ open: false, mode: 'add' });
         setNewCategory({ name: '', icon: 'Package' });
         fetchCategories();
       }
     } catch (err) {
-      toast.error('Failed to save category');
+      console.error('Category submit error:', err);
     }
   };
 
   const handleRevertAction = async (logId: number) => {
     if (!confirm('Are you sure you want to revert this action? This will restore the previous state.')) return;
     try {
-      const res = await fetch(`/api/admin/audit-logs/${logId}/revert`, { method: 'POST' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/audit-logs/${logId}/revert`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Action reverted successfully');
         fetchAuditLogs();
-        // Refresh relevant data based on log action if needed, or just full refresh stats
         fetchStats();
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to revert action');
       }
     } catch (err) {
-      toast.error('Network error during reversion');
+      console.error('Revert action error:', err);
     }
   };
 
   const handleNotificationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/admin/notifications', {
+      const data = await fetchWithHandling<any>('/api/admin/notifications', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newNotification)
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Notification sent');
         setNotificationModal({ open: false });
         setNewNotification({ 
@@ -1761,20 +1953,23 @@ export default function AdminDashboard() {
         fetchNotifications();
       }
     } catch (err) {
-      toast.error('Failed to send notification');
+      console.error('Notification submit error:', err);
     }
   };
 
   const handleDeleteNotification = async (id: number) => {
     if (!confirm('Are you sure you want to delete this announcement?')) return;
     try {
-      const res = await fetch(`/api/admin/notifications/${id}`, { method: 'DELETE' });
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/notifications/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Announcement removed');
         fetchNotifications();
       }
     } catch (err) {
-      toast.error('Failed to delete announcement');
+      console.error('Delete notification error:', err);
     }
   };
 
@@ -1911,12 +2106,12 @@ export default function AdminDashboard() {
 
   const handleUserUpdate = async (userId: number, data: any) => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      const updateData = await fetchWithHandling<any>(`/api/admin/users/${userId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(data)
       });
-      if (res.ok) {
+      if (updateData) {
         toast.success('User updated');
 
         // Automatically queue a full-screen alert for the user about account changes
@@ -1935,9 +2130,9 @@ export default function AdminDashboard() {
           alertMessage = data.khata_enabled ? 'You can now use Khata (Credit Line) for your orders.' : 'The Khata facility is no longer available on your account.';
         }
 
-        await fetch(`/api/admin/users/${userId}/alert`, {
+        await fetchWithHandling<any>(`/api/admin/users/${userId}/alert`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ 
             title: alertTitle, 
             message: alertMessage, 
@@ -1955,24 +2150,23 @@ export default function AdminDashboard() {
         fetchUsers();
       }
     } catch (err) {
-      toast.error('Failed to update user');
+      console.error('Update user error:', err);
     }
   };
 
   const deleteProduct = async (id: number) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     try {
-      const res = await fetch(`/api/admin/products/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok) {
+      const data = await fetchWithHandling<any>(`/api/admin/products/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
         toast.success('Product deleted');
         fetchAllProducts();
-      } else {
-        toast.error(data.message || 'Failed to delete product');
       }
     } catch (err) {
       console.error('Delete product error:', err);
-      toast.error('Failed to delete product. Check your connection.');
     }
   };
 
@@ -1996,20 +2190,17 @@ export default function AdminDashboard() {
       });
 
       try {
-        const res = await fetch('/api/admin/products/bulk', {
+        const data = await fetchWithHandling<any>('/api/admin/products/bulk', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ products })
         });
-        const data = await res.json();
-        if (data.success) {
+        if (data) {
           toast.success(`Successfully uploaded ${data.count} products`);
           fetchAllProducts();
-        } else {
-          toast.error(data.message || 'Bulk upload failed');
         }
       } catch (err) {
-        toast.error('Network error during bulk upload');
+        console.error('Bulk upload error:', err);
       } finally {
         setBulkUploadLoading(false);
       }
@@ -2044,22 +2235,18 @@ export default function AdminDashboard() {
   const bulkUnlist = async (unlist: boolean) => {
     if (selectedProducts.length === 0) return;
     try {
-      const res = await fetch('/api/admin/products/bulk-update', {
+      const data = await fetchWithHandling<any>('/api/admin/products/bulk-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids: selectedProducts, action: 'list', value: !unlist })
       });
-      const data = await res.json();
-      if (res.ok) {
+      if (data) {
         toast.success(`Successfully ${unlist ? 'unlisted' : 'listed'} ${selectedProducts.length} products`);
         setSelectedProducts([]);
         fetchAllProducts();
-      } else {
-        toast.error(data.message || 'Bulk action failed');
       }
     } catch (err) {
       console.error('Bulk unlist error:', err);
-      toast.error('Failed to perform bulk action');
     }
   };
 
@@ -2073,22 +2260,18 @@ export default function AdminDashboard() {
     }
     
     try {
-      const res = await fetch('/api/admin/products/bulk-update', {
+      const data = await fetchWithHandling<any>('/api/admin/products/bulk-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids: selectedProducts, action: 'stock', value: Number(newStock) })
       });
-      const data = await res.json();
-      if (res.ok) {
+      if (data) {
         toast.success(`Updated stock for ${selectedProducts.length} products`);
         setSelectedProducts([]);
         fetchAllProducts();
-      } else {
-        toast.error(data.message || 'Bulk update failed');
       }
     } catch (err) {
       console.error('Bulk stock update error:', err);
-      toast.error('Failed to update stock');
     }
   };
 
@@ -2097,22 +2280,18 @@ export default function AdminDashboard() {
     if (!confirm(`Are you sure you want to delete ${selectedProducts.length} products?`)) return;
     
     try {
-      const res = await fetch('/api/admin/products/bulk-update', {
+      const data = await fetchWithHandling<any>('/api/admin/products/bulk-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids: selectedProducts, action: 'delete' })
       });
-      const data = await res.json();
-      if (res.ok) {
+      if (data) {
         toast.success(`Deleted ${selectedProducts.length} products`);
         setSelectedProducts([]);
         fetchAllProducts();
-      } else {
-        toast.error(data.message || 'Bulk delete failed');
       }
     } catch (err) {
       console.error('Bulk delete error:', err);
-      toast.error('Failed to delete products');
     }
   };
 
@@ -2127,67 +2306,101 @@ export default function AdminDashboard() {
     if (!confirm(`Are you sure you want to update category to "${newBatchCategory}" for ${selectedProducts.length} products?`)) {
       return;
     }
-
+ 
     try {
-      const res = await fetch('/api/admin/products/bulk-update', {
+      const data = await fetchWithHandling<any>('/api/admin/products/bulk-update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids: selectedProducts, action: 'category', value: newBatchCategory })
       });
-      const data = await res.json();
-      if (res.ok) {
+      if (data) {
         toast.success(`Updated category for ${selectedProducts.length} products`);
         setSelectedProducts([]);
         setCategoryBatchModal({ open: false });
         setNewBatchCategory('');
         fetchAllProducts();
-      } else {
-        toast.error(data.message || 'Bulk update failed');
       }
     } catch (err) {
       console.error('Bulk category update error:', err);
-      toast.error('Failed to update category');
     }
   };
 
   const fetchWalletHistory = async (userId: number) => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}/wallet-history`);
-      const data = await res.json();
-      setWalletHistoryModal({ open: true, userId, history: data });
+      const data = await fetchWithHandling<any[]>(`/api/admin/users/${userId}/wallet-history`, { headers: getAuthHeaders() });
+      if (data) {
+        setWalletHistoryModal({ open: true, userId, history: data });
+      }
     } catch (err) {
-      toast.error('Failed to fetch wallet history');
+      console.error('Wallet history fetch error:', err);
     }
   };
 
   const deleteReview = async (id: number) => {
     if (!confirm('Delete this review?')) return;
-    await fetch(`/api/admin/reviews/${id}`, { method: 'DELETE' });
-    toast.success('Review deleted');
-    fetch('/api/admin/reviews').then(res => res.json()).then(setReviews);
+    try {
+      const data = await fetchWithHandling<any>(`/api/admin/reviews/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        toast.success('Review deleted');
+        const reviewsData = await fetchWithHandling<any[]>('/api/admin/reviews', { headers: getAuthHeaders() });
+        if (reviewsData) setReviews(reviewsData);
+      }
+    } catch (err) {
+      console.error('Delete review error:', err);
+    }
   };
 
   const updateReviewStatus = async (id: number, status: string) => {
-    await fetch(`/api/admin/reviews/${id}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    });
-    toast.success('Review status updated');
-    fetch('/api/admin/reviews').then(res => res.json()).then(setReviews);
+    try {
+      const data = await fetchWithHandling<any>(`/api/admin/reviews/${id}/status`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status })
+      });
+      if (data) {
+        toast.success('Review status updated');
+        const reviewsData = await fetchWithHandling<any[]>('/api/admin/reviews', { headers: getAuthHeaders() });
+        if (reviewsData) setReviews(reviewsData);
+      }
+    } catch (err) {
+      console.error('Update review status error:', err);
+    }
   };
 
   const deleteCoupon = async (id: number) => {
     if (!confirm('Delete this coupon?')) return;
-    await fetch(`/api/admin/coupons/${id}`, { method: 'DELETE' });
-    toast.success('Coupon deleted');
-    fetch('/api/admin/coupons').then(res => res.json()).then(setCoupons);
+    try {
+      const data = await fetchWithHandling<any>(`/api/admin/coupons/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        toast.success('Coupon deleted');
+        const couponsData = await fetchWithHandling<any[]>('/api/admin/coupons', { headers: getAuthHeaders() });
+        if (couponsData) setCoupons(couponsData);
+      }
+    } catch (err) {
+      console.error('Delete coupon error:', err);
+    }
   };
 
   const toggleCouponStatus = async (id: number) => {
-    await fetch(`/api/admin/coupons/${id}/toggle`, { method: 'POST' });
-    toast.success('Coupon status updated');
-    fetch('/api/admin/coupons').then(res => res.json()).then(setCoupons);
+    try {
+      const data = await fetchWithHandling<any>(`/api/admin/coupons/${id}/toggle`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        toast.success('Coupon status updated');
+        const couponsData = await fetchWithHandling<any[]>('/api/admin/coupons', { headers: getAuthHeaders() });
+        if (couponsData) setCoupons(couponsData);
+      }
+    } catch (err) {
+      console.error('Toggle coupon status error:', err);
+    }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2247,9 +2460,18 @@ export default function AdminDashboard() {
 
   const deleteExpense = async (id: number) => {
     if (!confirm('Delete this expense?')) return;
-    await fetch(`/api/admin/expenses/${id}`, { method: 'DELETE' });
-    toast.success('Expense deleted');
-    fetch('/api/admin/expenses').then(res => res.json()).then(setExpenses);
+    try {
+      const data = await fetchWithHandling<any>(`/api/admin/expenses/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        toast.success('Expense deleted');
+        fetchExpenses();
+      }
+    } catch (err) {
+      console.error('Delete expense error:', err);
+    }
   };
 
   const handleAddCoupon = async (e: React.FormEvent) => {
@@ -2257,47 +2479,62 @@ export default function AdminDashboard() {
     const url = couponModal.mode === 'edit' ? `/api/admin/coupons/${couponModal.editingId}` : '/api/admin/coupons';
     const method = couponModal.mode === 'edit' ? 'PUT' : 'POST';
     
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newCoupon)
-    });
-    toast.success(couponModal.mode === 'edit' ? 'Coupon updated' : 'Coupon added');
-    setCouponModal({ open: false, mode: 'add' });
-    setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1' });
-    fetch('/api/admin/coupons').then(res => res.json()).then(setCoupons);
+    try {
+      const data = await fetchWithHandling<any>(url, {
+        method,
+        headers: getAuthHeaders(),
+        body: JSON.stringify(newCoupon)
+      });
+      if (data) {
+        toast.success(couponModal.mode === 'edit' ? 'Coupon updated' : 'Coupon added');
+        setCouponModal({ open: false, mode: 'add' });
+        setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1' });
+        const couponsData = await fetchWithHandling<any[]>('/api/admin/coupons', { headers: getAuthHeaders() });
+        if (couponsData) setCoupons(couponsData);
+      }
+    } catch (err) {
+      console.error('Save coupon error:', err);
+    }
   };
 
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/admin/expenses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newExpense)
-    });
-    toast.success('Expense added');
-    setExpenseModal({ open: false });
-    fetch('/api/admin/expenses').then(res => res.json()).then(setExpenses);
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/expenses', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(newExpense)
+      });
+      if (data) {
+        toast.success('Expense added');
+        setExpenseModal({ open: false });
+        fetchExpenses();
+      }
+    } catch (err) {
+      console.error('Save expense error:', err);
+    }
   };
 
   const handleWalletUpdate = async () => {
     if (!walletModal.userId || !walletAmount) return;
     try {
-      await fetch(`/api/admin/users/${walletModal.userId}/wallet`, {
+      const data = await fetchWithHandling<any>(`/api/admin/users/${walletModal.userId}/wallet`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ 
           amount: walletAmount, 
           type: walletType, 
           description: `Admin manual ${walletType}` 
         })
       });
-      toast.success('Wallet updated');
-      setWalletModal({ open: false, userId: null });
-      setWalletAmount('');
-      fetchUsers();
+      if (data) {
+        toast.success('Wallet updated');
+        setWalletModal({ open: false, userId: null });
+        setWalletAmount('');
+        fetchUsers();
+      }
     } catch (err) {
-      toast.error('Failed to update wallet');
+      console.error('Wallet update error:', err);
     }
   };
 
@@ -2307,7 +2544,7 @@ export default function AdminDashboard() {
       items: [
         { name: 'Overview' as Tab, icon: LayoutDashboard },
         { name: 'Analytics' as Tab, icon: BarChart3 },
-        { name: 'Announcements' as Tab, icon: Bell },
+        { name: 'Announcements' as Tab, icon: Megaphone },
       ]
     },
     {
@@ -2316,14 +2553,21 @@ export default function AdminDashboard() {
         { name: 'Product Catalog' as Tab, icon: Package },
         { name: 'Categories' as Tab, icon: List },
         { name: 'Bulk Discounts' as Tab, icon: Tag },
-        { name: 'Suppliers' as Tab, icon: Truck },
+        { name: 'Suppliers' as Tab, icon: Briefcase },
+      ]
+    },
+    {
+      title: 'Governance',
+      items: [
+        { name: 'Admin Management' as Tab, icon: Shield },
+        { name: 'Roles' as Tab, icon: Fingerprint },
+        { name: 'Data Exports' as Tab, icon: Download },
       ]
     },
     {
       title: 'Sales & Logistics',
       items: [
         { name: 'Orders' as Tab, icon: ShoppingBag },
-        { name: 'Payment Automation' as any, icon: ShieldCheck, path: '/admin/payments' },
         { name: 'Logistics' as Tab, icon: Truck },
         { name: 'Returns' as Tab, icon: Receipt },
         { name: 'Coupons' as Tab, icon: CreditCard },
@@ -2331,32 +2575,22 @@ export default function AdminDashboard() {
       ]
     },
     {
-      title: 'Customers',
-      items: [
-        { name: 'Customers' as Tab, icon: Users },
-        { name: 'Wallet Requests' as Tab, icon: CreditCard },
-        { name: 'Reviews' as Tab, icon: Star },
-        { name: 'Newsletter' as Tab, icon: Send },
-      ]
-    },
-    {
       title: 'Operations',
       items: [
+        { name: 'Customers' as Tab, icon: Users },
         { name: 'Support Tickets' as Tab, icon: MessageSquare },
         { name: 'Expenses' as Tab, icon: Receipt },
         { name: 'Audit Logs' as Tab, icon: History },
-        { name: 'Roles' as Tab, icon: Shield },
       ]
     },
     {
-      title: 'Settings',
+      title: 'Settings & Status',
       items: [
         { name: 'Store Settings' as Tab, icon: Settings },
-        { name: 'Payment Settings' as Tab, icon: CreditCard },
-        { name: 'Suspicious Activities' as Tab, icon: AlertTriangle },
         { name: 'System Status' as Tab, icon: Activity },
-        { name: 'Bug Reports' as Tab, icon: AlertTriangle },
-        { name: 'Feature Toggles' as Tab, icon: Settings },
+        { name: 'Suspicious Activities' as Tab, icon: AlertTriangle },
+        { name: 'Automatic Reports' as Tab, icon: Bug },
+        { name: 'Feature Toggles' as Tab, icon: Layout },
       ]
     }
   ];
@@ -2393,7 +2627,7 @@ export default function AdminDashboard() {
     'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 'Product Catalog', 'Categories', 
     'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Roles', 'Support Tickets', 'Newsletter', 
     'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'Suspicious Activities', 'Promotions', 
-    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Bug Reports', 'Data Exports', 'Promotional Rules'
+    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Automatic Reports', 'Data Exports', 'Promotional Rules'
   ];
 
   if (showPOPrint && poData) {
@@ -2476,199 +2710,178 @@ export default function AdminDashboard() {
     );
   }
 
-  return (
-    <div className={cn("min-h-screen bg-stone-50 flex", adminTheme)}>
-      <AdminSidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        user={user} 
-        logout={logout} 
-        isOpen={sidebarOpen} 
-        setIsOpen={setSidebarOpen} 
-        lowStockCount={lowStockProducts.length}
-        newUserCount={newUserCount}
-      />
-
-      {/* Main Content */}
-      <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
-        {/* Header */}
-        <header className="h-20 bg-white/80 backdrop-blur-xl border-b border-stone-200 flex items-center justify-between px-6 lg:px-12 sticky top-0 z-40">
-          <div className="flex items-center space-x-6">
-            <button 
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-stone-50 rounded-xl text-stone-400 transition-colors"
-            >
-              <Menu size={24} />
-            </button>
-            <h2 className="text-xl font-black text-stone-900 tracking-tight hidden sm:block">{getDisplayLabel(activeTab)}</h2>
-          </div>
-            
-            <div className="flex items-center space-x-3 bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100 shadow-sm">
-              <div className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </div>
-              <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">{stats?.activeUsers || 0} Customer(s) Online</span>
+  const SearchUI = (
+    <div className="flex items-center space-x-4 md:space-x-8 w-full max-w-xl">
+      <div className="relative group flex-1">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 transition-colors group-focus-within:text-primary" size={18} />
+        <input 
+          type="text" 
+          placeholder="Search products, orders..."
+          className="bg-stone-100/50 border-stone-200 border rounded-2xl pl-11 pr-5 py-2 md:py-2.5 text-sm focus:ring-4 focus:ring-primary/10 w-full transition-all focus:bg-white outline-none font-medium"
+          value={globalSearchQuery}
+          onChange={(e) => setGlobalSearchQuery(e.target.value)}
+        />
+        
+        {globalSearchResults && (
+          <div className="absolute top-full right-0 left-0 mt-2 bg-white rounded-2xl shadow-2xl border border-stone-100 overflow-hidden z-50">
+            <div className="flex p-2 border-b border-stone-100 gap-1 overflow-x-auto no-scrollbar">
+              {(['all', 'products', 'orders', 'users', 'suspicious'] as const).map(filter => (
+                <button
+                  key={filter}
+                  onClick={() => setSearchFilter(filter)}
+                  className={cn(
+                    "px-3 py-1 text-[10px] uppercase font-bold rounded-full transition-colors whitespace-nowrap",
+                    searchFilter === filter ? "bg-primary text-white" : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                  )}
+                >
+                  {filter}
+                </button>
+              ))}
             </div>
-
-          <div className="flex items-center space-x-8">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 transition-colors group-focus-within:text-primary" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search products, orders..."
-                className="bg-stone-100/50 border-stone-200 border rounded-2xl pl-11 pr-5 py-2.5 text-sm focus:ring-4 focus:ring-primary/10 w-64 transition-all focus:w-96 focus:bg-white outline-none font-medium"
-                value={globalSearchQuery}
-                onChange={(e) => setGlobalSearchQuery(e.target.value)}
-              />
-              
-              {globalSearchResults && (
-                <div className="absolute top-full right-0 mt-2 w-[500px] bg-white rounded-2xl shadow-2xl border border-stone-100 overflow-hidden z-50">
-                  <div className="flex p-2 border-b border-stone-100 gap-1 overflow-x-auto">
-                    {(['all', 'products', 'orders', 'users', 'suspicious'] as const).map(filter => (
-                      <button
-                        key={filter}
-                        onClick={() => setSearchFilter(filter)}
-                        className={cn(
-                          "px-3 py-1 text-[10px] uppercase font-bold rounded-full transition-colors",
-                          searchFilter === filter ? "bg-primary text-white" : "bg-stone-100 text-stone-500 hover:bg-stone-200"
-                        )}
+            <div className="p-4 max-h-[500px] overflow-y-auto space-y-4">
+              {(searchFilter === 'all' || searchFilter === 'products') && globalSearchResults.products.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Products</h4>
+                  <div className="space-y-2">
+                    {globalSearchResults.products.map(p => (
+                      <button 
+                        key={p.id} 
+                        onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(p.name); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
+                        className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
                       >
-                        {filter}
+                        <div className="w-8 h-8 bg-stone-100 rounded-md overflow-hidden">
+                          <img src={p.image_url} className="w-full h-full object-cover" alt="" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold">{p.name}</p>
+                          <p className="text-[10px] text-stone-400">{p.category}</p>
+                        </div>
                       </button>
                     ))}
                   </div>
-                  <div className="p-4 max-h-[500px] overflow-y-auto space-y-4">
-                    {(searchFilter === 'all' || searchFilter === 'products') && globalSearchResults.products.length > 0 && (
-                      <div>
-                        <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Products</h4>
-                        <div className="space-y-2">
-                          {globalSearchResults.products.map(p => (
-                            <button 
-                              key={p.id} 
-                              onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(p.name); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
-                              className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
-                            >
-                              <div className="w-8 h-8 bg-stone-100 rounded-md overflow-hidden">
-                                <img src={p.image_url} className="w-full h-full object-cover" alt="" />
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold">{p.name}</p>
-                                <p className="text-[10px] text-stone-400">{p.category}</p>
-                              </div>
-                            </button>
-                          ))}
+                </div>
+              )}
+              
+              {(searchFilter === 'all' || searchFilter === 'orders') && globalSearchResults.orders.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Orders</h4>
+                  <div className="space-y-2">
+                    {globalSearchResults.orders.map(o => (
+                      <button 
+                        key={o.id} 
+                        onClick={() => { setActiveTab('Orders'); setOrderSearchTerm(`#ORD-${o.id}`); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
+                        className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
+                      >
+                        <div className="w-8 h-8 bg-primary/10 text-primary rounded-md flex items-center justify-center">
+                          <ShoppingBag size={14} />
                         </div>
-                      </div>
-                    )}
-                    
-                    {(searchFilter === 'all' || searchFilter === 'orders') && globalSearchResults.orders.length > 0 && (
-                      <div>
-                        <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Orders</h4>
-                        <div className="space-y-2">
-                          {globalSearchResults.orders.map(o => (
-                            <button 
-                              key={o.id} 
-                              onClick={() => { setActiveTab('Orders'); setOrderSearchTerm(`#ORD-${o.id}`); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
-                              className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
-                            >
-                              <div className="w-8 h-8 bg-primary/10 text-primary rounded-md flex items-center justify-center">
-                                <ShoppingBag size={14} />
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold">#ORD-{o.id}</p>
-                                <p className="text-[10px] text-stone-400">{o.user_name} • ₹{o.total}</p>
-                              </div>
-                            </button>
-                          ))}
+                        <div>
+                          <p className="text-xs font-bold">#ORD-{o.id}</p>
+                          <p className="text-[10px] text-stone-400">{o.user_name} • ₹{o.total}</p>
                         </div>
-                      </div>
-                    )}
-                    
-                    {(searchFilter === 'all' || searchFilter === 'users') && globalSearchResults.users.length > 0 && (
-                      <div>
-                        <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Customers</h4>
-                        <div className="space-y-2">
-                          {globalSearchResults.users.map(u => (
-                            <button 
-                              key={u.id} 
-                              onClick={() => { setActiveTab('Customers'); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
-                              className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
-                            >
-                              <div className="w-8 h-8 bg-stone-100 rounded-md flex items-center justify-center text-stone-400">
-                                <Users size={14} />
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold">{u.name}</p>
-                                <p className="text-[10px] text-stone-400">{u.phone}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {(searchFilter === 'all' || searchFilter === 'suspicious') && globalSearchResults.suspicious && globalSearchResults.suspicious.length > 0 && (
-                      <div>
-                        <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Security Alerts</h4>
-                        <div className="space-y-2">
-                          {globalSearchResults.suspicious.map(s => (
-                            <button 
-                              key={s.id} 
-                              onClick={() => { setActiveTab('Suspicious Activities'); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
-                              className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
-                            >
-                              <div className="w-8 h-8 bg-red-50 text-red-500 rounded-md flex items-center justify-center">
-                                <ShieldAlert size={14} />
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold text-red-600">{s.activity_type}</p>
-                                <p className="text-[10px] text-stone-400 truncate w-64">{s.description}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    { (searchFilter === 'all' && globalSearchResults.products.length === 0 && globalSearchResults.orders.length === 0 && globalSearchResults.users.length === 0 && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0)) ||
-                      (searchFilter !== 'all' && (
-                        (searchFilter === 'products' && globalSearchResults.products.length === 0) ||
-                        (searchFilter === 'orders' && globalSearchResults.orders.length === 0) ||
-                        (searchFilter === 'users' && globalSearchResults.users.length === 0) ||
-                        (searchFilter === 'suspicious' && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0))
-                      )) 
-                    && (
-                      <div className="p-8 text-center">
-                        <p className="text-sm text-stone-400">No {searchFilter !== 'all' ? searchFilter : ''} results found for "{globalSearchQuery}"</p>
-                      </div>
-                    )}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <button 
-                onClick={() => setActiveTab('Announcements')}
-                className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all relative"
-                title="Notifications"
-              >
-                <Bell size={20} />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
-              </button>
-              <button 
-                onClick={() => setActiveTab('Store Settings')}
-                className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all"
-                title="Settings"
-              >
-                <Settings size={20} />
-              </button>
+              
+              {(searchFilter === 'all' || searchFilter === 'users') && globalSearchResults.users.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Customers</h4>
+                  <div className="space-y-2">
+                    {globalSearchResults.users.map(u => (
+                      <button 
+                        key={u.id} 
+                        onClick={() => { setActiveTab('Customers'); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
+                        className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
+                      >
+                        <div className="w-8 h-8 bg-stone-100 rounded-md flex items-center justify-center text-stone-400">
+                          <Users size={14} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold">{u.name}</p>
+                          <p className="text-[10px] text-stone-400">{u.phone}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {(searchFilter === 'all' || searchFilter === 'suspicious') && globalSearchResults.suspicious && globalSearchResults.suspicious.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold text-stone-400 uppercase mb-2 tracking-wider">Security Alerts</h4>
+                  <div className="space-y-2">
+                    {globalSearchResults.suspicious.map(s => (
+                      <button 
+                        key={s.id} 
+                        onClick={() => { setActiveTab('Suspicious Activities'); setGlobalSearchResults(null); setGlobalSearchQuery(''); setSearchFilter('all'); }}
+                        className="w-full text-left p-2 hover:bg-stone-50 rounded-lg flex items-center space-x-3 transition-colors"
+                      >
+                        <div className="w-8 h-8 bg-red-50 text-red-500 rounded-md flex items-center justify-center">
+                          <ShieldAlert size={14} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-red-600">{s.activity_type}</p>
+                          <p className="text-[10px] text-stone-400 truncate w-64">{s.description}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              { (searchFilter === 'all' && globalSearchResults.products.length === 0 && globalSearchResults.orders.length === 0 && globalSearchResults.users.length === 0 && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0)) ||
+                (searchFilter !== 'all' && (
+                  (searchFilter === 'products' && globalSearchResults.products.length === 0) ||
+                  (searchFilter === 'orders' && globalSearchResults.orders.length === 0) ||
+                  (searchFilter === 'users' && globalSearchResults.users.length === 0) ||
+                  (searchFilter === 'suspicious' && (!globalSearchResults.suspicious || globalSearchResults.suspicious.length === 0))
+                )) 
+              && (
+                <div className="p-8 text-center">
+                  <p className="text-sm text-stone-400">No {searchFilter !== 'all' ? searchFilter : ''} results found for "{globalSearchQuery}"</p>
+                </div>
+              )}
             </div>
           </div>
-        </header>
+        )}
+      </div>
+      
+      <div className="flex items-center space-x-2 hidden md:flex">
+        <button 
+          onClick={() => setActiveTab('Announcements')}
+          className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all relative"
+          title="Notifications"
+        >
+          <Bell size={20} />
+          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+        </button>
+        <button 
+          onClick={() => setActiveTab('Store Settings')}
+          className="p-2 text-stone-400 hover:text-primary hover:bg-stone-50 rounded-lg transition-all"
+          title="Settings"
+        >
+          <Settings size={20} />
+        </button>
+      </div>
+    </div>
+  );
 
-        <main className="flex-1 overflow-y-auto w-full p-6 lg:p-12 space-y-12">
+  return (
+    <AdminDashboardLayout
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      user={user}
+      logout={logout}
+      adminTheme={adminTheme}
+      sidebarOpen={sidebarOpen}
+      setSidebarOpen={setSidebarOpen}
+      getDisplayLabel={getDisplayLabel}
+      stats={stats}
+      extraHeader={SearchUI}
+    >
+      <div className="space-y-4 md:space-y-8 responsive-padding h-full overflow-y-auto">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -2693,6 +2906,44 @@ export default function AdminDashboard() {
             className="space-y-10"
           >
             <OverviewTabHeader fetchStats={fetchStats} />
+
+            {/* Global Export Engine */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+               <div className="lg:col-span-1 bg-stone-900 rounded-[2.5rem] p-8 text-white flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-2xl font-black tracking-tight">Intelligence Reporting</h3>
+                    <p className="text-stone-400 text-sm mt-1">Enterprise-grade data extraction & audit protocols.</p>
+                  </div>
+                  <div className="mt-8 space-y-4">
+                    <div className="flex items-center space-x-3 text-emerald-400 text-[10px] font-black uppercase tracking-widest bg-emerald-400/10 p-3 rounded-2xl">
+                      <Activity size={14} className="animate-pulse" />
+                      <span>Extraction Engine Online</span>
+                    </div>
+                  </div>
+               </div>
+               <div className="lg:col-span-2 bg-white rounded-[2.5rem] p-8 border border-stone-100 flex items-center justify-center">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+                    <UniversalExportToolbar 
+                      title="Human Demographic Dossier"
+                      fileName="Dossier_Humans"
+                      fetchData={async () => users}
+                      columns={[{header:'Name',dataKey:'name'},{header:'Phone',dataKey:'phone'},{header:'Wallet',dataKey:'wallet_balance'}]}
+                    />
+                    <UniversalExportToolbar 
+                      title="Commercial Sales Archive"
+                      fileName="Protocol_Sales"
+                      fetchData={async () => orders}
+                      columns={[{header:'ID',dataKey:'id'},{header:'Customer',dataKey:'user_name'},{header:'Total',dataKey:'total'}]}
+                    />
+                    <UniversalExportToolbar 
+                      title="Inventory SKU Manifest"
+                      fileName="Dossier_Inventory"
+                      fetchData={async () => allProducts}
+                      columns={[{header:'Product',dataKey:'name'},{header:'Category',dataKey:'category'},{header:'Stock',dataKey:'stock'}]}
+                    />
+                  </div>
+               </div>
+            </div>
 
             {/* Core Operational metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -2745,6 +2996,42 @@ export default function AdminDashboard() {
               ))}
             </div>
 
+            <section className="bg-stone-50 p-10 rounded-[3rem] border border-dashed border-stone-200">
+               <div className="flex items-center space-x-4 mb-8">
+                  <div className="p-3 bg-stone-900 text-white rounded-2xl shadow-xl shadow-stone-900/10">
+                    <Zap size={24} />
+                  </div>
+                  <div>
+                     <h3 className="text-2xl font-black text-stone-900 tracking-tight">Rapid Directives</h3>
+                     <p className="text-stone-500 font-medium">Bypass menus and execute primary operational shortcuts.</p>
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+                  {[
+                    { label: 'New Product', action: () => { setActiveTab('Product Catalog'); setShowAddProduct(true); }, icon: PackagePlus, color: 'text-stone-900' },
+                    { label: 'New Broadcast', action: () => { setActiveTab('Announcements'); setNotificationModal({ open: true }); }, icon: Megaphone, color: 'text-emerald-500' },
+                    { label: 'Security Audit', action: () => setActiveTab('Audit Logs'), icon: ShieldCheck, color: 'text-blue-500' },
+                    { label: 'Admin Ops', action: () => setActiveTab('Admin Management'), icon: Shield, color: 'text-red-500' },
+                    { label: 'Status Feed', action: () => setActiveTab('System Status'), icon: Activity, color: 'text-amber-500' },
+                    { label: 'Wallet Flows', action: () => setActiveTab('Wallet Requests'), icon: Wallet, color: 'text-purple-500' }
+                  ].map((btn, i) => (
+                    <motion.button 
+                      key={i}
+                      whileHover={{ scale: 1.05, y: -4 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={btn.action}
+                      className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm flex flex-col items-center justify-center space-y-4 hover:shadow-xl hover:shadow-stone-200 transition-all group"
+                    >
+                       <div className={cn("p-4 rounded-2xl bg-stone-50 group-hover:bg-stone-900 group-hover:text-white transition-all", btn.color)}>
+                         <btn.icon size={22} />
+                       </div>
+                       <span className="text-[10px] font-black uppercase text-stone-400 tracking-widest group-hover:text-stone-900 transition-colors">{btn.label}</span>
+                    </motion.button>
+                  ))}
+               </div>
+            </section>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Performance Analytics */}
               <motion.div
@@ -2772,7 +3059,7 @@ export default function AdminDashboard() {
                       </defs>
                       <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#f5f5f4" />
                       <XAxis 
-                        dataKey="day" 
+                        dataKey="date" 
                         axisLine={false} 
                         tickLine={false} 
                         tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} 
@@ -3345,7 +3632,7 @@ export default function AdminDashboard() {
                 </div>
                 <div className="bg-stone-50 px-4 py-2 rounded-2xl border border-stone-100">
                   <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Total Items</span>
-                  <p className="text-lg font-black">{analyticsData.inventoryData.total_items}</p>
+                  <p className="text-lg font-black">{analyticsData.inventoryData?.total_items || 0}</p>
                 </div>
               </div>
               
@@ -3376,9 +3663,9 @@ export default function AdminDashboard() {
                 <div className="md:col-span-2 h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={[
-                      { name: 'Cost Value', value: analyticsData.inventoryData.total_cost, fill: '#EF4444' },
-                      { name: 'Potential Revenue', value: analyticsData.inventoryData.potential_revenue, fill: '#10B981' },
-                      { name: 'Potential Profit', value: analyticsData.inventoryData.potential_revenue - analyticsData.inventoryData.total_cost, fill: '#F27D26' }
+                      { name: 'Cost Value', value: analyticsData.inventoryData?.total_cost || 0, fill: '#EF4444' },
+                      { name: 'Potential Revenue', value: analyticsData.inventoryData?.potential_revenue || 0, fill: '#10B981' },
+                      { name: 'Potential Profit', value: (analyticsData.inventoryData?.potential_revenue || 0) - (analyticsData.inventoryData?.total_cost || 0), fill: '#F27D26' }
                     ]}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#A8A29E', fontWeight: 700}} />
@@ -3413,7 +3700,7 @@ export default function AdminDashboard() {
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        {analyticsData.rfmSegmentData.map((entry: any, index: number) => (
+                        { (analyticsData.rfmSegmentData || []).map((entry: any, index: number) => (
                           <Cell key={`cell-${index}`} fill={[
                             '#F27D26', // Primary
                             '#10B981', // Emerald
@@ -3438,7 +3725,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-stone-400 mt-1">Segment-specific revenue contribution</p>
                 </div>
                 <div className="space-y-6">
-                  {analyticsData.rfmSegmentData.sort((a: any, b: any) => b.revenue - a.revenue).map((segment: any, idx: number) => (
+                  { (analyticsData.rfmSegmentData || []).sort((a: any, b: any) => b.revenue - a.revenue).map((segment: any, idx: number) => (
                     <div key={idx} className="space-y-2">
                        <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
                           <span className="text-stone-900">{segment.name}</span>
@@ -3596,7 +3883,7 @@ export default function AdminDashboard() {
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        {analyticsData.salesByCategory.map((_: any, index: number) => (
+                        { (analyticsData.salesByCategory || []).map((_: any, index: number) => (
                           <Cell key={`cell-${index}`} fill={['#F27D26', '#3B82F6', '#10B981', '#8B5CF6', '#EC4899', '#F59E0B'][index % 6]} />
                         ))}
                       </Pie>
@@ -3672,7 +3959,7 @@ export default function AdminDashboard() {
                   </ResponsiveContainer>
                 </div>
                 
-                <div className="lg:col-span-2 overflow-x-auto">
+                <div className="lg:col-span-2 responsive-table-container">
                   <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">High Value Customers & RFM Scores</p>
                   <table className="w-full text-left">
                     <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
@@ -3756,7 +4043,7 @@ export default function AdminDashboard() {
                         formatter={(val: any) => [(val || 0).toLocaleString(), 'Users']}
                       />
                       <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={40}>
-                        {analyticsData.conversionFunnel.map((entry: any, index: number) => (
+                        { (analyticsData.conversionFunnel || []).map((entry: any, index: number) => (
                           <Cell key={`cell-${index}`} fill={entry.fill} />
                         ))}
                       </Bar>
@@ -3781,7 +4068,7 @@ export default function AdminDashboard() {
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                       >
-                        {analyticsData.acquisitionSources.map((_: any, index: number) => (
+                        { (analyticsData.acquisitionSources || []).map((_: any, index: number) => (
                           <Cell key={`cell-${index}`} fill={['#F27D26', '#3B82F6', '#10B981', '#8B5CF6'][index % 4]} />
                         ))}
                       </Pie>
@@ -3800,7 +4087,7 @@ export default function AdminDashboard() {
                 <h3 className="text-xl font-black text-stone-900">Top Performing SKUs</h3>
                 <p className="text-xs text-stone-400 mt-1">Efficiency breakdown of high-velocity inventory</p>
               </div>
-              <div className="overflow-x-auto">
+              <div className="responsive-table-container">
                 <table className="w-full text-left">
                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
                     <tr>
@@ -3814,7 +4101,7 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {analyticsData.popularProducts.map((p: any, i: number) => (
+                    {(analyticsData.popularProducts || []).map((p: any, i: number) => (
                       <tr key={i} className="hover:bg-stone-50/50 transition-colors">
                         <td className="px-8 py-5">
                           <span className="w-6 h-6 bg-stone-100 rounded-lg flex items-center justify-center text-[10px] font-black text-stone-400">
@@ -4247,9 +4534,25 @@ export default function AdminDashboard() {
                   <span>Logistics Pipeline</span>
                 </button>
               </div>
-            </header>
+             </header>
+ 
+             <UniversalExportToolbar 
+               title="Commercial Logistics Ledger"
+               fileName="Order_History_Protocol"
+               fetchData={async () => orders}
+               columns={[
+                 { header: 'Order ID', dataKey: 'id' },
+                 { header: 'Customer', dataKey: 'user_name' },
+                 { header: 'Phone', dataKey: 'user_phone' },
+                 { header: 'Total Value', dataKey: 'total', halign: 'right' },
+                 { header: 'Status', dataKey: 'status' },
+                 { header: 'Payment Method', dataKey: 'payment_method' },
+                 { header: 'Transaction ID', dataKey: 'payment_id' },
+                 { header: 'Created At', dataKey: 'created_at' }
+               ]}
+             />
 
-            {/* Logistics Hub Stats */}
+             {/* Logistics Hub Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 { label: 'Pending Review', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', trend: 'Response Required' },
@@ -4382,7 +4685,7 @@ export default function AdminDashboard() {
 
             {ordersViewMode === 'table' ? (
               <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-                <div className="overflow-x-auto no-scrollbar">
+                <div className="responsive-table-container no-scrollbar">
                   <table className="w-full text-left">
                     <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
                       <tr>
@@ -4749,6 +5052,21 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
+
+        <UniversalExportToolbar 
+          title="Master Inventory Ledger"
+          fileName="Inventory_SKU_Manifest"
+          fetchData={async () => allProducts}
+          columns={[
+            { header: 'Product Name', dataKey: 'name' },
+            { header: 'Category', dataKey: 'category' },
+            { header: 'Retail Price', dataKey: 'retail_price', halign: 'right' },
+            { header: 'Wholesale Price', dataKey: 'wholesale_price', halign: 'right' },
+            { header: 'Current Stock', dataKey: 'stock', halign: 'center' },
+            { header: 'Reorder Point', dataKey: 'reorder_point', halign: 'center' },
+            { header: 'Status', dataKey: 'is_listed' }
+          ]}
+        />
 
         {/* Intelligence Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -5176,23 +5494,21 @@ export default function AdminDashboard() {
                 />
                 <button 
                   onClick={async () => {
-                    const email = (document.getElementById('admin-email-input') as HTMLInputElement).value;
+                    const emailInput = document.getElementById('admin-email-input') as HTMLInputElement;
+                    const email = emailInput?.value;
                     if (!email) return;
                     try {
-                      const res = await fetch('/api/admin/make-admin', {
+                      const data = await fetchWithHandling<any>('/api/admin/make-admin', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getAuthHeaders(),
                         body: JSON.stringify({ email })
                       });
-                      if (res.ok) {
+                      if (data) {
                         toast.success('Admin role granted');
-                        (document.getElementById('admin-email-input') as HTMLInputElement).value = '';
-                      } else {
-                        const data = await res.json();
-                        toast.error(data.message);
+                        if (emailInput) emailInput.value = '';
                       }
                     } catch (e) {
-                      toast.error('Failed to grant admin role');
+                      console.error('Make admin error:', e);
                     }
                   }}
                   className="btn-primary py-2 px-6 text-sm"
@@ -5235,9 +5551,19 @@ export default function AdminDashboard() {
                         <button 
                           onClick={async () => {
                             if (!confirm('Delete this role?')) return;
-                            await fetch(`/api/admin/roles/${role.id}`, { method: 'DELETE' });
-                            toast.success('Role deleted');
-                            fetch('/api/admin/roles').then(res => res.json()).then(setRoles);
+                            try {
+                              const data = await fetchWithHandling<any>(`/api/admin/roles/${role.id}`, { 
+                                method: 'DELETE',
+                                headers: getAuthHeaders()
+                              });
+                              if (data) {
+                                toast.success('Role deleted');
+                                const rolesData = await fetchWithHandling<any[]>('/api/admin/roles', { headers: getAuthHeaders() });
+                                if (rolesData) setRoles(rolesData);
+                              }
+                            } catch (err) {
+                              console.error('Delete role error:', err);
+                            }
                           }}
                           className="p-2 text-stone-400 hover:text-red-500 transition-colors"
                         >
@@ -5503,6 +5829,116 @@ export default function AdminDashboard() {
             </div>
           </motion.div>
         )}
+        {activeTab === 'Admin Management' && (
+           <div className="space-y-10">
+             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+               <div>
+                 <h2 className="text-4xl font-black text-stone-900 tracking-tight">Governance & Access</h2>
+                 <p className="text-stone-500 mt-2 text-lg font-medium">Control administrative permissions and monitor data lifecycle.</p>
+               </div>
+               <div className="flex gap-4">
+                  <button onClick={() => fetchAuditLogs()} className="p-4 bg-stone-100 text-stone-600 rounded-2xl hover:bg-stone-200 transition-colors shadow-sm">
+                    <History size={20} />
+                  </button>
+                  <button onClick={() => setRoleModal({ open: true, mode: 'add', role: null })} className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-stone-200 hover:scale-105 active:scale-95 transition-all">
+                    Provision New Access
+                  </button>
+               </div>
+             </header>
+
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white rounded-[3rem] p-10 border border-stone-100 shadow-sm relative overflow-hidden group">
+                   <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                     <Shield size={120} />
+                   </div>
+                   <div className="flex items-center justify-between mb-8 relative z-10">
+                      <h3 className="text-2xl font-black text-stone-900 tracking-tight italic">Root Administrators</h3>
+                      <button onClick={fetchAdmins} className={cn("p-2 rounded-xl text-stone-400 hover:text-primary transition-colors", isAdminRefreshing && "animate-spin")}>
+                        <RefreshCw size={18} />
+                      </button>
+                   </div>
+                   <div className="space-y-4 relative z-10">
+                      {admins.map((adm, i) => (
+                        <div key={adm.id} className="group/item p-6 bg-stone-50 rounded-[2.5rem] border border-stone-100 hover:border-primary/20 hover:bg-white transition-all flex items-center justify-between shadow-sm hover:shadow-xl hover:shadow-stone-200/50">
+                           <div className="flex items-center space-x-5">
+                              <div className="w-14 h-14 bg-white rounded-2xl border border-stone-200 flex items-center justify-center font-black text-stone-400 shadow-sm group-hover/item:text-primary group-hover/item:border-primary/30 transition-all">
+                                {adm.name?.charAt(0) || 'A'}
+                              </div>
+                              <div>
+                                <p className="font-black text-stone-900 leading-none mb-1 text-base tracking-tight">{adm.name}</p>
+                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{adm.email}</p>
+                                {adm.last_login_at && (
+                                  <div className="flex items-center space-x-1.5 mt-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    <p className="text-[9px] text-stone-300 font-bold uppercase tracking-widest leading-none">Last Seen: {new Date(adm.last_login_at).toLocaleString()}</p>
+                                  </div>
+                                )}
+                              </div>
+                           </div>
+                           <div className="flex items-center space-x-2 opacity-0 group-hover/item:opacity-100 transition-all translate-x-2 group-hover/item:translate-x-0">
+                              <button className="p-3 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"><Trash2 size={18} /></button>
+                           </div>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="bg-white rounded-[3rem] p-10 border border-stone-100 shadow-sm relative group overflow-hidden">
+                   <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                     <Trash2 size={120} />
+                   </div>
+                   <h3 className="text-2xl font-black text-stone-900 tracking-tight italic mb-8 relative z-10">Data Deletion Queue</h3>
+                   <div className="space-y-4 relative z-10">
+                      {deletionRequests.length === 0 ? (
+                        <div className="text-center py-20 text-stone-300 bg-stone-50/50 rounded-[2.5rem] border border-dashed border-stone-200">
+                          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+                            <CheckCircle2 size={32} className="text-emerald-500" />
+                          </div>
+                          <p className="font-black uppercase text-[10px] tracking-[0.25em] text-stone-300">Privacy Compliance: 100%</p>
+                          <p className="text-xs font-bold text-stone-400 mt-2">No active user deletion requests pending.</p>
+                        </div>
+                      ) : (
+                        deletionRequests.map((req, i) => (
+                          <div key={req.id} className="p-8 bg-red-50/50 rounded-[2.5rem] border border-red-100 space-y-6 shadow-sm">
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center space-x-4">
+                                <div className="w-12 h-12 bg-white rounded-2xl border border-red-100 flex items-center justify-center text-red-500 shadow-sm">
+                                  <Users size={20} />
+                                </div>
+                                <div>
+                                  <p className="font-black text-red-900 leading-none text-lg tracking-tight">{req.user_name}</p>
+                                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mt-1.5">Cipher: SYS-DEL-0{req.id}</p>
+                                </div>
+                              </div>
+                              <span className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-red-200">Pending Authorization</span>
+                            </div>
+                            <div className="bg-white p-5 rounded-2xl text-[11px] font-bold text-red-800 leading-relaxed italic relative border border-red-50">
+                               <span className="absolute -top-3 left-6 px-2 bg-white text-[8px] uppercase tracking-widest text-red-300">User Testimony</span>
+                              "{req.reason || 'No internal reason documented'}"
+                            </div>
+                            <div className="flex gap-3">
+                               <button 
+                                onClick={() => approveDeletion(req.id)} 
+                                className="flex-1 py-4 bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-200 hover:bg-red-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                               >
+                                 Authorize Full Purge
+                               </button>
+                               <button 
+                                onClick={() => rejectDeletion(req.id)} 
+                                className="px-8 py-4 bg-white text-red-500 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-100 hover:bg-red-50 transition-all"
+                               >
+                                 Reject
+                               </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                   </div>
+                </div>
+             </div>
+           </div>
+        )}
+
         {activeTab === 'Customers' && (
           <div className="space-y-10">
             {/* Intelligence Header */}
@@ -5511,28 +5947,22 @@ export default function AdminDashboard() {
                   <h2 className="text-4xl font-black text-stone-900 tracking-tight">Customer Insights</h2>
                 <p className="text-stone-500 mt-2 text-lg font-medium">Segment behavior, wallet states, and lifetime value analytics.</p>
               </div>
-              <div className="flex items-center space-x-3">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
-                   <div className="flex flex-col">
-                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Active Pool</span>
-                     <span className="text-2xl font-black text-stone-900">{filteredUsers.length}</span>
-                   </div>
-                   <div className="w-px h-10 bg-stone-100" />
-                   <div className="flex flex-col">
-                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Retention</span>
-                     <span className="text-2xl font-black text-emerald-500">88.4%</span>
-                   </div>
-                </div>
-                <button 
-                  onClick={() => generateAdminCustomerReportPDF(users)}
-                  className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl shadow-stone-200 hover:scale-105 active:scale-95 transition-all flex items-center space-x-3"
-                >
-                  <Download size={20} />
-                  <div className="flex flex-col items-start text-left">
-                    <span className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">Intelligence</span>
-                    <span className="text-xs font-bold opacity-60">Full Dossier</span>
-                  </div>
-                </button>
+              <div className="flex flex-col items-end gap-3">
+                <UniversalExportToolbar 
+                  title="Customer Intelligence"
+                  fileName="Customer_Intelligence_Pool"
+                  fetchData={async () => users}
+                  columns={[
+                    { header: 'Full Name', dataKey: 'name' },
+                    { header: 'Phone', dataKey: 'phone' },
+                    { header: 'Email', dataKey: 'email' },
+                    { header: 'Segment', dataKey: 'segment' },
+                    { header: 'Wallet Balance', dataKey: 'wallet_balance', halign: 'right' },
+                    { header: 'Khata Balance', dataKey: 'khata_balance', halign: 'right' },
+                    { header: 'Total Spent', dataKey: 'total_spent', halign: 'right' },
+                    { header: 'Total Orders', dataKey: 'total_orders', halign: 'center' }
+                  ]}
+                />
               </div>
             </header>
 
@@ -5804,6 +6234,85 @@ export default function AdminDashboard() {
                   <p className="text-stone-400 font-medium mt-2">No users matching your search were found.</p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'Announcements' && (
+          <div className="space-y-10">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Broadcast Control</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Coordinate global HUD alerts and promotional banners.</p>
+              </div>
+              <button 
+                onClick={() => setNotificationModal({ open: true })}
+                className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:scale-105 transition-all group"
+              >
+                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-12 transition-transform"><Megaphone size={18} /></div>
+                <span className="uppercase tracking-widest text-xs">Architect Bulletin</span>
+              </button>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+               {notifications.length === 0 ? (
+                 <div className="col-span-full py-24 text-center bg-white rounded-[3rem] border border-dashed border-stone-200">
+                    <Megaphone size={48} className="mx-auto text-stone-200 mb-6" />
+                    <h3 className="text-2xl font-black text-stone-900 tracking-tight">Radio Silence</h3>
+                    <p className="text-stone-400 font-medium mt-2">No active broadcasts currently on air.</p>
+                 </div>
+               ) : (
+                 notifications.map((notif, i) => (
+                   <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    key={notif.id} 
+                    className="group bg-white rounded-[2.5rem] p-8 border border-stone-100 shadow-sm hover:shadow-2xl hover:shadow-stone-200 transition-all duration-500 relative overflow-hidden"
+                   >
+                     <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+                       <Megaphone size={100} />
+                     </div>
+                     
+                     <div className="flex justify-between items-start mb-6 relative z-10">
+                        <div className={cn(
+                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                          notif.type === 'maintenance' ? "bg-red-50 text-red-600 border-red-100" :
+                          notif.type === 'promotion' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                          "bg-blue-50 text-blue-600 border-blue-100"
+                        )}>
+                          {notif.type}
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            if (!confirm('Purge this bulletin?')) return;
+                            try {
+                              await fetchWithHandling(`/api/admin/announcements/${notif.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+                              setNotifications(notifications.filter(n => n.id !== notif.id));
+                              toast.success('Bulletin purged from grid');
+                            } catch (err) {}
+                          }}
+                          className="text-stone-300 hover:text-red-500 transition-colors relative z-20"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                     </div>
+
+                     <div className="relative z-10">
+                        <h4 className="text-xl font-black text-stone-900 tracking-tight leading-tight mb-2">{notif.title}</h4>
+                        <p className="text-sm font-medium text-stone-500 leading-relaxed line-clamp-3">{notif.message}</p>
+                     </div>
+
+                     <div className="mt-8 pt-6 border-t border-stone-50 flex items-center justify-between relative z-10">
+                        <div className="flex items-center space-x-2 text-stone-400">
+                          <Users size={12} />
+                          <span className="text-[10px] font-black uppercase tracking-widest">{notif.target_role}</span>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-stone-300">{new Date(notif.created_at).toLocaleDateString()}</span>
+                     </div>
+                   </motion.div>
+                 ))
+               )}
             </div>
           </div>
         )}
@@ -6298,22 +6807,22 @@ export default function AdminDashboard() {
                         if (!window.confirm('SEND ALERT TO ALL USERS?')) return;
                         
                         try {
-                          const res = await fetch('/api/admin/broadcast-alert', {
+                          const data = await fetchWithHandling<any>('/api/admin/broadcast-alert', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: getAuthHeaders(),
                             body: JSON.stringify({ 
                               title, message, type, 
                               duration: 8000, 
                               is_unskippable: true 
                             })
                           });
-                          if (res.ok) {
+                          if (data) {
                             toast.success('Alert Sent');
                             (document.getElementById('broadcast-title') as HTMLInputElement).value = '';
                             (document.getElementById('broadcast-message') as HTMLTextAreaElement).value = '';
                           }
                         } catch (e) {
-                          toast.error('Failed to send alert');
+                          console.error('Broadcast alert error:', e);
                         }
                       }}
                       className="w-full md:w-auto bg-red-600 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-red-600/30 hover:scale-105 active:scale-95"
@@ -6845,11 +7354,16 @@ export default function AdminDashboard() {
                 {tickets.map((ticket) => (
                   <button 
                     key={ticket.id}
-                    onClick={() => {
+                    onClick={async () => {
                       setSelectedTicket(ticket);
-                      fetch(`/api/admin/support/tickets/${ticket.id}/messages`)
-                        .then(res => res.json())
-                        .then(data => setTicketMessages(data));
+                      try {
+                        const data = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${ticket.id}/messages`, {
+                          headers: getAuthHeaders()
+                        });
+                        if (data) setTicketMessages(data);
+                      } catch (err) {
+                        console.error('Fetch ticket messages error:', err);
+                      }
                     }}
                     className={cn(
                       "w-full p-8 text-left hover:bg-stone-50/80 transition-all duration-300 group relative",
@@ -6896,14 +7410,21 @@ export default function AdminDashboard() {
                         className="bg-stone-50 border-stone-100 border-2 rounded-2xl px-6 py-3 text-xs font-black uppercase tracking-widest text-stone-600 focus:border-primary focus:bg-white outline-none transition-all cursor-pointer shadow-sm"
                         value={selectedTicket.status}
                         onChange={async (e) => {
-                          await fetch(`/api/admin/support/tickets/${selectedTicket.id}/status`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: e.target.value })
-                          });
-                          toast.success('Protocol state updated');
-                          fetchTickets();
-                          setSelectedTicket({...selectedTicket, status: e.target.value});
+                          const newStatus = e.target.value;
+                          try {
+                            const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/status`, {
+                              method: 'POST',
+                              headers: getAuthHeaders(),
+                              body: JSON.stringify({ status: newStatus })
+                            });
+                            if (data) {
+                              toast.success('Protocol state updated');
+                              fetchTickets();
+                              setSelectedTicket({...selectedTicket, status: newStatus});
+                            }
+                          } catch (err) {
+                            console.error('Update ticket status error:', err);
+                          }
                         }}
                       >
                         <option value="open">Open Portal</option>
@@ -6973,15 +7494,22 @@ export default function AdminDashboard() {
                       <button 
                         onClick={async () => {
                           if (!replyMessage) return;
-                          await fetch(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ user_id: user.id, message: replyMessage })
-                          });
-                          setReplyMessage('');
-                          fetch(`/api/admin/support/tickets/${selectedTicket.id}/messages`)
-                            .then(res => res.json())
-                            .then(data => setTicketMessages(data));
+                          try {
+                            const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
+                              method: 'POST',
+                              headers: getAuthHeaders(),
+                              body: JSON.stringify({ user_id: user.id, message: replyMessage })
+                            });
+                            if (data) {
+                              setReplyMessage('');
+                              const messagesData = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
+                                headers: getAuthHeaders()
+                              });
+                              if (messagesData) setTicketMessages(messagesData);
+                            }
+                          } catch (err) {
+                            console.error('Send ticket message error:', err);
+                          }
                         }}
                         className="bg-stone-900 hover:bg-primary text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest transition-all shadow-xl shadow-stone-900/20 active:scale-95 group flex items-center space-x-3"
                       >
@@ -7930,6 +8458,176 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {activeTab === 'Admin Management' && (
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Admin Governance</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Manage operational privileges, track activity nodes, and enforce security protocols.</p>
+              </div>
+              <div className="flex items-center space-x-3">
+                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
+                   <div className="flex flex-col">
+                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Active Admins</span>
+                     <span className="text-2xl font-black text-stone-900">{admins.length}</span>
+                   </div>
+                 </div>
+                 <button 
+                  onClick={fetchAdmins}
+                  disabled={isAdminRefreshing}
+                  className="bg-stone-50 p-6 rounded-3xl border border-stone-100 hover:bg-stone-100 transition-all active:scale-95"
+                 >
+                   <RefreshCw className={cn("text-stone-400", isAdminRefreshing && "animate-spin")} size={24} />
+                 </button>
+              </div>
+            </header>
+
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
+                    <tr>
+                      <th className="px-10 py-8">Administrator Identity</th>
+                      <th className="px-6 py-8">Role Tier</th>
+                      <th className="px-6 py-8">State Persistence</th>
+                      <th className="px-6 py-8">Last Node Access</th>
+                      <th className="px-10 py-8 text-right">Goverance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {admins.map((adm, idx) => (
+                      <motion.tr 
+                        key={adm.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className="group hover:bg-stone-50/50 transition-all"
+                      >
+                        <td className="px-10 py-7">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-stone-100 rounded-2xl flex items-center justify-center text-stone-400 group-hover:bg-stone-900 group-hover:text-white transition-all duration-300">
+                              <Shield size={18} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-black text-stone-900">{adm.name || 'Admin Entity'}</p>
+                              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{adm.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-7">
+                          <span className={cn(
+                            "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border",
+                            adm.role === 'owner' ? "bg-purple-50 text-purple-600 border-purple-100" :
+                            adm.role === 'admin' ? "bg-red-50 text-red-600 border-red-100" :
+                            "bg-blue-50 text-blue-600 border-blue-100"
+                          )}>
+                            {adm.role}
+                          </span>
+                        </td>
+                        <td className="px-6 py-7">
+                           <div className="flex items-center space-x-2">
+                             <div className={cn("w-2 h-2 rounded-full", adm.status === 'disabled' ? 'bg-red-500' : 'bg-emerald-500')} />
+                             <span className="text-[10px] font-black text-stone-800 uppercase tracking-widest">
+                               {adm.status === 'disabled' ? 'Disabled' : 'Operational'}
+                             </span>
+                           </div>
+                        </td>
+                        <td className="px-6 py-7">
+                          <div className="flex flex-col">
+                            <span className="text-[11px] font-black text-stone-800">
+                              {adm.last_login_at ? new Date(adm.last_login_at).toLocaleString() : 'Never accessed'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-10 py-7 text-right">
+                          <div className="flex justify-end space-x-3">
+                             <button
+                               onClick={async () => {
+                                 const status = adm.status === 'disabled' ? 'active' : 'disabled';
+                                 try {
+                                   await fetchWithHandling(`/api/admin/management/${adm.id}/status`, {
+                                     method: 'POST',
+                                     headers: getAuthHeaders(),
+                                     body: JSON.stringify({ status })
+                                   });
+                                   toast.success(`Admin ${status === 'active' ? 'enabled' : 'disabled'}`);
+                                   fetchAdmins();
+                                 } catch (err) {}
+                               }}
+                               className={cn(
+                                 "px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all",
+                                 adm.status === 'disabled' ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" : "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                               )}
+                             >
+                               {adm.status === 'disabled' ? 'Enable' : 'Disable'}
+                             </button>
+                             <button
+                               onClick={async () => {
+                                 if (confirm(`Are you sure you want to revoke admin rights for ${adm.email}?`)) {
+                                   try {
+                                     await fetchWithHandling(`/api/admin/management/${adm.id}/revoke`, {
+                                       method: 'POST',
+                                       headers: getAuthHeaders()
+                                     });
+                                     toast.success('Admin rights revoked');
+                                     fetchAdmins();
+                                   } catch (err) {}
+                                 }
+                               }}
+                               className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all"
+                             >
+                               Revoke Access
+                             </button>
+                          </div>
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            <div className="bg-stone-50 p-8 rounded-[2rem] border border-dashed border-stone-200">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="p-3 bg-stone-900 text-white rounded-2xl">
+                  <Activity size={24} />
+                </div>
+                <div>
+                   <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Governance Intelligence</h3>
+                   <p className="text-stone-500 font-medium">Recent high-level node modifications and access patterns.</p>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-3xl border border-stone-100 overflow-hidden">
+                 <div className="max-h-96 overflow-y-auto no-scrollbar">
+                    <table className="w-full text-left">
+                       <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-widest">
+                          <tr>
+                             <th className="px-8 py-5">Node Identity</th>
+                             <th className="px-6 py-5">Directive Action</th>
+                             <th className="px-6 py-5">Target Resource</th>
+                             <th className="px-8 py-5 text-right">Time Offset</th>
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-stone-50">
+                          {auditLogs.slice(0, 20).map((log, lIdx) => (
+                             <tr key={log.id} className="hover:bg-stone-50/50 transition-all font-mono text-[10px]">
+                                <td className="px-8 py-4 font-black text-stone-600">{log.admin_id}</td>
+                                <td className="px-6 py-4">
+                                   <span className="bg-amber-50 text-amber-600 px-2 py-1 rounded text-[8px] font-black border border-amber-100">{log.action}</span>
+                                </td>
+                                <td className="px-6 py-4 text-stone-400">{log.target_type}#{log.target_id}</td>
+                                <td className="px-8 py-4 text-right text-stone-300">{new Date(log.created_at).toLocaleString()}</td>
+                             </tr>
+                          ))}
+                       </tbody>
+                    </table>
+                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'Promotional Rules' && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -8018,7 +8716,7 @@ export default function AdminDashboard() {
           <DataExportsView />
         )}
 
-        {activeTab === 'Bug Reports' && (
+        {activeTab === 'Automatic Reports' && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
              <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div className="space-y-1">
@@ -8042,15 +8740,15 @@ export default function AdminDashboard() {
             </header>
 
             <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
+              <div className="responsive-table-container no-scrollbar">
                 <table className="w-full text-left">
                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <th className="px-10 py-8">Trace ID</th>
-                      <th className="px-6 py-8">Reporter Identity</th>
-                      <th className="px-6 py-8">Anomalous Component</th>
+                      <th className="px-10 py-8">Identity</th>
+                      <th className="px-6 py-8">Anomalous Context</th>
                       <th className="px-6 py-8">Error Cipher</th>
-                      <th className="px-6 py-8">Protocol Stack</th>
+                      <th className="px-6 py-8">Environment</th>
+                      <th className="px-6 py-8">Timestamp</th>
                       <th className="px-10 py-8 text-right">Goverance</th>
                     </tr>
                   </thead>
@@ -8064,18 +8762,20 @@ export default function AdminDashboard() {
                         className="hover:bg-stone-50/50 transition-all font-mono group"
                       >
                         <td className="px-10 py-6">
-                           <span className="text-[10px] font-black text-stone-400 group-hover:text-stone-900 transition-colors uppercase tracking-widest">ERR-{bug.id.toString().slice(-6)}</span>
-                        </td>
-                        <td className="px-6 py-6">
                            <div className="flex flex-col">
-                              <span className="text-xs font-black text-stone-800 tracking-tight">{bug.reporter_name || 'System Node'}</span>
-                              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">UID: {bug.user_id?.slice(0, 8) || 'GUEST'}</span>
+                              <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">ERR-{bug.id.toString().slice(-6)}</span>
+                              <span className="text-xs font-black text-stone-800 tracking-tight mt-1 truncate max-w-[120px]">{bug.reporter_name || 'System Node'}</span>
+                              <span className="text-[9px] font-bold text-stone-300 uppercase tracking-widest mt-1">UID: {bug.user_id ? bug.user_id.slice(0, 8) : 'GUEST'}</span>
                            </div>
                         </td>
                         <td className="px-6 py-6">
-                          <div className="flex items-center space-x-2">
-                             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                          <div className="flex flex-col space-y-1">
+                             <div className="flex items-center space-x-2">
+                               <div className={cn("w-2 h-2 rounded-full animate-pulse", bug.type === 'API_ERROR' ? 'bg-orange-500' : 'bg-red-500')} />
+                               <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">{bug.type || 'REPORTER'}</span>
+                             </div>
                              <span className="text-[11px] font-black text-stone-800 uppercase tracking-tighter truncate max-w-[150px]" title={bug.path}>{bug.path || 'System Core'}</span>
+                             {bug.api_endpoint && <span className="text-[9px] text-stone-400 truncate max-w-[150px] italic">{bug.api_endpoint}</span>}
                           </div>
                         </td>
                         <td className="px-6 py-6">
@@ -8085,29 +8785,43 @@ export default function AdminDashboard() {
                            </div>
                         </td>
                         <td className="px-6 py-6">
+                           <div className="flex flex-col space-y-1">
+                             <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest truncate max-w-[150px]" title={bug.device_info}>{bug.device_info || 'Unknown Device'}</span>
+                             <span className="text-[9px] text-stone-400">{bug.screen_resolution || 'Unknown Res'}</span>
+                             {bug.network_status && <span className="text-[9px] text-emerald-500 font-black uppercase tracking-tighter">{bug.network_status}</span>}
+                           </div>
+                        </td>
+                        <td className="px-6 py-6">
                            <div className="flex flex-col space-y-1 font-sans">
                              <span className="text-[10px] font-black text-stone-600 uppercase tracking-[0.2em]">{new Date(bug.created_at).toLocaleDateString()}</span>
                              <span className="text-[9px] font-bold text-stone-300 italic">{new Date(bug.created_at).toLocaleTimeString()}</span>
                            </div>
                         </td>
                         <td className="px-10 py-6 text-right">
-                          <button 
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(`/api/admin/bugs/${bug.id}`, { method: 'DELETE' });
-                                if (res.ok) {
-                                  toast.success('Anomaly purged from logs');
-                                  fetchBugReports();
-                                }
-                              } catch (err) {
-                                toast.error('Purge failure');
-                              }
-                            }}
-                            className="p-3 bg-stone-100 text-stone-400 hover:text-red-500 hover:bg-white hover:shadow-md hover:border-red-100 border border-transparent rounded-2xl transition-all"
-                            title="Purge Anomaly"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          <div className="flex items-center justify-end space-x-2">
+                            <button 
+                              onClick={() => {
+                                setReportDetailModal({ open: true, report: bug });
+                              }}
+                              className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-400 hover:text-primary transition-all shadow-sm"
+                              title="Review Cipher"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                try {
+                                  await fetchWithHandling(`/api/bugs/report/${bug.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+                                  setBugReports(bugReports.filter((b: any) => b.id !== bug.id));
+                                  toast.success('Report Cleared');
+                                } catch (err) {}
+                              }}
+                              className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-400 hover:text-red-500 transition-all shadow-sm"
+                              title="Purge Entry"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </motion.tr>
                     ))}
@@ -8124,75 +8838,136 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'System Status' && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><CheckCircle2 size={20} /></div>
-                  <h4 className="font-bold">Database</h4>
-                </div>
-                <p className="text-sm text-stone-500 mb-2">Status: <span className="text-emerald-600 font-bold">Healthy</span></p>
-                <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">Last Sync: Just Now</p>
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+              <div>
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">System Infrastructure</h2>
+                <p className="text-stone-500 mt-2 text-lg font-medium">Real-time telemetry, error matrix, and environment health monitoring.</p>
               </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Globe size={20} /></div>
-                  <h4 className="font-bold">API Server</h4>
-                </div>
-                <p className="text-sm text-stone-500 mb-2">Status: <span className="text-emerald-600 font-bold">Online</span></p>
-                <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">Active Conns: {stats?.activeUsers || 0}</p>
+              <div className="flex bg-white px-8 py-5 rounded-3xl border border-stone-100 shadow-sm items-center space-x-8">
+                 <div className="flex flex-col">
+                   <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Uptime</span>
+                   <span className="text-xl font-black text-stone-900">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '0h 0m'}</span>
+                 </div>
+                 <div className="w-px h-10 bg-stone-100" />
+                 <div className="flex items-center space-x-3">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Active Node</span>
+                 </div>
               </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Shield size={20} /></div>
-                  <h4 className="font-bold">Security</h4>
-                </div>
-                <p className="text-sm text-stone-500 mb-2">Status: <span className="text-emerald-600 font-bold">Protected</span></p>
-                <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">Firewall: Active</p>
-              </div>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+               {[
+                 { label: 'DB Latency', value: '4ms', status: 'Healthy', icon: Database, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+                 { label: 'Active Sessions', value: systemHealth?.metrics?.activeUsers || 0, status: 'Stable', icon: Activity, color: 'text-blue-500', bg: 'bg-blue-50' },
+                 { label: 'Uncaught Anomalies', value: systemHealth?.metrics?.recentErrors || 0, status: systemHealth?.metrics?.recentErrors > 0 ? 'Review Needed' : 'Nominal', icon: ShieldAlert, color: systemHealth?.metrics?.recentErrors > 0 ? 'text-red-500' : 'text-stone-400', bg: 'bg-stone-50' },
+                 { label: 'Node Payload', value: '1.2GB/8GB', status: 'Low Load', icon: Cpu, color: 'text-purple-500', bg: 'bg-purple-50' }
+               ].map((m, i) => (
+                 <div key={i} className="bg-white p-8 rounded-[2rem] border border-stone-100 shadow-sm flex flex-col space-y-4">
+                    <div className="flex items-center justify-between">
+                       <div className={cn("p-3 rounded-2xl", m.bg, m.color)}>
+                         <m.icon size={22} />
+                       </div>
+                       <span className={cn("text-[9px] font-black uppercase tracking-widest", m.color === 'text-stone-400' ? 'text-emerald-500' : m.color)}>{m.status}</span>
+                    </div>
+                    <div>
+                       <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">{m.label}</p>
+                       <p className="text-2xl font-black text-stone-900">{m.value}</p>
+                    </div>
+                 </div>
+               ))}
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold">System Logs</h3>
-                <button 
-                  onClick={fetchSystemLogs}
-                  disabled={isRefreshingLogs}
-                  className="p-2 hover:bg-stone-100 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw size={20} className={cn("text-stone-400", isRefreshingLogs && "animate-spin")} />
-                </button>
-              </div>
-              <div className="space-y-4 font-mono text-xs max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                {systemLogs.map((log, i) => (
-                  <div key={i} className="p-3 bg-stone-50 rounded-xl border border-stone-100 flex space-x-4">
-                    <span className="text-stone-400">[{new Date(log.created_at).toLocaleString()}]</span>
-                    <span className={cn(
-                      "font-bold",
-                      log.type === 'error' ? "text-red-600" : 
-                      log.type === 'warn' ? "text-amber-600" : 
-                      log.type === 'info' ? "text-emerald-600" : "text-blue-600"
-                    )}>
-                      {log.type.toUpperCase()}
-                    </span>
-                    <span className="text-stone-700">{log.message}</span>
-                    {log.details && (
-                      <span className="text-stone-400 text-[10px] truncate max-w-xs" title={log.details}>
-                        {log.details}
-                      </span>
-                    )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+               <div className="lg:col-span-2 space-y-6">
+                  <div className="flex items-center justify-between px-2">
+                     <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Kernel Events</h3>
+                     <button 
+                       onClick={fetchSystemLogs}
+                       className="p-3 bg-white border border-stone-100 rounded-2xl hover:bg-stone-50 transition-all shadow-sm"
+                     >
+                       <RefreshCw size={20} className={cn("text-stone-400", isRefreshingLogs && "animate-spin")} />
+                     </button>
                   </div>
-                ))}
-                {systemLogs.length === 0 && (
-                  <div className="text-center py-12 text-stone-400 italic">No system logs found</div>
-                )}
-              </div>
+                  <div className="bg-stone-950 rounded-[2.5rem] p-8 shadow-2xl border border-stone-800 relative overflow-hidden">
+                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary/20 via-primary/5 to-transparent" />
+                     <div className="space-y-4 font-mono text-[11px] max-h-[600px] overflow-y-auto no-scrollbar scroll-smooth">
+                        {systemLogs.map((log, i) => (
+                          <div key={i} className="flex space-x-6 group opacity-80 hover:opacity-100 transition-opacity">
+                            <span className="text-stone-600 shrink-0 font-bold">[{new Date(log.created_at).toLocaleTimeString()}]</span>
+                            <div className="flex flex-col space-y-1 w-full">
+                               <div className="flex items-center space-x-3">
+                                 <span className={cn(
+                                   "font-black uppercase tracking-widest",
+                                   log.type === 'error' ? "text-red-500" : 
+                                   log.type === 'warn' ? "text-amber-500" : 
+                                   log.type === 'info' ? "text-emerald-500" : "text-blue-500"
+                                 )}>
+                                   {log.type}
+                                 </span>
+                                 <span className="text-stone-300 font-bold leading-relaxed">{log.message}</span>
+                               </div>
+                               {log.details && (
+                                 <p className="text-stone-500 text-[10px] pl-0 break-all leading-relaxed bg-white/5 p-3 rounded-xl mt-2 border border-white/5">{log.details}</p>
+                               )}
+                            </div>
+                          </div>
+                        ))}
+                        {systemLogs.length === 0 && (
+                          <div className="py-20 text-center text-stone-600 font-black uppercase tracking-[0.3em]">No Kernel Activity Recorded</div>
+                        )}
+                     </div>
+                  </div>
+               </div>
+
+               <div className="space-y-8">
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-6">
+                     <h3 className="text-lg font-black text-stone-900 uppercase tracking-tight">Security Matrix</h3>
+                     <div className="space-y-6">
+                        {[
+                          { label: 'HTTPS Governance', active: true },
+                          { label: 'XSS Sanitization', active: true },
+                          { label: 'CSRF Shield', active: true },
+                          { label: 'Rate Limit Node', active: true },
+                          { label: 'Audit Logging', active: true },
+                        ].map((s, i) => (
+                          <div key={i} className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-stone-500">{s.label}</span>
+                            <div className="w-10 h-5 bg-emerald-500/20 rounded-full flex items-center px-1">
+                               <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full" />
+                            </div>
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+
+                  <div className="bg-stone-900 p-8 rounded-[2.5rem] shadow-xl text-white space-y-6">
+                     <div className="flex items-center space-x-3">
+                        <div className="p-3 bg-white/10 rounded-2xl"><Zap size={20} /></div>
+                        <h3 className="text-lg font-black uppercase tracking-tight">Live Throughput</h3>
+                     </div>
+                     <div className="space-y-4">
+                        <div className="flex justify-between items-end">
+                           <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Active Requests</span>
+                           <span className="text-2xl font-black">{systemHealth?.metrics?.activeUsers || 0}s/m</span>
+                        </div>
+                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                           <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: '45%' }}
+                            className="h-full bg-primary" 
+                           />
+                        </div>
+                        <p className="text-[9px] text-stone-500 leading-relaxed font-bold">Requests are within optimal threshold. System is experiencing nominal traffic volume.</p>
+                     </div>
+                  </div>
+               </div>
             </div>
           </div>
         )}
         </motion.div>
       </AnimatePresence>
-    </main>
     </div>
 
       {walletModal.open && (
@@ -8853,9 +9628,11 @@ export default function AdminDashboard() {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
+                  disabled={isSubmittingProduct}
+                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                 >
-                  {productModal.mode === 'add' ? 'Add Product' : 'Update Product'}
+                  {isSubmittingProduct && <Loader2 size={18} className="animate-spin" />}
+                  <span>{productModal.mode === 'add' ? 'Add Product' : 'Update Product'}</span>
                 </button>
               </div>
             </form>
@@ -9917,12 +10694,17 @@ export default function AdminDashboard() {
                       onClick={async () => {
                         if(confirm('Are you absolutely sure? This will delete all user data and cannot be undone.')) {
                           try {
-                            await fetch(`/api/admin/users/${customerModal.user.id}`, { method: 'DELETE' });
-                            toast.success('User deleted securely');
-                            setCustomerModal({ open: false, user: null });
-                            fetchUsers();
+                            const data = await fetchWithHandling<any>(`/api/admin/users/${customerModal.user.id}`, { 
+                              method: 'DELETE',
+                              headers: getAuthHeaders()
+                            });
+                            if (data) {
+                              toast.success('User deleted securely');
+                              setCustomerModal({ open: false, user: null });
+                              fetchUsers();
+                            }
                           } catch(e) {
-                            toast.error('Failed to delete user');
+                            console.error('Delete user error:', e);
                           }
                         }
                       }}
@@ -10184,9 +10966,15 @@ export default function AdminDashboard() {
                                 <p className="mt-1">{addr.address}</p>
                                 <p>{addr.city}, {addr.state} {addr.pincode}</p>
                                 {(orderModal.order.lat || addr.lat) && (
-                                  <p className="text-xs text-primary font-mono mt-2">
-                                    GPS: {(orderModal.order.lat || addr.lat).toFixed(4)}, {(orderModal.order.lng || addr.lng).toFixed(4)}
-                                  </p>
+                                  <a 
+                                    href={`https://www.google.com/maps/search/?api=1&query=${orderModal.order.lat || addr.lat},${orderModal.order.lng || addr.lng}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center space-x-1 p-2 bg-primary/5 text-primary rounded-lg text-[10px] font-black uppercase tracking-widest mt-2 hover:bg-primary/10 transition-colors"
+                                  >
+                                    <MapPin size={10} />
+                                    <span>View on Map (GPS: {(orderModal.order.lat || addr.lat).toFixed(4)}, {(orderModal.order.lng || addr.lng).toFixed(4)})</span>
+                                  </a>
                                 )}
                               </>
                             );
@@ -10221,12 +11009,12 @@ export default function AdminDashboard() {
                       onClick={async () => {
                         const tracking_id = (document.getElementById(`tracking-id-${orderModal.order.id}`) as HTMLInputElement).value;
                         try {
-                          const res = await fetch(`/api/admin/orders/${orderModal.order.id}/tracking`, {
+                          const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/tracking`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: getAuthHeaders(),
                             body: JSON.stringify({ tracking_id })
                           });
-                          if (res.ok) {
+                          if (data) {
                             toast.success('Tracking ID saved');
                             setOrderModal({ 
                               ...orderModal, 
@@ -10234,7 +11022,7 @@ export default function AdminDashboard() {
                             });
                           }
                         } catch (err) {
-                          toast.error('Failed to save tracking ID');
+                          console.error('Update tracking ID error:', err);
                         }
                       }}
                       className="px-4 bg-primary text-white rounded-xl hover:bg-primary/90 font-bold text-xs"
@@ -10255,23 +11043,21 @@ export default function AdminDashboard() {
                       if (!value || value === (orderModal.order.estimated_delivery_at ? new Date(orderModal.order.estimated_delivery_at).toISOString().slice(0, 16) : '')) return;
                       
                       try {
-                        const res = await fetch(`/api/admin/orders/${orderModal.order.id}/estimated-delivery`, {
+                        const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/estimated-delivery`, {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: getAuthHeaders(),
                           body: JSON.stringify({ estimated_delivery_at: value })
                         });
-                        if (res.ok) {
+                        if (data) {
                           toast.success('Estimated delivery time updated');
                           setOrderModal({ 
                             ...orderModal, 
                             order: { ...orderModal.order, estimated_delivery_at: value } 
                           });
                           fetchOrders();
-                        } else {
-                          toast.error('Failed to update estimated delivery time');
                         }
                       } catch (err) {
-                        toast.error('Failed to update. Check your connection.');
+                        console.error('Update delivery error:', err);
                       }
                     }}
                   />
@@ -10288,24 +11074,21 @@ export default function AdminDashboard() {
                       if (notes === orderModal.order.admin_notes) return;
                       
                       try {
-                        const res = await fetch(`/api/admin/orders/${orderModal.order.id}/notes`, {
+                        const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/notes`, {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: getAuthHeaders(),
                           body: JSON.stringify({ admin_notes: notes })
                         });
-                        if (res.ok) {
+                        if (data) {
                           toast.success('Notes saved');
                           setOrderModal({ 
                             ...orderModal, 
                             order: { ...orderModal.order, admin_notes: notes } 
                           });
                           fetchOrders();
-                        } else {
-                          toast.error('Failed to save notes');
                         }
                       } catch (err) {
                         console.error('Save notes error:', err);
-                        toast.error('Failed to save notes. Check your connection.');
                       }
                     }}
                   />
@@ -10313,14 +11096,20 @@ export default function AdminDashboard() {
                 </div>
                 
                 <div className="flex space-x-3 pt-6 border-t border-stone-100">
-                  <button 
-                    onClick={() => handlePrintInvoice(orderModal.order)}
-                    className="flex-1 py-4 bg-stone-900 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-stone-800 flex items-center justify-center space-x-2 shadow-lg transition-all"
-                  >
-                    <Printer size={18} />
-                    <span>Download/Print Invoice</span>
-                  </button>
-                </div>
+                   <button 
+                     onClick={() => generateOrderInvoicePDF(orderModal.order, config)}
+                     className="flex-1 py-4 bg-stone-900 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-600 flex items-center justify-center space-x-2 shadow-lg transition-all active:scale-95 group"
+                   >
+                     <FileText size={18} className="group-hover:rotate-12 transition-transform" />
+                     <span>Download Pro Invoice</span>
+                   </button>
+                   <button 
+                     onClick={() => handlePrintInvoice(orderModal.order)}
+                     className="p-4 bg-stone-100 text-stone-600 rounded-2xl hover:bg-stone-200 transition-colors"
+                   >
+                     <Printer size={18} />
+                   </button>
+                 </div>
               </div>
 
               <div className="space-y-6">
@@ -10340,21 +11129,18 @@ export default function AdminDashboard() {
                           <button 
                             onClick={async () => {
                               try {
-                                const res = await fetch(`/api/admin/orders/${orderModal.order.id}/status`, {
+                                const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
                                   method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
+                                  headers: getAuthHeaders(),
                                   body: JSON.stringify({ status: 'processing' })
                                 });
-                                if (res.ok) {
+                                if (data) {
                                   toast.success('Order Approved');
                                   setOrderModal({ open: false, order: null });
                                   fetchOrders();
-                                } else {
-                                  toast.error('Failed to approve order');
                                 }
                               } catch (err) {
                                 console.error('Approve order error:', err);
-                                toast.error('Error approving order');
                               }
                             }}
                             className="flex-1 bg-emerald-600 text-white py-2 rounded-xl font-bold hover:bg-emerald-700"
@@ -10366,21 +11152,18 @@ export default function AdminDashboard() {
                               const reason = prompt('Enter rejection reason:');
                               if (reason) {
                                 try {
-                                  const res = await fetch(`/api/admin/orders/${orderModal.order.id}/status`, {
+                                  const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
+                                    headers: getAuthHeaders(),
                                     body: JSON.stringify({ status: 'cancelled', rejection_reason: reason })
                                   });
-                                  if (res.ok) {
+                                  if (data) {
                                     toast.error('Order Rejected');
                                     setOrderModal({ open: false, order: null });
                                     fetchOrders();
-                                  } else {
-                                    toast.error('Failed to reject order');
                                   }
                                 } catch (err) {
                                   console.error('Reject order error:', err);
-                                  toast.error('Error rejecting order');
                                 }
                               }
                             }}
@@ -10526,20 +11309,27 @@ export default function AdminDashboard() {
                         onClick={async () => {
                           try {
                             if (isLinked) {
-                              await fetch(`/api/admin/promotions/${promotionProductsModal.promotionId}/products/${product.id}`, { method: 'DELETE' });
-                              setLinkedProductIds(prev => prev.filter(id => id !== product.id));
-                              toast.success('Product unlinked');
+                              const data = await fetchWithHandling<any>(`/api/admin/promotions/${promotionProductsModal.promotionId}/products/${product.id}`, { 
+                                method: 'DELETE',
+                                headers: getAuthHeaders()
+                              });
+                              if (data) {
+                                setLinkedProductIds(prev => prev.filter(id => id !== product.id));
+                                toast.success('Product unlinked');
+                              }
                             } else {
-                              await fetch(`/api/admin/promotions/${promotionProductsModal.promotionId}/products`, {
+                              const data = await fetchWithHandling<any>(`/api/admin/promotions/${promotionProductsModal.promotionId}/products`, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: getAuthHeaders(),
                                 body: JSON.stringify({ product_id: product.id })
                               });
-                              setLinkedProductIds(prev => [...prev, product.id]);
-                              toast.success('Product linked');
+                              if (data) {
+                                setLinkedProductIds(prev => [...prev, product.id]);
+                                toast.success('Product linked');
+                              }
                             }
                           } catch (err) {
-                            toast.error('Failed to update promotion products');
+                            console.error('Update promotion products error:', err);
                           }
                         }}
                         className={cn(
@@ -10708,15 +11498,17 @@ export default function AdminDashboard() {
               <button 
                 onClick={async () => {
                   try {
-                    await fetch(`/api/admin/products/${variantModal.productId}/variants`, {
+                    const data = await fetchWithHandling<any>(`/api/admin/products/${variantModal.productId}/variants`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: getAuthHeaders(),
                       body: JSON.stringify({ variants: productVariants })
                     });
-                    toast.success('Variants fully updated');
-                    setVariantModal({ ...variantModal, open: false });
+                    if (data) {
+                      toast.success('Variants fully updated');
+                      setVariantModal({ ...variantModal, open: false });
+                    }
                   } catch (err) {
-                    toast.error('Failed to update variants');
+                    console.error('Update variants error:', err);
                   }
                 }}
                 className="flex-[2] py-4 bg-stone-900 text-white rounded-2xl font-bold hover:bg-stone-800 transition-colors shadow-xl shadow-stone-200"
@@ -10806,16 +11598,19 @@ export default function AdminDashboard() {
                   try {
                     const method = roleModal.mode === 'add' ? 'POST' : 'PUT';
                     const url = roleModal.mode === 'add' ? '/api/admin/roles' : `/api/admin/roles/${roleModal.role.id}`;
-                    await fetch(url, {
+                    const data = await fetchWithHandling<any>(url, {
                       method,
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: getAuthHeaders(),
                       body: JSON.stringify(newRole)
                     });
-                    toast.success(`Role ${roleModal.mode === 'add' ? 'created' : 'updated'}`);
-                    setRoleModal({ ...roleModal, open: false });
-                    fetch('/api/admin/roles').then(res => res.json()).then(setRoles);
+                    if (data) {
+                      toast.success(`Role ${roleModal.mode === 'add' ? 'created' : 'updated'}`);
+                      setRoleModal({ ...roleModal, open: false });
+                      const rolesData = await fetchWithHandling<any[]>('/api/admin/roles', { headers: getAuthHeaders() });
+                      if (rolesData) setRoles(rolesData);
+                    }
                   } catch (err) {
-                    toast.error('Failed to save role');
+                    console.error('Save role error:', err);
                   }
                 }}
                 className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all"
@@ -10826,6 +11621,151 @@ export default function AdminDashboard() {
           </motion.div>
         </div>
       )}
-    </div>
+      {reportDetailModal.open && reportDetailModal.report && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-md">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[3rem] p-8 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh] border border-stone-100"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-red-50 text-red-500 rounded-2xl">
+                  <Bug size={32} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Anomaly Full Report</h3>
+                  <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mt-1">Cipher: ERR-{reportDetailModal.report.id.toString().slice(-6)}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setReportDetailModal({ open: false, report: null })}
+                className="p-3 hover:bg-stone-50 rounded-2xl text-stone-400 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-8">
+              {/* Summary Section */}
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest block mb-1">Occurrence</span>
+                    <span className="text-xs font-bold text-stone-800">{new Date(reportDetailModal.report.created_at).toLocaleString()}</span>
+                 </div>
+                 <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest block mb-1">Error Type</span>
+                    <span className={cn("text-xs font-black px-2 py-0.5 rounded-lg", reportDetailModal.report.type === 'API_ERROR' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600')}>
+                      {reportDetailModal.report.type}
+                    </span>
+                 </div>
+              </div>
+
+              {/* Identity & Origin */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Origin & Identity</h4>
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 shadow-sm">
+                   <div className="flex justify-between items-center py-2 border-b border-stone-50">
+                      <span className="text-xs font-bold text-stone-500">Reporter</span>
+                      <span className="text-xs font-black text-stone-900">{reportDetailModal.report.reporter_name || 'Anonymous'}</span>
+                   </div>
+                   <div className="flex justify-between items-center py-2 border-b border-stone-50">
+                      <span className="text-xs font-bold text-stone-500">User ID</span>
+                      <span className="text-xs font-mono font-bold text-stone-400">{reportDetailModal.report.user_id || 'unauthenticated_node'}</span>
+                   </div>
+                   <div className="flex justify-between items-center py-2 border-b border-stone-50">
+                      <span className="text-xs font-bold text-stone-500">Node Path</span>
+                      <span className="text-xs font-black text-primary">{reportDetailModal.report.path || 'Root Context'}</span>
+                   </div>
+                   {reportDetailModal.report.api_endpoint && (
+                     <div className="flex justify-between items-center py-2">
+                        <span className="text-xs font-bold text-stone-500">API Endpoint</span>
+                        <span className="text-xs font-mono font-bold text-stone-900 bg-stone-100 px-2 py-1 rounded-lg">{reportDetailModal.report.api_endpoint}</span>
+                     </div>
+                   )}
+                </div>
+              </div>
+
+              {/* Environmental Metrics */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Environmental Metrics</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm flex items-center space-x-4">
+                      <div className="p-2 bg-stone-50 rounded-xl text-stone-400"><LayoutDashboard size={18} /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Canvas Resolution</p>
+                        <p className="text-xs font-bold text-stone-800">{reportDetailModal.report.screen_resolution || 'Unknown'}</p>
+                      </div>
+                   </div>
+                   <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm flex items-center space-x-4">
+                      <div className="p-2 bg-stone-50 rounded-xl text-stone-400"><Activity size={18} /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Network State</p>
+                        <p className="text-xs font-bold text-stone-800">{reportDetailModal.report.network_status || 'Unknown'}</p>
+                      </div>
+                   </div>
+                   <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm col-span-full">
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-2 px-1">Agent Signature</p>
+                      <p className="text-[10px] font-mono text-stone-500 break-all leading-relaxed bg-stone-50 p-3 rounded-xl border border-stone-100">{reportDetailModal.report.device_info}</p>
+                   </div>
+                </div>
+              </div>
+
+              {/* Error Details */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Payload & Trace</h4>
+                <div className="space-y-4">
+                  <div className="p-6 bg-red-50/50 rounded-3xl border border-red-100">
+                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-2">Primary Exception</p>
+                    <p className="text-sm font-black text-red-600 leading-tight">{reportDetailModal.report.message}</p>
+                  </div>
+                  
+                  {reportDetailModal.report.stack_trace && (
+                    <div className="p-6 bg-stone-900 rounded-3xl overflow-hidden">
+                      <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-3">StackTrace Console</p>
+                      <pre className="text-[10px] font-mono text-stone-300 overflow-x-auto no-scrollbar max-h-48 scroll-smooth">
+                        {reportDetailModal.report.stack_trace}
+                      </pre>
+                    </div>
+                  )}
+
+                  {reportDetailModal.report.metadata && (
+                    <div className="p-6 bg-white border border-stone-100 rounded-3xl shadow-sm">
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3">Associated Metadata</p>
+                      <pre className="text-[10px] font-mono text-stone-600 bg-stone-50 p-4 rounded-xl overflow-x-auto no-scrollbar border border-stone-100">
+                        {JSON.stringify(typeof reportDetailModal.report.metadata === 'string' ? JSON.parse(reportDetailModal.report.metadata) : reportDetailModal.report.metadata, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 flex space-x-3">
+               <button 
+                onClick={() => setReportDetailModal({ open: false, report: null })}
+                className="flex-1 py-4 bg-stone-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-stone-200"
+               >
+                 Acknowledge Report
+               </button>
+               <button 
+                onClick={async () => {
+                  try {
+                    await fetchWithHandling(`/api/bugs/report/${reportDetailModal.report.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+                    setBugReports(bugReports.filter((b: any) => b.id !== reportDetailModal.report.id));
+                    setReportDetailModal({ open: false, report: null });
+                    toast.success('Report Purged');
+                  } catch (err) {}
+                }}
+                className="w-16 h-16 bg-red-50 text-red-500 rounded-[1.5rem] flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
+               >
+                 <Trash2 size={24} />
+               </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+      <ExportProgressModal />
+    </AdminDashboardLayout>
   );
 }

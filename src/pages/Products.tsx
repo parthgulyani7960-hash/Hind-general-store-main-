@@ -11,6 +11,7 @@ import { useStore } from '../StoreContext';
 import { useDeviceType } from '../lib/device';
 import toast from 'react-hot-toast';
 import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where } from '../firebase';
+import { fetchWithHandling } from '../lib/api';
 
 export default function Products() {
   const location = useLocation();
@@ -48,9 +49,8 @@ export default function Products() {
     try {
       // 1. Try local API
       console.log('Fetching products from /api/products...');
-      const res = await fetch('/api/products');
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<Product[]>('/api/products');
+      if (data) {
         console.log('Fetched products:', data.length);
         setProducts(data);
         if (data.length > 0) {
@@ -58,8 +58,6 @@ export default function Products() {
           setMaxPrice(maxP.toString());
         }
         return;
-      } else {
-        console.warn('API returned non-ok status:', res.status);
       }
       
       // 2. If API fails, try direct Firestore fallback (User request: "stored in the Firebase")
@@ -764,7 +762,7 @@ export default function Products() {
             }
           }
         }}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
+        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8"
       >
         <AnimatePresence mode="popLayout">
         {filteredProducts.map((product) => {
@@ -783,7 +781,7 @@ export default function Products() {
               className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-xl transition-all duration-300 flex flex-col p-4 md:p-6"
               whileHover={{ y: -5, scale: 1.02 }}
             >
-              <Link to={`/product/${product.id}`} className="relative h-56 sm:h-64 overflow-hidden block group/image mb-4 -mx-4 -mt-4 md:-mx-6 md:-mt-6">
+              <Link to={`/product/${product.id}`} className="relative h-40 sm:h-64 overflow-hidden block group/image mb-4 -mx-4 -mt-4 md:-mx-6 md:-mt-6">
                 {showImages ? (
                   <img 
                     src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
@@ -900,7 +898,7 @@ export default function Products() {
               <div className="flex-1 flex flex-col">
                 <Link to={`/product/${product.id}`} className="mb-4 block group">
                   <span className="text-xs uppercase tracking-widest font-black text-primary">{product.category}</span>
-                  <h3 className="text-2xl md:text-3xl font-black text-stone-900 group-hover:text-primary transition-colors mt-1">{product.name}</h3>
+                  <h3 className="text-sm md:text-xl lg:text-2xl font-black text-stone-900 group-hover:text-primary transition-colors mt-1 leading-tight line-clamp-2">{product.name}</h3>
                   <div className="flex items-center space-x-2 mt-2">
                     <div className="flex text-amber-400">
                       {[...Array(5)].map((_, i) => (
@@ -910,7 +908,7 @@ export default function Products() {
                     <span className="text-xs text-stone-400 font-black">({(product as any).review_count || 0} reviews)</span>
                   </div>
                 </Link>
-                <p className="text-base md:text-lg text-stone-600 mb-6 line-clamp-3 leading-relaxed">{product.description}</p>
+                <p className="hidden sm:block text-base md:text-lg text-stone-600 mb-6 line-clamp-3 leading-relaxed">{product.description}</p>
                 
                 <div className="mt-auto flex space-x-3">
                   {product.stock <= 0 ? (

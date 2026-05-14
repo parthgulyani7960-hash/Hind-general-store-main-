@@ -2,8 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
-import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './firebase'; // Import from local firebase.ts
+import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './firebase'; 
 import { getAuthHeaders } from './lib/utils';
+import { fetchWithHandling } from './lib/api';
 
 interface StoreContextType {
   user: User | null;
@@ -121,26 +122,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const fetchAlerts = async () => {
     if (!user) return;
     try {
-      const res = await fetch('/api/alerts', { headers: getAuthHeaders() });
-      if (res.status === 401) {
-        if (auth.currentUser) {
-          try {
-            await auth.currentUser.getIdToken(true);
-          } catch (e) {
-            checkAuth();
-          }
-        } else {
-          checkAuth();
-        }
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (data.length > 0) {
-          setPendingAlerts(data);
-          if (!currentAlert) {
-            setCurrentAlert(data[0]);
-          }
+      const data = await fetchWithHandling<any[]>('/api/alerts');
+      if (data && data.length > 0) {
+        setPendingAlerts(data);
+        if (!currentAlert) {
+          setCurrentAlert(data[0]);
         }
       }
     } catch (err) {}
@@ -148,7 +134,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const markAlertAsRead = async (id: number) => {
     try {
-      await fetch(`/api/alerts/${id}/read`, { method: 'POST', headers: getAuthHeaders() });
+      await fetchWithHandling(`/api/alerts/${id}/read`, { method: 'POST' });
       setPendingAlerts(prev => prev.filter(a => a.id !== id));
       if (currentAlert?.id === id) {
         setCurrentAlert(null);
@@ -158,79 +144,59 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = async (fbToken?: string) => {
     try {
-      const headers: any = { 'Content-Type': 'application/json' };
       const token = fbToken || localStorage.getItem('hgs_token');
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const res = await fetch('/api/auth/me', { headers });
-      if (res.ok) {
-        const data = await res.json();
-        // Don't overwrite hgs_token with server's custom token if we're using Firebase tokens
-        // if (data.token) localStorage.setItem('hgs_token', data.token);
+      const data = await fetchWithHandling<any>('/api/auth/me', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      
+      if (data && data.user) {
         setUser(data.user);
         localStorage.setItem('hgs_user', JSON.stringify(data.user));
       } else {
-        // If session is invalid and no token worked, clear local user
         setUser(null);
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
       }
     } catch (err) {
-      // Silently handle
+      setUser(null);
+      localStorage.removeItem('hgs_user');
     }
   };
 
   const refreshUser = async () => {
     if (!user) return;
     try {
-      const res = await fetch('/api/user/profile', { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<User>('/api/user/profile');
+      if (data) {
         setUser(data);
       }
-    } catch (err) {
-      // Silently handle
-    }
+    } catch (err) {}
   };
 
   const updateProfile = async (data: Partial<User>) => {
     if (!user) return;
     try {
-      const res = await fetch('/api/user/update-profile', {
+      const result = await fetchWithHandling<any>('/api/user/update-profile', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ ...data, id: user.id })
       });
-      const result = await res.json();
-      if (result.success) {
+      if (result?.success) {
         setUser(result.user);
         toast.success('Profile updated');
-      } else {
-        toast.error(result.message || 'Update failed');
       }
-    } catch (err) {
-      toast.error('Failed to update profile');
-    }
+    } catch (err) {}
   };
 
   const subscribeNewsletter = async (email: string) => {
     try {
-      const res = await fetch('/api/newsletter/subscribe', {
+      const data = await fetchWithHandling<any>('/api/newsletter/subscribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, user_id: user?.id })
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data?.success) {
         toast.success('Subscribed to newsletter!');
-      } else {
-        toast.error(data.message);
       }
-    } catch (err) {
-      toast.error('Subscription failed');
-    }
+    } catch (err) {}
   };
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -253,9 +219,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     setIsSyncingCart(true);
     try {
-        await fetch('/api/cart/sync', {
+        await fetchWithHandling('/api/cart/sync', {
             method: 'POST',
-            headers: getAuthHeaders(),
             body: JSON.stringify({ userId: user.id, items: cartItems })
         });
     } catch (err) {
@@ -363,13 +328,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     setLoadingAddresses(true);
     try {
-      const res = await fetch('/api/user/addresses', { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<UserAddress[]>('/api/user/addresses');
+      if (data) {
         setAddresses(data);
       }
     } catch (err) {
-      // Silently handle
     } finally {
       setLoadingAddresses(false);
     }
@@ -377,47 +340,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const saveAddress = async (address: Partial<UserAddress>) => {
     try {
-      const res = await fetch('/api/user/addresses', {
+      const data = await fetchWithHandling<any>('/api/user/addresses', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify(address)
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data?.success) {
         toast.success(data.message);
         fetchAddresses();
-      } else {
-        toast.error(data.message);
       }
-    } catch (err) {
-      toast.error('Failed to save address');
-    }
+    } catch (err) {}
   };
 
   const deleteAddress = async (id: number) => {
     try {
-      const res = await fetch(`/api/user/addresses/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
-      const data = await res.json();
-      if (data.success) {
+      const data = await fetchWithHandling<any>(`/api/user/addresses/${id}`, { method: 'DELETE' });
+      if (data?.success) {
         toast.success(data.message);
         fetchAddresses();
       }
-    } catch (err) {
-      toast.error('Failed to delete address');
-    }
+    } catch (err) {}
   };
 
   const setDefaultAddress = async (id: number) => {
     try {
-      const res = await fetch(`/api/user/addresses/${id}/default`, { method: 'POST', headers: getAuthHeaders() });
-      const data = await res.json();
-      if (data.success) {
+      const data = await fetchWithHandling<any>(`/api/user/addresses/${id}/default`, { method: 'POST' });
+      if (data?.success) {
         toast.success(data.message);
         fetchAddresses();
       }
-    } catch (err) {
-      toast.error('Failed to set default address');
-    }
+    } catch (err) {}
   };
 
   useEffect(() => {
@@ -453,9 +404,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const fetchPromotions = async () => {
     try {
-      const res = await fetch('/api/promotions-rules');
-      if (res.ok) {
-        const data = await res.json();
+      const data = await fetchWithHandling<PromotionRule[]>('/api/promotions-rules');
+      if (data) {
         setPromotions(data.filter((p: PromotionRule) => p.active));
       }
     } catch (err) {
@@ -469,9 +419,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const fetchBulkDiscounts = async () => {
     try {
-      const res = await fetch('/api/bulk-discounts');
-      const data = await res.json();
-      setBulkDiscounts(data);
+      const data = await fetchWithHandling<any[]>('/api/bulk-discounts');
+      if (data) {
+        setBulkDiscounts(data);
+      }
     } catch (err) {
       // Silently fail to avoid console spam during server restarts
     }
@@ -497,7 +448,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('hgs_admin_theme', adminTheme);
     // Also save to server if admin
     if (user?.role === 'admin') {
-      fetch('/api/admin/settings', {
+      fetchWithHandling('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'admin_theme', value: adminTheme })
@@ -513,7 +464,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!cartLoadedFromStorage) return;
     localStorage.setItem('hgs_cart', JSON.stringify(cart));
     if (user) {
-      fetch('/api/cart/sync', {
+      fetchWithHandling('/api/cart/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, items: cart })
@@ -523,21 +474,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const fetchCart = async (userId: number) => {
     try {
-      const res = await fetch(`/api/cart?userId=${userId}`);
-      if (res.ok) {
-        const items = await res.json();
-        // Server wins on load
-        if (items && items.length > 0) {
-          setCart(items.map((i: any) => ({
-            id: i.product_id,
-            name: i.name,
-            price: i.price,
-            image_url: i.image_url,
-            stock: i.stock,
-            category: i.category,
-            quantity: i.quantity
-          })));
-        }
+      const items = await fetchWithHandling<any[]>(`/api/cart?userId=${userId}`);
+      if (items && items.length > 0) {
+        setCart(items.map((i: any) => ({
+          id: i.product_id,
+          name: i.name,
+          price: i.price,
+          image_url: i.image_url,
+          stock: i.stock,
+          category: i.category,
+          quantity: i.quantity
+        })));
       }
     } catch (err) {
       // Silently handle
@@ -555,13 +502,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const hasSeeded = localStorage.getItem('hgs_seeded_cart');
       if (!hasSeeded) {
         // Add a default welcome product if available
-        fetch('/api/products')
-          .then(res => {
-            if (!res.ok) throw new Error('Failed to fetch products');
-            const ct = res.headers.get('content-type');
-            if (!ct || !ct.includes('application/json')) throw new Error('Not JSON');
-            return res.json();
-          })
+        fetchWithHandling<any[]>('/api/products')
           .then(products => {
             if (products && products.length > 0) {
               const welcomeProduct = products[0];
@@ -584,28 +525,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const checkMaintenance = async () => {
     try {
-      const res = await fetch('/api/settings');
-      if (!res.ok) {
-        if (res.status === 503) {
-           const data = await res.json();
-           setIsMaintenance(!!data.maintenance);
-           return;
+      const data = await fetchWithHandling<any>('/api/settings');
+      if (data) {
+        setIsMaintenance(!!data.maintenance);
+        if (data.authMode) setAuthMode(data.authMode);
+        if (data.config) {
+          setConfig(data.config);
+          const themeSetting = data.config.find((s: any) => s.key === 'admin_theme');
+          if (themeSetting) setAdminTheme(themeSetting.value);
         }
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Response is not JSON');
-      }
-
-      const data = await res.json();
-      setIsMaintenance(!!data.maintenance);
-      if (data.authMode) setAuthMode(data.authMode);
-      if (data.config) {
-        setConfig(data.config);
-        const themeSetting = data.config.find((s: any) => s.key === 'admin_theme');
-        if (themeSetting) setAdminTheme(themeSetting.value);
       }
     } catch (err) {
       // Silently fail during dev server restarts
@@ -720,9 +648,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const logActivity = async (type: string, details: string, severity: 'low' | 'medium' | 'high' = 'low') => {
     try {
-      await fetch('/api/audit/log', {
+      await fetchWithHandling('/api/audit/log', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ userId: user?.id, type, details, severity })
       });
     } catch (err) {
@@ -755,7 +682,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetchWithHandling('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error('Logout request failed');
     }

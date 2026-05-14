@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } f
 import { NetworkBanner } from './components/NetworkBanner';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
+import GlobalAnnouncements from './components/GlobalAnnouncements';
 import MobileBottomNav from './components/MobileBottomNav';
 import FloatingCart from './components/FloatingCart';
 import BackToTop from './components/BackToTop';
@@ -23,6 +24,7 @@ import React, { useState, Suspense, lazy, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from './types';
+import { errorService, ErrorType } from './lib/errorReporting';
 import LoadingFallback from './components/LoadingFallback';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -59,18 +61,24 @@ import MaintenancePage from './pages/MaintenancePage';
 import TrackOrder from './pages/TrackOrder';
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
-  const { user } = useStore();
+  const { user, isAuthChecking } = useStore();
   const location = useLocation();
 
   useEffect(() => {
-    if (!user && window.location.pathname !== '/login') {
-      toast.error('Please log in to use these services');
-    } else if (adminOnly && user && user.role !== 'admin') {
-      toast.error('Access denied. Admin privileges required.');
-    } else if (runnerOnly && user && user.role !== 'delivery' && user.role !== 'admin') {
-      toast.error('Access denied. Delivery runner privileges required.');
+    if (!isAuthChecking) {
+      if (!user && window.location.pathname !== '/login') {
+        toast.error('Please log in to use these services');
+      } else if (adminOnly && user && user.role !== 'admin') {
+        toast.error('Access denied. Admin privileges required.');
+      } else if (runnerOnly && user && user.role !== 'delivery' && user.role !== 'admin') {
+        toast.error('Access denied. Delivery runner privileges required.');
+      }
     }
-  }, [user, adminOnly, runnerOnly]);
+  }, [user, adminOnly, runnerOnly, isAuthChecking]);
+
+  if (isAuthChecking) {
+    return <LoadingFallback />;
+  }
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
@@ -152,55 +160,21 @@ export default function App() {
   useEffect(() => {
     // Global error handler
     const handleGlobalError = (event: ErrorEvent) => {
-      try {
-        const userStr = localStorage.getItem('hgs_user');
-        let userId = null;
-        let reporterName = 'System Auto (Guest)';
-        if (userStr) {
-          const user = JSON.parse(userStr);
-          userId = user.id;
-          reporterName = user.name || user.phone || 'System Auto (User)';
-        }
-        
-        fetch('/api/bugs/report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: userId,
-            reporter_name: reporterName,
-            message: event.message || 'Global Error',
-            why: event.error?.stack?.substring(0, 500) || 'No stack trace',
-            path: window.location.pathname,
-            action_log: 'Automatically captured by Global Error Handler'
-          })
-        }).catch(() => {});
-      } catch(e) {}
+      errorService.report({
+        type: ErrorType.SYSTEM_ERROR,
+        message: event.message || 'Global Runtime Error',
+        stack: event.error?.stack,
+        userId: store.user?.id
+      });
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      try {
-        const userStr = localStorage.getItem('hgs_user');
-        let userId = null;
-        let reporterName = 'System Auto (Guest)';
-        if (userStr) {
-          const user = JSON.parse(userStr);
-          userId = user.id;
-          reporterName = user.name || user.phone || 'System Auto (User)';
-        }
-        
-        fetch('/api/bugs/report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: userId,
-            reporter_name: reporterName,
-            message: event.reason?.message || 'Unhandled Promise Rejection',
-            why: event.reason?.stack?.substring(0, 500) || String(event.reason),
-            path: window.location.pathname,
-            action_log: 'Automatically captured by Promise Rejection Handler'
-          })
-        }).catch(() => {});
-      } catch(e) {}
+      errorService.report({
+        type: ErrorType.SYSTEM_ERROR,
+        message: event.reason?.message || 'Unhandled Promise Rejection',
+        stack: event.reason?.stack || String(event.reason),
+        userId: store.user?.id
+      });
     };
 
     window.addEventListener('error', handleGlobalError);
@@ -225,6 +199,7 @@ export default function App() {
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <NetworkBanner />
+        <GlobalAnnouncements />
         <Toaster position="top-center" />
         <Navbar />
         <main className="flex-1 pb-24 md:pb-0">

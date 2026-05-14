@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { useStore } from '../StoreContext';
 import { cn } from '../lib/utils';
+import { fetchWithHandling } from '../lib/api';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -25,10 +26,10 @@ export default function WholesaleInsights() {
 
   useEffect(() => {
     if (user) {
-      fetch(`/api/user/insights/${user.id}`)
-        .then(res => res.json())
-        .then(setData)
-        .catch(err => console.error('Failed to fetch insights', err))
+      fetchWithHandling<any>(`/api/user/insights/${user.id}`)
+        .then(data => {
+          if (data) setData(data);
+        })
         .finally(() => setLoading(false));
     }
   }, [user?.id]);

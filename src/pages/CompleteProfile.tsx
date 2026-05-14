@@ -4,6 +4,7 @@ import { User, Phone, ArrowRight, Camera, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
+import { fetchWithHandling } from '../lib/api';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 
@@ -77,22 +78,21 @@ export default function CompleteProfile() {
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/complete-profile', {
+      const data = await fetchWithHandling<any>('/api/auth/complete-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
-      const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setUser(data.user);
         const storeName = 'Hind General Store'; // fallback
         toast.success(`Profile completed successfully! Welcome to ${storeName}.`);
         navigate('/');
-      } else {
+      } else if (data) {
         toast.error(data.message || 'Failed to complete profile');
       }
     } catch (err) {
-      toast.error('Failed to update profile');
+      console.error('Failed to update profile:', err);
     } finally {
       setLoading(false);
     }

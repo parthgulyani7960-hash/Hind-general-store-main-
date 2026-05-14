@@ -461,6 +461,14 @@ async function initDatabase() {
     why TEXT,
     path TEXT,
     action_log TEXT,
+    type TEXT,
+    component TEXT,
+    api_endpoint TEXT,
+    device_info TEXT,
+    screen_resolution TEXT,
+    network_status TEXT,
+    request_payload TEXT,
+    metadata TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -965,10 +973,46 @@ db.exec(`
     zip_code TEXT,
     pin_code TEXT,
     delivery_area TEXT,
+    label TEXT, -- 'Home', 'Office', etc
+    lat REAL,
+    lng REAL,
+    delivery_instructions TEXT,
     is_default BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS announcements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    content TEXT,
+    type TEXT, -- 'info', 'warning', 'error', 'success', 'maintenance', 'promo'
+    priority TEXT DEFAULT 'low', -- 'low', 'medium', 'high', 'critical'
+    is_dismissible BOOLEAN DEFAULT 1,
+    start_at DATETIME,
+    end_at DATETIME,
+    created_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS deletion_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'canceled', 'completed'
+    reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    scheduled_for DATETIME,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
+  -- Migration columns for enhanced security and activity tracking
+  try { db.exec("ALTER TABLE users ADD COLUMN last_login_at DATETIME"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN ip_address TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN device_info TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN phone_verified BOOLEAN DEFAULT 0"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN profile_complete BOOLEAN DEFAULT 0"); } catch(e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"); } catch(e) {}
 `);
 
 // Seed initial categories
@@ -1033,133 +1077,97 @@ const createAlert = (userId: number | null, title: string, message: string, deta
   }
 };
 
-// Middlewares
-const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  // Check session
-  if (req.session.userId) {
-    return next();
-  }
-  
-  // Also check Authorization header
+// Helper to verify Firebase token and get/create user
+const verifyFirebaseUser = async (req: express.Request) => {
   const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const email = decodedToken.email?.toLowerCase();
-        
-        if (!email) {
-            console.warn(`[AUTH FAIL] Token verified but missing email for path: ${req.path}`);
-            return res.status(401).json({ success: false, message: 'Google account must have an email' });
-        }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
 
-        // Find user by email
-        let user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email) as any;
-        
-        // If user doesn't exist in this instance's DB (common on Vercel/serverless)
-        if (!user && decodedToken.uid) {
-            console.log(`[AUTH] Creating missing user record for verified token: ${email}`);
-            try {
-              const defaultRole = email === getAdminEmail().toLowerCase() ? 'admin' : 'customer';
-              const randSuffix = Math.random().toString(36).substring(7);
-              const username = email.split('@')[0].substring(0, 20) + '_' + randSuffix;
-              
-              db.prepare('INSERT INTO users (email, name, username, role) VALUES (?, ?, ?, ?)').run(
-                email, 
-                decodedToken.name || email.split('@')[0],
-                username,
-                defaultRole
-              );
-              user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email);
-            } catch (insertErr) {
-              console.error('Failed to auto-create user in requireAuth', insertErr);
-            }
-        }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    const email = decodedToken.email?.toLowerCase();
+    
+    if (!email) {
+      console.warn(`[AUTH FAIL] Token verified but missing email`);
+      return null;
+    }
 
-        if (user) {
-            req.session.userId = user.id;
-            req.session.role = user.role;
-            return next();
-        } else {
-            console.warn(`[AUTH FAIL] User record still not found for email: ${email}`);
-        }
-    } catch (e: any) {
-        console.warn(`[AUTH] Firebase token verification failed for ${req.path}: ${e.message}`);
+    // Find user by email
+    let user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email) as any;
+    
+    // Auto-create user if missing (common on cold starts/ephemeral DB)
+    if (!user && decodedToken.uid) {
+      console.log(`[AUTH] Auto-creating missing user: ${email}`);
+      try {
+        const defaultRole = email === getAdminEmail().toLowerCase() ? 'admin' : 'customer';
+        const name = decodedToken.name || email.split('@')[0];
+        const username = email.split('@')[0].substring(0, 20) + '_' + Math.random().toString(36).substring(7);
+        
+        db.prepare('INSERT INTO users (email, name, username, role, profile_photo) VALUES (?, ?, ?, ?, ?)').run(
+          email, name, username, defaultRole, decodedToken.picture || null
+        );
+        user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email);
+      } catch (insertErr) {
+        console.error('[AUTH] Auto-creation failed:', insertErr);
+      }
+    }
+
+    if (user) {
+      if (user.status === 'disabled') {
+        console.warn(`[AUTH] Login attempt by disabled user: ${email}`);
+        return null;
+      }
+      
+      // Update last login details
+      try {
+        db.prepare('UPDATE users SET last_login_at = ?, ip_address = ?, device_info = ? WHERE id = ?')
+          .run(new Date().toISOString(), req.ip, req.headers['user-agent'], user.id);
+      } catch (updateErr) {
+        console.error('[AUTH] Failed to update login details:', updateErr);
+      }
+
+      req.session.userId = user.id;
+      req.session.role = user.role;
+      return user;
+    }
+  } catch (err: any) {
+    if (err.code !== 'auth/argument-error') { // Avoid logging noise for malformed tokens
+        console.warn(`[AUTH] Token verification failed: ${err.message}`);
     }
   }
+  return null;
+};
 
-  const failMsg = `[AUTH FAIL] Path: ${req.path}, IP: ${req.ip}, AuthHeader: ${authHeader ? 'Present' : 'Missing'}`;
-  console.warn(failMsg);
-  return res.status(401).json({ success: false, message: 'Authentication required', debug: process.env.NODE_ENV === 'development' ? failMsg : undefined });
+// Middlewares
+const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.session.userId) return next();
+  
+  const user = await verifyFirebaseUser(req);
+  if (user) return next();
+
+  return res.status(401).json({ success: false, message: 'Authentication required' });
 };
 
 const requireAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (!req.session.userId) {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
-        try {
-            const decodedToken = await admin.auth().verifyIdToken(token);
-            const email = decodedToken.email?.toLowerCase();
-            if (email) {
-                let user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email) as any;
-                
-                // Auto-create user if missing
-                if (!user && decodedToken.uid) {
-                    try {
-                      const defaultRole = email === getAdminEmail().toLowerCase() ? 'admin' : 'customer';
-                      const randSuffix = Math.random().toString(36).substring(7);
-                      const username = email.split('@')[0].substring(0, 20) + '_' + randSuffix;
-                      
-                      db.prepare('INSERT INTO users (email, name, username, role) VALUES (?, ?, ?, ?)').run(
-                        email, 
-                        decodedToken.name || email.split('@')[0], 
-                        username,
-                        defaultRole
-                      );
-                      user = db.prepare('SELECT id, role FROM users WHERE LOWER(email) = ?').get(email);
-                    } catch (insertErr) {
-                      console.error('Failed to auto-create user in requireAdmin', insertErr);
-                    }
-                }
-
-                if (user) {
-                    req.session.userId = user.id;
-                    req.session.role = user.role;
-                }
-            }
-        } catch (e: any) {
-            console.error('Invalid Firebase token in Authorization header', e.message);
-        }
-    }
-  }
-
-  if (!req.session.userId) {
-    console.warn(`[AUTH FAIL] Admin access denied: No valid session or token. Path: ${req.path}, IP: ${req.ip}`);
-    return res.status(401).json({ success: false, message: 'Authentication required' });
-  }
-
-  const role = req.session.role;
-  if (role === 'admin' || role === 'owner' || role === 'manager') {
-    return next();
-  }
-
-  // If session role is not admin, double check the database in case it was updated
-  try {
+  // 1. Check session
+  if (req.session.userId) {
+    const role = req.session.role;
+    if (['admin', 'owner', 'manager'].includes(role || '')) return next();
+    
+    // Double check DB in case role updated
     const userRow = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId) as any;
-    if (userRow && (userRow.role === 'admin' || userRow.role === 'owner' || userRow.role === 'manager')) {
-      console.log(`[AUTH] Auto-repairing admin session for user ${req.session.userId}`);
+    if (userRow && ['admin', 'owner', 'manager'].includes(userRow.role)) {
       req.session.role = userRow.role;
       return next();
     }
-    
-    console.warn(`[AUTH] Admin access denied: User ${req.session.userId} has role ${userRow?.role || 'unknown'}. Path: ${req.path}`);
-    logSuspicious(req.session.userId as number, 'UNAUTHORIZED_ADMIN_ACCESS', `User attempted to access admin route ${req.path}`, req.ip);
     return res.status(403).json({ success: false, message: 'Admin access required' });
-  } catch (err) {
-    console.error('[AUTH] Error checking admin role in DB:', err);
-    return res.status(500).json({ success: false, message: 'Internal server error verifying permissions' });
   }
+
+  // 2. Check Token
+  const user = await verifyFirebaseUser(req);
+  if (user && ['admin', 'owner', 'manager'].includes(user.role)) return next();
+
+  return res.status(401).json({ success: false, message: 'Admin authentication required' });
 };
 
 // Middleware for auditing admin actions
@@ -1930,11 +1938,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                     const randSuffix = Math.random().toString(36).substring(7);
                     const username = email.split('@')[0].substring(0, 20) + '_' + randSuffix;
                     
-                    db.prepare('INSERT INTO users (email, name, username, role) VALUES (?, ?, ?, ?)').run(
+                    db.prepare('INSERT INTO users (email, name, username, role, profile_photo) VALUES (?, ?, ?, ?, ?)').run(
                       email, 
                       decodedToken.name || email.split('@')[0],
                       username,
-                      defaultRole
+                      defaultRole,
+                      decodedToken.picture || null
                     );
                     user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email) as any;
                   } catch (err) {}
@@ -2032,7 +2041,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         return res.status(400).json({ success: false, message: 'Google account must have an email' });
       }
 
-      let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+      let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email?.toLowerCase()) as any;
       
       if (!user) {
         // User doesn't exist, create them.
@@ -2056,8 +2065,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         }
       }
       
-      const adminEmail = getAdminEmail();
-      if (user.email === adminEmail && user.role !== 'admin') {
+      const adminEmail = getAdminEmail().toLowerCase();
+      if (user.email?.toLowerCase() === adminEmail && user.role !== 'admin') {
         db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', user.id);
         user.role = 'admin';
       }
@@ -3473,11 +3482,35 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // BUGS ENDPOINTS
   app.post('/api/bugs/report', (req, res) => {
     try {
-      const { user_id, reporter_name, message, why, path, action_log } = req.body;
+      const { 
+        user_id, reporter_name, message, why, path, action_log,
+        type, component, api_endpoint, device_info, screen_resolution, 
+        network_status, request_payload, metadata 
+      } = req.body;
+      
       db.prepare(`
-        INSERT INTO bug_reports (user_id, reporter_name, message, why, path, action_log)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(user_id || null, reporter_name || 'System Auto', message || '', why || '', path || '', action_log || '');
+        INSERT INTO bug_reports (
+          user_id, reporter_name, message, why, path, action_log,
+          type, component, api_endpoint, device_info, screen_resolution,
+          network_status, request_payload, metadata
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        user_id || null, 
+        reporter_name || 'System Auto', 
+        message || '', 
+        why || '', 
+        path || '', 
+        action_log || '',
+        type || 'REPORTER',
+        component || '',
+        api_endpoint || '',
+        device_info || '',
+        screen_resolution || '',
+        network_status || '',
+        JSON.stringify(request_payload || {}),
+        JSON.stringify(metadata || {})
+      );
       res.json({ success: true, message: 'Bug reported successfully' });
     } catch (e: any) {
       console.error('Error reporting bug:', e);
@@ -3548,7 +3581,9 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const lowStock: any = executeQuery('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point');
       const pendingOrdersCount: any = executeQuery('SELECT COUNT(*) as count FROM orders WHERE status = \'pending\'');
       const refundsSum: any = executeQuery('SELECT SUM(refund_amount) as sum FROM returns WHERE status = \'approved\'');
-      const newUserCountRes: any = executeQuery('SELECT COUNT(*) as count FROM users WHERE created_at >= date(\'now\')');
+      
+      // Fixed date query for SQLite compatibility and format safety
+      const newUserCountRes: any = executeQuery('SELECT COUNT(*) as count FROM users WHERE created_at >= date(\'now\', \'start of day\')');
 
       stats.orders = totalOrders?.count || 0;
       stats.revenue = totalRevenue?.sum || 0;
@@ -3558,7 +3593,6 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       stats.totalRefunds = refundsSum?.sum || 0;
       stats.newUserCount = newUserCountRes?.count || 0;
       stats.netRevenue = stats.revenue - stats.totalRefunds;
-      stats.activeUsers = 0;
 
       stats.revenueByDay = executeQuery(`
         SELECT strftime('%Y-%m-%d', created_at) as date, SUM(total) as revenue, COUNT(*) as orders
@@ -3590,25 +3624,22 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         SELECT id, level, message, created_at
         FROM system_logs
         ORDER BY created_at DESC
-        LIMIT 5
+        LIMIT 10
       `, [], 'all') || [];
 
       // Improved active users count
       let currentActive = 0;
       try {
         if (io) {
-          // Socket.IO v4 approach
           currentActive = io.sockets.sockets.size;
         }
-      } catch (e) {
-        currentActive = 1; // Fallback
-      }
-      stats.activeUsers = currentActive;
+      } catch (e) {}
+      stats.activeUsers = currentActive || 1;
 
       res.json(stats);
     } catch (error) {
       console.error('Admin stats error:', error);
-      res.status(500).json({ message: 'Internal server error fetching stats', error: String(error) });
+      res.status(500).json({ success: false, message: 'Internal server error fetching stats', error: String(error) });
     }
   });
 
@@ -3894,6 +3925,71 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
           .run(adminId, 'WALLET_REQUEST_REJECT', 'WALLET_TRANSACTION', id, `Rejected wallet credit of ₹${transaction.amount} for user #${transaction.user_id}. Reason: ${reason}`);
 
     res.json({ success: true });
+  });
+
+  app.get('/api/admin/management', requireAdmin, (req, res) => {
+    try {
+      const admins = db.prepare(`
+        SELECT id, name, email, role, last_login_at, status, created_at 
+        FROM users 
+        WHERE role IN ('admin', 'manager', 'owner')
+        ORDER BY last_login_at DESC
+      `).all();
+      res.json(admins);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch admin list' });
+    }
+  });
+
+  app.post('/api/admin/management/:id/revoke', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    try {
+      if (Number(id) === req.session.userId) {
+        return res.status(400).json({ success: false, message: 'You cannot revoke your own admin rights' });
+      }
+      db.prepare("UPDATE users SET role = 'customer' WHERE id = ?").run(id);
+      res.json({ success: true, message: 'Admin rights revoked' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to revoke admin rights' });
+    }
+  });
+
+  app.post('/api/admin/management/:id/status', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    try {
+      if (Number(id) === req.session.userId) {
+        return res.status(400).json({ success: false, message: 'You cannot disable your own account' });
+      }
+      db.prepare("UPDATE users SET status = ? WHERE id = ?").run(status, id);
+      res.json({ success: true, message: `Account status updated to ${status}` });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to update account status' });
+    }
+  });
+
+  app.get('/api/admin/system/health', requireAdmin, (req, res) => {
+    try {
+      const activeUsers = db.prepare('SELECT COUNT(DISTINCT user_id) as count FROM audit_logs WHERE created_at > ?').get(new Date(Date.now() - 30 * 60 * 1000).toISOString()) as any;
+      const recentErrors = db.prepare('SELECT COUNT(*) as count FROM bug_reports WHERE created_at > ?').get(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) as any;
+      const ordersToday = db.prepare("SELECT COUNT(*) as count, SUM(total) as revenue FROM orders WHERE created_at > date('now', 'start of day')").get() as any;
+      const pendingOrders = db.prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'pending'").get() as any;
+
+      res.json({
+        database: 'Healthy',
+        server: 'Online',
+        uptime: process.uptime(),
+        metrics: {
+          activeUsers: activeUsers?.count || 0,
+          recentErrors: recentErrors?.count || 0,
+          revenueToday: ordersToday?.revenue || 0,
+          ordersToday: ordersToday?.count || 0,
+          pendingOrders: pendingOrders?.count || 0
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch system health' });
+    }
   });
 
   app.get('/api/admin/users', (req, res) => {
@@ -5034,6 +5130,247 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       res.status(500).json({ success: false, message: err.message });
     }
   });
+
+  // --- Governance & Admin Management ---
+
+  const logAudit = (adminId: number | null, action: string, targetType: string, targetId: string | number, details?: any, req?: any) => {
+    try {
+      db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(adminId, action, targetType, targetId.toString(), JSON.stringify(details || {}), req?.ip || 'internal', req?.headers['user-agent'] || 'system');
+    } catch (err) {
+      console.error('[AUDIT] Failed to log action:', err);
+    }
+  };
+
+  app.get('/api/announcements', (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const announcements = db.prepare('SELECT * FROM announcements WHERE (start_at IS NULL OR start_at <= ?) AND (end_at IS NULL OR end_at >= ?) ORDER BY priority DESC, created_at DESC')
+        .all(now, now);
+      res.json(announcements);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/announcements', requireAdmin, (req, res) => {
+    try {
+      const announcements = db.prepare('SELECT * FROM announcements ORDER BY created_at DESC').all();
+      res.json(announcements);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/announcements', requireAdmin, (req, res) => {
+    const { title, content, type, priority, is_dismissible, start_at, end_at } = req.body;
+    try {
+      const result = db.prepare('INSERT INTO announcements (title, content, type, priority, is_dismissible, start_at, end_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(title, content, type, priority, is_dismissible ? 1 : 0, start_at, end_at, req.session.userId);
+      logAudit(req.session.userId as number, 'CREATE_ANNOUNCEMENT', 'ANNOUNCEMENT', result.lastInsertRowid as number, { title }, req);
+      res.json({ success: true, id: result.lastInsertRowid });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.delete('/api/admin/announcements/:id', requireAdmin, (req, res) => {
+    try {
+      db.prepare('DELETE FROM announcements WHERE id = ?').run(req.params.id);
+      logAudit(req.session.userId as number, 'DELETE_ANNOUNCEMENT', 'ANNOUNCEMENT', req.params.id, null, req);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/user/deletion-request', (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const { reason } = req.body;
+    try {
+      const scheduledFor = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h delay
+      const result = db.prepare('INSERT INTO deletion_requests (user_id, reason, scheduled_for) VALUES (?, ?, ?)')
+        .run(req.session.userId, reason, scheduledFor);
+      res.json({ success: true, message: 'Request submitted. Account will be deleted in 24 hours unless canceled.', id: result.lastInsertRowid });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/deletion-requests', requireAdmin, (req, res) => {
+    try {
+      const requests = db.prepare(`
+        SELECT dr.*, u.email, u.name 
+        FROM deletion_requests dr 
+        JOIN users u ON dr.user_id = u.id 
+        ORDER BY dr.created_at DESC
+      `).all();
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/deletion-requests/:id/:action', requireAdmin, (req, res) => {
+    const { id, action } = req.params; // action = approve | reject | cancel
+    try {
+      const status = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'canceled';
+      db.prepare('UPDATE deletion_requests SET status = ? WHERE id = ?').run(status, id);
+      
+      const dr = db.prepare('SELECT user_id FROM deletion_requests WHERE id = ?').get(id) as any;
+      if (status === 'approved') {
+        db.prepare("UPDATE users SET status = 'pending_deletion', is_deleted = 1 WHERE id = ?").run(dr.user_id);
+      } else if (status === 'canceled' || status === 'rejected') {
+         db.prepare("UPDATE users SET status = 'active', is_deleted = 0 WHERE id = ?").run(dr.user_id);
+      }
+
+      logAudit(req.session.userId as number, `DELETION_REQ_${action.toUpperCase()}`, 'DELETION_REQUEST', id, null, req);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/users/:id/insights', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    try {
+      const stats = db.prepare(`
+        SELECT 
+          COUNT(*) as total_orders,
+          SUM(total) as lifetime_spend,
+          MAX(created_at) as last_order_at
+        FROM orders 
+        WHERE user_id = ?
+      `).get(id) as any;
+      
+      const recentOrders = db.prepare('SELECT id, total, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 5').all(id);
+      
+      res.json({ stats, recentOrders });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/admins', requireAdmin, (req, res) => {
+    try {
+      const admins = db.prepare(`
+        SELECT id, name, email, phone, role, last_login_at, status, ip_address, device_info, created_at
+        FROM users 
+        WHERE role = 'admin'
+        ORDER BY last_login_at DESC
+      `).all();
+      res.json(admins);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/admins/:id/revoke', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const adminId = req.session.userId;
+    
+    if (parseInt(id) === (adminId as number)) {
+      return res.status(400).json({ success: false, message: 'You cannot revoke your own access.' });
+    }
+
+    try {
+      db.transaction(() => {
+        db.prepare("UPDATE users SET role = 'customer' WHERE id = ?").run(id);
+        db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'ROLE_REVOKED', 'USER', id, JSON.stringify({ message: 'Admin privileges revoked manually.' }));
+      })();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/admins/:id/status', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body; // 'active' or 'disabled'
+    const adminId = req.session.userId;
+
+    if (parseInt(id) === (adminId as number)) {
+      return res.status(400).json({ success: false, message: 'You cannot disable your own account.' });
+    }
+
+    try {
+      db.transaction(() => {
+        db.prepare("UPDATE users SET status = ? WHERE id = ?").run(status, id);
+        db.prepare('INSERT INTO audit_logs (admin_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
+          .run(adminId, 'STATUS_CHANGE', 'USER', id, JSON.stringify({ newStatus: status }));
+      })();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/system/health', requireAdmin, (req, res) => {
+    try {
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 3600000).toISOString();
+      
+      const metrics = {
+        totalUsers: db.prepare('SELECT COUNT(*) as count FROM users').get() as any,
+        totalOrders: db.prepare('SELECT COUNT(*) as count FROM orders').get() as any,
+        activeSessions: db.prepare('SELECT COUNT(DISTINCT user_id) as count FROM wallet_transactions WHERE created_at > ?').get(oneHourAgo) as any,
+        recentErrors: db.prepare('SELECT COUNT(*) as count FROM bug_reports WHERE created_at > ?').get(oneHourAgo) as any,
+        dbSize: fs.statSync(dbPath).size,
+        uptime: process.uptime()
+      };
+
+      res.json({
+        status: 'Operational',
+        metrics: {
+          users: metrics.totalUsers.count,
+          orders: metrics.totalOrders.count,
+          activeUsers: metrics.activeSessions.count || 0,
+          recentErrors: metrics.recentErrors.count || 0,
+          storage: `${(metrics.dbSize / 1024 / 1024).toFixed(2)} MB`
+        },
+        uptime: metrics.uptime,
+        timestamp: now.toISOString()
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/system/logs', requireAdmin, (req, res) => {
+    try {
+      const logs = db.prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100').all();
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // --- Automated System Integrity Guard ---
+  const runSystemIntegrityAudit = () => {
+    console.log('[INTEGRITY] Starting deep scan of database consistency...');
+    try {
+      // 1. Check for orphaned order items
+      const orphanedItems = db.prepare('SELECT id FROM order_items WHERE order_id NOT IN (SELECT id FROM orders)').all();
+      if (orphanedItems.length > 0) {
+        console.warn(`[INTEGRITY] Found ${orphanedItems.length} orphaned order items. Purging...`);
+        db.prepare('DELETE FROM order_items WHERE order_id NOT IN (SELECT id FROM orders)').run();
+      }
+
+      // 2. Refresh stock metrics for low inventory
+      const lowStockCount = db.prepare('SELECT COUNT(*) as count FROM products WHERE stock <= reorder_point').get() as any;
+      if (lowStockCount.count > 0) {
+        db.prepare('INSERT INTO system_logs (level, message) VALUES (?, ?)').run('warning', `System integrity scan: ${lowStockCount.count} products are currently below reorder threshold.`);
+      }
+
+      console.log('[INTEGRITY] Deep scan completed. Environment stable.');
+    } catch (err: any) {
+      console.error('[INTEGRITY] Audit failed:', err.message);
+    }
+  };
+
+  setInterval(runSystemIntegrityAudit, 3600000); // Hourly
+  runSystemIntegrityAudit();
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {

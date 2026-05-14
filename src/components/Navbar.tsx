@@ -149,7 +149,7 @@ export default function Navbar() {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center space-x-8">
+          <div className="hidden md:flex items-center space-x-4 lg:space-x-8">
             {navLinks.map((link) => (
               <NavLink 
                 key={link.to} 
@@ -240,7 +240,7 @@ export default function Navbar() {
             <NotificationBell />
 
             <div 
-              className="relative hidden md:block"
+              className="relative"
               onMouseEnter={() => setIsMiniCartOpen(true)}
               onMouseLeave={() => setIsMiniCartOpen(false)}
             >
@@ -249,12 +249,14 @@ export default function Navbar() {
                     <ShoppingCart size={24} />
                 </motion.div>
                 {cartCount > 0 && (
-                  <span className="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
                     {cartCount}
                   </span>
                 )}
               </Link>
-              <MiniCart cart={cart} isOpen={isMiniCartOpen} showImages={showImages} />
+              <div className="hidden md:block">
+                <MiniCart cart={cart} isOpen={isMiniCartOpen} showImages={showImages} />
+              </div>
             </div>
 
             {user ? (

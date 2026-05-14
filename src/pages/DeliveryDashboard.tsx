@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../StoreContext';
 import { Package, MapPin, CheckCircle, Navigation, Phone, Map, Car, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 
 export default function DeliveryDashboard() {
   const { user } = useStore();
@@ -12,11 +14,10 @@ export default function DeliveryDashboard() {
     // But for a mock/prototype, let's just fetch all 'processing' or 'dispatched' orders.
     const fetchOrders = async () => {
       try {
-        const res = await fetch('/api/runner/orders');
-        const data = await res.json();
-        setAssignedOrders(data);
+        const data = await fetchWithHandling<any[]>('/api/runner/orders', { headers: getAuthHeaders() });
+        if (data) setAssignedOrders(data);
       } catch (err) {
-        toast.error('Failed to load assignments');
+        console.error('Failed to load assignments:', err);
       }
     };
     fetchOrders();
@@ -24,19 +25,17 @@ export default function DeliveryDashboard() {
 
   const updateOrderStatus = async (id: number, status: string) => {
     try {
-      const res = await fetch(`/api/runner/orders/${id}/status`, {
+      const data = await fetchWithHandling<any>(`/api/runner/orders/${id}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status })
       });
-      if (res.ok) {
+      if (data) {
         toast.success(`Order marked as ${status}`);
         setAssignedOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
-      } else {
-        toast.error('Failed to update status');
       }
     } catch (err) {
-      toast.error('Update failed');
+      console.error('Update failed:', err);
     }
   };
 

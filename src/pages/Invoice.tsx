@@ -6,6 +6,8 @@ import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck
 
 import { StoreProvider, useStore } from '../StoreContext';
 import { generateOrderInvoicePDF } from '../services/pdfService';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 
 export default function Invoice() {
   const { id } = useParams();
@@ -15,10 +17,9 @@ export default function Invoice() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch(`/api/orders/${id}`)
-      .then(res => res.json())
+    fetchWithHandling<any>(`/api/orders/${id}`, { headers: getAuthHeaders() })
       .then(data => {
-        setOrder(data);
+        if (data) setOrder(data);
         setLoading(false);
       });
   }, [id]);

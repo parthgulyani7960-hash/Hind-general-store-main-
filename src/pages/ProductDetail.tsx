@@ -14,6 +14,8 @@ import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
 import { triggerFeedback } from '../App';
 import { handleAppError } from '../lib/errorUtils';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -68,14 +70,15 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (user) {
-        fetch(`/api/orders/user/${user.id}`)
-            .then(res => res.json())
+        fetchWithHandling<any[]>(`/api/orders/user/${user.id}`)
             .then(orders => {
-                const purchased = new Set<number>();
-                orders.forEach((order: any) => {
-                    order.items?.forEach((item: any) => purchased.add(item.product_id));
-                });
-                setPurchasedProductIds(Array.from(purchased));
+                if (orders) {
+                  const purchased = new Set<number>();
+                  orders.forEach((order: any) => {
+                      order.items?.forEach((item: any) => purchased.add(item.product_id));
+                  });
+                  setPurchasedProductIds(Array.from(purchased));
+                }
             });
     }
   }, [user]);
@@ -93,41 +96,41 @@ export default function ProductDetail() {
 
   const fetchProduct = () => {
     setLoading(true);
-    fetch(`/api/products/${id}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Product not found');
-        return res.json();
-      })
+    fetchWithHandling<Product>(`/api/products/${id}`)
       .then(data => {
-        setProduct(data);
-        setLoading(false);
+        if (data) {
+          setProduct(data);
+        }
       })
       .catch(err => {
         console.error(err);
-        setLoading(false);
-      });
+      })
+      .finally(() => setLoading(false));
   };
 
   const fetchReviews = () => {
-    fetch(`/api/products/${id}/reviews`)
-      .then(res => res.json())
-      .then(setReviews);
+    fetchWithHandling<Review[]>(`/api/products/${id}/reviews`)
+      .then(data => {
+        if (data) setReviews(data);
+      });
   };
 
   const fetchVariants = () => {
-    fetch(`/api/products/${id}/variants`)
-      .then(res => res.json())
+    fetchWithHandling<any[]>(`/api/products/${id}/variants`)
       .then(data => {
-        setVariants(data);
-        const defaultVariant = data.find((v: any) => v.is_default);
-        if (defaultVariant) setSelectedVariant(defaultVariant);
+        if (data) {
+          setVariants(data);
+          const defaultVariant = data.find((v: any) => v.is_default);
+          if (defaultVariant) setSelectedVariant(defaultVariant);
+        }
       });
   };
 
   const fetchRelatedProducts = () => {
-    fetch(`/api/products/${id}/related`)
-      .then(res => res.json())
-      .then(setRelatedProducts);
+    fetchWithHandling<Product[]>(`/api/products/${id}/related`)
+      .then(data => {
+        if (data) setRelatedProducts(data);
+      });
   };
 
   useEffect(() => {
@@ -187,18 +190,16 @@ export default function ProductDetail() {
     }
 
     try {
-      const res = await fetch(`/api/admin/products/${id}/images`, {
+      const data = await fetchWithHandling<any>(`/api/admin/products/${id}/images`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ images: uploadedUrls })
       });
       
-      if (res.ok) {
+      if (data) {
         toast.success('Images uploaded successfully!');
         fetchProduct();
         setShowUploadModal(false);
-      } else {
-        throw new Error('Failed to upload images');
       }
     } catch (err: any) {
         handleAppError(err, 'Upload failed', 'uploadProductImage', true);
@@ -212,23 +213,21 @@ export default function ProductDetail() {
     if (!window.confirm('Are you sure you want to delete this image?')) return;
 
     try {
-      const res = await fetch(`/api/admin/products/${id}/images`, {
+      const data = await fetchWithHandling<any>(`/api/admin/products/${id}/images`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ imageUrl })
       });
       
-      if (res.ok) {
+      if (data) {
         toast.success('Image deleted');
         fetchProduct();
         if (activeImage >= allImages.length - 1) {
           setActiveImage(Math.max(0, allImages.length - 2));
         }
-      } else {
-        toast.error('Failed to delete image');
       }
     } catch (err) {
-      toast.error('Error deleting image');
+      console.error('Error deleting image:', err);
     }
   };
 
@@ -251,21 +250,21 @@ export default function ProductDetail() {
     const newImages = updatedAll.slice(1);
     
     try {
-      const res = await fetch(`/api/admin/products/${id}`, {
+      const data = await fetchWithHandling<any>(`/api/admin/products/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ 
           ...product, 
           image: newImageUrl, 
           images: newImages 
         })
       });
-      if (res.ok) {
+      if (data) {
         fetchProduct();
         setActiveImage(newIndex);
       }
     } catch (err) {
-      toast.error('Failed to reorder images');
+      console.error('Failed to reorder images:', err);
     }
   };
 
@@ -277,22 +276,22 @@ export default function ProductDetail() {
     const newImageUrl = imageUrl;
 
     try {
-      const res = await fetch(`/api/admin/products/${id}`, {
+      const data = await fetchWithHandling<any>(`/api/admin/products/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ 
           ...product, 
           image: newImageUrl, 
           images: newImages 
         })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Main image updated');
         fetchProduct();
         setActiveImage(0);
       }
     } catch (err) {
-      toast.error('Failed to update main image');
+      console.error('Failed to update main image:', err);
     }
   };
 
@@ -303,9 +302,9 @@ export default function ProductDetail() {
       return;
     }
     try {
-      await fetch('/api/reviews', {
+      const data = await fetchWithHandling<any>('/api/reviews', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           product_id: Number(id),
           user_name: user.name,
@@ -313,12 +312,14 @@ export default function ProductDetail() {
           comment
         })
       });
-      toast.success('Review submitted!');
-      setComment('');
-      setRating(5);
-      fetchReviews();
+      if (data) {
+        toast.success('Review submitted!');
+        setComment('');
+        setRating(5);
+        fetchReviews();
+      }
     } catch (err) {
-      toast.error('Failed to submit review');
+      console.error('Failed to submit review:', err);
     }
   };
 

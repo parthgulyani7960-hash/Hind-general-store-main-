@@ -10,6 +10,8 @@ import { Link } from 'react-router-dom';
 import { cn } from '../types';
 import toast from 'react-hot-toast';
 import UserAvatar from '../components/UserAvatar';
+import { getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '../lib/api';
 
 export default function Support() {
   const { user, logout, refreshUser, config, fetchConfig } = useStore();
@@ -22,12 +24,12 @@ export default function Support() {
 
   useEffect(() => {
     fetchConfig();
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(data => {
+    fetchWithHandling<any>('/api/settings').then(data => {
+      if (data) {
         const faq = data.config?.find((s: any) => s.key === 'faq_content');
         if (faq) setFaqHtml(faq.value);
-      });
+      }
+    });
 
     const params = new URLSearchParams(window.location.search);
     const subjectParam = params.get('subject');
@@ -42,13 +44,15 @@ export default function Support() {
         message: messageParam || prev.message
       }));
       refreshUser();
-      fetch('/api/admin/orders')
-        .then(res => res.json())
-        .then(data => setOrders(data.filter((o: any) => o.user_id === user.id)));
+      fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
+        .then(data => {
+          if (data) setOrders(data.filter((o: any) => o.user_id === user.id));
+        });
       
-      fetch('/api/admin/support/tickets')
-        .then(res => res.json())
-        .then(data => setTickets(data.filter((t: any) => t.user_id === user.id)));
+      fetchWithHandling<any[]>('/api/admin/support/tickets', { headers: getAuthHeaders() })
+        .then(data => {
+          if (data) setTickets(data.filter((t: any) => t.user_id === user.id));
+        });
     } else if (subjectParam || messageParam) {
       setForm(prev => ({
         ...prev,
@@ -62,9 +66,9 @@ export default function Support() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('/api/support/tickets', {
+      const data = await fetchWithHandling<any>('/api/support/tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ 
           user_id: user?.id || null, 
           name: form.name,
@@ -73,18 +77,19 @@ export default function Support() {
           message: form.message 
         })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Support ticket created! We will contact you soon.');
         setForm({ name: '', email: '', subject: '', message: '' });
         if (user) {
           // Refresh tickets
-          const tRes = await fetch('/api/admin/support/tickets');
-          const tData = await tRes.json();
-          setTickets(tData.filter((t: any) => t.user_id === user.id));
+          const tData = await fetchWithHandling<any[]>('/api/admin/support/tickets', {
+            headers: getAuthHeaders()
+          });
+          if (tData) setTickets(tData.filter((t: any) => t.user_id === user.id));
         }
       }
     } catch (err) {
-      toast.error('Failed to submit ticket');
+      console.error('Submit ticket error:', err);
     } finally {
       setLoading(false);
     }

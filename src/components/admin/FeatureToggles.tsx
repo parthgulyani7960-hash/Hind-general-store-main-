@@ -1,6 +1,7 @@
 import React from 'react';
 import toast from 'react-hot-toast';
 import { cn, getAuthHeaders } from '../../lib/utils';
+import { fetchWithHandling } from '../../lib/api';
 import { Settings } from 'lucide-react';
 import * as motion from 'motion/react-client';
 
@@ -21,22 +22,20 @@ export default function FeatureToggles({ config, onUpdate }: FeatureTogglesProps
   const handleToggle = async (key: string, currentValue: string) => {
     const newValue = currentValue === 'true' ? 'false' : 'true';
     try {
-      const res = await fetch('/api/admin/config/update', {
+      const result = await fetchWithHandling<any>('/api/admin/config/update', {
         method: 'POST',
         headers: { 
-          ...getAuthHeaders(),
           'Content-Type': 'application/json' 
         },
         body: JSON.stringify({ [key]: newValue })
       });
-      if (res.ok) {
+      if (result) {
         toast.success('Feature updated');
         onUpdate();
-      } else {
-        toast.error('Failed to update feature');
       }
     } catch (error) {
-      toast.error('Failed to update feature');
+      // toast is already handled in fetchWithHandling for serious errors
+      // but here success depends on result being present
     }
   };
 

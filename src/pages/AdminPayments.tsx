@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
-import { cn } from '../lib/utils';
+import { cn, getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '../lib/api';
 
 interface EmailLog {
   id: number;
@@ -38,23 +39,17 @@ export default function AdminPayments() {
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
-      const [emailsRes, walletRes, auditRes] = await Promise.all([
-        fetch('/api/admin/emails-log'),
-        fetch('/api/admin/wallet-credits'),
-        fetch('/api/admin/audit-logs')
+      const [emails, wallet, audit] = await Promise.all([
+        fetchWithHandling<EmailLog[]>('/api/admin/emails-log', { headers: getAuthHeaders() }),
+        fetchWithHandling<any[]>('/api/admin/wallet-credits', { headers: getAuthHeaders() }),
+        fetchWithHandling<any[]>('/api/admin/audit-logs', { headers: getAuthHeaders() })
       ]);
       
-      const [emails, wallet, audit] = await Promise.all([
-        emailsRes.json(),
-        walletRes.json(),
-        auditRes.json()
-      ]);
-
-      setLogs(emails);
-      setWalletLogs(wallet);
-      setAuditLogs(audit);
+      if (emails) setLogs(emails);
+      if (wallet) setWalletLogs(wallet);
+      if (audit) setAuditLogs(audit);
     } catch (err) {
-      toast.error('Failed to fetch data');
+      console.error('Failed to fetch admin data:', err);
     } finally {
       setIsLoading(false);
     }
@@ -62,11 +57,12 @@ export default function AdminPayments() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/admin/payment-system-status');
-      const data = await res.json();
-      setStatus(data);
+      const data = await fetchWithHandling<any>('/api/admin/payment-system-status', {
+        headers: getAuthHeaders()
+      });
+      if (data) setStatus(data);
     } catch (err) {
-      console.error('Failed to fetch status');
+      console.error('Failed to fetch status:', err);
     }
   };
 
@@ -80,16 +76,20 @@ export default function AdminPayments() {
   const syncNow = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/admin/payment-sync-now', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(data.message);
-        fetchLogs();
-      } else {
-        toast.error(data.message);
+      const data = await fetchWithHandling<any>('/api/admin/payment-sync-now', { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data) {
+        if (data.success) {
+          toast.success(data.message);
+          fetchLogs();
+        } else {
+          toast.error(data.message);
+        }
       }
     } catch (err) {
-      toast.error('Sync failed');
+      console.error('Sync failed:', err);
     } finally {
       setIsLoading(false);
     }
@@ -121,20 +121,17 @@ export default function AdminPayments() {
     if (reason === null) return;
     
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/manual-approve`, {
+      const data = await fetchWithHandling<any>(`/api/admin/orders/${orderId}/manual-approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ notes: reason })
       });
-      if (res.ok) {
+      if (data) {
         toast.success('Order approved successfully');
         fetchLogs();
-      } else {
-        const data = await res.json();
-        toast.error(data.message || 'Failed to approve order');
       }
     } catch (err) {
-      toast.error('Error approving order');
+      console.error('Error approving order:', err);
     }
   };
 

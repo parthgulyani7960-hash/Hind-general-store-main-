@@ -3,17 +3,19 @@ import { motion } from 'motion/react';
 import { FileText, ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import { fetchWithHandling } from '../lib/api';
 
 export default function TermsAndConditions() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/settings')
-      .then(res => res.json())
+    fetchWithHandling<any>('/api/settings')
       .then(data => {
-        const tnc = data.config?.find((s: any) => s.key === 'terms_and_conditions');
-        if (tnc) setContent(tnc.value);
+        if (data && data.config) {
+          const tnc = data.config.find((s: any) => s.key === 'terms_and_conditions');
+          if (tnc) setContent(tnc.value);
+        }
       })
       .finally(() => setLoading(false));
   }, []);

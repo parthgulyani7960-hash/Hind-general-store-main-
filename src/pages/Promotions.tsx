@@ -4,6 +4,7 @@ import { Tag, ExternalLink, ShoppingBag, ArrowRight, Sparkles } from 'lucide-rea
 import { Link } from 'react-router-dom';
 import SmartLink from '../components/SmartLink';
 import { cn } from '../types';
+import { fetchWithHandling } from '../lib/api';
 
 import Navbar from '../components/Navbar';
 
@@ -21,10 +22,9 @@ export default function Promotions() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/promotions')
-      .then(res => res.json())
+    fetchWithHandling<Promotion[]>('/api/promotions')
       .then(data => {
-        setPromotions(data);
+        if (data) setPromotions(data);
         setLoading(false);
       })
       .catch(() => setLoading(false));

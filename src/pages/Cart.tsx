@@ -5,6 +5,8 @@ import { useStore } from '../StoreContext';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { calculateBulkDiscount, cn } from '../lib/utils';
+import { fetchWithHandling } from '../lib/api';
+import { getAuthHeaders } from '../lib/utils';
 
 export default function Cart() {
   const { t, cart, updateQuantity, removeFromCart, user, appliedCoupon, setAppliedCoupon, bulkDiscounts, config } = useStore();
@@ -63,16 +65,15 @@ export default function Cart() {
     }
     setIsValidating(true);
     try {
-      const res = await fetch(`/api/coupons/validate?code=${couponCode}&total=${subtotal}`);
-      const data = await res.json();
-      if (data.success) {
+      const data = await fetchWithHandling<any>(`/api/coupons/validate?code=${couponCode}&total=${subtotal}`, { headers: getAuthHeaders() });
+      if (data && data.success) {
         setAppliedCoupon(data.coupon);
         toast.success('Coupon applied successfully!');
-      } else {
+      } else if (data) {
         toast.error(data.message || 'Invalid coupon code');
       }
     } catch (err) {
-      toast.error('Failed to validate coupon. Please try again.');
+      console.error('Failed to validate coupon:', err);
     } finally {
       setIsValidating(false);
     }
@@ -192,7 +193,7 @@ export default function Cart() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex items-center gap-6 group hover:border-primary/20 transition-all duration-500 border-l-4 border-l-transparent hover:border-l-primary"
+                className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 group hover:border-primary/20 transition-all duration-500 border-l-4 border-l-transparent hover:border-l-primary"
               >
                 <div className="relative shrink-0 overflow-hidden rounded-2xl">
                   {showImages ? (

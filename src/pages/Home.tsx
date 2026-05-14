@@ -6,6 +6,7 @@ import SmartLink from '../components/SmartLink';
 import { useStore } from '../StoreContext';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
+import { fetchWithHandling } from '../lib/api';
 
 import ErrorBoundary from '../components/ErrorBoundary';
 
@@ -23,23 +24,21 @@ function HomeInner() {
 
   React.useEffect(() => {
     const fetchHomeData = () => {
-      fetch('/api/categories')
-        .then(res => res.json())
-        .then(data => {
+      fetchWithHandling<any[]>('/api/categories').then(data => {
+        if (data) {
           setCategories(data);
-          setLoadingCats(false);
-        })
-        .catch(() => setLoadingCats(false));
+        }
+        setLoadingCats(false);
+      });
 
-      fetch('/api/promotions')
-        .then(res => res.json())
-        .then(data => {
+      fetchWithHandling<any[]>('/api/promotions').then(data => {
+        if (data) {
           const activeBanners = data.filter((p: any) => p.active);
           setBanners(activeBanners);
 
           if (!bannersLoaded.current) {
             activeBanners.forEach((b: any) => {
-              fetch(`/api/promotions/${b.id}/view`, { method: 'POST' }).catch(() => {});
+              fetchWithHandling(`/api/promotions/${b.id}/view`, { method: 'POST' });
             });
             bannersLoaded.current = true;
           }
@@ -48,7 +47,8 @@ function HomeInner() {
             const p = data.find((x: any) => x.id === parseInt(previewPromoId));
             if (p) setPreviewPromo(p);
           }
-        });
+        }
+      });
     };
 
     fetchHomeData();
@@ -57,7 +57,7 @@ function HomeInner() {
   }, [previewPromoId]);
 
   const handleBannerClick = (id: number) => {
-    fetch(`/api/promotions/${id}/click`, { method: 'POST' }).catch(() => {});
+    fetchWithHandling(`/api/promotions/${id}/click`, { method: 'POST' });
   };
 
   const heroBanners = banners.filter(b => b.banner_type === 'hero' || !b.banner_type || b.banner_type === 'standard');

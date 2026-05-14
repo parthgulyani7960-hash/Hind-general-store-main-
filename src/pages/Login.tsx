@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../StoreContext';
 import { handleAppError } from '../lib/errorUtils';
 import toast from 'react-hot-toast';
+import { fetchWithHandling } from '../lib/api';
 
 import { signInWithGoogle } from '../firebase';
 
@@ -33,26 +34,13 @@ export default function Login() {
     }
 
     try {
-      const res = await fetch('/api/auth/firebase-login', {
+      const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken: token })
       });
 
-      if (!res.ok) {
-        let errorMessage = 'Login failed';
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (e) {
-          // If response was not JSON (e.g. HTML error page from proxy)
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data = await res.json();
-
-      if (data.success) {
+      if (data && data.success) {
         if (token) {
           localStorage.setItem('hgs_token', token);
         }
@@ -63,7 +51,7 @@ export default function Login() {
         } else {
           navigate(from, { replace: true });
         }
-      } else {
+      } else if (data) {
         toast.error(data.message || 'Login API failed');
       }
     } catch (err: any) {

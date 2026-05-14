@@ -19,6 +19,20 @@ export const logErrorToFirestore = async (error: any, context: string) => {
 
     // 2. Attempt sync
     syncErrors();
+    
+    // 3. Optional: Direct post to backend bug reports for critical visibility
+    try {
+        fetch('/api/bugs/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: errorData.error,
+                why: `Auto-reported from context: ${context}`,
+                path: errorData.url,
+                action_log: `UserAgent: ${errorData.userAgent}`
+            })
+        }).catch(() => {});
+    } catch (err) {}
 };
 
 const syncErrors = async () => {
