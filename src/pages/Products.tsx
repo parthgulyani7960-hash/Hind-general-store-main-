@@ -10,7 +10,7 @@ import { Product, cn } from '../types';
 import { useStore } from '../StoreContext';
 import { useDeviceType } from '../lib/device';
 import toast from 'react-hot-toast';
-import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where } from '../firebase';
+import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '../firebase';
 import { fetchWithHandling } from '../lib/api';
 
 export default function Products() {
@@ -63,7 +63,7 @@ export default function Products() {
       // 2. If API fails, try direct Firestore fallback (User request: "stored in the Firebase")
       console.log('API failed, attempting Firestore fallback...');
       try {
-        const q = query(collection(fsDb, 'products'), where('is_listed', '==', true));
+        const q = query(collection(fsDb, 'products'), where('is_listed', '==', true), limitFb(50));
         let snapshot;
         try {
           snapshot = await getDocs(q);

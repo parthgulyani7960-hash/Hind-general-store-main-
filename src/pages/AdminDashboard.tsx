@@ -21,6 +21,7 @@ import {
   FileText, HelpCircle, Palette, Server, TrendingDown, Fingerprint, Bug, Cpu, Loader2, PackagePlus
 } from 'lucide-react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
+import { storage, ref, uploadBytesResumable, getDownloadURL } from '../firebase';
 import { useStore } from '../StoreContext';
 import { cn, Order, PromotionRule } from '../types';
 import { getAuthHeaders } from '../lib/utils';
@@ -2459,27 +2460,44 @@ export default function AdminDashboard() {
     if (!files || files.length === 0) return;
 
     const uploadedUrls: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const reader = new FileReader();
-      const promise = new Promise<string>((resolve) => {
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-      uploadedUrls.push(await promise);
-    }
+    const toastId = toast.loading(`Uploading ${files.length} image(s)...`);
 
-    const updatedImages = [...newProduct.images, ...uploadedUrls];
-    setNewProduct({ ...newProduct, images: updatedImages });
-    
-    // If we are in the imageModal, update it too
-    if (imageModal.open) {
-      setImageModal({ ...imageModal, images: [...imageModal.images, ...uploadedUrls] });
-    }
-    
-    // If no main image yet, set the first one as main
-    if (!newProduct.image && uploadedUrls.length > 0) {
-      setNewProduct(prev => ({ ...prev, image: uploadedUrls[0], images: [...prev.images, ...uploadedUrls] }));
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Use Firebase Storage
+        const storageRef = ref(storage, `products/${Date.now()}_${file.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+        
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            null, 
+            (error) => reject(error), 
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              uploadedUrls.push(downloadURL);
+              resolve();
+            }
+          );
+        });
+      }
+
+      const updatedImages = [...newProduct.images, ...uploadedUrls];
+      setNewProduct({ ...newProduct, images: updatedImages });
+      
+      if (imageModal.open) {
+        setImageModal({ ...imageModal, images: [...imageModal.images, ...uploadedUrls] });
+      }
+      
+      if (!newProduct.image && uploadedUrls.length > 0) {
+        setNewProduct(prev => ({ ...prev, image: uploadedUrls[0], images: [...prev.images, ...uploadedUrls] }));
+      }
+      
+      toast.success('Images uploaded successfully', { id: toastId });
+    } catch (err) {
+      console.error('Image upload failed:', err);
+      toast.error('Failed to upload image', { id: toastId });
     }
   };
 

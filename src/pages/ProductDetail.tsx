@@ -181,12 +181,25 @@ export default function ProductDetail() {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const reader = new FileReader();
-      const promise = new Promise<string>((resolve) => {
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-      uploadedUrls.push(await promise);
+      try {
+        const { storage, ref, uploadBytesResumable, getDownloadURL } = await import('../firebase');
+        const storageRef = ref(storage, `products/${Date.now()}_${file.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+        
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            null, 
+            (error) => reject(error), 
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              uploadedUrls.push(downloadURL);
+              resolve();
+            }
+          );
+        });
+      } catch (err) {
+        console.error('Failed to upload image to Firebase:', err);
+      }
     }
 
     try {

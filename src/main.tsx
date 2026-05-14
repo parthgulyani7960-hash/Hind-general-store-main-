@@ -130,9 +130,11 @@ try {
               localStorage.removeItem('hgs_token');
               localStorage.removeItem('hgs_user');
               try { await signOutUser(); } catch(e) {}
-              // Force reload to clear all state if we are truly deadlocked
-              if (!inputUrl.includes('/api/auth/me')) {
-                  window.location.href = '/login';
+
+              // We only redirect if we are not already on the login page or we aren't testing auth status
+              if (!inputUrl.includes('/api/auth/me') && window.location.pathname !== '/login') {
+                  window.dispatchEvent(new Event('auth_error'));
+                  window.location.replace('/login');
               }
               return response; 
           }
@@ -155,8 +157,9 @@ try {
                           localStorage.removeItem('hgs_token');
                           localStorage.removeItem('hgs_user');
                           try { await signOutUser(); } catch(e) {}
-                          if (!inputUrl.includes('/api/auth/me')) {
-                              window.location.href = '/login';
+                          if (!inputUrl.includes('/api/auth/me') && window.location.pathname !== '/login') {
+                              window.dispatchEvent(new Event('auth_error'));
+                              window.location.replace('/login');
                           }
                       }
                   } else {

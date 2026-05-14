@@ -120,8 +120,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             setIsAuthChecking(false);
         }
     };
+    const handleAuthError = () => {
+      setUser(null);
+      localStorage.removeItem('hgs_user');
+      localStorage.removeItem('hgs_token');
+    };
+    window.addEventListener('auth_error', handleAuthError);
+
     initAuth();
     checkMaintenance();
+
+    return () => window.removeEventListener('auth_error', handleAuthError);
   }, []);
 
   useEffect(() => {

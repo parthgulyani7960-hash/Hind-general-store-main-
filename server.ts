@@ -109,9 +109,6 @@ app.use((req, res, next) => {
 // Security Headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; worker-src 'self' blob:;");
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
@@ -1147,7 +1144,11 @@ const verifyFirebaseUser = async (req: express.Request) => {
 
 // Middlewares
 const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (req.session.userId) return next();
+  if (req.session.userId) {
+     const exists = db.prepare('SELECT id FROM users WHERE id = ?').get(req.session.userId);
+     if (exists) return next();
+     req.session.destroy(() => {});
+  }
   
   const user = await verifyFirebaseUser(req);
   if (user) return next();
@@ -1167,6 +1168,7 @@ const requireAdmin = async (req: express.Request, res: express.Response, next: e
       req.session.role = userRow.role;
       return next();
     }
+    if (!userRow) req.session.destroy(() => {});
     return res.status(403).json({ success: false, message: 'Admin access required' });
   }
 
@@ -1236,12 +1238,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const token = authHeader.split(' ')[1];
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const email = decodedToken.email;
-        const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
-        if (user) {
-            req.session.userId = user.id;
-            req.session.role = user.role;
+        if (admin.apps.length > 0) {
+          const decodedToken = await admin.auth().verifyIdToken(token);
+          const email = decodedToken.email;
+          const user = db.prepare('SELECT id, role FROM users WHERE email = ?').get(email) as any;
+          if (user) {
+              req.session.userId = user.id;
+              req.session.role = user.role;
+          }
         }
       } catch (e) {
         // Invalid token
@@ -3064,6 +3068,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) as review_count
           FROM products p
           WHERE p.is_listed = 1 OR ? = 'admin'
+          LIMIT 100
         `).all(req.session?.role || 'guest') as any[];
       } catch (e) {
         console.error('[DB] SQLite Product Fetch Failed:', e);
@@ -3074,7 +3079,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       if (finalProducts.length === 0 && admin.apps.length) {
         console.log('[FIREBASE] SQLite empty, attempting Firestore fetch...');
         try {
-          const snapshot = await admin.firestore().collection('products').get();
+          const snapshot = await admin.firestore().collection('products').limit(50).get();
           if (!snapshot.empty) {
             const fbProducts = snapshot.docs.map(doc => {
               const data = doc.data();
@@ -3749,7 +3754,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const sortCol = validSortColumns[sortBy as string] || 'o.created_at';
       const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
       
-      query += ` ORDER BY ${sortCol} ${order}`;
+      query += ` ORDER BY ${sortCol} ${order} LIMIT 100`;
       
       const orders = db.prepare(query).all(...params);
       res.json(orders);
@@ -4509,7 +4514,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const items = db.prepare(`
         SELECT oi.*, p.name as product_name, p.image_url, r.status as return_status
         FROM order_items oi
-        JOIN products p ON oi.product_id = p.id
+        LEFT JOIN products p ON oi.product_id = p.id
         LEFT JOIN returns r ON r.order_id = oi.order_id AND r.product_id = oi.product_id
         WHERE oi.order_id = ?
       `).all(order.id);
@@ -4526,7 +4531,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const order = db.prepare(`
         SELECT o.*, u.name as user_name, u.phone as user_phone 
         FROM orders o 
-        JOIN users u ON o.user_id = u.id 
+        LEFT JOIN users u ON o.user_id = u.id 
         WHERE o.id = ? OR o.order_id = ?
       `).get(id, id) as any;
       
@@ -4540,7 +4545,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const items = db.prepare(`
         SELECT oi.*, p.name as product_name, p.image_url, r.status as return_status
         FROM order_items oi 
-        JOIN products p ON oi.product_id = p.id 
+        LEFT JOIN products p ON oi.product_id = p.id 
         LEFT JOIN returns r ON r.order_id = oi.order_id AND r.product_id = oi.product_id
         WHERE oi.order_id = ?
       `).all(order.id);
@@ -5495,9 +5500,9 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
     });
   });
 
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   
-  if (!process.env.VERCEL && httpServer) {
+  if (httpServer) {
     httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
