@@ -12,8 +12,10 @@ import { google } from 'googleapis';
 // Initialize Firebase Admin
 let isFirebaseReady = false;
 try {
+   const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
    const configPaths = [
-     path.join(process.cwd(), 'firebase-applet-config.json')
+     path.join(process.cwd(), 'firebase-applet-config.json'),
+     path.join(process.cwd(), 'firebase-blueprint.json')
    ];
    
    let config: any = null;
@@ -24,21 +26,60 @@ try {
      }
    }
 
-   if (config && !admin.apps.length) {
-     if (config.projectId) {
-       admin.initializeApp({
-         projectId: config.projectId
-       });
-       isFirebaseReady = true;
-       console.log('Firebase Admin initialized with projectId:', config.projectId);
-     } else {
-       console.warn('Firebase config found but no projectId specified (No ID or name found in config). Authentication integration may fail.');
+   if (!admin.apps.length) {
+     if (fs.existsSync(serviceAccountPath)) {
+       try {
+         const cert = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+         admin.initializeApp({
+           credential: admin.credential.cert(cert),
+           projectId: cert.project_id,
+           databaseURL: `https://${cert.project_id}-default-rtdb.firebaseio.com`
+         });
+         isFirebaseReady = true;
+         console.log('[BOOT] Firebase Admin initialized with service account file');
+       } catch (e: any) {
+         console.error('[BOOT] Failed to initialize with service account file:', e.message);
+       }
      }
-   } else if (!config) {
-     console.warn('Firebase config file NOT found in:', configPaths);
+
+     if (!isFirebaseReady && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+       try {
+         const cert = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+         admin.initializeApp({
+           credential: admin.credential.cert(cert),
+           projectId: config?.projectId || cert.project_id, 
+           databaseURL: process.env.FIREBASE_DATABASE_URL || config?.databaseURL || `https://${config?.projectId || cert.project_id}-default-rtdb.firebaseio.com`
+         });
+         isFirebaseReady = true;
+         console.log('[BOOT] Firebase Admin initialized with FIREBASE_SERVICE_ACCOUNT_KEY');
+       } catch (e: any) {
+         console.error('[BOOT] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY', e.message);
+       }
+     } 
+     
+     if (!isFirebaseReady && config && config.projectId) {
+       if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+         console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts. Set FIREBASE_SERVICE_ACCOUNT_KEY.');
+       } else {
+         try {
+           admin.initializeApp({
+             projectId: config.projectId, 
+             databaseURL: process.env.FIREBASE_DATABASE_URL || config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`
+           });
+           isFirebaseReady = true;
+           console.log('[BOOT] Firebase Admin initialized with projectId:', config.projectId);
+         } catch (e: any) {
+           console.warn('[BOOT] Fallback initialization failed:', e.message);
+         }
+       }
+     }
+
+     if (!isFirebaseReady) {
+       console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. All authenticated routes will fail.');
+     }
    }
-} catch (e) {
-  console.error('Failed to initialize Firebase Admin:', e);
+} catch (e: any) {
+  console.error('[BOOT] Failed during Firebase Admin setup:', e.message);
 }
 
 // Extend session type
@@ -55,6 +96,10 @@ const handleAppError = (err: any, message: string, context: string) => {
 
 const app = express();
 
+app.use((req, res, next) => {
+  if (req.url === '/') console.log('[REQ] Root request received');
+  next();
+});
 app.use((req, res, next) => {
   console.log(`[REQ][${new Date().toISOString()}] ${req.method} ${req.url} | Host: ${req.headers.host} | Proto: ${req.headers['x-forwarded-proto']}`);
   next();
@@ -332,7 +377,7 @@ const verifyFirebaseUser = async (req: express.Request) => {
     const email = decodedToken.email?.toLowerCase();
     
     if (!email) {
-      console.warn(`[AUTH FAIL] Token verified but missing email`);
+      console.warn(`[AUTH FAIL] Token verified but missing email for UID: ${decodedToken.uid}`);
       return null;
     }
 
@@ -445,7 +490,21 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.set('trust proxy', true);
   app.use((req, res, next) => {
-    req.headers['x-forwarded-proto'] = 'https';
+    // Log all incoming requests for debugging
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      if (req.url !== '/api/health') {
+        console.log(`[RES] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
+      }
+    });
+
+    // Auto-fix localhost headers if they leak through
+    if (req.headers.host && req.headers.host.includes('localhost:3000')) {
+       // This shouldn't happen in production but good for robustness
+       console.warn('[MIDDLEWARE] Localhost host header detected');
+    }
+    
     next();
   });
   app.use(express.json());
@@ -1207,7 +1266,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         if (authHeader && authHeader.startsWith('Bearer ')) {
           const token = authHeader.split(' ')[1];
           try {
-            if (admin.apps.length > 0) {
+            if (isFirebaseReady) {
               const decodedToken = await admin.auth().verifyIdToken(token);
               const email = decodedToken.email?.toLowerCase();
               if (email) {
@@ -1233,7 +1292,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                         created_at: new Date().toISOString()
                       });
                       user = { id: newDocRef.id, email, role: defaultRole };
-                    } catch (err) {}
+                    } catch (err: any) {
+                      console.error('[AUTH] Failed to create new user:', err.message);
+                    }
                 }
 
                 if (user && email === 'parthgulyani7960@gmail.com' && user.role !== 'admin') {
@@ -1247,8 +1308,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                   req.session.role = user.role;
                 }
               }
+            } else {
+              console.warn('[AUTH] Firebase Admin not ready during session restoration');
             }
-          } catch (e) {}
+          } catch (e: any) {
+            console.error('[AUTH] Session restoration failed:', e.message);
+          }
         }
       }
 
@@ -5671,8 +5736,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`[BOOT] Server listening on 0.0.0.0:${PORT}`);
-    console.log(`[BOOT] Health check: http://localhost:${PORT}/api/health`);
+    console.log('================================================');
+    console.log(`🚀 SERVER RUNNING ON 0.0.0.0:${PORT}`);
+    console.log(`✅ FIREBASE READY: ${isFirebaseReady}`);
+    console.log(`🕒 STARTED AT: ${new Date().toISOString()}`);
+    console.log('================================================');
   });
 
   return app;

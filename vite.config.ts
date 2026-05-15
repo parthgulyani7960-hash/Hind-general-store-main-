@@ -22,6 +22,12 @@ export default defineConfig(({mode}) => {
       host: '0.0.0.0',
       port: 3000,
     },
+    optimizeDeps: {
+      include: [
+        'react', 'react-dom', 'react-router-dom', 'firebase/app', 'firebase/auth', 
+        'firebase/firestore', 'lucide-react', 'motion/react', 'react-hot-toast'
+      ]
+    },
     build: {
       rollupOptions: {
       }

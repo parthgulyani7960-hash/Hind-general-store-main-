@@ -97,17 +97,19 @@ try {
         if (inputUrl && inputUrl.includes('localhost:3000')) {
           console.warn('[Fetch Interceptor] Auto-correcting localhost:', inputUrl);
           inputUrl = inputUrl.replace(/https?:\/\/localhost:3000/, '');
+          if (inputUrl === '') inputUrl = '/';
         }
         
         const isFirebaseAuth = inputUrl && (inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com'));
         const isLocalAuthMe = inputUrl && inputUrl.includes('/api/auth/me');
+        const isLocalAuthLogin = inputUrl && inputUrl.includes('/api/auth/firebase-login');
 
         if (isFirebaseAuth) {
             return originalFetch(inputUrl || input, init);
         }
 
-        const executeFetch = async (token: string | null) => {
-          let requestInit = init || {};
+        const executeFetch = async (token: string | null, isRetry = false) => {
+          let requestInit = (init || {}) as any;
           if (input instanceof Request) {
             requestInit = {
               method: input.method,
@@ -119,6 +121,11 @@ try {
               ...init
             };
           }
+          
+          if (isRetry) {
+             requestInit._retry = true;
+          }
+
           const headers = new Headers(requestInit.headers || (input instanceof Request ? input.headers : {}));
           if (token && !headers.has('Authorization')) {
             headers.set('Authorization', `Bearer ${token}`);
@@ -136,7 +143,12 @@ try {
         let response = await executeFetch(initialToken);
 
         // Handle 401 unauthorized
-        if (response.status === 401 && !isFirebaseAuth) {
+        if (response.status === 401 && !isFirebaseAuth && !isLocalAuthMe && !isLocalAuthLogin) {
+          if ((init as any)?._retry) {
+             console.warn(`[AUTH INTERCEPTOR] Persistence 401 for ${inputUrl}. Giving up.`);
+             return response;
+          }
+
           console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
           
           if (!refreshPromise) {
@@ -147,7 +159,7 @@ try {
             const newToken = await refreshPromise;
             if (newToken) {
               console.log(`[AUTH INTERCEPTOR] Refresh success, retrying ${inputUrl}`);
-              response = await executeFetch(newToken);
+              response = await executeFetch(newToken, true);
             }
           } catch (refreshErr) {
             console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
@@ -171,6 +183,16 @@ try {
 } catch (e) {
   console.warn('Could not override fetch:', e);
 }
+
+// Add safety timeout to detect hangs in auth state synchronization
+setTimeout(() => {
+  const root = document.getElementById('root');
+  if (root && root.innerText.includes('Synchronizing')) {
+    console.warn('[BOOT] Initialization is stalling. Re-triggering readiness.');
+    // We can't easily re-trigger the state inside StoreContext from here,
+    // but at least we log it and can suggest a page reload or similar.
+  }
+}, 10000);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

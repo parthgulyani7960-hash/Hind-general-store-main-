@@ -12,9 +12,13 @@ export const fetchWithHandling = async <T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T | null> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   try {
     // Global fetch is now wrapped in main.tsx, so it handles token injection and retries
-    const res = await fetch(url, options);
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
     
     if (!res.ok) {
         let errorMessage = `Error: ${res.status}`;
