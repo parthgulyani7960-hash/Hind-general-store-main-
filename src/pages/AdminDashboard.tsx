@@ -515,27 +515,14 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchOrders = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (orderStatusFilter !== 'All') params.append('status', orderStatusFilter.toLowerCase());
-      if (orderDateStart) params.append('startDate', orderDateStart);
-      if (orderDateEnd) params.append('endDate', orderDateEnd);
-      if (debouncedOrderSearchTerm) params.append('search', debouncedOrderSearchTerm);
-      if (orderUserIdFilter) params.append('userId', orderUserIdFilter);
-      params.append('sortBy', orderSortBy);
-      params.append('sortOrder', orderSortOrder);
-      
-      const data = await fetchWithHandling<any[]>(`/api/admin/orders?${params.toString()}`, { headers: getAuthHeaders() });
-      if (data) {
-        setOrders(data);
-      }
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+  const fetchOrders = () => {
+    let q = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrders(data);
+    }, (err) => {
+      console.error('Orders fetch error:', err);
+    });
   };
 
   const fetchReturns = async () => {
@@ -549,40 +536,34 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchProducts = async () => {
-    setLoading(true);
-    try {
-      console.log('Fetching products...');
-      const data = await fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() });
-      if (data) {
-        console.log('Products fetched:', data);
-        setAllProducts(data);
-        setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-      }
-    } catch (err) {
+  const fetchProducts = () => {
+    const q = query(collection(db, 'products'));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllProducts(data);
+      setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+    }, (err) => {
       console.error('Products fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   useEffect(() => {
-    if (user?.role !== 'admin') return;
+    let unsubscribeOrders: () => void;
+    let unsubscribeProducts: () => void;
     
-    if (activeTab === 'Overview') {
-      fetchStats();
-      fetchProducts();
-    } else if (activeTab === 'Orders') {
-      fetchOrders();
-    } else if (activeTab === 'Products') {
-      fetchProducts();
-    } else if (activeTab === 'Promotions') {
-      fetchPromotions();
-      fetchPromotionRules();
-    } else if (activeTab === 'Bulk Discounts') {
-      fetchBulkDiscounts();
+    if (user?.role === 'admin') {
+      if (activeTab === 'Overview' || activeTab === 'Product Catalog') {
+        unsubscribeProducts = fetchProducts();
+      }
+      if (activeTab === 'Overview' || activeTab === 'Orders') {
+        unsubscribeOrders = fetchOrders();
+      }
     }
-  }, [activeTab, user, orderStatusFilter, orderUserIdFilter, orderDateStart, orderDateEnd, debouncedOrderSearchTerm, orderSortBy, orderSortOrder]);
+    return () => {
+      if (unsubscribeOrders) unsubscribeOrders();
+      if (unsubscribeProducts) unsubscribeProducts();
+    };
+  }, [activeTab, user]);
 
   const [newBatchCategory, setNewBatchCategory] = useState('');
   const [imageModal, setImageModal] = useState({ open: false, productId: null as number | null, images: [] as string[] });
@@ -1401,7 +1382,7 @@ export default function AdminDashboard() {
       fetchSystemHealth();
     }
     if (activeTab === 'Purchase Orders') {
-      // Add fetch logic here if needed
+      // Logic handled via onSnapshot in PurchaseOrdersTab
     }
   }, [activeTab]);
 
@@ -1409,7 +1390,6 @@ export default function AdminDashboard() {
     if (activeTab === 'Orders' || activeTab === 'Analytics') {
       fetchOrders();
     }
-    // Remove other fetches here that are covered by loadData or unnecessary
   }, [activeTab]);
 
   const fetchConfig = async () => {
@@ -2015,6 +1995,7 @@ export default function AdminDashboard() {
 
     const productData = {
       ...newProduct,
+      images: JSON.stringify(newProduct.images),
       price: calculatedPrice.toString(),
       discount_price: calculatedPrice // Also set discount_price for compatibility
     };
@@ -5667,7 +5648,15 @@ export default function AdminDashboard() {
                             <motion.button 
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
-                              onClick={() => { setEditingProduct(product); setProductModal({ open: true, mode: 'edit' }); }}
+                              onClick={() => { 
+                                setEditingProduct(product); 
+                                setNewProduct({
+                                  ...product,
+                                  images: typeof product.images === 'string' ? JSON.parse(product.images) : (product.images || []),
+                                  image: product.image || (product.images && (typeof product.images === 'string' ? JSON.parse(product.images) : product.images).length > 0 ? (typeof product.images === 'string' ? JSON.parse(product.images) : product.images)[0] : '')
+                                });
+                                setProductModal({ open: true, mode: 'edit' });
+                              }}
                               className="p-2.5 bg-stone-50 text-stone-500 hover:text-primary hover:bg-white hover:shadow-md border border-transparent hover:border-stone-100 rounded-xl transition-all"
                               title="Edit Product"
                             >
@@ -7121,8 +7110,8 @@ export default function AdminDashboard() {
                   <h3 className="text-2xl font-black text-stone-900 tracking-tight">Store Access</h3>
                 </div>
 
-                <div className="space-y-8">
-                  <div className="group flex items-center justify-between p-8 bg-stone-50 border border-stone-100 rounded-[2rem] hover:border-primary/20 hover:bg-white transition-all duration-300">
+                <div className="space-y-4">
+                  <div className="group flex items-center justify-between p-6 bg-stone-50 border border-stone-100 rounded-[2rem] hover:border-primary/20 hover:bg-white transition-all duration-300">
                     <div className="space-y-1">
                       <p className="font-black text-stone-900 uppercase tracking-widest text-[10px]">Maintenance Mode</p>
                       <p className="text-xs text-stone-400 font-bold">Only you can access the store when this is ON.</p>
@@ -7130,13 +7119,13 @@ export default function AdminDashboard() {
                     <button 
                       onClick={() => updateSetting('maintenance_mode', getSetting('maintenance_mode') === 'true' ? 'false' : 'true')}
                       className={cn(
-                        "w-16 h-8 rounded-full transition-all duration-500 relative ring-4 ring-offset-2 ring-transparent",
-                        getSetting('maintenance_mode') === 'true' ? "bg-primary ring-primary/10 shadow-lg shadow-primary/20" : "bg-stone-200"
+                        "w-12 h-6 rounded-full transition-all duration-300 relative",
+                        getSetting('maintenance_mode') === 'true' ? "bg-primary" : "bg-stone-200"
                       )}
                     >
                       <div className={cn(
-                        "absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-500 shadow-sm",
-                        getSetting('maintenance_mode') === 'true' ? "left-9" : "left-1"
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-sm ml-1",
+                        getSetting('maintenance_mode') === 'true' ? "translate-x-6" : "translate-x-0"
                       )} />
                     </button>
                   </div>
@@ -8994,6 +8983,10 @@ export default function AdminDashboard() {
 
         {activeTab === 'Data Exports' && (
           <DataExportsView />
+        )}
+
+        {activeTab === 'Purchase Orders' && (
+          <PurchaseOrdersTab />
         )}
 
         {activeTab === 'Automatic Reports' && (

@@ -17,9 +17,7 @@ service cloud.firestore {
 
     // --- User Profiles ---
     match /users/{userId} {
-      allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow update: if isOwner(userId) || isAdmin();
-      allow create: if isSignedIn() && isOwner(userId) && incoming().role == 'customer';
+      allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin());
     }
 
     // --- Products ---
@@ -34,5 +32,36 @@ service cloud.firestore {
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow update: if isAdmin();
     }
+
+    // --- Purchase Records ---
+    match /purchase_records/{orderId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- Orders ---
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // --- Wallet ---
+    match /wallet_transactions/{transactionId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // --- Coupons ---
+    match /coupons/{couponId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- Other Collections ---
+    match /categories/{categoryId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /reviews/{reviewId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /support_tickets/{ticketId} { allow read, write: if isSignedIn(); }
+    match /audit_logs/{logId} { allow read: if isAdmin(); }
+    match /error_logs/{logId} { allow read: if isAdmin(); }
+    match /promotions/{promoId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
   }
 }

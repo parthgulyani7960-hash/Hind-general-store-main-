@@ -47,10 +47,29 @@
             "status": { "type": "string" }
         },
         "required": ["userId", "total"]
+    },
+    "purchase_records": {
+      "title": "Purchase Record",
+      "description": "Log of purchase records from suppliers",
+      "type": "object",
+      "properties": {
+        "supplier_details": { "type": "string" },
+        "product_id": { "type": "string" },
+        "quantity": { "type": "number" },
+        "cost_price": { "type": "number" },
+        "invoice_number": { "type": "string" },
+        "batch_number": { "type": "string" },
+        "expiry_date": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["product_id", "quantity", "cost_price"]
     }
   },
   "firestore": {
-    "users/{userId}": {
+    "purchase_records/{orderId}": {
+      "schema": "purchase_records",
+      "description": "Purchase record logs"
+    },    "users/{userId}": {
       "schema": "user",
       "description": "User profile collection"
     },
