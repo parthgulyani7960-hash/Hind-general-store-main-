@@ -44,7 +44,17 @@ try {
 
     const performRefresh = async (): Promise<string | null> => {
         try {
-            await auth.authStateReady();
+            // Set a timeout to prevent infinite hang
+            const readyPromise = auth.authStateReady();
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Refresh auth timeout')), 3000)
+            );
+            try {
+                await Promise.race([readyPromise, timeoutPromise]);
+            } catch (e) {
+                console.warn('Firebase authStateReady timed out during refresh');
+            }
+
             const user = auth.currentUser;
             if (user) {
               const newToken = await user.getIdToken(true);
@@ -80,28 +90,35 @@ try {
         if (inputUrl && inputUrl.includes('localhost:3000')) {
           console.warn('[Fetch Interceptor] Auto-correcting localhost:', inputUrl);
           inputUrl = inputUrl.replace(/https?:\/\/localhost:3000/, '');
-          if (input instanceof Request) {
-            input = new Request(inputUrl, init || input);
-          } else {
-            input = inputUrl;
-          }
         }
         
         const isFirebaseAuth = inputUrl && (inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com'));
         const isLocalAuthMe = inputUrl && inputUrl.includes('/api/auth/me');
 
         if (isFirebaseAuth) {
-            return originalFetch(input, init);
+            return originalFetch(inputUrl || input, init);
         }
 
         const executeFetch = async (token: string | null) => {
-          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : {}));
+          let requestInit = init || {};
+          if (input instanceof Request) {
+            requestInit = {
+              method: input.method,
+              body: input.body,
+              credentials: input.credentials,
+              cache: input.cache,
+              redirect: input.redirect,
+              referrer: input.referrer,
+              ...init
+            };
+          }
+          const headers = new Headers(requestInit.headers || (input instanceof Request ? input.headers : {}));
           if (token && !headers.has('Authorization')) {
             headers.set('Authorization', `Bearer ${token}`);
           }
-          const options = { ...init, headers };
+          const options = { ...requestInit, headers };
           try {
-             return await originalFetch(input, options);
+             return await originalFetch(inputUrl || input, options);
           } catch (err) {
              console.error('[Fetch Network Error]:', err, inputUrl);
              throw err;

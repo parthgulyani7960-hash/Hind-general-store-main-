@@ -298,7 +298,7 @@ const logSuspicious = async (userId: number | string | null, type: string, descr
 };
 
 // Helper to get settings
-const getSetting = async (key: string) => {
+const getSetting = async (key: string): Promise<any> => {
   try {
     if (!admin.apps.length) return null;
     const doc = await admin.firestore().collection('settings').doc(key).get();
@@ -1419,7 +1419,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Helper to check admin email
-  async function getAdminEmail() {
+  async function getAdminEmail(): Promise<string> {
     if (!admin.apps.length) return 'parthgulyani7960@gmail.com';
     const docRef = admin.firestore().collection('settings').doc('admin_email');
     const doc = await docRef.get();
