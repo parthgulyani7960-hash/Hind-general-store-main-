@@ -2349,9 +2349,20 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/categories', (req, res) => {
-    const categories = db.prepare('SELECT * FROM categories').all();
-    res.json(categories);
+  app.get('/api/categories', async (req, res) => {
+    try {
+      if (admin.apps.length > 0) {
+        const snapshot = await admin.firestore().collection('categories').get();
+        if (!snapshot.empty) {
+          const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          return res.json(categories);
+        }
+      }
+      const categories = db.prepare('SELECT * FROM categories').all();
+      res.json(categories);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.post('/api/admin/categories', (req, res) => {

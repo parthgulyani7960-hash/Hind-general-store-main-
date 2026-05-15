@@ -5,12 +5,7 @@ import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/
 import firebaseConfig from '../firebase-applet-config.json';
 
 const { firestoreDatabaseId, ...validConfig } = firebaseConfig as any;
-let app;
-try {
-  app = getApp();
-} catch (e) {
-  app = initializeApp(validConfig);
-}
+const app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app, firestoreDatabaseId || '(default)');
 export const storage = getStorage(app);
