@@ -57,9 +57,16 @@ try {
 
             const user = auth.currentUser;
             if (user) {
-              const newToken = await user.getIdToken(true);
-              localStorage.setItem('hgs_token', newToken);
-              return newToken;
+              const tokenPromise = user.getIdToken(true);
+              const tPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
+              try {
+                const newToken = await Promise.race([tokenPromise, tPromise]) as string;
+                localStorage.setItem('hgs_token', newToken);
+                return newToken;
+              } catch(e) {
+                console.warn('getIdToken timed out in performRefresh');
+                return null;
+              }
             } else {
               localStorage.removeItem('hgs_token');
               localStorage.removeItem('hgs_user');

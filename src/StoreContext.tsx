@@ -84,7 +84,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           try {
-            const token = await firebaseUser.getIdToken();
+            const token = await Promise.race([
+              firebaseUser.getIdToken(),
+              new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+            ]) as string;
             localStorage.setItem('hgs_token', token);
             checkAuth(token);
           } catch (e) {
@@ -120,8 +123,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
             const firebaseUser = auth.currentUser;
             if (firebaseUser) {
-                const token = await firebaseUser.getIdToken();
-                await checkAuth(token);
+                let token = null;
+                try {
+                  token = await Promise.race([
+                    firebaseUser.getIdToken(),
+                    new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+                  ]) as string;
+                } catch(e) {}
+                await checkAuth(token || undefined);
             } else {
                 await checkAuth();
             }
