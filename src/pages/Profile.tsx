@@ -2027,6 +2027,7 @@ export default function Profile() {
 }
 
 function SettingToggle({ icon: Icon, label, desc, enabled, onToggle, color }: any) {
+  const { vibration } = useStore();
   return (
     <div className="p-6 hover:bg-stone-50 transition-colors">
       <div className="flex items-center justify-between">
@@ -2040,7 +2041,10 @@ function SettingToggle({ icon: Icon, label, desc, enabled, onToggle, color }: an
           </div>
         </div>
         <div 
-          onClick={onToggle}
+          onClick={() => {
+            if (vibration && navigator.vibrate) navigator.vibrate(20);
+            onToggle();
+          }}
           className={cn(
             "w-12 h-6 rounded-full relative p-1 cursor-pointer transition-all duration-300 ease-in-out",
             enabled ? "bg-emerald-500 shadow-inner shadow-emerald-600/20" : "bg-stone-200 shadow-inner"

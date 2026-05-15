@@ -3359,8 +3359,8 @@ export default function AdminDashboard() {
                   )}
                 </div>
                 <button 
-                   onClick={() => setActiveTab('Orders')}
-                   className="mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all"
+                   onClick={() => { setActiveTab('Orders'); fetchOrders(); }}
+                   className="mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all w-full"
                 >
                   View All Orders
                 </button>
@@ -4997,9 +4997,13 @@ export default function AdminDashboard() {
                           <td className="px-6 py-7">
                             <div className="flex items-center space-x-3">
                               <div className="flex flex-col">
-                                <span className="font-mono text-sm font-black text-stone-900 tracking-tighter">#ORD-{order.id}</span>
-                                <div className="flex items-center space-x-2 mt-1.5">
-                                  <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">{order.payment_method || 'Online'}</span>
+                                <span className="inline-flex items-center space-x-1.5 px-3 py-1 bg-stone-900 text-white rounded-lg font-mono text-xs font-black tracking-tighter">
+                                  <span>ORD</span>
+                                  <span className="text-stone-400">#</span>
+                                  <span>{order.id}</span>
+                                </span>
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">{order.payment_method || 'Online'}</span>
                                   {order.admin_notes && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" title="Internal Persistence" />}
                                 </div>
                               </div>
@@ -5016,7 +5020,7 @@ export default function AdminDashboard() {
                               </div>
                               <div className="max-w-[200px]">
                                 <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate tracking-tight">{order.user_name || 'Protocol Client'}</p>
-                                <p className="text-[10px] text-stone-400 font-bold tracking-wide mt-0.5">{order.items?.length || 0} unique SKUs in transit</p>
+                                <p className="text-[10px] text-stone-400 font-bold tracking-wide mt-0.5">{order.items?.length || 0} items</p>
                               </div>
                             </div>
                           </td>
@@ -5024,25 +5028,25 @@ export default function AdminDashboard() {
                             <div className="flex flex-col items-end">
                               <span className="text-base font-black text-stone-900 tracking-tighter">₹{order.total}</span>
                               <div className="flex items-center space-x-1 mt-1">
-                                <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                 <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Settled</span>
                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-7">
                             <span className={cn(
-                              "inline-flex items-center space-x-2 px-4 py-2 rounded-[1.2rem] text-[10px] font-black uppercase tracking-widest border transition-all duration-500",
-                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm shadow-emerald-100' : 
-                              order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-200 shadow-sm shadow-red-100' : 
-                              order.status === 'shipped' ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm shadow-purple-100' :
-                              'bg-amber-50 text-amber-600 border-amber-200 shadow-sm shadow-amber-100'
+                              "inline-flex items-center space-x-2.5 px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.15em] border transition-all duration-300",
+                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm' : 
+                              order.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200 shadow-sm' : 
+                              order.status === 'shipped' ? 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm' :
+                              'bg-amber-50 text-amber-700 border-amber-200 shadow-sm'
                             )}>
                               <div className={cn(
-                                "w-2 h-2 rounded-full",
-                                order.status === 'delivered' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
-                                order.status === 'cancelled' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
-                                order.status === 'shipped' ? 'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)] animate-pulse' :
-                                'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-pulse'
+                                "w-2.5 h-2.5 rounded-full",
+                                order.status === 'delivered' ? 'bg-emerald-500' : 
+                                order.status === 'cancelled' ? 'bg-red-500' : 
+                                order.status === 'shipped' ? 'bg-purple-500 animate-pulse' :
+                                'bg-amber-500 animate-pulse'
                               )} />
                               <span>{order.status === 'shipped' ? 'On Route' : order.status}</span>
                             </span>
