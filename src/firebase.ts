@@ -1,11 +1,16 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, onIdTokenChanged } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const { firestoreDatabaseId, ...validConfig } = firebaseConfig as any;
-const app = initializeApp(validConfig);
+let app;
+try {
+  app = getApp();
+} catch (e) {
+  app = initializeApp(validConfig);
+}
 export const auth = getAuth(app);
 export const db = getFirestore(app, firestoreDatabaseId || '(default)');
 export const storage = getStorage(app);

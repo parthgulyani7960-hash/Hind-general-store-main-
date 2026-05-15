@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../../lib/firebase';
+import { db } from '../../../firebase';
 import { collection, query, orderBy, getDocs, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from 'firebase/firestore';
 import { PackagePlus, Plus } from 'lucide-react';
 import { toast } from 'sonner';
