@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone,
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
-  Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield
+  Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus
 } from 'lucide-react';
 import { cn } from '../../types';
 

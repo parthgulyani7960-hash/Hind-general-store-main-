@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 export default function PurchaseOrdersTab() {
   const [orders, setOrders] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchOrders = async () => {
@@ -14,6 +15,10 @@ export default function PurchaseOrdersTab() {
       const q = query(collection(db, 'purchase_records'), orderBy('created_at', 'desc'));
       const snapshot = await getDocs(q);
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      
+      const prodQ = query(collection(db, 'products'));
+      const prodSnapshot = await getDocs(prodQ);
+      setProducts(prodSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (err) {
       console.error('Error fetching purchase orders:', err);
       toast.error('Failed to load purchase orders');
@@ -32,6 +37,11 @@ export default function PurchaseOrdersTab() {
     const quantity = Number(formData.get('quantity'));
     const productId = formData.get('product_id') as string;
     
+    if(!productId) {
+        toast.error('Please select a product');
+        return;
+    }
+
     const data = {
       supplier_details: formData.get('supplier_details'),
       product_id: productId,
@@ -55,7 +65,7 @@ export default function PurchaseOrdersTab() {
       fetchOrders();
     } catch (err) {
       console.error('Error adding purchase order:', err);
-      toast.error('Failed to log purchase order. Check Product ID.');
+      toast.error('Failed to log purchase order.');
     }
   };
 
@@ -68,15 +78,39 @@ export default function PurchaseOrdersTab() {
       
       <div className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm">
         <h3 className="text-xl font-black mb-6">Log New Purchase</h3>
-        <form onSubmit={handleAddOrder} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input name="supplier_details" placeholder="Supplier Details" className="p-3 border rounded-xl" required />
-          <input name="product_id" placeholder="Product ID" className="p-3 border rounded-xl" required />
-          <input type="number" name="quantity" placeholder="Quantity" className="p-3 border rounded-xl" required />
-          <input type="number" name="cost_price" placeholder="Cost Price" className="p-3 border rounded-xl" required />
-          <input name="invoice_number" placeholder="Invoice Number" className="p-3 border rounded-xl" />
-          <input name="batch_number" placeholder="Batch Number" className="p-3 border rounded-xl" />
-          <input type="date" name="expiry_date" className="p-3 border rounded-xl" />
-          <button type="submit" className="bg-stone-900 text-white py-3 rounded-xl font-bold flex items-center justify-center space-x-2 hover:bg-stone-800">
+        <form onSubmit={handleAddOrder} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Supplier Details</label>
+            <input name="supplier_details" placeholder="Supplier Name/ID" className="w-full p-3 border rounded-xl" required />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Select Product</label>
+            <select name="product_id" className="w-full p-3 border rounded-xl" required>
+              <option value="">Select a product</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name} (ID: {p.id})</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Quantity</label>
+            <input type="number" name="quantity" placeholder="0" className="w-full p-3 border rounded-xl" required />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Cost Price (₹)</label>
+            <input type="number" name="cost_price" placeholder="0.00" className="w-full p-3 border rounded-xl" required />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Invoice Number</label>
+            <input name="invoice_number" placeholder="e.g. INV-2026-001" className="w-full p-3 border rounded-xl" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Batch Number</label>
+            <input name="batch_number" placeholder="Batch #ID" className="w-full p-3 border rounded-xl" />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-xs font-bold text-stone-500 uppercase tracking-widest">Expiry Date</label>
+            <input type="date" name="expiry_date" className="w-full p-3 border rounded-xl" />
+          </div>
+          <button type="submit" className="md:col-span-2 bg-stone-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center space-x-2 hover:bg-stone-800 transition-colors">
             <Plus size={18} />
             <span>Log Purchase</span>
           </button>

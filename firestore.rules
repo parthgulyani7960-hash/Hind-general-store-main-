@@ -28,7 +28,7 @@ service cloud.firestore {
 
     // --- Orders ---
     match /orders/{orderId} {
-      allow read: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow update: if isAdmin();
     }
@@ -36,12 +36,6 @@ service cloud.firestore {
     // --- Purchase Records ---
     match /purchase_records/{orderId} {
       allow read, write: if isAdmin();
-    }
-
-    // --- Orders ---
-    match /orders/{orderId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow write: if isAdmin();
     }
 
     // --- Wallet ---

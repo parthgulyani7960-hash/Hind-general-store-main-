@@ -42,6 +42,7 @@ import { EmptyState } from '../components/EmptyState';
 import { exportData, asyncExportData } from '../services/exportService';
 import { logErrorToFirestore } from '../services/errorLogger';
 import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
+import PurchaseOrdersTab from '../components/admin/tabs/PurchaseOrdersTab';
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;

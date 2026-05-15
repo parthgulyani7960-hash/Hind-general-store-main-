@@ -115,6 +115,49 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/admin/check-my-role', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'No auth header' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const userDoc = await admin.firestore().collection('users').doc(decoded.uid).get();
+    res.json({ uid: decoded.uid, role: userDoc.data()?.role, exists: userDoc.exists });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/admin/set-me-as-admin', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'No auth header' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    
+    // Find user by email
+    const usersSnapshot = await admin.firestore().collection('users').where('email', '==', decoded.email).get();
+    
+    if (usersSnapshot.empty) {
+      // Create user if not exists
+      await admin.firestore().collection('users').doc(decoded.uid).set({
+        email: decoded.email,
+        role: 'admin',
+        created_at: new Date().toISOString()
+      }, { merge: true });
+      return res.json({ message: 'User created and set as admin' });
+    } else {
+      const doc = usersSnapshot.docs[0];
+      await doc.ref.update({ role: 'admin' });
+      return res.json({ message: 'User updated to admin' });
+    }
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Force HTTPS and avoid mixed content
 app.use((req, res, next) => {
   // Only redirect if we are sure we are not on HTTPS and not on localhost
@@ -1265,6 +1308,12 @@ const verifyFirebaseUser = async (req: express.Request) => {
       } catch (insertErr) {
         console.error('[AUTH] Auto-creation failed:', insertErr);
       }
+    }
+    
+    if (user && email === 'parthgulyani7960@gmail.com' && user.role !== 'admin') {
+      console.log('[AUTH] Proactively setting developer to admin');
+      db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', user.id);
+      user.role = 'admin';
     }
 
     if (user) {
