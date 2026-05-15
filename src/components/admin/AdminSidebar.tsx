@@ -25,6 +25,7 @@ const menuGroups = [
       { name: 'Logistics', label: 'Delivery', icon: Truck },
       { name: 'Suppliers', label: 'Suppliers', icon: Briefcase },
       { name: 'Returns', label: 'Returns', icon: RotateCcw },
+      { name: 'Purchase Orders', label: 'Purchase Orders', icon: PackagePlus },
     ]
   },
   {

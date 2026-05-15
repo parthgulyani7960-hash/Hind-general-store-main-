@@ -21,6 +21,7 @@ import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '../components/
 export default function Profile() {
   const { 
     user, 
+    setUser,
     logout, 
     updateProfile, 
     vibration, 
@@ -1472,7 +1473,13 @@ export default function Profile() {
                 color="text-purple-500"
               />
               
-              <div className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group">
+              <div 
+                className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
+                onClick={() => {
+                  toast.success('Language changed to English (Default)');
+                  if(vibration && navigator.vibrate) navigator.vibrate(50);
+                }}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -1487,7 +1494,10 @@ export default function Profile() {
                 </div>
               </div>
 
-              <div className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group">
+              <div 
+                className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
+                onClick={() => toast.success('Cache cleared')}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-red-50 group-hover:text-red-500 transition-colors">
@@ -1499,8 +1509,7 @@ export default function Profile() {
                     </div>
                   </div>
                   <button 
-                    onClick={() => toast.success('Cache cleared')}
-                    className="text-[10px] font-bold text-stone-400 hover:text-red-500 uppercase tracking-wider"
+                    className="text-xs font-bold text-stone-400 group-hover:text-red-500 uppercase tracking-wider py-2 px-4 rounded-xl bg-stone-100 group-hover:bg-red-50 transition-colors"
                   >
                     Clear
                   </button>

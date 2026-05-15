@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import { withErrorReporting } from '../lib/uiUtils';
 import { handleAppError } from '../lib/errorUtils';
 import { motion, AnimatePresence } from 'motion/react';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend
@@ -49,7 +51,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules' | 'Purchase Orders';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -445,6 +447,7 @@ export default function AdminDashboard() {
       'Logistics': 'Delivery',
       'Suppliers': 'Suppliers',
       'Returns': 'Returns',
+      'Purchase Orders': 'Purchase Orders',
       'Wallet Requests': 'Wallet Top-ups',
       'Coupons': 'Coupons',
       'Bulk Discounts': 'Bulk Pricing',
@@ -665,9 +668,9 @@ export default function AdminDashboard() {
   const [variantModal, setVariantModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', variant: null as any, productId: null as number | null });
   const [newVariant, setNewVariant] = useState({ name: '', price: '', stock: '', unit_quantity: '1', is_default: false });
 
-  const [selectedSegment, setSelectedSegment] = useState('All');
+  const [selectedSegment, setSelectedSegment] = useState('all');
   const getCustomerSegment = (user: any) => user.segment || 'New';
-  const filteredUsers = selectedSegment === 'All' 
+  const filteredUsers = selectedSegment === 'all' 
     ? users 
     : users.filter(u => getCustomerSegment(u) === selectedSegment);
   const segments = ['All', ...Array.from(new Set(users.map(u => getCustomerSegment(u))))];
@@ -1397,6 +1400,9 @@ export default function AdminDashboard() {
       fetchSystemLogs();
       fetchSystemHealth();
     }
+    if (activeTab === 'Purchase Orders') {
+      // Add fetch logic here if needed
+    }
   }, [activeTab]);
 
   useEffect(() => {
@@ -1417,19 +1423,26 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchUsers = async () => {
-    try {
-      const data = await fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() });
-      if (data) {
-        setUsers(data);
-      }
-    } catch (err) {
+
+
+  const fetchUsers = () => {
+    const q = query(collection(db, 'users'), orderBy('created_at', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUsers(usersData);
+    }, (err) => {
       console.error('Failed to fetch users:', err);
-    }
+    });
   };
 
   useEffect(() => {
-    setSelectedProducts([]);
+    let unsubscribe: () => void;
+    if (activeTab === 'Customers') {
+      unsubscribe = fetchUsers();
+    }
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [activeTab]);
 
   const fetchAllProducts = async () => {
@@ -6310,8 +6323,8 @@ export default function AdminDashboard() {
                               <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-4 border-white shadow-sm ring-1 ring-emerald-100" />
                             </div>
                             <div>
-                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight">{u.name}</p>
-                              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5">{u.phone}</p>
+                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown User')}</p>
+                              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5">{u.phone || u.email}</p>
                             </div>
                           </div>
                         </td>
@@ -6455,8 +6468,8 @@ export default function AdminDashboard() {
                            {u.profile_photo ? <img src={u.profile_photo} alt="" className="w-full h-full object-cover" /> : <Users size={24} className="text-stone-300" />}
                         </div>
                         <div>
-                          <p className="text-lg font-black text-stone-900 tracking-tight leading-none">{u.name}</p>
-                          <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-2">{u.phone}</p>
+                          <p className="text-lg font-black text-stone-900 tracking-tight leading-none">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown')}</p>
+                          <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-2">{u.phone || u.email}</p>
                         </div>
                       </div>
                       <span className="text-[8px] font-black px-2 py-1 bg-stone-900 text-white rounded-lg uppercase tracking-widest">{u.role}</span>

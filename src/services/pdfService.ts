@@ -189,7 +189,7 @@ export const generateUserExportPDF = (data: any) => {
     doc.text(title, margin, 20);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`DATA ARCHIVE FOR: ${String(data.user.name).toUpperCase()}`, margin, 30);
+    doc.text(`DATA ARCHIVE FOR: ${String(data.user?.name || 'USER').toUpperCase()}`, margin, 30);
     doc.text(`EXPORTED ON: ${format(new Date(), 'dd MMMM yyyy, HH:mm')}`, pageWidth - margin, 30, { align: 'right' });
   };
 
@@ -206,13 +206,13 @@ export const generateUserExportPDF = (data: any) => {
     margin: { left: margin, right: margin },
     head: [['Attribute', 'Data Point']],
     body: [
-      ['Full Legal Name', data.user.name],
-      ['Primary Contact', data.user.phone],
-      ['Email Address', data.user.email || 'NOT REGISTERED'],
-      ['Account Status', (data.user.status || 'ACTIVE').toUpperCase()],
-      ['Wallet Liquidity', `₹${data.user.wallet_balance || 0}`],
-      ['Khata Eligibility', data.user.khata_enabled ? 'AUTHORIZED' : 'RESTRICTED'],
-      ['Primary Node (Address)', data.user.address || 'N/A']
+      ['Full Legal Name', data.user?.name || 'UNKNOWN'],
+      ['Primary Contact', data.user?.phone || 'UNKNOWN'],
+      ['Email Address', data.user?.email || 'NOT REGISTERED'],
+      ['Account Status', (data.user?.status || 'ACTIVE').toUpperCase()],
+      ['Wallet Liquidity', `₹${data.user?.wallet_balance || 0}`],
+      ['Khata Eligibility', data.user?.khata_enabled ? 'AUTHORIZED' : 'RESTRICTED'],
+      ['Primary Node (Address)', data.user?.address || 'N/A']
     ],
     theme: 'grid',
     headStyles: { fillColor: COLORS.SECONDARY },
@@ -278,7 +278,7 @@ export const generateUserExportPDF = (data: any) => {
     doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
   }
 
-  doc.save(`HindStore_Export_${data.user.name.replace(/\s+/g, '_')}.pdf`);
+  doc.save(`HindStore_Export_${(data.user?.name || 'User').replace(/\s+/g, '_')}.pdf`);
 };
 
 /**

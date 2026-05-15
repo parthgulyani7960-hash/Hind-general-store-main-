@@ -53,9 +53,11 @@ export default function SearchOverlay({
   const categories = useMemo(() => ['All', ...new Set(products.map(p => p.category))], [products]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    const searchTerms = searchQuery.toLowerCase().trim().split(' ').filter(Boolean);
+    const fullSearch = searchQuery.toLowerCase().trim();
+
+    const baseFiltered = products.filter(p => {
       const activePrice = getProductPrice(p, user?.role);
-      const searchTerms = searchQuery.toLowerCase().trim().split(' ').filter(Boolean);
       
       const matchesSearch = searchTerms.length === 0 || searchTerms.every(term => 
         (p.name?.toLowerCase() || '').includes(term) || 
@@ -69,6 +71,42 @@ export default function SearchOverlay({
       const matchesMaxPrice = maxPrice === '' || activePrice <= Number(maxPrice);
       
       return matchesSearch && matchesCategory && matchesRating && matchesMinPrice && matchesMaxPrice && p.is_listed;
+    });
+
+    if (searchTerms.length === 0) return baseFiltered;
+
+    return baseFiltered.sort((a, b) => {
+      const getScore = (product: Product) => {
+        let score = 0;
+        const name = (product.name || '').toLowerCase();
+        const desc = (product.description || '').toLowerCase();
+        const cat = (product.category || '').toLowerCase();
+
+        if (name === fullSearch) score += 100;
+        else if (name.startsWith(fullSearch)) score += 50;
+        else if (name.includes(fullSearch)) score += 30;
+
+        if (cat === fullSearch) score += 40;
+        else if (cat.includes(fullSearch)) score += 15;
+
+        if (desc === fullSearch) score += 20;
+        else if (desc.includes(fullSearch)) score += 10;
+
+        searchTerms.forEach(term => {
+          if (name.split(' ').includes(term)) score += 5;
+          else if (name.includes(term)) score += 2;
+          
+          if (cat.split(' ').includes(term)) score += 4;
+          else if (cat.includes(term)) score += 1;
+
+          if (desc.split(' ').includes(term)) score += 3;
+          else if (desc.includes(term)) score += 1;
+        });
+
+        return score;
+      };
+
+      return getScore(b) - getScore(a);
     });
   }, [products, searchQuery, selectedCategory, minPrice, maxPrice, selectedRating, getProductPrice, user?.role]);
 

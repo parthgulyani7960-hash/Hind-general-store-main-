@@ -22,12 +22,26 @@ export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') =>
 };
 import { useStore } from './StoreContext';
 import React, { useState, Suspense, lazy, useEffect } from 'react';
-import toast from 'react-hot-toast';
+import toast, { useToasterStore } from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from './types';
 import { errorService, ErrorType } from './lib/errorReporting';
 import LoadingFallback from './components/LoadingFallback';
 import ErrorBoundary from './components/ErrorBoundary';
+
+function ToastManager() {
+  const { toasts } = useToasterStore();
+  const MAX_TOASTS = 4;
+  
+  useEffect(() => {
+    toasts
+      .filter((t) => t.visible)
+      .filter((_, i) => i >= MAX_TOASTS)
+      .forEach((t) => toast.dismiss(t.id));
+  }, [toasts]);
+  
+  return null;
+}
 
 function ScrollToTopOnNavigate() {
   const { pathname } = useLocation();
@@ -213,6 +227,7 @@ export default function App() {
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <NetworkBanner />
         <GlobalAnnouncements />
+        <ToastManager />
         <Toaster position="top-center" />
         <Navbar />
         <main className="flex-1 pb-24 md:pb-0">

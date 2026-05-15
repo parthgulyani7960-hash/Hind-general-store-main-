@@ -2220,8 +2220,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       if (!user) {
         // User doesn't exist, create them.
         const username = email.split('@')[0] + Math.floor(Math.random() * 10000);
-        const formattedName = name !== 'Firebase User' ? capitalizeName(name) : '';
+        const formattedName = name && name !== 'Firebase User' ? capitalizeName(name) : (email.split('@')[0] || 'User');
+        console.log(`[AUTH] Creating new user: ${email}, Name: ${formattedName}, Username: ${username}`);
         const result = db.prepare('INSERT INTO users (username, email, name, profile_photo) VALUES (?, ?, ?, ?)').run(username, email, formattedName, picture);
+        console.log(`[AUTH] New user created with ID: ${result.lastInsertRowid}`);
         user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid) as any;
       } else {
         // If user already exists but without a profile picture or name, fetch and update it
@@ -4166,6 +4168,8 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
         GROUP BY u.id
       `).all() as any[];
 
+      console.log(`[ADMIN] Fetched ${users.length} users`);
+
       // RFM calculation
       const now = new Date().getTime();
       
@@ -5420,6 +5424,20 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
       const result = db.prepare('INSERT INTO deletion_requests (user_id, reason, scheduled_for) VALUES (?, ?, ?)')
         .run(req.session.userId, reason, scheduledFor);
       res.json({ success: true, message: 'Request submitted. Account will be deleted in 24 hours unless canceled.', id: result.lastInsertRowid });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/user/deletion-request', (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    try {
+      const reqStatus = db.prepare('SELECT status, scheduled_for FROM deletion_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(req.session.userId);
+      if (reqStatus) {
+        res.json({ status: String(reqStatus.status).toUpperCase(), scheduled_for: reqStatus.scheduled_for });
+      } else {
+        res.json({ status: 'NONE' });
+      }
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }
