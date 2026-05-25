@@ -4,8 +4,8 @@ import toast from 'react-hot-toast';
 import { withErrorReporting } from '../lib/uiUtils';
 import { handleAppError } from '../lib/errorUtils';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend
@@ -41,6 +41,7 @@ import AdminDashboardLayout from '../components/admin/AdminDashboardLayout';
 import { EmptyState } from '../components/EmptyState';
 import { exportData, asyncExportData } from '../services/exportService';
 import { logErrorToFirestore } from '../services/errorLogger';
+import imageCompression from 'browser-image-compression';
 import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
 import PurchaseOrdersTab from '../components/admin/tabs/PurchaseOrdersTab';
 
@@ -612,6 +613,7 @@ export default function AdminDashboard() {
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [suspiciousActivities, setSuspiciousActivities] = useState<any[]>([]);
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
+  const [errorLogs, setErrorLogs] = useState<any[]>([]);
   const [systemHealth, setSystemHealth] = useState<any>(null);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [reviewResponseModal, setReviewResponseModal] = useState<{ open: boolean; review: any }>({ open: false, review: null });
@@ -1397,6 +1399,30 @@ export default function AdminDashboard() {
     if (activeTab === 'Purchase Orders') {
       // Logic handled via onSnapshot in PurchaseOrdersTab
     }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'System Status') return;
+
+    const q = query(
+      collection(db, 'error_logs'),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setErrorLogs(logs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'error_logs');
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [activeTab]);
 
   useEffect(() => {
@@ -2590,9 +2616,24 @@ export default function AdminDashboard() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         
+        let fileToUpload = file;
+        try {
+          // Compress image before upload
+          const options = {
+            maxSizeMB: 1,
+            maxWidthOrHeight: 1200,
+            useWebWorker: true,
+            fileType: 'image/jpeg'
+          };
+          fileToUpload = await imageCompression(file, options);
+        } catch (compressionErr) {
+          console.error('Image compression failed:', compressionErr);
+          // Fallback to original file
+        }
+        
         // Use Firebase Storage
-        const storageRef = ref(storage, `products/${Date.now()}_${file.name}`);
-        const uploadTask = uploadBytesResumable(storageRef, file);
+        const storageRef = ref(storage, `products/${Date.now()}_${fileToUpload.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
         
         await new Promise<void>((resolve, reject) => {
           uploadTask.on('state_changed', 
@@ -5091,6 +5132,27 @@ export default function AdminDashboard() {
                               >
                                 <Eye size={18} strokeWidth={2.5} />
                               </motion.button>
+                              
+                              {["pending", "processing"].includes(order.status) && (
+                                 <button
+                                   onClick={() => updateOrderStatus(order.id, 'shipped')}
+                                   className="px-4 py-2.5 bg-purple-100 text-purple-700 hover:bg-purple-200 font-black text-[10px] uppercase tracking-widest rounded-2xl transition-colors shadow-sm whitespace-nowrap"
+                                   title="Ship Order"
+                                 >
+                                    Ship
+                                 </button>
+                              )}
+                              
+                              {order.status === "shipped" && (
+                                 <button
+                                   onClick={() => updateOrderStatus(order.id, 'delivered')}
+                                   className="px-4 py-2.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-black text-[10px] uppercase tracking-widest rounded-2xl transition-colors shadow-sm whitespace-nowrap"
+                                   title="Deliver Order"
+                                 >
+                                    Deliver
+                                 </button>
+                              )}
+
                               <div className="relative">
                                 <motion.button 
                                   whileHover={{ scale: 1.1, backgroundColor: '#f5f5f4' }}
@@ -9233,6 +9295,47 @@ export default function AdminDashboard() {
                      </div>
                   </div>
                </div>
+
+                  {/* Real-Time Exception Feed (onSnapshot Firestore Feed) */}
+                  <div className="lg:col-span-2 space-y-6">
+                     <div className="flex items-center justify-between px-2">
+                        <div className="flex items-center space-x-3">
+                           <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shadow-sm shadow-red-200" />
+                           <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Real-Time Exception Feed</h3>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-red-500 bg-red-50 px-3 py-1 rounded-full animate-pulse">
+                           Live Firestore Stream
+                        </span>
+                     </div>
+                     <div className="bg-stone-950 rounded-[2.5rem] p-8 shadow-2xl border border-stone-800 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500/20 via-red-500/5 to-transparent" />
+                        <div className="space-y-4 font-mono text-[11px] max-h-[600px] overflow-y-auto no-scrollbar scroll-smooth">
+                           {errorLogs.map((log: any, i: number) => {
+                             const dateVal = log.timestamp?.seconds 
+                               ? new Date(log.timestamp.seconds * 1000)
+                               : new Date(log.timestamp || Date.now());
+                             return (
+                               <div key={log.id || i} className="flex space-x-6 group opacity-90 hover:opacity-100 transition-opacity border-b border-stone-900/40 pb-4 last:border-0 last:pb-0 text-left">
+                                 <span className="text-red-500 shrink-0 font-bold">[{dateVal.toLocaleTimeString()}]</span>
+                                 <div className="flex flex-col space-y-1 w-full text-left">
+                                    <div className="flex items-center justify-between">
+                                       <span className="text-amber-400 font-black tracking-widest uppercase text-[9px] bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/10">Context: {log.context || 'Global / Sandbox'}</span>
+                                       <span className="text-stone-500 text-[9px] font-bold">User: {log.userId || 'anonymous'}</span>
+                                    </div>
+                                    <p className="text-stone-300 font-bold leading-relaxed whitespace-pre-wrap break-all">{log.error}</p>
+                                    {log.url && (
+                                       <p className="text-stone-500 text-[9px] truncate">URL: {log.url}</p>
+                                    )}
+                                 </div>
+                               </div>
+                             );
+                           })}
+                           {errorLogs.length === 0 && (
+                             <div className="py-20 text-center text-stone-600 font-black uppercase tracking-[0.3em]">No Exception Events Broadcasted</div>
+                           )}
+                        </div>
+                     </div>
+                  </div>
 
                <div className="space-y-8">
                   <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-6">

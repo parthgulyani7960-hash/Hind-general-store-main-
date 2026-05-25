@@ -6,6 +6,7 @@ import session from 'express-session';
 import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'fs';
 import { google } from 'googleapis';
 import { createServer as createViteServer } from 'vite';
@@ -81,7 +82,6 @@ try {
   if (config && config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)') {
     const FIREBASE_DB_ID = config.firestoreDatabaseId;
     const originalFirestore = admin.firestore;
-    const { getFirestore } = require('firebase-admin/firestore');
     Object.defineProperty(admin, 'firestore', {
       get: function() {
         const fn = function() {
@@ -2469,7 +2469,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
 
     try {
-      const batch = admin.firestore().batch();
       const pCol = admin.firestore().collection('products');
       
       const productsData = [];
@@ -2482,14 +2481,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          }
       }
 
+      const batches = [];
+      let currentBatch = admin.firestore().batch();
+      let count = 0;
+
       for (const id of ids) {
         if (action === 'delete') {
-          batch.delete(pCol.doc(String(id)));
+          currentBatch.delete(pCol.doc(String(id)));
         } else {
-          batch.set(pCol.doc(String(id)), fbUpdateObj, { merge: true });
+          currentBatch.set(pCol.doc(String(id)), fbUpdateObj, { merge: true });
+        }
+        
+        count++;
+        if (count % 500 === 0) {
+           batches.push(currentBatch.commit());
+           currentBatch = admin.firestore().batch();
         }
       }
-      await batch.commit();
+      
+      if (count % 500 !== 0) {
+         batches.push(currentBatch.commit());
+      }
+      
+      await Promise.all(batches);
 
       if (action === 'stock') {
         const alerts = productsData
@@ -4406,15 +4420,25 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       if (!admin.apps.length) return res.status(500).json({ success: false });
       
-      const batch = admin.firestore().batch();
+      const batches = [];
+      let currentBatch = admin.firestore().batch();
+      let count = 0;
+      
       const refCol = admin.firestore().collection('products');
       for (const item of products) {
          const dRef = refCol.doc();
-         batch.set(dRef, {
+         currentBatch.set(dRef, {
             name: item.name, description: item.description || '', price: Number(item.price) || 0, stock: Number(item.stock) || 0, category: item.category || 'Uncategorized', image_url: item.image_url || 'https://picsum.photos/seed/product/400/400', is_listed: 1, created_at: new Date().toISOString()
          });
+         count++;
+         if (count % 500 === 0) {
+            batches.push(currentBatch.commit());
+            currentBatch = admin.firestore().batch();
+         }
       }
-      await batch.commit();
+      if (count % 500 !== 0) batches.push(currentBatch.commit());
+      await Promise.all(batches);
+      
       res.json({ success: true, count: products.length });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
@@ -5424,9 +5448,19 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       if (!admin.apps.length) return res.status(500).json({ success: false });
       const snap = await admin.firestore().collection('system_logs').get();
-      const batch = admin.firestore().batch();
-      snap.docs.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
+      const batches = [];
+      let currentBatch = admin.firestore().batch();
+      let count = 0;
+      snap.docs.forEach(doc => {
+        currentBatch.delete(doc.ref);
+        count++;
+        if (count % 500 === 0) {
+          batches.push(currentBatch.commit());
+          currentBatch = admin.firestore().batch();
+        }
+      });
+      if (count % 500 !== 0) batches.push(currentBatch.commit());
+      await Promise.all(batches);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false });
@@ -5921,6 +5955,52 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.status(500).json({ success: false, message: err.message });
     }
   });
+
+  const cleanupOldSystemLogs = async () => {
+    try {
+      if (!admin.apps.length) return;
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thresholdDate = thirtyDaysAgo.toISOString();
+
+      console.log(`[CLEANUP] Purging system_logs older than ${thresholdDate}`);
+      const logsRef = admin.firestore().collection('system_logs');
+      const oldLogsSnap = await logsRef.where('created_at', '<', thresholdDate).get();
+
+      if (oldLogsSnap.empty) {
+        console.log('[CLEANUP] No old system logs found to delete.');
+        return;
+      }
+
+      // Batch deletes, max 500 per batch
+      const batches = [];
+      let currentBatch = admin.firestore().batch();
+      let count = 0;
+      
+      oldLogsSnap.docs.forEach((doc) => {
+        currentBatch.delete(doc.ref);
+        count++;
+        if (count % 500 === 0) {
+          batches.push(currentBatch.commit());
+          currentBatch = admin.firestore().batch();
+        }
+      });
+      
+      if (count % 500 !== 0) {
+        batches.push(currentBatch.commit());
+      }
+      
+      await Promise.all(batches);
+
+      console.log(`[CLEANUP] Successfully deleted ${oldLogsSnap.size} old system logs.`);
+    } catch (err) {
+      console.error('[CLEANUP] Failed to clean up old system logs:', err);
+    }
+  };
+
+  // Run cleanup once a day (86400000 ms)
+  setInterval(cleanupOldSystemLogs, 86400000);
+  cleanupOldSystemLogs(); // Also run on boot
 
   // --- Automated System Integrity Guard ---
   const runSystemIntegrityAudit = async () => {

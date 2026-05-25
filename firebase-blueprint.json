@@ -89,6 +89,10 @@
         "schema": "suspicious_activity",
         "description": "Logs of suspicious security events"
     },
+    "error_logs/{logId}": {
+        "schema": "error_log",
+        "description": "System error events and uncaught exceptions"
+    },
     "system_logs/{id}": {
         "schema": "system_log",
         "description": "General system event logs"
