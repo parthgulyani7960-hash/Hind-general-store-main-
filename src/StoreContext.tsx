@@ -68,6 +68,17 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isMaintenance, setIsMaintenance] = useState(false);
+
+  useEffect(() => {
+    const handleFirebaseUnreachable = (e: any) => {
+      console.warn('[StoreContext] Centralized error boundary caught unreachable Firebase backend:', e?.detail);
+      setIsMaintenance(true);
+    };
+    window.addEventListener('firebase_unreachable', handleFirebaseUnreachable);
+    return () => {
+      window.removeEventListener('firebase_unreachable', handleFirebaseUnreachable);
+    };
+  }, []);
   const [currentAlert, setCurrentAlert] = useState<any>(null);
   const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
   const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');

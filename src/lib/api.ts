@@ -68,6 +68,23 @@ export const fetchWithHandling = async <T>(
           errorMessage = "You do not have permission to perform this action";
         } else if (res.status >= 500) {
           errorMessage = "Server error. Please try again later.";
+          
+          // Centralized Error Boundary Categorization for Firebase backend unreachable
+          const isFirebaseUnreachable = 
+            (detailedError && /firebase|credential|firestore|database|connect/i.test(detailedError)) || 
+            (errorMessage && /firebase|credential|firestore|database|connect/i.test(errorMessage)) ||
+            url.includes('/api/settings') || 
+            url.includes('/api/auth/me');
+
+          if (isFirebaseUnreachable) {
+            console.error(`[API] Centralized Error Boundary categorized unreachable Firebase backend at ${url} (${res.status}): ${errorMessage}`);
+            errorMessage = "Database unreachable. Redirecting to System Maintenance...";
+            
+            // Dispatch custom event to trigger safe UI redirection to Maintenance Mode
+            window.dispatchEvent(new CustomEvent('firebase_unreachable', { 
+              detail: { url, status: res.status, message: errorMessage } 
+            }));
+          }
         }
 
         const finalError = new Error(errorMessage);
@@ -80,6 +97,21 @@ export const fetchWithHandling = async <T>(
   } catch (err: any) {
     console.error(`API Error [${url}]:`, err);
     
+    // Check if it's a network offline/unreachable error
+    const isNetworkError = err instanceof TypeError || 
+                           err.name === 'AbortError' ||
+                           err.message?.includes('Fetch') || 
+                           err.message?.includes('network') || 
+                           err.message?.includes('Failed to fetch') || 
+                           err.message?.includes('aborted');
+
+    if (isNetworkError) {
+      console.error(`[API] Critical network error or unreachable backend server detected at ${url}`);
+      window.dispatchEvent(new CustomEvent('firebase_unreachable', { 
+        detail: { url, status: 0, message: err.message } 
+      }));
+    }
+
     // Silent for background/common checks
     const isBackground = url.includes('/api/auth/me') || 
                        url.includes('/api/alerts') || 

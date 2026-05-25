@@ -16,6 +16,7 @@ import { logServerError } from './src/lib/serverError';
 // Initialize Firebase Admin
 let isFirebaseReady = false;
 let config: any = null;
+let cert: any = null;
 try {
   const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
   if (fs.existsSync(configPath)) {
@@ -32,8 +33,6 @@ try {
   } else {
     // Collect config sources
     const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
-    
-    let cert: any = null;
 
     // Try service account file
     if (fs.existsSync(serviceAccountPath)) {
@@ -87,8 +86,23 @@ try {
     }
   }
 
-  if (config && config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)') {
-    const FIREBASE_DB_ID = config.firestoreDatabaseId;
+  let databaseIdToUse = (config && config.firestoreDatabaseId) ? config.firestoreDatabaseId : '(default)';
+
+  // Fallback to '(default)' if a custom service account/credentials point to a different Google Cloud project.
+  // The custom ai-studio-xxx database ID only exists within the AI Studio project environment.
+  const hasCustomCreds = !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (hasCustomCreds) {
+    if (cert && cert.project_id && config && config.projectId && cert.project_id !== config.projectId) {
+      console.warn(`[BOOT] Custom Service Account project ID (${cert.project_id}) differs from default applet config project ID (${config.projectId}). Falling back databaseId to '(default)' representing user's primary Firestore instance.`);
+      databaseIdToUse = '(default)';
+    } else if (!cert && config && config.projectId) {
+      console.warn("[BOOT] Custom default system credentials detected, setting databaseId to: '(default)' as fallback.");
+      databaseIdToUse = '(default)';
+    }
+  }
+
+  if (databaseIdToUse && databaseIdToUse !== '(default)') {
+    const FIREBASE_DB_ID = databaseIdToUse;
     const originalFirestore = admin.firestore;
     Object.defineProperty(admin, 'firestore', {
       get: function() {

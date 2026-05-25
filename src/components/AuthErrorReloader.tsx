@@ -9,7 +9,7 @@ export default function AuthErrorReloader() {
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useStore();
+  const { logout, user } = useStore();
 
   useEffect(() => {
     const handleAuthError = (event: any) => {
@@ -24,6 +24,23 @@ export default function AuthErrorReloader() {
     window.addEventListener('auth_error', handleAuthError);
     return () => window.removeEventListener('auth_error', handleAuthError);
   }, []);
+
+  // Automatically redirect users to their dashboard/intended target if session has been successfully restored
+  useEffect(() => {
+    if (showError && user) {
+      console.log('[AUTH ERROR RELOADER] Session successfully restored! Dismissing error overlay.');
+      setShowError(false);
+      
+      // Determine dashboard destination based on user role
+      if (user.role === 'admin') {
+        navigate('/admin');
+      } else if (user.role === 'runner') {
+        navigate('/runner');
+      } else {
+        navigate('/');
+      }
+    }
+  }, [showError, user, navigate]);
 
   const handleReauthenticate = async () => {
     setShowError(false);

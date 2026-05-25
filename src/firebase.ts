@@ -14,7 +14,8 @@ const validConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId || "1:1234567890:web:123456789",
 };
 
-const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || '(default)';
+const isCustomProject = !!import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_PROJECT_ID !== firebaseConfig.projectId;
+const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || (isCustomProject ? '(default)' : (firebaseConfig.firestoreDatabaseId || '(default)'));
 
 if (!validConfig.projectId || validConfig.projectId === 'mock-project') {
   console.warn('⚠️ [Firebase] Running in unconfigured fallback/mock mode. Real-time features and authentication will require database provisioning via AI Studio setup.');
