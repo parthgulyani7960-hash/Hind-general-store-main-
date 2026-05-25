@@ -51,19 +51,22 @@ try {
         // Remove potential surrounding quotes from Vercel env var
         if (rawKey.startsWith("'") && rawKey.endsWith("'")) rawKey = rawKey.slice(1, -1);
         if (rawKey.startsWith('"') && rawKey.endsWith('"')) rawKey = rawKey.slice(1, -1);
+        
+        // Handle potential base64 encoding
+        if (!rawKey.includes('{')) {
+          try {
+            const decoded = Buffer.from(rawKey, 'base64').toString('utf8');
+            if (decoded.includes('{')) rawKey = decoded;
+          } catch {}
+        }
+
         cert = JSON.parse(rawKey);
         if (cert && cert.private_key) {
           cert.private_key = cert.private_key.replace(/\\n/g, '\n');
         }
         console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from environment. Project:', cert.project_id);
       } catch (e: any) {
-        console.error('[BOOT] Failed dynamic parse of FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
-        // If it looks like base64, try to decode it? (Vercel sometimes encodes)
-        try {
-           const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString('utf8');
-           cert = JSON.parse(decoded);
-           console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from BASE64 environment');
-        } catch {}
+        console.error('[BOOT] Failed parse of FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
       }
     }
 
@@ -102,7 +105,11 @@ try {
   let databaseIdToUse = (config && config.firestoreDatabaseId) ? config.firestoreDatabaseId : '(default)';
 
   if (process.env.FIREBASE_DATABASE_ID) {
-    databaseIdToUse = process.env.FIREBASE_DATABASE_ID;
+    const envDbId = process.env.FIREBASE_DATABASE_ID.trim();
+    // Validate ID - ignore placeholders like "[]", "[ ]" or empty strings
+    if (envDbId && envDbId !== '[]' && envDbId !== '[ ]' && !envDbId.startsWith('{')) {
+       databaseIdToUse = envDbId;
+    }
   } else if (process.env.VERCEL) {
     // On Vercel, if we have a custom ID but it looks like an AI-Studio ID, 
     // it usually means it won't work in the user's primary project unless explicitly configured.
@@ -118,26 +125,26 @@ try {
   }
 
   if (databaseIdToUse && databaseIdToUse !== '(default)') {
-    console.log('[BOOT] Applying database ID patch:', databaseIdToUse);
+    console.log('[BOOT] Applying database ID patch for:', databaseIdToUse);
     const FIREBASE_DB_ID = databaseIdToUse;
-    const originalFirestore = admin.firestore;
+    const originalFirestoreFunction = admin.firestore;
     
     // Create the patched function
-    const patchedFirestore = function(this: any, databaseId?: string) {
+    const patchedFirestore = function(databaseId?: string) {
       if (admin.apps.length === 0) throw new Error('Firebase Admin not initialized');
-      // Pass the custom database ID if none provided
-      return originalFirestore.call(this || admin, databaseId || FIREBASE_DB_ID);
+      // Use modular getFirestore to support custom IDs correctly
+      return getFirestore(admin.app(), databaseId || FIREBASE_DB_ID);
     };
     
     // Copy all static properties (Timestamp, FieldValue, Filter, GeoPoint, etc.)
-    // These are essential for code that uses admin.firestore.FieldValue.increment()
-    Object.assign(patchedFirestore, originalFirestore);
+    Object.assign(patchedFirestore, originalFirestoreFunction);
     
-    // Replace the original with our patch
     // @ts-ignore
     admin.firestore = patchedFirestore;
     
     console.log('[BOOT] Successfully patched admin.firestore to use databaseId by default:', FIREBASE_DB_ID);
+  } else {
+    console.log('[BOOT] Using default database instance.');
   }
 } catch (e: any) {
   console.error('[BOOT] Failed during Firebase Admin setup shell:', e.message);
@@ -666,38 +673,48 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   // Global Admin Authorization Middleware
   async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-    if (req.session?.userId) {
-       if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
-       const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
-       if (doc.exists) return next();
-       req.session.destroy(() => {});
-    }
-    
-    const user = await verifyFirebaseUser(req);
-    if (user) return next();
+    try {
+      if (req.session?.userId) {
+         if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
+         const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
+         if (doc.exists) return next();
+         req.session.destroy(() => {});
+      }
+      
+      const user = await verifyFirebaseUser(req);
+      if (user) return next();
 
-    return res.status(401).json({ success: false, message: 'Authentication required' });
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    } catch (err: any) {
+      console.error('[AUTH MIDDLEWARE ERROR]:', err.message);
+      return res.status(503).json({ success: false, message: 'Authentication service temporarily unavailable', error: err.message });
+    }
   };
 
   async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
-    if (req.session?.userId) {
-      if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
-      const role = req.session.role;
-      if (['admin', 'owner', 'manager'].includes(role || '')) return next();
-      
-      const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
-      if (doc.exists && ['admin', 'owner', 'manager'].includes(doc.data()?.role)) {
-        req.session.role = doc.data()?.role;
-        return next();
+    try {
+      if (req.session?.userId) {
+        if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
+        const role = req.session.role;
+        if (['admin', 'owner', 'manager'].includes(role || '')) return next();
+        
+        const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
+        if (doc.exists && ['admin', 'owner', 'manager'].includes(doc.data()?.role)) {
+          req.session.role = doc.data()?.role;
+          return next();
+        }
+        if (!doc.exists) req.session.destroy(() => {});
+        return res.status(403).json({ success: false, message: 'Admin access required' });
       }
-      if (!doc.exists) req.session.destroy(() => {});
-      return res.status(403).json({ success: false, message: 'Admin access required' });
+
+      const user = await verifyFirebaseUser(req);
+      if (user && ['admin', 'owner', 'manager'].includes(user.role)) return next();
+
+      return res.status(401).json({ success: false, message: 'Admin authentication required' });
+    } catch (err: any) {
+      console.error('[ADMIN MIDDLEWARE ERROR]:', err.message);
+      return res.status(503).json({ success: false, message: 'Admin service temporarily unavailable', error: err.message });
     }
-
-    const user = await verifyFirebaseUser(req);
-    if (user && ['admin', 'owner', 'manager'].includes(user.role)) return next();
-
-    return res.status(401).json({ success: false, message: 'Admin authentication required' });
   };
 
   app.use('/api/admin', requireAdmin);
@@ -876,12 +893,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         dbConnected: true
       });
     } catch (err: any) {
-      console.error('[SETTINGS] Fatal fetch error:', {
-        message: err.message,
-        stack: err.stack,
-        code: err.code
+      console.error('[SETTINGS] Fatal fetch error, returning safety fallback:', err.message);
+      res.json({ 
+        maintenance: false, 
+        authMode: 'email',
+        storePhone: '',
+        whatsappNumber: '',
+        config: [],
+        dbConnected: false,
+        error: err.message 
       });
-      res.status(500).json({ success: false, message: 'Failed to fetch settings', error: err.message });
     }
   });
 
@@ -6388,6 +6409,31 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   } else {
     console.log('[BOOT] Running in Vercel environment - skipping server port listen for serverless function compatibility.');
   }
+
+  // Error handling middleware
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[GLOBAL ERROR]:', {
+      message: err.message,
+      stack: err.stack,
+      url: req.url,
+      method: req.method
+    });
+    
+    // Log to Firestore if possible
+    if (isFirebaseReady) {
+      logEvent('critical_error', `Unhandled Error: ${err.message}`, err.stack, (req.session as any)?.userId, req.path).catch(() => {});
+    }
+
+    if (res.headersSent) {
+      return next(err);
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'A server error occurred. We are looking into it.',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  });
 
   return app;
 }
