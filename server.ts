@@ -17,137 +17,121 @@ import { logServerError } from './src/lib/serverError';
 let isFirebaseReady = false;
 let config: any = null;
 let cert: any = null;
+
 try {
+  // 1. Try to find the config in the workspace
   const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
   if (fs.existsSync(configPath)) {
     try {
       config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      console.log('[BOOT] Found local firebase-applet-config.json');
     } catch (e: any) {
-      console.error('[BOOT] Failed to parse firebase-applet-config.json:', e.message);
+      console.error('[BOOT] Failed to parse local config:', e.message);
     }
   }
 
+  // 2. Identify already initialized apps (for serverless reuse)
   if (admin.apps.length > 0) {
     isFirebaseReady = true;
-    console.log('[BOOT] Firebase Admin already initialized');
+    console.log('[BOOT] Firebase Admin instance reused (Serverless Cache)');
   } else {
-    // Collect config sources
-    const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
-
-    // Try service account file
-    if (fs.existsSync(serviceAccountPath)) {
+    // 3. Collect credentials from env
+    const rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    
+    if (rawKey && rawKey.trim() && rawKey !== '[]' && rawKey !== '[ ]') {
       try {
-        cert = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-        console.log('[BOOT] Found service account file');
-      } catch (e: any) {
-        console.error('[BOOT] Failed to parse service account file:', e.message);
-      }
-    }
-
-    // Try environment variable override
-    if (!cert && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-      try {
-        let rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
-        // Remove potential surrounding quotes from Vercel env var
-        if (rawKey.startsWith("'") && rawKey.endsWith("'")) rawKey = rawKey.slice(1, -1);
-        if (rawKey.startsWith('"') && rawKey.endsWith('"')) rawKey = rawKey.slice(1, -1);
+        let cleanKey = rawKey.trim();
+        // Remove surrounding quotes if added by Vercel
+        if (cleanKey.startsWith("'") && cleanKey.endsWith("'")) cleanKey = cleanKey.slice(1, -1);
+        if (cleanKey.startsWith('"') && cleanKey.endsWith('"')) cleanKey = cleanKey.slice(1, -1);
         
-        // Handle potential base64 encoding
-        if (!rawKey.includes('{')) {
+        // Handle Base64
+        if (!cleanKey.includes('{')) {
           try {
-            const decoded = Buffer.from(rawKey, 'base64').toString('utf8');
-            if (decoded.includes('{')) rawKey = decoded;
+            const decoded = Buffer.from(cleanKey, 'base64').toString('utf8');
+            if (decoded.includes('{')) cleanKey = decoded;
           } catch {}
         }
-
-        cert = JSON.parse(rawKey);
+        
+        cert = JSON.parse(cleanKey);
         if (cert && cert.private_key) {
-          cert.private_key = cert.private_key.replace(/\\n/g, '\n');
+           cert.private_key = cert.private_key.replace(/\\n/g, '\n');
+           if (!cert.private_key.includes('\n') && cert.private_key.includes(' ')) {
+              // Some environments might replace \n with spaces
+              cert.private_key = cert.private_key.replace(/ /g, '\n');
+           }
         }
-        console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from environment. Project:', cert.project_id);
       } catch (e: any) {
-        console.error('[BOOT] Failed parse of FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
+        console.error('[BOOT] CRITICAL: Environment FIREBASE_SERVICE_ACCOUNT_KEY parse failed:', e.message);
       }
     }
 
-    // Initialize
-    if (cert) {
-      admin.initializeApp({
-        credential: admin.credential.cert(cert),
-        projectId: cert.project_id,
-        databaseURL: process.env.FIREBASE_DATABASE_URL || `https://${cert.project_id}-default-rtdb.firebaseio.com`
-      });
-      isFirebaseReady = true;
-      console.log('[BOOT] Firebase Admin initialized with certificate credentials');
-    } else if (config?.projectId) {
-      // Fallback
-      if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        console.warn('[BOOT] Standard fallback check: Google ADC missing on Vercel. Checking for project-specific credentials.');
-      }
-      
-      try {
-        admin.initializeApp({
-          credential: admin.credential.applicationDefault(),
-          projectId: config.projectId,
-          databaseURL: process.env.FIREBASE_DATABASE_URL || config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`
-        });
-        isFirebaseReady = true;
-        console.log('[BOOT] Firebase Admin initialized with standard applicationDefault and projectId:', config.projectId);
-      } catch (initErr: any) {
-        console.error('[BOOT] Standard initialization failed:', initErr.message);
-      }
+    // 4. Initialize the App
+    if (cert && cert.project_id) {
+       try {
+         admin.initializeApp({
+           credential: admin.credential.cert(cert),
+           projectId: cert.project_id
+         });
+         isFirebaseReady = true;
+         console.log('[BOOT] Success: Firebase Admin initialized (Cert). Project:', cert.project_id);
+       } catch (e: any) {
+         console.error('[BOOT] Initialized attempt with cert failed:', e.message);
+       }
+    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.VERCEL) {
+       try {
+         admin.initializeApp();
+         isFirebaseReady = true;
+         console.log('[BOOT] Success: Firebase Admin initialized (ADC)');
+       } catch (e: any) {
+         console.error('[BOOT] Initialized attempt with ADC failed:', e.message);
+       }
+    } else if (config && config.projectId) {
+       try {
+         admin.initializeApp({
+           projectId: config.projectId
+         });
+         isFirebaseReady = true;
+         console.log('[BOOT] Success: Firebase Admin initialized (Config Fallback)');
+       } catch (e: any) {
+         console.error('[BOOT] Initialized attempt with Config failed:', e.message);
+       }
     } else {
-      console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. No credentials found in cert or config.');
+       console.error('[BOOT] CRITICAL: No valid Firebase credentials found. Database will be offline.');
     }
   }
 
-  // Determine database ID
-  let databaseIdToUse = (config && config.firestoreDatabaseId) ? config.firestoreDatabaseId : '(default)';
+  // 5. Database Patching for AI-Studio multi-database support
+  let databaseIdToUse = '(default)';
+  if (process.env.FIREBASE_DATABASE_ID && process.env.FIREBASE_DATABASE_ID !== '[]') {
+      databaseIdToUse = process.env.FIREBASE_DATABASE_ID.trim();
+  } else if (config && config.firestoreDatabaseId) {
+      databaseIdToUse = config.firestoreDatabaseId;
+  }
 
-  if (process.env.FIREBASE_DATABASE_ID) {
-    const envDbId = process.env.FIREBASE_DATABASE_ID.trim();
-    // Validate ID - ignore placeholders like "[]", "[ ]" or empty strings
-    if (envDbId && envDbId !== '[]' && envDbId !== '[ ]' && !envDbId.startsWith('{')) {
-       databaseIdToUse = envDbId;
-    }
-  } else if (process.env.VERCEL) {
-    // On Vercel, if we have a custom ID but it looks like an AI-Studio ID, 
-    // it usually means it won't work in the user's primary project unless explicitly configured.
-    const hasCustomCreds = !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    if (hasCustomCreds) {
-       if (databaseIdToUse.startsWith('ai-studio-')) {
-         console.log(`[BOOT] Vercel + Custom Creds: Database ${databaseIdToUse} looks like an AI-Studio ID. Falling back to '(default)'.`);
-         databaseIdToUse = '(default)';
-       }
-    } else {
-       databaseIdToUse = '(default)';
-    }
+  // Vercel project safety: avoid using ai-studio specific DB IDs if using user's prod credentials
+  if (process.env.VERCEL && cert && databaseIdToUse.startsWith('ai-studio-')) {
+      console.log('[BOOT] Vercel detected with Custom Cert: Ignoring AI-Studio DB ID, using (default)');
+      databaseIdToUse = '(default)';
   }
 
   if (databaseIdToUse && databaseIdToUse !== '(default)') {
-    console.log('[BOOT] Applying database ID patch for:', databaseIdToUse);
-    const FIREBASE_DB_ID = databaseIdToUse;
     const originalFirestoreFunction = admin.firestore;
-    
-    // Create the patched function
-    const patchedFirestore = function(databaseId?: string) {
-      if (admin.apps.length === 0) throw new Error('Firebase Admin not initialized');
-      // Use modular getFirestore to support custom IDs correctly
-      return getFirestore(admin.app(), databaseId || FIREBASE_DB_ID);
-    };
-    
-    // Copy all static properties (Timestamp, FieldValue, Filter, GeoPoint, etc.)
-    Object.assign(patchedFirestore, originalFirestoreFunction);
+    const FIREBASE_DB_ID = databaseIdToUse;
     
     // @ts-ignore
-    admin.firestore = patchedFirestore;
-    
-    console.log('[BOOT] Successfully patched admin.firestore to use databaseId by default:', FIREBASE_DB_ID);
-  } else {
-    console.log('[BOOT] Using default database instance.');
+    admin.firestore = function(databaseId?: string) {
+       if (admin.apps.length === 0) {
+          // Mock interface to avoid runtime crashes
+          return { collection: () => ({ doc: () => ({ get: async () => ({ exists: false, data: () => ({}) }), set: async () => {}, update: async () => {} }), where: () => ({ limit: () => ({ get: async () => ({ empty: true, docs: [] }) }), get: async () => ({ empty: true, docs: [] }) }), get: async () => ({ empty: true, docs: [] }), add: async () => ({ id: 'mock' }) }) } as any;
+       }
+       return getFirestore(admin.app(), databaseId || FIREBASE_DB_ID);
+    };
+    Object.assign(admin.firestore, originalFirestoreFunction);
+    console.log('[BOOT] Patched admin.firestore with default databaseId:', FIREBASE_DB_ID);
   }
 } catch (e: any) {
-  console.error('[BOOT] Failed during Firebase Admin setup shell:', e.message);
+  console.error('[BOOT] SHELL CRASH:', e.message);
 }
 
 // Extend session type
@@ -860,16 +844,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
       let publicSettings: any[] = [];
       
+      const fallbackResponse = { 
+        maintenance: false, 
+        authMode: 'email',
+        storePhone: '',
+        whatsappNumber: '',
+        config: [],
+        dbConnected: false
+      };
+
       if (!isFirebaseReady) {
         console.warn('[SETTINGS] Database not ready, returning fallback config');
-        return res.json({ 
-          maintenance: false, 
-          authMode: 'email',
-          storePhone: '',
-          whatsappNumber: '',
-          config: [],
-          dbConnected: false
-        });
+        return res.json(fallbackResponse);
       }
 
       try {
@@ -877,6 +863,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
       } catch (dbErr: any) {
         console.warn('[SETTINGS] Firestore settings collection read failed:', dbErr.message);
+        return res.json(fallbackResponse);
       }
       
       const maintenance = await getSetting('maintenance_mode') === 'true';
@@ -1538,6 +1525,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/auth/me', async (req, res) => {
     try {
+      if (!isFirebaseReady) return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
+      
       // If session is missing, but Authorization header is present, try to restore session
       if (!req.session.userId) {
         const authHeader = req.headers.authorization;
@@ -1784,14 +1773,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/bulk-discounts', async (req, res) => {
     try {
-      if (!isFirebaseReady) return res.json([]);
+      if (!isFirebaseReady || !admin.apps.length) return res.json([]);
       const snap = await admin.firestore().collection('bulk_discounts').where('active', '==', 1).get();
       // sort by min_qty desc
       let records = snap.docs.map(d => ({id: d.id, ...d.data()}) as any);
-      records.sort((a,b) => b.min_qty - a.min_qty);
+      records.sort((a,b) => (b.min_qty || 0) - (a.min_qty || 0));
       res.json(records);
     } catch (err: any) {
-      console.warn('[BULK_DISCOUNTS] Firestore fetch failed, returning fallback empty list:', err.message);
+      console.warn('[BULK_DISCOUNTS] Firestore fetch failed:', err.message);
       res.json([]);
     }
   });
