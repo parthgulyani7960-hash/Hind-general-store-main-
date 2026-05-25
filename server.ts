@@ -11,21 +11,7 @@ import fs from 'fs';
 import { google } from 'googleapis';
 import { createServer as createViteServer } from 'vite';
 
-import { GoogleGenAI } from "@google/genai";
-import { Octokit } from "octokit";
-
 import { logServerError } from './src/lib/serverError';
-
-// Initialize AI and GitHub
-const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-}) : null;
-const githubToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
 
 // Initialize Firebase Admin
 let isFirebaseReady = false;
@@ -52,6 +38,7 @@ try {
     if (fs.existsSync(serviceAccountPath)) {
       try {
         cert = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+        console.log('[BOOT] Found service account file');
       } catch (e: any) {
         console.error('[BOOT] Failed to parse service account file:', e.message);
       }
@@ -68,6 +55,7 @@ try {
         if (cert && cert.private_key) {
           cert.private_key = cert.private_key.replace(/\\n/g, '\n');
         }
+        console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from environment');
       } catch (e: any) {
         console.error('[BOOT] Failed dynamic parse of FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
       }
@@ -85,8 +73,10 @@ try {
     } else if (config?.projectId) {
       // Fallback
       if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts. Missing GOOGLE_APPLICATION_CREDENTIALS.');
-      } else {
+        console.warn('[BOOT] Standard fallback check: Google ADC missing on Vercel. Checking for project-specific credentials.');
+      }
+      
+      try {
         admin.initializeApp({
           credential: admin.credential.applicationDefault(),
           projectId: config.projectId,
@@ -94,34 +84,35 @@ try {
         });
         isFirebaseReady = true;
         console.log('[BOOT] Firebase Admin initialized with standard applicationDefault and projectId:', config.projectId);
+      } catch (initErr: any) {
+        console.error('[BOOT] Standard initialization failed:', initErr.message);
       }
     } else {
-      console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. No credentials found.');
+      console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. No credentials found in cert or config.');
     }
   }
 
+  // Determine database ID
   let databaseIdToUse = (config && config.firestoreDatabaseId) ? config.firestoreDatabaseId : '(default)';
 
-  if (process.env.VERCEL) {
-    console.log("[BOOT] Vercel environment detected. Defaulting database ID to '(default)' representing user's primary Firestore instance.");
-    databaseIdToUse = '(default)';
-  }
-
-  // Fallback to '(default)' if a custom service account/credentials point to a different Google Cloud project.
-  // The custom ai-studio-xxx database ID only exists within the AI Studio project environment.
   const hasCustomCreds = !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (hasCustomCreds) {
-    if (cert && cert.project_id && config && config.projectId && cert.project_id !== config.projectId) {
-      console.warn(`[BOOT] Custom Service Account project ID (${cert.project_id}) differs from default applet config project ID (${config.projectId}). Falling back databaseId to '(default)' representing user's primary Firestore instance.`);
-      databaseIdToUse = '(default)';
-    } else if (!cert && config && config.projectId) {
-      console.warn("[BOOT] Custom default system credentials detected, setting databaseId to: '(default)' as fallback.");
-      databaseIdToUse = '(default)';
-    }
-  }
-
+  
   if (process.env.FIREBASE_DATABASE_ID) {
     databaseIdToUse = process.env.FIREBASE_DATABASE_ID;
+  } else if (process.env.VERCEL) {
+    // On Vercel, if we have custom credentials, we should typically use (default) 
+    // unless explicitly told otherwise, especially if the configured ID is an AI-Studio one.
+    if (hasCustomCreds) {
+      if (databaseIdToUse.startsWith('ai-studio-')) {
+        console.log(`[BOOT] Custom credentials detected on Vercel. Configured database ${databaseIdToUse} looks like an AI-Studio ID. Falling back to '(default)'.`);
+        databaseIdToUse = '(default)';
+      } else {
+        console.log("[BOOT] Custom credentials detected on Vercel. Using configured databaseId:", databaseIdToUse);
+      }
+    } else {
+      console.log("[BOOT] Vercel environment detected with default credentials. Defaulting database ID to '(default)'.");
+      databaseIdToUse = '(default)';
+    }
   }
 
   if (databaseIdToUse && databaseIdToUse !== '(default)') {
@@ -133,9 +124,12 @@ try {
     const patchedFirestore = new Proxy(originalFirestore, {
       apply: function(target, thisArg, argumentsList) {
         try {
+          if (admin.apps.length === 0) {
+            throw new Error('Firebase Admin not initialized. Cannot call firestore().');
+          }
           return getFirestore(admin.app(), FIREBASE_DB_ID);
         } catch (err: any) {
-          console.error('[BOOT] Error invoking patched getFirestore:', err.message, err.stack);
+          console.error('[BOOT] Error invoking patched getFirestore:', err.message);
           throw err;
         }
       }
@@ -299,11 +293,6 @@ app.use((req, res, next) => {
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
   const now = Date.now();
   
-  // Bypass rate limit for specific high-frequency internal/AI routes if needed
-  const isHighPriority = 
-    req.path.includes('/api/github/generate-commit-message') || 
-    req.path.includes('/api/auth/me');
-
   const limit = rateLimits.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
 
   if (now > limit.resetTime) {
@@ -315,10 +304,7 @@ app.use((req, res, next) => {
 
   rateLimits.set(ip, limit);
 
-  // Apply higher threshold for high priority routes
-  const effectiveMaxRequests = isHighPriority ? MAX_REQUESTS * 2 : MAX_REQUESTS;
-
-  if (limit.count > effectiveMaxRequests) {
+  if (limit.count > MAX_REQUESTS) {
     return res.status(429).json({ success: false, message: 'Too many requests. Please slow down.' });
   }
   next();
@@ -862,17 +848,28 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
       let publicSettings: any[] = [];
-      if (admin.apps.length) {
-         try {
-           const snap = await admin.firestore().collection('settings').get();
-           publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
-         } catch (dbErr: any) {
-           console.warn('[SETTINGS] Firestore settings collection read failed, falling back to empty public settings:', dbErr.message);
-         }
+      
+      if (!isFirebaseReady) {
+        console.warn('[SETTINGS] Database not ready, returning fallback config');
+        return res.json({ 
+          maintenance: false, 
+          authMode: 'email',
+          storePhone: '',
+          whatsappNumber: '',
+          config: [],
+          dbConnected: false
+        });
+      }
+
+      try {
+        const snap = await admin.firestore().collection('settings').get();
+        publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
+      } catch (dbErr: any) {
+        console.warn('[SETTINGS] Firestore settings collection read failed:', dbErr.message);
       }
       
       const maintenance = await getSetting('maintenance_mode') === 'true';
-      const authMode = await getSetting('auth_mode') || 'otp';
+      const authMode = await getSetting('auth_mode') || 'email';
       const storePhone = await getSetting('store_phone');
       const whatsappNumber = await getSetting('whatsapp_number');
       
@@ -881,10 +878,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         authMode,
         storePhone,
         whatsappNumber,
-        config: publicSettings
+        config: publicSettings,
+        dbConnected: true
       });
     } catch (err: any) {
-      console.error('Settings fetch error details:', err.message, err.stack);
+      console.error('Settings fetch error details:', err.message);
       res.status(500).json({ success: false, message: 'Failed to fetch settings', error: err.message });
     }
   });
@@ -1583,13 +1581,20 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
       
       let sessionUser;
-      if (admin.apps.length > 0) {
-        const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
-        if (doc.exists) sessionUser = { id: doc.id, ...doc.data() };
+      if (isFirebaseReady) {
+        try {
+          const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
+          if (doc.exists) sessionUser = { id: doc.id, ...doc.data() };
+        } catch (dbErr: any) {
+          console.error('[AUTH/ME] Database error during user fetch:', dbErr.message);
+        }
       }
       
       if (!sessionUser) {
-        return res.status(401).json({ success: false, message: 'User not found' });
+        if (!isFirebaseReady) {
+           return res.status(503).json({ success: false, message: 'Database connection is temporarily unavailable. Please try again in a few moments.' });
+        }
+        return res.status(401).json({ success: false, message: 'User profile not found. Please log in again.' });
       }
       
       const tokenPayload = { userId: sessionUser.id, role: sessionUser.role, timestamp: Date.now() };
@@ -1760,7 +1765,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/bulk-discounts', async (req, res) => {
     try {
-      if (!admin.apps.length) return res.json([]);
+      if (!isFirebaseReady) return res.json([]);
       const snap = await admin.firestore().collection('bulk_discounts').where('active', '==', 1).get();
       // sort by min_qty desc
       let records = snap.docs.map(d => ({id: d.id, ...d.data()}) as any);
@@ -2631,7 +2636,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/promotions-rules', async (req, res) => {
     try {
-      if (!admin.apps.length) return res.json([]);
+      if (!isFirebaseReady) return res.json([]);
       const snap = await admin.firestore().collection('promotional_rules').get();
       const rules = snap.docs.map(d => ({id: d.id, ...d.data()}));
       res.json(rules);
@@ -3885,7 +3890,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/notifications', async (req, res) => {
-    if (!admin.apps.length) {
+    if (!isFirebaseReady) {
       console.warn('[NOTIFICATIONS] Skipped query: Firebase apps not initialized.');
       return res.json([]);
     }
@@ -4377,82 +4382,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       });
     } catch (err: any) {
       res.status(500).json({ success: false, message: 'Failed to fetch system health' });
-    }
-  });
-
-  // --- GITHUB INTEGRATION APIS ---
-  
-  /**
-   * @description Generates a descriptive commit message from a diff string using Gemini
-   */
-  app.post('/api/github/generate-commit-message', requireAdmin, async (req, res) => {
-    const { diff } = req.body;
-    if (!diff) return res.status(400).json({ error: 'Diff content is required' });
-
-    if (!ai) {
-      return res.status(503).json({ error: 'AI capabilities are currently disabled (Missing GEMINI_API_KEY)' });
-    }
-
-    try {
-      const prompt = `Task: Write a concise, professional GitHub commit message based on the following code changes (diff).
-      Strict Rules:
-      1. First line: Summary (max 50 chars), starting with a conventional prefix (feat:, fix:, chore:, refactor:).
-      2. Second line: Empty.
-      3. Subsequent lines: Bullet points describing high-level changes.
-      4. DO NOT include code snippets or technical jargon unless necessary.
-      5. Output ONLY the message text.
-
-      Diff content:
-      ${diff.substring(0, 10000)} // Truncate if too long to save tokens
-      `;
-
-      const result = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt
-      });
-      const responseText = result.text?.trim();
-      
-      if (!responseText) throw new Error("Empty response from AI");
-
-      res.json({ success: true, message: responseText });
-    } catch (err: any) {
-      console.error('[GITHUB] Gemini generation failed:', err);
-      res.status(500).json({ error: 'Failed to generate commit message via AI' });
-    }
-  });
-
-  /**
-   * @description Commits and pushes changes to a GitHub repository
-   */
-  app.post('/api/github/commit', requireAdmin, async (req, res) => {
-    const { owner, repo, branch, message, path, content, sha } = req.body;
-    
-    if (!githubToken) {
-      return res.status(503).json({ error: 'GitHub integration not configured (Missing GH_TOKEN)' });
-    }
-
-    try {
-      const octokit = new Octokit({ auth: githubToken });
-      
-      // Perform create or update file (simplest form of commit)
-      const result = await octokit.rest.repos.createOrUpdateFileContents({
-        owner,
-        repo,
-        path,
-        message,
-        content: Buffer.from(content).toString('base64'),
-        branch,
-        sha
-      });
-
-      res.json({ success: true, commit: result.data });
-    } catch (err: any) {
-       console.error('[GITHUB] Commit failed:', err);
-       res.status(err.status || 500).json({ 
-         error: 'GitHub operation failed', 
-         details: err.message,
-         rateLimitReset: err.headers?.['x-ratelimit-reset'] 
-       });
     }
   });
 
