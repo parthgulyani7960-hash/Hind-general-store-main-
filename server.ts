@@ -88,6 +88,11 @@ try {
 
   let databaseIdToUse = (config && config.firestoreDatabaseId) ? config.firestoreDatabaseId : '(default)';
 
+  if (process.env.VERCEL) {
+    console.log("[BOOT] Vercel environment detected. Defaulting database ID to '(default)' representing user's primary Firestore instance.");
+    databaseIdToUse = '(default)';
+  }
+
   // Fallback to '(default)' if a custom service account/credentials point to a different Google Cloud project.
   // The custom ai-studio-xxx database ID only exists within the AI Studio project environment.
   const hasCustomCreds = !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -99,6 +104,10 @@ try {
       console.warn("[BOOT] Custom default system credentials detected, setting databaseId to: '(default)' as fallback.");
       databaseIdToUse = '(default)';
     }
+  }
+
+  if (process.env.FIREBASE_DATABASE_ID) {
+    databaseIdToUse = process.env.FIREBASE_DATABASE_ID;
   }
 
   if (databaseIdToUse && databaseIdToUse !== '(default)') {
@@ -812,8 +821,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
       let publicSettings: any[] = [];
       if (admin.apps.length) {
-         const snap = await admin.firestore().collection('settings').get();
-         publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
+         try {
+           const snap = await admin.firestore().collection('settings').get();
+           publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
+         } catch (dbErr: any) {
+           console.warn('[SETTINGS] Firestore settings collection read failed, falling back to empty public settings:', dbErr.message);
+         }
       }
       
       const maintenance = await getSetting('maintenance_mode') === 'true';
@@ -1543,7 +1556,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.json({ success: true, user: sessionUser, token });
     } catch (err: any) {
       console.error('Auth/me error:', err);
-      res.status(500).json({ success: false, message: 'Failed to verify session', error: err.message });
+      res.status(401).json({ success: false, message: 'Failed to verify session', error: err.message });
     }
   });
 
@@ -1702,15 +1715,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/bulk-discounts', async (req, res) => {
     try {
-      if (!admin.apps.length) return res.status(500).json([]);
+      if (!admin.apps.length) return res.json([]);
       const snap = await admin.firestore().collection('bulk_discounts').where('active', '==', 1).get();
       // sort by min_qty desc
       let records = snap.docs.map(d => ({id: d.id, ...d.data()}) as any);
       records.sort((a,b) => b.min_qty - a.min_qty);
       res.json(records);
     } catch (err: any) {
-      console.error('Bulk discounts fetch failed:', err);
-      res.status(500).json({ success: false, message: 'Failed to fetch bulk discounts', error: err.message });
+      console.warn('[BULK_DISCOUNTS] Firestore fetch failed, returning fallback empty list:', err.message);
+      res.json([]);
     }
   });
 
@@ -2572,12 +2585,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/promotions-rules', async (req, res) => {
     try {
-      if (!admin.apps.length) return res.status(500).json([]);
+      if (!admin.apps.length) return res.json([]);
       const snap = await admin.firestore().collection('promotional_rules').get();
       const rules = snap.docs.map(d => ({id: d.id, ...d.data()}));
       res.json(rules);
     } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+      console.warn('[PROMOTIONS_RULES] Firestore fetch failed, returning fallback empty list:', err.message);
+      res.json([]);
     }
   });
 
@@ -3823,7 +3837,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       const snap = await admin.firestore().collection('notifications').orderBy('created_at', 'desc').limit(50).get();
       res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch(e) { res.status(500).json([]); }
+    } catch(e) {
+      console.warn('[NOTIFICATIONS] Firestore fetch failed, returning fallback empty list:', e);
+      res.json([]);
+    }
   });
 
   app.post('/api/admin/notifications/mark-read', requireAdmin, async (req, res) => {
@@ -5688,19 +5705,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
     } catch (err: any) {
       if (err.code === 7 || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Missing or insufficient permissions')) {
-        console.error('[TASKS][DIAGNOSTIC] PERMISSION_DENIED error detected on order expiration task! Logging diagnostic profile:');
-        console.error('[TASKS][DIAGNOSTIC] Profile Metadata:', {
-          code: err.code || 'N/A',
-          message: err.message,
-          errorStack: err.stack,
-          activeProjects: admin.apps.map(app => app.name),
-          projectConfiguredId: admin.apps.length ? admin.app().options.projectId : 'None',
-          databaseId: config?.firestoreDatabaseId || '(default)',
-          hasServiceAccountKeyFile: fs.existsSync(path.resolve(process.cwd(), 'firebase-service-account.json')),
-          hasEnvServiceAccountKey: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
-          googleAppCredentialsEnv: process.env.GOOGLE_APPLICATION_CREDENTIALS || 'None'
-        });
-        console.warn('[TASKS] Expire orders: Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
+        console.warn('[TASKS] Expire orders: background check deferred (awaiting Firestore activation or service account permission).');
         return;
       }
       if (err.code === 5 || err.message?.includes('NOT_FOUND') || err.message?.includes('no collection')) {

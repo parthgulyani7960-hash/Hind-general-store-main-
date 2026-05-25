@@ -15,7 +15,15 @@ const validConfig = {
 };
 
 const isCustomProject = !!import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_PROJECT_ID !== firebaseConfig.projectId;
-const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || (isCustomProject ? '(default)' : (firebaseConfig.firestoreDatabaseId || '(default)'));
+const isExternalHost = typeof window !== 'undefined' && 
+                       window.location && 
+                       window.location.hostname && 
+                       !window.location.hostname.includes('.run.app') && 
+                       !window.location.hostname.includes('localhost') && 
+                       !window.location.hostname.includes('127.0.0.1');
+
+const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || 
+                            (isCustomProject || isExternalHost ? '(default)' : (firebaseConfig.firestoreDatabaseId || '(default)'));
 
 if (!validConfig.projectId || validConfig.projectId === 'mock-project') {
   console.warn('⚠️ [Firebase] Running in unconfigured fallback/mock mode. Real-time features and authentication will require database provisioning via AI Studio setup.');
