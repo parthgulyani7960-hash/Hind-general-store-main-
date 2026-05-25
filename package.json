@@ -6,7 +6,7 @@
   "scripts": {
     "find-db": "node find_dbprepare.cjs",
     "dev": "tsx server.ts",
-    "build": "node ensure-config.js && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "node \"$PWD/ensure-config.js\" && vite build --config \"$PWD/vite.config.ts\" && esbuild \"$PWD/server.ts\" --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=\"$PWD/dist/server.cjs\"",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

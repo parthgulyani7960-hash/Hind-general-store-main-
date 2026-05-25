@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const configPath = path.resolve(__dirname, 'firebase-applet-config.json');
 if (!fs.existsSync(configPath)) {
   console.log('[BUILD] firebase-applet-config.json not found, creating placeholder config so compilation/deployment succeeds...');
   fs.writeFileSync(configPath, JSON.stringify({

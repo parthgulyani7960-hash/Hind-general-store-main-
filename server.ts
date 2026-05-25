@@ -743,7 +743,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         await batch.commit();
         console.log(`[Auto-Cancel] Cancelled ${count} stale failed orders.`);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.code === 7 || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Missing or insufficient permissions')) {
+        console.warn('[Auto-Cancel] Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
+        return;
+      }
       console.error('[Auto-Cancel] Error:', err);
     }
   }
@@ -5406,6 +5410,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         await admin.firestore().collection('emails_log').add({ message_id: messageId, sender: process.env.TRUSTED_BANK_SENDER || 'alerts@hdfcbank.net', subject: 'Bank Alert', body, extracted_amount: extractedAmount, extracted_note: extractedOrderId, extracted_timestamp: timestamp.toISOString(), match_status: matchStatus, match_reason: matchReason, matched_order_id: matchedOrderId, created_at: new Date().toISOString() });
       }
     } catch (err: any) {
+      if (err.code === 7 || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Missing or insufficient permissions')) {
+        console.warn('[GMAIL] Polling disabled: Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
+        return;
+      }
       console.error('[GMAIL] Error:', err.message);
     }
   };
@@ -5665,9 +5673,25 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          }
       }
     } catch (err: any) {
+      if (err.code === 7 || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Missing or insufficient permissions')) {
+        console.error('[TASKS][DIAGNOSTIC] PERMISSION_DENIED error detected on order expiration task! Logging diagnostic profile:');
+        console.error('[TASKS][DIAGNOSTIC] Profile Metadata:', {
+          code: err.code || 'N/A',
+          message: err.message,
+          errorStack: err.stack,
+          activeProjects: admin.apps.map(app => app.name),
+          projectConfiguredId: admin.apps.length ? admin.app().options.projectId : 'None',
+          databaseId: config?.firestoreDatabaseId || '(default)',
+          hasServiceAccountKeyFile: fs.existsSync(path.resolve(process.cwd(), 'firebase-service-account.json')),
+          hasEnvServiceAccountKey: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+          googleAppCredentialsEnv: process.env.GOOGLE_APPLICATION_CREDENTIALS || 'None'
+        });
+        console.warn('[TASKS] Expire orders: Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
+        return;
+      }
       if (err.code === 5 || err.message?.includes('NOT_FOUND') || err.message?.includes('no collection')) {
         console.warn('[TASKS] Expire orders: Collection not found or not ready. Skipping.');
-        return;
+         return;
       }
       logServerError(err, 'expireOrders');
     }
@@ -6015,7 +6039,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       await Promise.all(batches);
 
       console.log(`[CLEANUP] Successfully deleted ${oldLogsSnap.size} old system logs.`);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.code === 7 || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Missing or insufficient permissions')) {
+        console.warn('[CLEANUP] Purge skipped: Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
+        return;
+      }
       console.error('[CLEANUP] Failed to clean up old system logs:', err);
     }
   };
@@ -6053,6 +6081,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       console.log('[INTEGRITY] Deep scan completed. Environment stable.');
     } catch (err: any) {
+      if (err.code === 7 || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Missing or insufficient permissions')) {
+        console.warn('[INTEGRITY] Audit: Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
+        return;
+      }
       if (err.code !== 5 && !err.message.includes('NOT_FOUND')) {
         console.error('[INTEGRITY] Audit failed, error context:', {
           message: err.message,
