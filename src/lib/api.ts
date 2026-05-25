@@ -66,14 +66,15 @@ export const fetchWithHandling = async <T>(
           if (options.method === 'GET' || !options.method) return null;
         } else if (res.status === 403) {
           errorMessage = "You do not have permission to perform this action";
-        } else if (res.status >= 500) {
+        } else if (res.status === 429 || res.status >= 500) {
           if (retries > 0) {
+            const delay = res.status === 429 ? 3000 : 1000;
             console.log(`[API] Retrying ${url} due to ${res.status} error. Retries left: ${retries - 1}`);
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, delay));
             return fetchWithHandling(url, options, retries - 1);
           }
 
-          errorMessage = "Server error. Please try again later.";
+          errorMessage = res.status === 429 ? "Too many requests. Please slow down." : "Server error. Please try again later.";
           
           // Centralized Error Boundary Categorization for Firebase backend unreachable
           const isFirebaseUnreachable = 

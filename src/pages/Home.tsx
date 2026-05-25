@@ -44,7 +44,7 @@ function HomeInner() {
             bannersLoaded.current = true;
           }
 
-          if (previewPromoId) {
+          if (previewPromoId && !isNaN(parseInt(previewPromoId))) {
             const p = data.find((x: any) => x.id === parseInt(previewPromoId));
             if (p) setPreviewPromo(p);
           }

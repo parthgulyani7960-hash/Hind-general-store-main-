@@ -11,7 +11,21 @@ import fs from 'fs';
 import { google } from 'googleapis';
 import { createServer as createViteServer } from 'vite';
 
+import { GoogleGenAI } from "@google/genai";
+import { Octokit } from "octokit";
+
 import { logServerError } from './src/lib/serverError';
+
+// Initialize AI and GitHub
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+}) : null;
+const githubToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
 
 // Initialize Firebase Admin
 let isFirebaseReady = false;
@@ -243,7 +257,7 @@ app.use((req, res, next) => {
 // Basic Rate Limiting to prevent automated misuse
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 1000; // per minute per IP
+const MAX_REQUESTS = 2000; // per minute per IP (increased to prevent 429 spam)
 
 // --- GLOBAL UTILITIES & TRACING ---
 const generateRequestId = () => Math.random().toString(36).substring(2, 11);
@@ -284,6 +298,12 @@ app.use((req: any, res, next) => {
 app.use((req, res, next) => {
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
   const now = Date.now();
+  
+  // Bypass rate limit for specific high-frequency internal/AI routes if needed
+  const isHighPriority = 
+    req.path.includes('/api/github/generate-commit-message') || 
+    req.path.includes('/api/auth/me');
+
   const limit = rateLimits.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
 
   if (now > limit.resetTime) {
@@ -295,7 +315,10 @@ app.use((req, res, next) => {
 
   rateLimits.set(ip, limit);
 
-  if (limit.count > MAX_REQUESTS) {
+  // Apply higher threshold for high priority routes
+  const effectiveMaxRequests = isHighPriority ? MAX_REQUESTS * 2 : MAX_REQUESTS;
+
+  if (limit.count > effectiveMaxRequests) {
     return res.status(429).json({ success: false, message: 'Too many requests. Please slow down.' });
   }
   next();
@@ -4354,6 +4377,82 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       });
     } catch (err: any) {
       res.status(500).json({ success: false, message: 'Failed to fetch system health' });
+    }
+  });
+
+  // --- GITHUB INTEGRATION APIS ---
+  
+  /**
+   * @description Generates a descriptive commit message from a diff string using Gemini
+   */
+  app.post('/api/github/generate-commit-message', requireAdmin, async (req, res) => {
+    const { diff } = req.body;
+    if (!diff) return res.status(400).json({ error: 'Diff content is required' });
+
+    if (!ai) {
+      return res.status(503).json({ error: 'AI capabilities are currently disabled (Missing GEMINI_API_KEY)' });
+    }
+
+    try {
+      const prompt = `Task: Write a concise, professional GitHub commit message based on the following code changes (diff).
+      Strict Rules:
+      1. First line: Summary (max 50 chars), starting with a conventional prefix (feat:, fix:, chore:, refactor:).
+      2. Second line: Empty.
+      3. Subsequent lines: Bullet points describing high-level changes.
+      4. DO NOT include code snippets or technical jargon unless necessary.
+      5. Output ONLY the message text.
+
+      Diff content:
+      ${diff.substring(0, 10000)} // Truncate if too long to save tokens
+      `;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt
+      });
+      const responseText = result.text?.trim();
+      
+      if (!responseText) throw new Error("Empty response from AI");
+
+      res.json({ success: true, message: responseText });
+    } catch (err: any) {
+      console.error('[GITHUB] Gemini generation failed:', err);
+      res.status(500).json({ error: 'Failed to generate commit message via AI' });
+    }
+  });
+
+  /**
+   * @description Commits and pushes changes to a GitHub repository
+   */
+  app.post('/api/github/commit', requireAdmin, async (req, res) => {
+    const { owner, repo, branch, message, path, content, sha } = req.body;
+    
+    if (!githubToken) {
+      return res.status(503).json({ error: 'GitHub integration not configured (Missing GH_TOKEN)' });
+    }
+
+    try {
+      const octokit = new Octokit({ auth: githubToken });
+      
+      // Perform create or update file (simplest form of commit)
+      const result = await octokit.rest.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path,
+        message,
+        content: Buffer.from(content).toString('base64'),
+        branch,
+        sha
+      });
+
+      res.json({ success: true, commit: result.data });
+    } catch (err: any) {
+       console.error('[GITHUB] Commit failed:', err);
+       res.status(err.status || 500).json({ 
+         error: 'GitHub operation failed', 
+         details: err.message,
+         rateLimitReset: err.headers?.['x-ratelimit-reset'] 
+       });
     }
   });
 

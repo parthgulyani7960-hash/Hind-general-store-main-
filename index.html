@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
     <meta name="theme-color" content="#10b981" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; img-src 'self' https: data: blob:; connect-src 'self' https: wss:;" />
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
     <title>Hind General Store | Karyana & Essentials</title>
   </head>
   <body class="bg-stone-50">
     <div id="root"></div>
-    <div id="visibility-test" style="position:fixed; top:0; left:0; background:red; color:white; z-index:9999; padding:2px; font-size:10px;">APP_LOADED_V1</div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
       console.log('Index.html loaded, starting scripts...');
