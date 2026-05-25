@@ -83,32 +83,31 @@ try {
     Object.defineProperty(window, 'fetch', {
       value: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         let inputUrl = '';
-        try {
-          if (typeof input === 'string') {
-            inputUrl = input;
-          } else if (input instanceof URL) {
-            inputUrl = input.toString();
-          } else if (input instanceof Request) {
-            inputUrl = input.url;
-          }
-        } catch (e) {}
+        if (typeof input === 'string') {
+          inputUrl = input;
+        } else if (input instanceof URL) {
+          inputUrl = input.toString();
+        } else if (input instanceof Request) {
+          inputUrl = input.url;
+        }
 
-        // Auto-correct hardcoded localhost URLs to relative
+        // 1. Auto-correct hardcoded localhost URLs to relative
         if (inputUrl && inputUrl.includes('localhost:3000')) {
           console.warn('[Fetch Interceptor] Auto-correcting localhost:', inputUrl);
           inputUrl = inputUrl.replace(/https?:\/\/localhost:3000/, '');
           if (inputUrl === '') inputUrl = '/';
         }
         
-        const isFirebaseAuth = inputUrl && (inputUrl.includes('identitytoolkit.googleapis.com') || inputUrl.includes('securetoken.googleapis.com'));
-        const isLocalAuthMe = inputUrl && inputUrl.includes('/api/auth/me');
-        const isLocalAuthLogin = inputUrl && inputUrl.includes('/api/auth/firebase-login');
-
-        if (isFirebaseAuth) {
-            return originalFetch(inputUrl || input, init);
+        // 2. Identify request type
+        const isExternal = inputUrl.startsWith('http') && !inputUrl.includes(window.location.host);
+        
+        // 3. Skip interception for external APIs (like Firebase Auth) or if it's already an absolute URL to another domain
+        if (isExternal) {
+          return originalFetch(input, init);
         }
 
-        const executeFetch = async (token: string | null, isRetry = false) => {
+        // 4. Wrap the request to inject Authorization header
+        const executeFetch = async (token: string | null) => {
           let requestInit = (init || {}) as any;
           if (input instanceof Request) {
             requestInit = {
@@ -118,37 +117,34 @@ try {
               cache: input.cache,
               redirect: input.redirect,
               referrer: input.referrer,
+              mode: input.mode,
               ...init
             };
           }
-          
-          if (isRetry) {
-             requestInit._retry = true;
-          }
 
           const headers = new Headers(requestInit.headers || (input instanceof Request ? input.headers : {}));
+          
           if (token && !headers.has('Authorization')) {
             headers.set('Authorization', `Bearer ${token}`);
           }
-          const options = { ...requestInit, headers };
-          try {
-             return await originalFetch(inputUrl || input, options);
-          } catch (err) {
-             console.error('[Fetch Network Error]:', err, inputUrl);
-             throw err;
-          }
+
+          // Use the modified URL string if it was corrected, otherwise use original input
+          const wasCorrected = inputUrl && (typeof input === 'string' ? input !== inputUrl : true);
+          const finalInput = wasCorrected ? inputUrl : input;
+          const finalInit = { ...requestInit, headers };
+
+          return await originalFetch(finalInput, finalInit);
         };
 
+        // 5. Initial attempt
         const initialToken = localStorage.getItem('hgs_token');
         let response = await executeFetch(initialToken);
 
-        // Handle 401 unauthorized
-        if (response.status === 401 && !isFirebaseAuth && !isLocalAuthMe && !isLocalAuthLogin) {
-          if ((init as any)?._retry) {
-             console.warn(`[AUTH INTERCEPTOR] Persistence 401 for ${inputUrl}. Giving up.`);
-             return response;
-          }
+        // 6. Handle 401 unauthorized (Token Refresh Logic)
+        const isAuthMe = inputUrl.includes('/api/auth/me');
+        const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
 
+        if (response.status === 401 && !isAuthMe && !isAuthLogin) {
           console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
           
           if (!refreshPromise) {
@@ -158,18 +154,10 @@ try {
           try {
             const newToken = await refreshPromise;
             if (newToken) {
-              console.log(`[AUTH INTERCEPTOR] Refresh success, retrying ${inputUrl}`);
-              response = await executeFetch(newToken, true);
+              return await executeFetch(newToken);
             }
           } catch (refreshErr) {
             console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
-            if (!isLocalAuthMe && window.location.pathname !== '/login') {
-                const lastErr = window.sessionStorage.getItem('last_auth_error');
-                if (!lastErr || Date.now() - Number(lastErr) > 30000) {
-                    window.sessionStorage.setItem('last_auth_error', String(Date.now()));
-                    window.dispatchEvent(new CustomEvent('auth_error', { detail: { url: inputUrl } }));
-                }
-            }
           }
         }
 

@@ -151,7 +151,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     initAuth();
     checkMaintenance();
 
-    return () => window.removeEventListener('auth_error', handleAuthError);
+    // Safety fallback: Never keep the user on the loading screen for more than 8 seconds
+    const safetyTimeout = setTimeout(() => {
+      setIsAuthChecking(current => {
+        if (current) {
+          console.warn('[AUTH] Safety timeout triggered. Forced session start.');
+          return false;
+        }
+        return false;
+      });
+    }, 8000);
+
+    return () => {
+      window.removeEventListener('auth_error', handleAuthError);
+      clearTimeout(safetyTimeout);
+    };
   }, []);
 
   useEffect(() => {

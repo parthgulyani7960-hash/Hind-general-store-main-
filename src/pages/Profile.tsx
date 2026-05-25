@@ -587,7 +587,7 @@ export default function Profile() {
 
   return (
     <>
-      <div className="max-w-4xl mx-auto px-4 py-8 pb-32 md:pb-8">
+      <div className="max-w-4xl mx-auto px-4 py-6 pb-24">
       {/* Profile Header */}
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-stone-100 mb-6">
         <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-8">
@@ -1067,15 +1067,24 @@ export default function Profile() {
                           </div>
                           <div className="flex flex-col items-end space-y-2">
                             <p className="font-black text-2xl text-primary leading-none tracking-tight">₹{order.total}</p>
-                            <span className={cn(
-                              "text-[10px] font-black px-3 py-1 rounded-lg uppercase tracking-widest border",
-                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                              order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' : 
-                              order.status === 'failed' ? 'bg-stone-900 text-white border-stone-900' : 
-                              'bg-primary/10 text-primary border-primary/20'
-                            )}>
-                              {t(order.status) || order.status}
-                            </span>
+                            <div className="flex flex-col items-end space-y-1">
+                                <span className={cn(
+                                  "text-[10px] font-black px-3 py-1 rounded-lg uppercase tracking-widest border",
+                                  order.status === 'delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                                  order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' : 
+                                  order.status === 'failed' ? 'bg-stone-900 text-white border-stone-900' : 
+                                  'bg-primary/10 text-primary border-primary/20'
+                                )}>
+                                  {t(order.status) || order.status}
+                                </span>
+                                <span className={cn(
+                                  "text-[8px] font-black px-2 py-0.5 rounded-md uppercase tracking-tight",
+                                  order.payment_status === 'paid' ? "bg-emerald-500 text-white" :
+                                  order.payment_status === 'failed' ? "bg-red-500 text-white" : "bg-amber-400 text-white"
+                                )}>
+                                  {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
+                                </span>
+                            </div>
                           </div>
                         </div>
 
@@ -1088,6 +1097,15 @@ export default function Profile() {
                                     <Info size={12} />
                                     <span>{t('view_details') || 'DETAILS'}</span>
                                 </Link>
+                                {order.payment_status === 'failed' && order.status !== 'cancelled' && (
+                                    <Link 
+                                        to={`/track-order?orderId=${order.order_id || order.id}&phone=${order.user_phone || user?.phone}`}
+                                        className="text-[10px] font-black text-primary hover:underline tracking-[0.2em] uppercase flex items-center space-x-1 transition-all"
+                                    >
+                                        <RefreshCw size={12} />
+                                        <span>RETRY PAYMENT</span>
+                                    </Link>
+                                )}
                             </div>
                             <Link 
                                 to={`/track-order?orderId=${order.order_id || order.id}&phone=${user?.phone}`}
@@ -1889,7 +1907,7 @@ export default function Profile() {
                   await saveAddress({
                     ...data,
                     id: editingAddress?.id,
-                    is_default: editingAddress?.is_default || false
+                    is_default: data.is_default === 'on'
                   } as any);
                   setShowAddressModal(false);
                 }}
@@ -1980,6 +1998,18 @@ export default function Profile() {
                   <div>
                     <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">City / Town</label>
                     <input name="city" required readOnly defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-100 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-600" />
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">State</label>
+                    <input name="state" required readOnly defaultValue={editingAddress?.state} className="w-full px-4 py-3 bg-stone-100 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-600" />
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input type="checkbox" name="is_default" defaultChecked={editingAddress?.is_default} className="w-4 h-4 text-primary rounded border-stone-300 focus:ring-primary" />
+                      <span className="text-xs font-bold text-stone-700">Set as default address</span>
+                    </label>
                   </div>
 
                   <div className="col-span-2">

@@ -68,7 +68,7 @@ function HomeInner() {
   return (
     <div className="space-y-20 pb-safe md:pb-20">
       {/* Hero Section */}
-      <section className="relative min-h-[80vh] flex items-center overflow-hidden py-20 pb-0">
+      <section className="relative min-h-[60vh] sm:min-h-[80vh] flex items-center overflow-hidden py-10 sm:py-20 pb-0">
         <div className="absolute inset-0 z-0 bg-stone-50 overflow-hidden">
           <div className="absolute inset-0 z-0">
              <img 
@@ -129,7 +129,12 @@ function HomeInner() {
                 </p>
               </motion.div>
             )}
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-primary leading-[1.1] md:leading-tight">
+            <motion.h1 
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+              className="text-3xl sm:text-4xl md:text-5xl font-bold text-primary leading-[1.1] md:leading-tight"
+            >
               {activeRole === 'wholesaler' ? (
                 <>{t('wholesale_portal')} <br /> <span className="text-accent">{t('bulk_supply')}</span></>
               ) : activeRole === 'retailer' ? (
@@ -137,25 +142,37 @@ function HomeInner() {
               ) : (
                 <>Premium Quality <br /> <span className="text-accent">General Essentials</span></>
               )}
-            </h1>
-            <p className="text-lg md:text-xl text-stone-600">
+            </motion.h1>
+            <motion.p 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.5 }}
+              className="text-lg md:text-xl text-stone-600"
+            >
               {activeRole === 'wholesaler' 
                 ? "Exclusive B2B access to bulk inventory at distributor rates. Direct supply for your warehouse."
                 : activeRole === 'retailer'
                 ? "Preferred pricing for retail stores. Restock your shelves with quality karyana at partner rates."
                 : `${config.find(c => c.key === 'store_name')?.value || 'Hind General Store'} brings you the finest quality karyana items, grains, spices, and daily essentials at the best prices.`
               }
-            </p>
-            <div className="flex flex-wrap gap-4 mt-8">
-              <Link to="/products" className="btn-primary w-full md:w-auto flex items-center justify-center space-x-2">
+            </motion.p>
+            <motion.div 
+               initial={{ opacity: 0, y: 20 }}
+               animate={{ opacity: 1, y: 0 }}
+               transition={{ duration: 0.8, delay: 0.6 }}
+               className="flex flex-wrap gap-4 mt-8"
+            >
+              <Link to="/products" className="btn-primary w-full md:w-auto flex items-center justify-center space-x-2 group">
                 <span>{t('all_products')}</span>
-                <ArrowRight size={18} />
+                <motion.div whileHover={{ x: 3 }} transition={{ type: 'spring' }}>
+                  <ArrowRight size={18} />
+                </motion.div>
               </Link>
               <Link to="/support" className="btn-outline w-full md:w-auto items-center justify-center flex space-x-2">
                 <PhoneCall size={18} />
                 <span>Contact Support</span>
               </Link>
-            </div>
+            </motion.div>
           </motion.div>
         </div>
       </section>
@@ -303,7 +320,7 @@ function HomeInner() {
       )}
 
       {/* Features */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <motion.div 
           initial="hidden"
           whileInView="visible"

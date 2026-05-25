@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy, Share2, XCircle } from 'lucide-react';
+import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy, Share2, XCircle, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn } from '../types';
@@ -77,6 +77,7 @@ export default function TrackOrder() {
 
   const handleCancelOrder = async () => {
     if (!cancellationReason.trim()) { toast.error('Please enter a reason'); return; }
+    if (!window.confirm('Are you sure you want to cancel this order?')) return;
     setIsCancelling(true);
     try {
       const data = await fetchWithHandling<any>(`/api/orders/${order.order_id}/cancel`, {
@@ -185,6 +186,42 @@ export default function TrackOrder() {
       handleAppError(err, 'Failed to fetch order status', 'fetchOrderStatus', user?.role === 'admin');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [showRetryModal, setShowRetryModal] = useState(false);
+  const [retryPaymentMethod, setRetryPaymentMethod] = useState('');
+  const [retryUtr, setRetryUtr] = useState('');
+  const [retryScreenshot, setRetryScreenshot] = useState('');
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const handleRetryPayment = async () => {
+    if (!retryPaymentMethod) { toast.error('Please select a payment method'); return; }
+    if (retryPaymentMethod === 'upi' && !retryUtr && !retryScreenshot) {
+      toast.error('Please provide UTR or Screenshot for UPI payment');
+      return;
+    }
+    
+    setIsRetrying(true);
+    try {
+      const data = await fetchWithHandling<any>(`/api/orders/${order.id}/retry-payment`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          payment_method: retryPaymentMethod,
+          payment_utr: retryUtr,
+          payment_screenshot: retryScreenshot
+        })
+      });
+      if (data && data.success) {
+        toast.success(data.message || 'Payment info updated');
+        setShowRetryModal(false);
+        handleTrackAuto(orderId || order.id, phoneNumber || order.user_phone);
+      }
+    } catch (err: any) {
+      handleAppError(err, 'Error updating payment', 'retryPayment', user?.role === 'admin');
+    } finally {
+      setIsRetrying(false);
     }
   };
 
@@ -317,6 +354,33 @@ export default function TrackOrder() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-8"
           >
+            {order.payment_status === 'failed' && (
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-red-50 border-2 border-red-200 p-6 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-6"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-red-100 text-red-600 rounded-2xl">
+                    <AlertCircle size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-red-900 font-black uppercase tracking-tight">Payment Verification Failed</h4>
+                    <p className="text-red-700 text-sm font-medium">Your payment proof was rejected. Please update your payment information within 24 hours to avoid automatic cancellation.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    setRetryPaymentMethod(order.payment_method);
+                    setShowRetryModal(true);
+                  }}
+                  className="px-8 py-3 bg-red-600 text-white font-black rounded-xl shadow-lg shadow-red-600/20 hover:scale-[1.02] active:scale-95 transition-all whitespace-nowrap"
+                >
+                  Fix Payment Now
+                </button>
+              </motion.div>
+            )}
+
             {runnerLocation && (
               <div className="bg-white p-6 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100 mb-8 overflow-hidden">
                 <h4 className="text-xl font-bold mb-4 flex items-center gap-2">
@@ -496,7 +560,27 @@ export default function TrackOrder() {
                  ))}
                  <div className="pt-4 border-t border-stone-100 flex justify-between items-center">
                     <span className="font-bold text-stone-500 uppercase tracking-widest text-[10px]">{t('total')}</span>
-                    <span className="text-2xl font-black text-primary">₹{order.total}</span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-2xl font-black text-primary">₹{order.total}</span>
+                      <span className={cn(
+                        "text-[10px] font-black uppercase tracking-widest mt-1 px-2 py-0.5 rounded-lg",
+                        order.payment_status === 'paid' ? "bg-emerald-100 text-emerald-600" :
+                        order.payment_status === 'failed' ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                      )}>
+                        {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
+                      </span>
+                      {order.payment_status === 'failed' && order.status !== 'cancelled' && (
+                        <button 
+                          onClick={() => {
+                            setRetryPaymentMethod(order.payment_method);
+                            setShowRetryModal(true);
+                          }}
+                          className="mt-2 text-[10px] font-bold text-primary underline"
+                        >
+                          Retry Payment
+                        </button>
+                      )}
+                    </div>
                  </div>
                </div>
             </div>
@@ -611,6 +695,73 @@ export default function TrackOrder() {
                   >
                     {isReturning ? 'Submitting Request...' : 'Submit Request'}
                   </button>
+                </div>
+              </div>
+            )}
+            {showRetryModal && (
+              <div className="fixed inset-0 bg-stone-900/50 z-50 flex items-center justify-center p-4">
+                <div className="bg-white p-6 rounded-3xl w-full max-w-md shadow-xl space-y-6">
+                  <div>
+                    <h3 className="text-xl font-bold text-stone-900">Retry Payment</h3>
+                    <p className="text-sm text-stone-500 mt-1">Update your payment details to proceed with the order.</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 block">Payment Method</label>
+                      <select 
+                        value={retryPaymentMethod}
+                        onChange={(e) => setRetryPaymentMethod(e.target.value)}
+                        className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary font-bold text-stone-700"
+                      >
+                        <option value="upi">UPI (Manual)</option>
+                        <option value="cod">Cash on Delivery</option>
+                        {user?.khata_enabled && <option value="khata">Khata (Credit)</option>}
+                        <option value="wallet">Wallet</option>
+                      </select>
+                    </div>
+
+                    {retryPaymentMethod === 'upi' && (
+                      <>
+                        <div>
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 block">UTR Number</label>
+                          <input 
+                            type="text" 
+                            placeholder="Enter 12-digit UPI Transaction Ref"
+                            value={retryUtr}
+                            onChange={(e) => setRetryUtr(e.target.value)}
+                            className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary font-bold text-stone-700"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2 block">Screenshot URL (Optional)</label>
+                          <input 
+                            type="text" 
+                            placeholder="Paste screenshot link if any"
+                            value={retryScreenshot}
+                            onChange={(e) => setRetryScreenshot(e.target.value)}
+                            className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary font-bold text-stone-700"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setShowRetryModal(false)}
+                      className="flex-1 py-4 font-bold text-stone-500 hover:bg-stone-50 rounded-2xl transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleRetryPayment}
+                      disabled={isRetrying}
+                      className="flex-1 py-4 bg-primary text-white font-bold rounded-2xl active:scale-95 transition-all shadow-lg shadow-primary/20 disabled:opacity-50"
+                    >
+                      {isRetrying ? 'Updating...' : 'Submit Update'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

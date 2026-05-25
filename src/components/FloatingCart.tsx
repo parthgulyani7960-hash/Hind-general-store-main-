@@ -14,7 +14,7 @@ export default function FloatingCart() {
   const cartTotal = cart.reduce((total, item) => total + (item.discount_price || item.price) * item.quantity, 0);
 
   return (
-    <div className="fixed bottom-24 md:bottom-8 left-0 right-0 z-[45] px-4 pointer-events-none flex justify-center">
+    <div className="fixed bottom-20 md:bottom-8 left-0 right-0 z-[45] px-4 pointer-events-none flex justify-center">
       <AnimatePresence>
         {showStickyCart && (
           <motion.div
@@ -23,14 +23,14 @@ export default function FloatingCart() {
             exit={{ opacity: 0, y: 30 }}
             className="pointer-events-auto w-full max-w-lg"
           >
-             <Link to="/checkout" className="bg-stone-900 border border-stone-800 text-white rounded-[2rem] p-3 px-5 flex items-center justify-between shadow-2xl shadow-stone-900/40 active:scale-95 transition-all group hover:bg-black">
+             <Link to="/checkout" className="bg-stone-900 border border-stone-800 text-white rounded-2xl p-2 pl-4 flex items-center justify-between shadow-2xl shadow-stone-900/40 active:scale-95 transition-all group hover:bg-black">
               <div className="flex flex-col">
-                <span className="text-[10px] text-stone-400 font-medium">{cartCount} item{cartCount !== 1 ? 's' : ''} in cart</span>
-                <span className="text-lg font-black font-mono tracking-tight">₹{cartTotal.toFixed(2)}</span>
+                <span className="text-[9px] text-stone-400 font-bold uppercase">{cartCount} items</span>
+                <span className="text-base font-black font-mono tracking-tight">₹{cartTotal.toFixed(2)}</span>
               </div>
-              <div className="flex items-center space-x-1.5 bg-primary px-4 py-2 rounded-xl group-hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
-                <span className="text-xs font-bold uppercase tracking-wider text-white">Checkout</span>
-                <ArrowRight size={14} className="text-white group-hover:translate-x-1 transition-transform" />
+              <div className="flex items-center space-x-1 bg-primary px-3 py-1.5 rounded-lg group-hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-white">Checkout</span>
+                <ArrowRight size={12} className="text-white group-hover:translate-x-0.5 transition-transform" />
               </div>
             </Link>
           </motion.div>

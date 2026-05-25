@@ -127,57 +127,40 @@ export default function Cart() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pb-32 md:pb-12">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-12">
+    <div className="max-w-7xl mx-auto px-4 py-8 pb-32">
+      <div className="flex flex-col gap-4 mb-8">
         <div>
-          <h1 className="text-5xl font-black text-stone-900 tracking-tighter">{t('shopping_cart') || 'Cart'}</h1>
-          <p className="text-stone-500 font-bold mt-2 flex items-center">
-            <ShoppingBag size={16} className="mr-2" />
-            {cart.length} {cart.length === 1 ? 'item' : 'items'} in your bag
+          <h1 className="text-4xl font-black text-stone-900 tracking-tighter">My Bag</h1>
+          <p className="text-stone-500 font-bold mt-1 flex items-center text-sm">
+            <ShoppingBag size={14} className="mr-2" />
+            {cart.length} {cart.length === 1 ? 'item' : 'items'}
           </p>
         </div>
         
         {remainingForFree > 0 ? (
-          <div className="bg-white p-6 rounded-[2.5rem] shadow-xl shadow-stone-200/30 border border-stone-100 max-w-sm w-full relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-150 duration-700" />
-            <div className="relative z-10">
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Unlock Free Delivery</span>
-                <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-1 rounded-md">₹{remainingForFree} to go</span>
-              </div>
-              <div className="h-2.5 bg-stone-100 rounded-full overflow-hidden shadow-inner">
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progressToFree}%` }}
-                  transition={{ type: 'spring', stiffness: 50, damping: 20 }}
-                  className="h-full bg-linear-to-r from-primary to-accent relative"
-                >
-                  <motion.div 
-                    animate={{ x: ['-100%', '200%'] }}
-                    transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
-                    className="absolute inset-0 bg-linear-to-r from-transparent via-white/30 to-transparent"
-                  />
-                </motion.div>
-              </div>
-              <p className="text-[9px] font-bold text-stone-400 mt-3 flex items-center">
-                <Clock size={12} className="mr-1.5" />
-                Valid for next <span className="text-stone-600 ml-1">24:00:00</span>
-              </p>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 w-full">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Delivery</span>
+              <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded-full">₹{remainingForFree} left</span>
+            </div>
+            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${progressToFree}%` }}
+                className="h-full bg-primary"
+              />
             </div>
           </div>
         ) : (
           <motion.div 
-            initial={{ scale: 0.9, opacity: 0, y: 10 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            className="bg-emerald-500 px-8 py-4 rounded-[2rem] shadow-xl shadow-emerald-500/20 flex items-center space-x-4 border border-emerald-400"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-emerald-500 px-4 py-3 rounded-2xl flex items-center space-x-3"
           >
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white backdrop-blur-md">
-              <Truck size={20} className="animate-bounce" />
+            <div className="p-2 bg-white/20 rounded-full text-white">
+              <Truck size={16} />
             </div>
-            <div>
-               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-100">Congratulations</p>
-               <p className="text-white font-black text-sm tracking-tight">Free Delivery Activated!</p>
-            </div>
+            <p className="text-white font-black text-xs">Free Delivery Activated!</p>
           </motion.div>
         )}
       </div>
@@ -189,17 +172,23 @@ export default function Cart() {
               <motion.div 
                 key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
                 layout
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, x: -20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 group hover:border-primary/20 transition-all duration-500 border-l-4 border-l-transparent hover:border-l-primary"
+                transition={{ 
+                  duration: 0.4, 
+                  delay: index * 0.05,
+                  ease: [0.22, 1, 0.36, 1]
+                }}
+                className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center gap-4 hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/50 transition-all duration-300 group/item"
               >
                 <div className="relative shrink-0 overflow-hidden rounded-2xl">
                   {showImages ? (
-                    <img 
+                    <motion.img 
+                      whileHover={{ scale: 1.1 }}
+                      transition={{ duration: 0.6 }}
                       src={item.image_url} 
-                      className="w-28 h-28 object-cover transition-transform duration-700 group-hover:scale-110" 
+                      className="w-28 h-28 object-cover" 
                       alt={item.name} 
                       loading="lazy"
                       referrerPolicy="no-referrer"
@@ -219,7 +208,7 @@ export default function Cart() {
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
                     <div className="space-y-1">
-                      <h3 className="font-black text-xl text-stone-900 group-hover:text-primary transition-colors truncate">{item.name}</h3>
+                      <h3 className="font-black text-xl text-stone-900 group-hover/item:text-primary transition-colors truncate">{item.name}</h3>
                       <div className="flex flex-wrap items-center gap-3">
                         {item.selectedVariant && (
                           <span className="bg-stone-100 text-stone-600 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg">
@@ -268,10 +257,14 @@ export default function Cart() {
 
                     <div className="flex items-center gap-4">
                       {item.nextTier && (
-                        <div className="hidden md:flex items-center space-x-2 text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-3 py-2 rounded-xl border border-amber-100 animate-pulse">
-                          <Tag size={12} />
+                        <motion.div 
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="hidden md:flex items-center space-x-2 text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-3 py-2 rounded-xl border border-amber-100"
+                        >
+                          <Tag size={12} className="animate-bounce" />
                           <span>+ {item.nextTier.min_qty - item.quantity} to save more!</span>
-                        </div>
+                        </motion.div>
                       )}
                       
                       <button 
@@ -291,10 +284,9 @@ export default function Cart() {
 
         <div className="lg:col-span-4 sticky top-24">
           <div className="space-y-6">
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/40 border border-stone-100 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-12 -mt-12 transition-transform duration-1000 group-hover:scale-150" />
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100">
               
-              <h3 className="text-2xl font-black text-stone-900 mb-8 border-b border-stone-50 pb-4">{t('order_summary') || 'Summary'}</h3>
+              <h3 className="text-xl font-black text-stone-900 mb-6">Summary</h3>
               
               <div className="space-y-6">
                 {/* Coupon Section */}

@@ -98,9 +98,9 @@ export default function Support() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pb-32 md:pb-12 space-y-16">
       <div className="bg-stone-900 rounded-[3rem] p-12 text-center text-white space-y-4">
-        <h1 className="text-5xl font-black tracking-tight">Need Assistance?</h1>
+        <h1 className="text-5xl font-black tracking-tight">Contact Us & Support</h1>
         <p className="text-stone-400 text-lg max-w-2xl mx-auto">
-          We're here to help you with anything from order tracking to product inquiries. Reach out through any of our channels below.
+          We're here to help! Send us a message, give us a call, or visit our store. We're always ready to assist you.
         </p>
       </div>
 

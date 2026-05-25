@@ -80,6 +80,26 @@
     "orders/{orderId}": {
         "schema": "order",
         "description": "Customer orders"
+    },
+    "bug_reports/{reportId}": {
+        "schema": "bug_report",
+        "description": "System bug reports"
+    },
+    "suspicious_activities/{id}": {
+        "schema": "suspicious_activity",
+        "description": "Logs of suspicious security events"
+    },
+    "system_logs/{id}": {
+        "schema": "system_log",
+        "description": "General system event logs"
+    },
+    "audit_logs/{id}": {
+        "schema": "audit_log",
+        "description": "Administrative audit trail"
+    },
+    "settings/{key}": {
+        "schema": "setting",
+        "description": "Global store settings"
     }
   }
 }

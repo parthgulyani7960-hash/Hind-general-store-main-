@@ -8,78 +8,94 @@ import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import fs from 'fs';
 import { google } from 'googleapis';
+import { createServer as createViteServer } from 'vite';
+
+import { logServerError } from './src/lib/serverError';
 
 // Initialize Firebase Admin
 let isFirebaseReady = false;
+let config: any = null;
 try {
-   const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
-   const configPaths = [
-     path.join(process.cwd(), 'firebase-applet-config.json'),
-     path.join(process.cwd(), 'firebase-blueprint.json')
-   ];
-   
-   let config: any = null;
-   for (const p of configPaths) {
-     if (fs.existsSync(p)) {
-       config = JSON.parse(fs.readFileSync(p, 'utf8'));
-       break;
-     }
-   }
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch (e: any) {
+      console.error('[BOOT] Failed to parse firebase-applet-config.json:', e.message);
+    }
+  }
 
-   if (!admin.apps.length) {
-     if (fs.existsSync(serviceAccountPath)) {
-       try {
-         const cert = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-         admin.initializeApp({
-           credential: admin.credential.cert(cert),
-           projectId: cert.project_id,
-           databaseURL: `https://${cert.project_id}-default-rtdb.firebaseio.com`
-         });
-         isFirebaseReady = true;
-         console.log('[BOOT] Firebase Admin initialized with service account file');
-       } catch (e: any) {
-         console.error('[BOOT] Failed to initialize with service account file:', e.message);
-       }
-     }
+  if (admin.apps.length > 0) {
+    isFirebaseReady = true;
+    console.log('[BOOT] Firebase Admin already initialized');
+  } else {
+    // Collect config sources
+    const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
+    
+    let cert: any = null;
 
-     if (!isFirebaseReady && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-       try {
-         const cert = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-         admin.initializeApp({
-           credential: admin.credential.cert(cert),
-           projectId: config?.projectId || cert.project_id, 
-           databaseURL: process.env.FIREBASE_DATABASE_URL || config?.databaseURL || `https://${config?.projectId || cert.project_id}-default-rtdb.firebaseio.com`
-         });
-         isFirebaseReady = true;
-         console.log('[BOOT] Firebase Admin initialized with FIREBASE_SERVICE_ACCOUNT_KEY');
-       } catch (e: any) {
-         console.error('[BOOT] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY', e.message);
-       }
-     } 
-     
-     if (!isFirebaseReady && config && config.projectId) {
-       if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-         console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts. Set FIREBASE_SERVICE_ACCOUNT_KEY.');
-       } else {
-         try {
-           admin.initializeApp({
-             projectId: config.projectId, 
-             databaseURL: process.env.FIREBASE_DATABASE_URL || config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`
-           });
-           isFirebaseReady = true;
-           console.log('[BOOT] Firebase Admin initialized with projectId:', config.projectId);
-         } catch (e: any) {
-           console.warn('[BOOT] Fallback initialization failed:', e.message);
-         }
-       }
-     }
+    // Try service account file
+    if (fs.existsSync(serviceAccountPath)) {
+      try {
+        cert = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+      } catch (e: any) {
+        console.error('[BOOT] Failed to parse service account file:', e.message);
+      }
+    }
 
-     if (!isFirebaseReady) {
-       console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. All authenticated routes will fail.');
-     }
-   }
+    // Try environment variable override
+    if (!cert && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+      try {
+        cert = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      } catch (e: any) {
+        console.error('[BOOT] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
+      }
+    }
+
+    // Initialize
+    if (cert) {
+      admin.initializeApp({
+        credential: admin.credential.cert(cert),
+        projectId: cert.project_id,
+        databaseURL: process.env.FIREBASE_DATABASE_URL || `https://${cert.project_id}-default-rtdb.firebaseio.com`
+      });
+      isFirebaseReady = true;
+      console.log('[BOOT] Firebase Admin initialized with certificate credentials');
+    } else if (config?.projectId) {
+      // Fallback
+      if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+        console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts.');
+      } else {
+        admin.initializeApp({
+          projectId: config.projectId,
+          databaseURL: process.env.FIREBASE_DATABASE_URL || config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`
+        });
+        isFirebaseReady = true;
+        console.log('[BOOT] Firebase Admin initialized with projectId:', config.projectId);
+      }
+    } else {
+      console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. No credentials found.');
+    }
+  }
+
+  if (config && config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)') {
+    const FIREBASE_DB_ID = config.firestoreDatabaseId;
+    const originalFirestore = admin.firestore;
+    const { getFirestore } = require('firebase-admin/firestore');
+    Object.defineProperty(admin, 'firestore', {
+      get: function() {
+        const fn = function() {
+          return getFirestore(admin.app(), FIREBASE_DB_ID);
+        };
+        Object.assign(fn, originalFirestore);
+        return fn;
+      },
+      configurable: true
+    });
+    console.log('[BOOT] Monkey-patched admin.firestore() to use databaseId:', FIREBASE_DB_ID);
+  }
 } catch (e: any) {
-  console.error('[BOOT] Failed during Firebase Admin setup:', e.message);
+  console.error('[BOOT] Failed during Firebase Admin setup shell:', e.message);
 }
 
 // Extend session type
@@ -97,11 +113,11 @@ const handleAppError = (err: any, message: string, context: string) => {
 const app = express();
 
 app.use((req, res, next) => {
-  if (req.url === '/') console.log('[REQ] Root request received');
-  next();
-});
-app.use((req, res, next) => {
-  console.log(`[REQ][${new Date().toISOString()}] ${req.method} ${req.url} | Host: ${req.headers.host} | Proto: ${req.headers['x-forwarded-proto']}`);
+  const isApi = req.url.startsWith('/api/') || req.url === '/';
+  if (isApi) {
+    if (req.url === '/') console.log('[REQ] Root request received');
+    console.log(`[REQ][${new Date().toISOString()}] ${req.method} ${req.url} | Host: ${req.headers.host} | Proto: ${req.headers['x-forwarded-proto']}`);
+  }
   next();
 });
 
@@ -113,6 +129,10 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     bootPhase: 'module_level'
   });
+});
+
+app.get('/ping', (req, res) => {
+  res.send('pong');
 });
 
 app.get('/api/admin/check-my-role', async (req, res) => {
@@ -241,15 +261,6 @@ let httpServer: any;
 
 // WebSocket setup
 let io: Server | null = null;
-httpServer = createServer(app);
-io = new Server(httpServer, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
-});
-
-io.on('connection', (socket) => {
-  console.log('Client connected to real-time updates');
-  socket.on('disconnect', () => console.log('Client disconnected'));
-});
 
 
 const broadcast = (data: any) => {
@@ -266,8 +277,11 @@ const createNotification = async (title: string, message: string, type: string =
   }
 };
 
+// Moved middlewares
+
 async function startServer() {
-  console.log('[BOOT] Defining API routes...');
+  console.log('[BOOT] Booting routes...');
+
   app.post('/api/orders/:id/cancel', async (req, res) => {
     const { id } = req.params;
     const { reason, restock, refund } = req.body;
@@ -285,7 +299,7 @@ async function startServer() {
       }
 
       const batch = admin.firestore().batch();
-      batch.update(docRef, { status: 'cancelled', cancellation_reason: reason || null, updated_at: new Date().toISOString() });
+      batch.update(docRef, { status: 'cancelled', payment_status: refund ? 'refunded' : (order.payment_status || 'pending'), cancellation_reason: reason || null, updated_at: new Date().toISOString() });
       
       if (isAdmin) {
         if (restock) {
@@ -317,7 +331,8 @@ async function startServer() {
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+      logServerError(err, 'cancelOrder', req);
+      res.status(500).json({ success: false, message: 'Internal server error while cancelling order' });
     }
   });
 // Helper to log system events
@@ -348,7 +363,10 @@ const getSetting = async (key: string): Promise<any> => {
     if (!admin.apps.length) return null;
     const doc = await admin.firestore().collection('settings').doc(key).get();
     return doc.exists ? doc.data()?.value : null;
-  } catch (err) {
+  } catch (err: any) {
+    if (err.code === 5 || err.message.includes('NOT_FOUND')) {
+      return null;
+    }
     console.error(`Error getting setting ${key}:`, err);
     return null;
   }
@@ -435,39 +453,6 @@ const verifyFirebaseUser = async (req: express.Request) => {
   return null;
 };
 
-// Middlewares
-const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (req.session.userId) {
-     const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
-     if (doc.exists) return next();
-     req.session.destroy(() => {});
-  }
-  
-  const user = await verifyFirebaseUser(req);
-  if (user) return next();
-
-  return res.status(401).json({ success: false, message: 'Authentication required' });
-};
-
-const requireAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (req.session.userId) {
-    const role = req.session.role;
-    if (['admin', 'owner', 'manager'].includes(role || '')) return next();
-    
-    const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
-    if (doc.exists && ['admin', 'owner', 'manager'].includes(doc.data()?.role)) {
-      req.session.role = doc.data()?.role;
-      return next();
-    }
-    if (!doc.exists) req.session.destroy(() => {});
-    return res.status(403).json({ success: false, message: 'Admin access required' });
-  }
-
-  const user = await verifyFirebaseUser(req);
-  if (user && ['admin', 'owner', 'manager'].includes(user.role)) return next();
-
-  return res.status(401).json({ success: false, message: 'Admin authentication required' });
-};
 
 const auditAdminAction = (req: any, res: any, next: any) => {
   if (req.session.userId) {
@@ -494,7 +479,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const start = Date.now();
     res.on('finish', () => {
       const duration = Date.now() - start;
-      if (req.url !== '/api/health') {
+      const isApi = req.url.startsWith('/api/') || req.url === '/';
+      if (isApi && req.url !== '/api/health') {
         console.log(`[RES] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
       }
     });
@@ -509,6 +495,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
   app.use(express.json());
   app.use(cookieParser());
+  
   app.use(session({
     secret: 'hind-store-secret-2024',
     resave: false,
@@ -613,7 +600,172 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Global Admin Authorization Middleware
+  async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (req.session?.userId) {
+       const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
+       if (doc.exists) return next();
+       req.session.destroy(() => {});
+    }
+    
+    const user = await verifyFirebaseUser(req);
+    if (user) return next();
+
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  };
+
+  async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (req.session?.userId) {
+      const role = req.session.role;
+      if (['admin', 'owner', 'manager'].includes(role || '')) return next();
+      
+      const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
+      if (doc.exists && ['admin', 'owner', 'manager'].includes(doc.data()?.role)) {
+        req.session.role = doc.data()?.role;
+        return next();
+      }
+      if (!doc.exists) req.session.destroy(() => {});
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const user = await verifyFirebaseUser(req);
+    if (user && ['admin', 'owner', 'manager'].includes(user.role)) return next();
+
+    return res.status(401).json({ success: false, message: 'Admin authentication required' });
+  };
+
   app.use('/api/admin', requireAdmin);
+  
+  app.post('/api/orders/:id/retry-payment', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { payment_method, payment_id, payment_utr, payment_screenshot, payment_ref } = req.body;
+    const currentUserId = String(req.session.userId);
+    const isAdmin = ['admin', 'owner', 'manager'].includes(req.session.role || '');
+    
+    try {
+      if (!admin.apps.length) return res.status(500).json({ success: false });
+      
+      const orderRef = admin.firestore().collection('orders').doc(String(id));
+      const orderDoc = await orderRef.get();
+      
+      if (!orderDoc.exists) {
+        return res.status(404).json({ success: false, message: 'Order not found' });
+      }
+      
+      const order = orderDoc.data() as any;
+
+      // Ownership check: must be owner or admin
+      if (String(order.user_id) !== currentUserId && !isAdmin) {
+        return res.status(403).json({ success: false, message: 'Access denied' });
+      }
+      
+      // Can only retry if failed or pending
+      if (order.payment_status !== 'failed' && order.payment_status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'Payment cannot be retried for this order status' });
+      }
+
+      if (order.status === 'cancelled' || order.status === 'delivered') {
+        return res.status(400).json({ success: false, message: 'Cannot retry payment for cancelled or delivered orders' });
+      }
+
+      const updates: any = {
+        payment_status: 'pending', // Reset to pending for admin verification
+        updated_at: new Date().toISOString()
+      };
+
+      if (payment_method) updates.payment_method = payment_method;
+      if (payment_id) updates.payment_id = payment_id;
+      if (payment_utr) updates.payment_utr = payment_utr;
+      if (payment_screenshot) updates.payment_screenshot = payment_screenshot;
+      if (payment_ref) updates.payment_ref = payment_ref;
+
+      await orderRef.update(updates);
+      
+      broadcast({ type: 'ORDER_PAYMENT_RETRY', payload: { id, order_id: order.order_id, payment_method } });
+
+      res.json({ success: true, message: 'Payment information updated. Awaiting verification.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Background function to auto-cancel stale failed orders
+  async function autoCancelFailedOrders() {
+    try {
+      if (!admin.apps.length) return;
+      const now = new Date();
+      // Cancel "failed" payment orders after 24 hours
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      
+      const snap = await admin.firestore().collection('orders')
+        .where('payment_status', '==', 'failed')
+        .get();
+      
+      const batch = admin.firestore().batch();
+      let count = 0;
+      
+      for (const doc of snap.docs) {
+        const order = doc.data() as any;
+        if (['cancelled', 'delivered'].includes(order.status)) continue;
+
+        if (order.created_at < twentyFourHoursAgo) {
+          batch.update(doc.ref, { 
+            status: 'cancelled', 
+            cancellation_reason: 'Auto-cancelled due to payment failure timeout (24h)',
+            updated_at: now.toISOString()
+          });
+          count++;
+        }
+      }
+      
+      if (count > 0) {
+        await batch.commit();
+        console.log(`[Auto-Cancel] Cancelled ${count} stale failed orders.`);
+      }
+    } catch (err) {
+      console.error('[Auto-Cancel] Error:', err);
+    }
+  }
+
+  // Run auto-cancel every 15 minutes
+  setInterval(autoCancelFailedOrders, 15 * 60 * 1000);
+
+  app.post('/api/admin/orders/:id/fail-payment', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    try {
+      if (!admin.apps.length) return res.status(500).json({ success: false });
+      const orderRef = admin.firestore().collection('orders').doc(String(id));
+      const orderDoc = await orderRef.get();
+      if (!orderDoc.exists) return res.status(404).json({ success: false, message: 'Order not found' });
+      
+      const order = orderDoc.data() as any;
+
+      const batch = admin.firestore().batch();
+      batch.update(orderRef, {
+        payment_status: 'failed',
+        rejection_reason: reason || 'Payment proof rejected by admin',
+        updated_at: new Date().toISOString()
+      });
+
+      const aRef = admin.firestore().collection('audit_logs').doc();
+      batch.set(aRef, {
+        admin_id: String(req.session.userId),
+        action: 'PAYMENT_FAILED_MANUAL',
+        target_type: 'ORDER',
+        target_id: String(id),
+        details: JSON.stringify({ reason }),
+        created_at: new Date().toISOString()
+      });
+
+      await batch.commit();
+      broadcast({ type: 'ORDER_PAYMENT_FAILED', payload: { id, order_id: order.order_id, reason } });
+      
+      res.json({ success: true, message: 'Payment marked as failed. User can now retry.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
 
   app.get('/api/settings', async (req, res) => {
     try {
@@ -850,7 +1002,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const addresses = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
       res.json(addresses);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      logServerError(e, 'getUserAddresses', req);
+      res.status(500).json({ error: 'Failed to fetch addresses' });
     }
   });
 
@@ -878,7 +1031,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       await batch.commit();
       res.json({ success: true, message: 'Address saved successfully' });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+      logServerError(err, 'saveUserAddress', req);
+      res.status(500).json({ success: false, message: 'Failed to save address' });
     }
   });
 
@@ -887,7 +1041,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       if (admin.apps.length) await admin.firestore().collection('user_addresses').doc(req.params.id).delete();
       res.json({ success: true, message: 'Address deleted' });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+      logServerError(err, 'deleteUserAddress', req);
+      res.status(500).json({ success: false, message: 'Failed to delete address' });
     }
   });
 
@@ -902,7 +1057,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       await batch.commit();
       res.json({ success: true, message: 'Default address updated' });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+      logServerError(err, 'setDefaultAddress', req);
+      res.status(500).json({ success: false, message: 'Failed to update default address' });
     }
   });
 
@@ -1042,6 +1198,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/settings', requireAdmin, async (req, res) => {
+    try {
+      if (!admin.apps.length) return res.status(500).json([]);
+      const snap = await admin.firestore().collection('settings').get();
+      res.json(snap.docs.map(d => ({ key: d.id, ...d.data() })));
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: 'Failed to fetch settings' });
     }
   });
 
@@ -1779,8 +1945,21 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       if (!admin.apps.length) return res.json({ dailySales: [], topProducts: [] });
       
+      const { startDate, endDate } = req.query;
+
       const ordersSnap = await admin.firestore().collection('orders').where('status', '==', 'completed').get();
-      const orders = ordersSnap.docs.map(doc => doc.data());
+      let orders = ordersSnap.docs.map(doc => doc.data());
+
+      if (startDate) {
+        orders = orders.filter(o => o.created_at >= (startDate as string));
+      }
+      if (endDate) {
+        let endStr = endDate as string;
+        if (endStr.length === 10) {
+           endStr += 'T23:59:59.999Z';
+        }
+        orders = orders.filter(o => o.created_at <= endStr);
+      }
       
       const dailyMap = new Map();
       const prodMap = new Map();
@@ -1804,8 +1983,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       
       const dailySales = Array.from(dailyMap.entries())
         .map(([date, total]) => ({ date, total }))
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .slice(0, 30);
+        .sort((a, b) => a.date.localeCompare(b.date)); // Sort chronologically (ascending) for better charts
         
       const topProducts = Array.from(prodMap.entries())
         .map(([name, sold]) => ({ name, sold }))
@@ -1823,7 +2001,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       const snap = await admin.firestore().collection('delivery_areas').get();
       res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch(e) { res.status(500).json({ error: String(e) }); }
+    } catch (err: any) {
+      logServerError(err, 'getDeliveryAreas', req);
+      res.status(500).json({ success: false, message: 'Internal server error' });
+    }
   });
 
   app.post('/api/admin/delivery-areas', async (req, res) => {
@@ -1832,7 +2013,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       await admin.firestore().collection('delivery_areas').add({ name, fee, min_order });
       res.json({ success: true });
-    } catch(e) { res.status(500).json({ success: false, message: String(e) }); }
+    } catch (err: any) {
+      logServerError(err, 'addDeliveryArea', req);
+      res.status(500).json({ success: false, message: 'Internal server error' });
+    }
   });
 
   app.put('/api/admin/delivery-areas/:id', async (req, res) => {
@@ -2671,7 +2855,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
               });
            }
         }
-      } catch(e) { console.error('maintenance check failed', e); }
+      } catch(e: any) {
+         if (e.code !== 5 && !e.message.includes('NOT_FOUND')) {
+             console.error('maintenance check failed', e);
+         }
+      }
     }
     next();
   });
@@ -3622,9 +3810,136 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/admin/orders/:id/status', async (req, res) => {
+  app.post('/api/admin/orders/:id/cancel', requireAdmin, async (req, res) => {
     const { id } = req.params;
-    const { status, rejection_reason } = req.body;
+    const { reason, restock, refund: requestedRefund } = req.body;
+    const adminId = req.session.userId;
+
+    try {
+      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not connected' });
+
+      const orderRef = admin.firestore().collection('orders').doc(String(id));
+      const orderDoc = await orderRef.get();
+      if (!orderDoc.exists) return res.status(404).json({ message: 'Order not found' });
+      const order = orderDoc.data() as any;
+
+      if (order.status === 'cancelled' || order.status === 'failed') {
+        return res.status(400).json({ success: false, message: `Order is already ${order.status}` });
+      }
+
+      const batch = admin.firestore().batch();
+      const now = new Date().toISOString();
+      let refundProcessed = false;
+      const canRefund = (order.payment_status === 'paid' || order.payment_method === 'wallet' || order.payment_method === 'khata');
+
+      // 1. Update Order Status
+      batch.update(orderRef, {
+        status: 'cancelled',
+        payment_status: requestedRefund && canRefund ? 'refunded' : (order.payment_status || 'pending'),
+        cancellation_reason: reason || 'Cancelled by Admin',
+        cancelled_at: now,
+        cancelled_by: String(adminId),
+        updated_at: now
+      });
+
+      // 2. Handle Restocking if requested
+      if (restock && order.items && Array.isArray(order.items)) {
+        for (const item of order.items) {
+          if (item.product_id) {
+            const pRef = admin.firestore().collection('products').doc(String(item.product_id));
+            batch.update(pRef, { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
+          }
+          if (item.variant_id) {
+            const vRef = admin.firestore().collection('product_variants').doc(String(item.variant_id));
+            batch.update(vRef, { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
+          }
+        }
+      }
+
+      // 3. Handle Refund if requested and applicable
+      // Refund if status was 'paid' OR it used wallet/khata and we want to return funds
+      
+      if (requestedRefund && canRefund && order.total > 0) {
+        const userRef = admin.firestore().collection('users').doc(String(order.user_id));
+        const userDoc = await userRef.get();
+        if (userDoc.exists) {
+          const refundAmount = Number(order.total);
+          
+          if (order.payment_method === 'khata') {
+            // Reverting khata means decrementing the balance (reducing their debt)
+            batch.update(userRef, {
+              khata_balance: admin.firestore.FieldValue.increment(-refundAmount)
+            });
+          } else {
+            // Refunding to wallet
+            batch.update(userRef, {
+              wallet_balance: admin.firestore.FieldValue.increment(refundAmount)
+            });
+          }
+
+          const txRef = admin.firestore().collection('wallet_transactions').doc();
+          batch.set(txRef, {
+            user_id: String(order.user_id),
+            amount: refundAmount,
+            type: order.payment_method === 'khata' ? 'khata_reversal' : 'credit',
+            description: `Refund for Cancelled Order #${order.order_id || id} (Admin Initiated)`,
+            status: 'approved',
+            created_at: now
+          });
+          refundProcessed = true;
+        }
+      }
+
+      // 4. Audit Log
+      const auditRef = admin.firestore().collection('audit_logs').doc();
+      batch.set(auditRef, {
+        admin_id: String(adminId || 'system'),
+        action: 'ORDER_CANCEL_ADMIN',
+        target_type: 'ORDER',
+        target_id: String(id),
+        details: JSON.stringify({
+          message: `Admin cancelled order ${order.order_id || id}. Restock: ${!!restock}, Refund: ${refundProcessed}. Reason: ${reason || 'Not specified'}`,
+          restock: !!restock,
+          refund: refundProcessed,
+          reason: reason || 'Not specified',
+          adminId
+        }),
+        created_at: now
+      });
+
+      // 5. Order Status History
+      const historyRef = admin.firestore().collection('order_status_history').doc();
+      batch.set(historyRef, {
+        order_id: String(id),
+        status: 'cancelled',
+        timestamp: now,
+        notes: `Cancelled by admin. ${reason ? 'Reason: ' + reason : ''}`
+      });
+
+      await batch.commit();
+
+      // 6. User Notification
+      createAlert(
+        order.user_id,
+        'Order Cancelled',
+        `Your order #${order.order_id || id} has been cancelled by our team.`,
+        `${reason ? 'Reason: ' + reason : 'Please contact support for more details.'}${refundProcessed ? ' Amount has been reverted/refunded.' : ''}`,
+        'critical'
+      );
+
+      broadcast({ type: 'ORDER_STATUS_UPDATE', payload: { id, order_id: order.order_id, status: 'cancelled' } });
+      logEvent('info', `Order #${id} cancelled by Admin ${adminId}`, 'Order Cancellation', order.user_id);
+
+      res.json({ success: true, message: 'Order cancelled successfully', refund: refundProcessed, restock: !!restock });
+    } catch (err: any) {
+      console.error('[ADMIN CANCEL ERROR]', err);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/orders/:id/status', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { status, rejection_reason, restock, refund: requestedRefund } = req.body;
     const adminId = req.session.userId;
     
     try {
@@ -3635,89 +3950,111 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       if (!orderDoc.exists) return res.status(404).json({ message: 'Order not found' });
       const existingOrder = orderDoc.data() as any;
 
-      const oldState = { status: existingOrder.status };
-      
-      // Update order status
-      const updateData: any = { status };
-      if (rejection_reason) updateData.rejection_reason = rejection_reason;
-      await orderRef.update(updateData);
+      const oldStatus = existingOrder.status;
+      if (oldStatus === status) {
+        return res.json({ success: true, message: 'Status is already ' + status });
+      }
 
-      // Audit logs
-      await admin.firestore().collection('audit_logs').add({
-        admin_id: adminId || 'system',
+      const batch = admin.firestore().batch();
+      const now = new Date().toISOString();
+
+      // 1. Update order status
+      const updates: any = { 
+        status, 
+        rejection_reason: rejection_reason || null,
+        updated_at: now
+      };
+      
+      // Auto-mark as paid if status is moved to delivered or processing/paid
+      if ((status === 'delivered' || status === 'paid') && existingOrder.payment_status === 'pending') {
+        updates.payment_status = 'paid';
+      }
+
+      batch.update(orderRef, updates);
+
+      // 2. Auto-restock and refund if status is cancelled/failed
+      let refundProcessed = false;
+      let restockProcessed = false;
+
+      if ((status === 'cancelled' || status === 'failed') && oldStatus !== 'cancelled' && oldStatus !== 'failed') {
+        // Restock
+        if (restock && existingOrder.items && Array.isArray(existingOrder.items)) {
+          for (const item of existingOrder.items) {
+            if (item.product_id) {
+              const pRef = admin.firestore().collection('products').doc(String(item.product_id));
+              batch.update(pRef, { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
+            }
+            if (item.variant_id) {
+              const vRef = admin.firestore().collection('product_variants').doc(String(item.variant_id));
+              batch.update(vRef, { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
+            }
+          }
+          restockProcessed = true;
+        }
+
+        // Refund
+        const canRefund = (existingOrder.payment_status === 'paid' || existingOrder.payment_method === 'wallet' || existingOrder.payment_method === 'khata');
+        if (requestedRefund && canRefund && existingOrder.total > 0) {
+          const userRef = admin.firestore().collection('users').doc(String(existingOrder.user_id));
+          const refundAmount = Number(existingOrder.total);
+          
+          if (existingOrder.payment_method === 'khata') {
+            batch.update(userRef, { khata_balance: admin.firestore.FieldValue.increment(-refundAmount) });
+          } else {
+            batch.update(userRef, { wallet_balance: admin.firestore.FieldValue.increment(refundAmount) });
+          }
+
+          const txRef = admin.firestore().collection('wallet_transactions').doc();
+          batch.set(txRef, {
+            user_id: String(existingOrder.user_id),
+            amount: refundAmount,
+            type: existingOrder.payment_method === 'khata' ? 'khata_reversal' : 'credit',
+            description: `Refund for ${status.toUpperCase()} Order #${existingOrder.order_id || id}`,
+            status: 'approved',
+            created_at: now
+          });
+          refundProcessed = true;
+        }
+      }
+
+      // 3. Status History
+      const historyRef = admin.firestore().collection('order_status_history').doc();
+      batch.set(historyRef, {
+        order_id: String(id),
+        status,
+        timestamp: now,
+        notes: `Status changed from ${oldStatus} to ${status} by Admin.`
+      });
+
+      // 4. Audit Log
+      const auditRef = admin.firestore().collection('audit_logs').doc();
+      batch.set(auditRef, {
+        admin_id: String(adminId || 'system'),
         action: 'ORDER_STATUS_UPDATE',
         target_type: 'ORDER',
         target_id: String(id),
         details: JSON.stringify({ 
-          message: `Updated order ${existingOrder.order_id || id} status from ${existingOrder.status} to ${status}. ${rejection_reason ? 'Reason: ' + rejection_reason : ''}`,
-          oldState, newState: { status }
+          message: `Updated order ${existingOrder.order_id || id} status from ${oldStatus} to ${status}. Restock: ${restockProcessed}, Refund: ${refundProcessed}`,
+          oldStatus, newStatus: status, adminId
         }),
-        created_at: new Date().toISOString()
+        created_at: now
       });
 
-      await admin.firestore().collection('order_status_history').add({
-         order_id: String(id), status, timestamp: new Date().toISOString()
-      });
-      
-      if (existingOrder.assigned_runner_id) {
-         await admin.firestore().collection('logistics_events').add({
-            order_id: String(id), runner_id: existingOrder.assigned_runner_id, status, notes: `Order status updated to ${status}`, created_at: new Date().toISOString()
-         });
-      }
+      await batch.commit();
 
+      // Notifications
       createAlert(
         existingOrder.user_id, 'Order Update', 
         `Your order #${existingOrder.order_id || id} status has been updated to ${status.toUpperCase()}.`, 
         `${rejection_reason ? 'Reason: ' + rejection_reason : 'Processing your request.'}`,
-        status === 'cancelled' || status === 'failed' ? 'critical' : 'success', 5000
+        status === 'cancelled' || status === 'failed' ? 'critical' : 'success'
       );
 
-      // AUTO-RESTOCK & REFUND ON CANCEL/FAIL
-      if ((status === 'cancelled' || status === 'failed') && existingOrder.status !== 'cancelled' && existingOrder.status !== 'failed') {
-        const items = existingOrder.items || [];
-        const batch = admin.firestore().batch();
-        for (const item of items) {
-           if (item.product_id) {
-              const pRef = admin.firestore().collection('products').doc(String(item.product_id));
-              const pDoc = await pRef.get();
-              if (pDoc.exists) batch.update(pRef, { stock: Number(pDoc.data()?.stock || 0) + Number(item.quantity || 0) });
-           }
-           if (item.variant_id) {
-              const vRef = admin.firestore().collection('product_variants').doc(String(item.variant_id));
-              const vDoc = await vRef.get();
-              if (vDoc.exists) batch.update(vRef, { stock: Number(vDoc.data()?.stock || 0) + Number(item.quantity || 0) });
-           }
-        }
-        await batch.commit();
-
-        const userRef = admin.firestore().collection('users').doc(String(existingOrder.user_id));
-        const userDoc = await userRef.get();
-        if (userDoc.exists) {
-           // Refund wallet if used
-           if (existingOrder.payment_method === 'wallet' && existingOrder.wallet_used > 0) {
-             const newBal = Number(userDoc.data()?.wallet_balance || 0) + Number(existingOrder.wallet_used);
-             await userRef.update({ wallet_balance: newBal });
-             await admin.firestore().collection('wallet_transactions').add({
-                user_id: existingOrder.user_id, amount: existingOrder.wallet_used, type: 'credit', description: `Refund for Cancelled Order #${id}`, status: 'approved', created_at: new Date().toISOString()
-             });
-           }
-           
-           // Revert Khata if used
-           if (existingOrder.payment_method === 'khata') {
-             const newKBal = Number(userDoc.data()?.khata_balance || 0) - Number(existingOrder.total);
-             await userRef.update({ khata_balance: newKBal });
-             await admin.firestore().collection('wallet_transactions').add({
-                user_id: existingOrder.user_id, amount: existingOrder.total, type: 'credit', description: `Khata Reversal for Cancelled Order #${id}`, status: 'approved', created_at: new Date().toISOString()
-             });
-           }
-        }
-      }
-      
       broadcast({ type: 'ORDER_STATUS_UPDATE', payload: { id: id, order_id: existingOrder.order_id, status } });
-      logEvent('info', `Order #${id} status updated to ${status}`, 'Status change notification', existingOrder.user_id);
-
-      res.json({ success: true });
+      
+      res.json({ success: true, message: `Status updated to ${status}`, refund: refundProcessed, restock: restockProcessed });
     } catch (err: any) {
+      console.error('[STATUS UPDATE ERROR]', err);
       res.status(500).json({ success: false, message: err.message });
     }
   });
@@ -4185,7 +4522,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          address, payment_method, payment_id: payment_id || null, payment_utr: payment_utr || null,
          payment_ref: payment_ref || null, payment_screenshot: payment_screenshot || null,
          delivery_type, notes: notes || null, coupon_code: coupon_code || null, wallet_used: 0,
-         order_id: orderIdStr, expires_at: expiresAt, status: 'pending', created_at: new Date().toISOString()
+         order_id: orderIdStr, expires_at: expiresAt, status: 'pending', payment_status: 'pending', created_at: new Date().toISOString()
       };
 
       const userRef = admin.firestore().collection('users').doc(String(user_id));
@@ -4329,10 +4666,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          batch.update(userRef, { wallet_balance: wBal - finalTotal });
          const wTransRef = admin.firestore().collection('wallet_transactions').doc();
          batch.set(wTransRef, { user_id: String(user_id), amount: finalTotal, type: 'debit', description: `Order #${orderIdStr} payment`, status: 'approved', created_at: new Date().toISOString() });
+         orderRecord.payment_status = 'paid';
       } else if (payment_method === 'khata') {
          batch.update(userRef, { khata_balance: currentBalance + finalTotal });
          const wTransRef = admin.firestore().collection('wallet_transactions').doc();
          batch.set(wTransRef, { user_id: String(user_id), amount: finalTotal, type: 'debit', description: `Order #${orderIdStr} Khata debit`, status: 'approved', created_at: new Date().toISOString() });
+         orderRecord.payment_status = 'paid';
       }
 
       orderRecord.total = finalTotal;
@@ -4372,7 +4711,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       try {
         if (admin.apps.length) {
             const failedRef = admin.firestore().collection('orders').doc();
-            await failedRef.set({ user_id: String(user_id), total, address, status: 'failed', notes: `Error: ${err.message}`, created_at: new Date().toISOString() });
+            await failedRef.set({ user_id: String(user_id), total, address, status: 'failed', payment_status: 'failed', notes: `Error: ${err.message}`, created_at: new Date().toISOString() });
             res.status(500).json({ success: false, message: 'Failed to place order. A record of this failure has been saved to your history.', orderId: failedRef.id });
         } else {
             res.status(500).json({ success: false, message: 'Server configuration error' });
@@ -4484,6 +4823,24 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       res.json(orders);
     } catch(e) {
       res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get('/api/orders/:id/status-history', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    try {
+      if (!admin.apps.length) return res.status(500).json([]);
+      const doc = await admin.firestore().collection('orders').doc(id).get();
+      if (!doc.exists) return res.status(404).json({ success: false, message: 'Order not found' });
+      
+      const order = doc.data() as any;
+      if (String(order.user_id) !== String(req.session.userId) && req.session.role !== 'admin') {
+         return res.status(403).json({ success: false, message: 'Forbidden' });
+      }
+      res.json(order.status_history || []);
+    } catch(e: any) {
+      logServerError(e, 'getOrderStatusHistory', req);
+      res.status(500).json({ success: false, message: 'Internal error' });
     }
   });
 
@@ -4952,7 +5309,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                     matchedOrderId = order.order_id;
 
                     const batch = admin.firestore().batch();
-                    batch.update(orderDoc.ref, { status: 'paid', last_status_update: new Date().toISOString(), system_payment_matched: 1 });
+                    batch.update(orderDoc.ref, { status: 'paid', payment_status: 'paid', last_status_update: new Date().toISOString(), system_payment_matched: 1 });
                     
                     const uRef = admin.firestore().collection('users').doc(String(order.user_id));
                     const uDocCur = await uRef.get();
@@ -5223,21 +5580,40 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       if (!admin.apps.length) return;
       const now = new Date().toISOString();
-      const snap = await admin.firestore().collection('orders').where('status', '==', 'pending').where('expires_at', '<', now).get();
+      const ordersColl = admin.firestore().collection('orders');
+      
+      // Check if collection exists by getting one doc (prevent 5 NOT_FOUND)
+      const testSnap = await ordersColl.limit(1).get();
+      if (testSnap.empty && testSnap.size === 0) {
+         // Collection might not exist yet, or just empty. 
+         // If it's truly NOT_FOUND, firestore-admin usually handles it by returning empty.
+         // But let's be safe.
+      }
+
+      const snap = await ordersColl.where('status', '==', 'pending').where('expires_at', '<', now).get();
       if (!snap.empty) {
          const batch = admin.firestore().batch();
+         let count = 0;
          snap.docs.forEach(doc => {
-            batch.update(doc.ref, { status: 'EXPIRED', last_status_update: now });
+            if (!doc.exists) {
+               console.warn(`[TASKS] Order ${doc.id} not found during expiry check.`);
+               return;
+            }
+            batch.update(doc.ref, { status: 'EXPIRED', last_status_update: now, updated_at: now });
+            count++;
          });
-         await batch.commit();
-         console.log(`[TASKS] Expired ${snap.size} pending orders.`);
+         
+         if (count > 0) {
+           await batch.commit();
+           console.log(`[TASKS] Expired ${count} pending orders.`);
+         }
       }
     } catch (err: any) {
-      if (err.code === 5 || err.message?.includes('NOT_FOUND')) {
-        // Firestore likely not fully initialized yet
+      if (err.code === 5 || err.message?.includes('NOT_FOUND') || err.message?.includes('no collection')) {
+        console.warn('[TASKS] Expire orders: Collection not found or not ready. Skipping.');
         return;
       }
-      console.error('[TASKS] Expire orders error:', err);
+      logServerError(err, 'expireOrders');
     }
   };
 
@@ -5258,7 +5634,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       order.id = oDoc.id;
       
       const batch = admin.firestore().batch();
-      batch.update(oRef, { status: 'paid', last_status_update: new Date().toISOString(), admin_notes: notes || 'Approved manually by admin' });
+      batch.update(oRef, { status: 'paid', payment_status: 'paid', last_status_update: new Date().toISOString(), admin_notes: notes || 'Approved manually by admin' });
       
       const uRef = admin.firestore().collection('users').doc(String(order.user_id));
       const uDocCur = await uRef.get();
@@ -5575,7 +5951,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       console.log('[INTEGRITY] Deep scan completed. Environment stable.');
     } catch (err: any) {
-      console.error('[INTEGRITY] Audit failed:', err.message);
+      if (err.code !== 5 && !err.message.includes('NOT_FOUND')) {
+        console.error('[INTEGRITY] Audit failed, error context:', {
+          message: err.message,
+          code: err.code,
+          stack: err.stack,
+          details: err
+        });
+      }
     }
   };
 
@@ -5636,7 +6019,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  if (process.env.NODE_ENV !== 'production') {
     try {
       console.log('[BOOT] Initializing Vite server in middleware mode...');
       const { createServer: createViteServer } = await import('vite');
@@ -5644,8 +6027,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         server: { 
           middlewareMode: true,
           hmr: false,
-          host: '0.0.0.0',
-          port: 3000
         },
         appType: 'spa',
       });
@@ -5653,7 +6034,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       
       // Manual SPA fallback for Vite middleware to ensure it works in all proxy scenarios
       app.use('*', async (req, res, next) => {
-        if (req.method !== 'GET') return next();
+        if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
         const url = req.originalUrl;
         try {
           let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
@@ -5676,6 +6057,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   }
 
   // Global Error Handler - MUST be after all routes
+
   app.use((err: any, req: any, res: express.Response, next: express.NextFunction) => {
     const requestId = req.id || 'N/A';
     const duration = req.startTime ? `${Date.now() - req.startTime}ms` : 'N/A';
@@ -5731,8 +6113,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   const PORT = 3000;
   
   if (!httpServer) {
-    console.log('[BOOT] Creating http server instance...');
+    console.log('[BOOT] Creating http server instance and WebSocket server...');
     httpServer = createServer(app);
+    io = new Server(httpServer, {
+      cors: { origin: "*", methods: ["GET", "POST"] }
+    });
+    io.on('connection', (socket) => {
+      console.log('Client connected to real-time updates');
+      socket.on('disconnect', () => console.log('Client disconnected'));
+    });
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {

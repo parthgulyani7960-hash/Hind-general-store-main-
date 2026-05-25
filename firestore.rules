@@ -20,9 +20,17 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin());
     }
 
-    // --- Products ---
+    // Products & Categories - Publicly readable for the shopfront
     match /products/{productId} {
-      allow read: if isSignedIn();
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /categories/{categoryId} { 
+      allow read: if true; 
+      allow write: if isAdmin(); 
+    }
+    match /product_variants/{id} {
+      allow read: if true;
       allow write: if isAdmin();
     }
 
@@ -33,29 +41,49 @@ service cloud.firestore {
       allow update: if isAdmin();
     }
 
-    // --- Purchase Records ---
-    match /purchase_records/{orderId} {
-      allow read, write: if isAdmin();
+    // --- Settings & Delivery ---
+    match /settings/{key} {
+      allow read: if true; 
+      allow write: if isAdmin();
     }
-
-    // --- Wallet ---
-    match /wallet_transactions/{transactionId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    match /delivery_areas/{id} {
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // --- Coupons ---
-    match /coupons/{couponId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+    // --- Logs (Anyone can write bugs/errors, only admin reads) ---
+    match /bug_reports/{reportId} {
+      allow create: if true;
+      allow read: if isAdmin();
+    }
+    match /error_logs/{logId} {
+      allow create: if true;
+      allow read: if isAdmin();
+    }
+    match /system_logs/{id} {
+      allow create: if true;
+      allow read: if isAdmin();
+    }
+    match /audit_logs/{logId} { 
+      allow read: if isAdmin(); 
+    }
+    match /suspicious_activities/{id} {
+      allow create: if true;
+      allow read: if isAdmin();
     }
 
     // --- Other Collections ---
-    match /categories/{categoryId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
-    match /reviews/{reviewId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
-    match /support_tickets/{ticketId} { allow read, write: if isSignedIn(); }
-    match /audit_logs/{logId} { allow read: if isAdmin(); }
-    match /error_logs/{logId} { allow read: if isAdmin(); }
-    match /promotions/{promoId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /reviews/{reviewId} { 
+      allow read: if true; 
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin(); 
+    }
+    match /support_tickets/{ticketId} { 
+      allow read, write: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()); 
+    }
+    match /promotions/{promoId} { 
+      allow read: if true; 
+      allow write: if isAdmin(); 
+    }
   }
 }

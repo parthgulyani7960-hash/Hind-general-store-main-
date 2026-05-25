@@ -101,7 +101,6 @@ export default function Navbar() {
 
   const navLinks = [
     { to: '/', label: t('home') },
-    { to: '/about', label: t('about_us') },
     { to: '/products', label: t('products') },
     { to: '/support', label: t('support') },
     { to: '/track-order', label: 'Track Order' },
@@ -117,7 +116,11 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
           <Link to="/" className="flex items-center space-x-3 group mr-4">
-            <div className="relative shrink-0">
+            <motion.div 
+              whileHover={{ scale: 1.05, rotate: -2 }}
+              whileTap={{ scale: 0.95 }}
+              className="relative shrink-0"
+            >
               <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center transform group-hover:-rotate-3 transition-all duration-700 shadow-xl overflow-hidden border border-stone-200 ring-1 ring-stone-100">
                 <Store className="text-emerald-600" size={24} />
                 <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 via-transparent to-transparent group-hover:opacity-100 transition-opacity duration-700" />
@@ -125,7 +128,7 @@ export default function Navbar() {
               <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-white shadow-sm flex items-center justify-center">
                 <ShoppingCart size={10} className="text-white" />
               </div>
-            </div>
+            </motion.div>
             <div className="flex flex-col">
               <span className="text-lg font-black text-stone-900 hidden lg:block leading-none tracking-tight group-hover:text-emerald-700 transition-colors">
                 {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'}
@@ -151,27 +154,30 @@ export default function Navbar() {
 
           <div className="hidden md:flex items-center space-x-4 lg:space-x-8">
             {navLinks.map((link) => (
-              <NavLink 
-                key={link.to} 
-                to={link.to} 
-                className={({ isActive }) => cn(
-                  "text-sm font-medium transition-colors hover:text-primary",
-                  isActive ? "text-primary font-bold" : "text-stone-600"
-                )}
-              >
-                {link.label}
-              </NavLink>
+              <motion.div key={link.to} whileHover={{ y: -2 }} whileTap={{ y: 0 }}>
+                <NavLink 
+                  to={link.to} 
+                  className={({ isActive }) => cn(
+                    "text-sm font-medium transition-colors hover:text-primary",
+                    isActive ? "text-primary font-bold" : "text-stone-600"
+                  )}
+                >
+                  {link.label}
+                </NavLink>
+              </motion.div>
             ))}
             {user?.role === 'admin' && (
-              <NavLink 
-                to="/admin" 
-                className={({ isActive }) => cn(
-                  "text-sm font-bold transition-colors",
-                  isActive ? "text-primary" : "text-stone-900 hover:text-primary"
-                )}
-              >
-                Admin Panel
-              </NavLink>
+              <motion.div whileHover={{ y: -2 }} whileTap={{ y: 0 }}>
+                <NavLink 
+                  to="/admin" 
+                  className={({ isActive }) => cn(
+                    "text-sm font-bold transition-colors",
+                    isActive ? "text-primary" : "text-stone-900 hover:text-primary"
+                  )}
+                >
+                  Admin Panel
+                </NavLink>
+              </motion.div>
             )}
           </div>
 
@@ -294,51 +300,32 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile Menu */}
-      {isMenuOpen && (
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="md:hidden bg-white border-t border-stone-100 p-4 space-y-4"
-        >
-          {user && (
-            <div className="flex items-center space-x-3 pb-4 border-b border-stone-100 mb-4">
-              <UserAvatar user={user} size="md" />
-              <div>
-                <p className="text-sm font-bold text-stone-900">{user.name}</p>
-                <span className="text-[10px] font-bold text-white bg-primary px-1.5 py-0.5 rounded uppercase tracking-tighter">
-                  {user.role}
-                </span>
-              </div>
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="md:hidden bg-white border-t border-stone-100 overflow-hidden"
+          >
+            <div className="p-4 space-y-1">
+              {navLinks.map((link) => (
+                <NavLink 
+                  key={link.to} 
+                  to={link.to} 
+                  onClick={() => setIsMenuOpen(false)}
+                  className={({ isActive }) => cn(
+                    "block py-3 px-4 text-sm font-bold transition-colors rounded-xl",
+                    isActive ? "text-primary bg-stone-50" : "text-stone-600 hover:bg-stone-50"
+                  )}
+                >
+                  {link.label}
+                </NavLink>
+              ))}
             </div>
-          )}
-          {navLinks.map((link) => (
-            <NavLink 
-              key={link.to} 
-              to={link.to} 
-              onClick={() => setIsMenuOpen(false)}
-              className={({ isActive }) => cn(
-                "block text-lg py-3 min-h-[44px] font-medium transition-colors",
-                isActive ? "text-primary font-bold bg-stone-50 rounded-xl px-4" : "text-stone-600 px-4"
-              )}
-            >
-              {link.label}
-            </NavLink>
-          ))}
-          {user?.role === 'admin' && (
-            <NavLink 
-              to="/admin" 
-              onClick={() => setIsMenuOpen(false)}
-              className={({ isActive }) => cn(
-                "block text-lg py-3 min-h-[44px] font-bold transition-colors",
-                isActive ? "text-primary bg-stone-50 rounded-xl px-4" : "text-stone-900 px-4"
-              )}
-            >
-              Admin Panel
-            </NavLink>
-          )}
-        </motion.div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <SearchOverlay 
         isOpen={isSearchModalOpen} 

@@ -1371,6 +1371,15 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchReviews = async () => {
+    try {
+      const data = await fetchWithHandling<any[]>('/api/admin/reviews', { headers: getAuthHeaders() });
+      if (data) setReviews(data);
+    } catch (err) {
+      console.error('Failed to fetch reviews:', err);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'Automatic Reports') {
       fetchBugReports();
@@ -1381,6 +1390,9 @@ export default function AdminDashboard() {
     if (activeTab === 'System Status') {
       fetchSystemLogs();
       fetchSystemHealth();
+    }
+    if (activeTab === 'Reviews') {
+      fetchReviews();
     }
     if (activeTab === 'Purchase Orders') {
       // Logic handled via onSnapshot in PurchaseOrdersTab
@@ -1758,7 +1770,7 @@ export default function AdminDashboard() {
       
       const [data, salesData] = await Promise.all([
         fetchWithHandling<any>(`/api/admin/analytics?${params.toString()}`, { headers: getAuthHeaders() }),
-        fetchWithHandling<any>('/api/admin/sales-analytics', { headers: getAuthHeaders() })
+        fetchWithHandling<any>(`/api/admin/sales-analytics?${params.toString()}`, { headers: getAuthHeaders() })
       ]);
       
       if (data) setAnalyticsData(data);
@@ -4781,10 +4793,10 @@ export default function AdminDashboard() {
               {loading ? (
                 [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
               ) : [
-                { label: 'Pending Review', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', trend: 'Response Required' },
-                { label: 'Active Fulfillment', val: orders.filter(o => o.status === 'processing').length, icon: Settings, color: 'blue', trend: 'In Preparations' },
-                { label: 'In Transit', val: orders.filter(o => o.status === 'shipped').length, icon: Truck, color: 'purple', trend: 'Logistics Network' },
-                { label: 'Success Velocity', val: orders.filter(o => o.status === 'delivered').length, icon: CheckCircle2, color: 'emerald', trend: 'Closed Transactions' }
+                { label: 'Pending Orders', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', trend: 'Response Required' },
+                { label: 'Unresolved Tickets', val: tickets.filter(t => t.status === 'open' || t.status === 'in-progress').length, icon: MessageSquare, color: 'red', trend: 'Customer Support' },
+                { label: 'Pending Reviews', val: reviews.filter(r => r.status === 'pending').length, icon: Star, color: 'blue', trend: 'Moderation Pool' },
+                { label: 'Wallet Requests', val: walletRequests.filter(w => w.status === 'pending').length, icon: Wallet, color: 'emerald', trend: 'Financial Flow' }
               ].map((stat, i) => (
                 <motion.div 
                   key={stat.label}
@@ -5029,8 +5041,18 @@ export default function AdminDashboard() {
                             <div className="flex flex-col items-end">
                               <span className="text-base font-black text-stone-900 tracking-tighter">₹{order.total}</span>
                               <div className="flex items-center space-x-1 mt-1">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Settled</span>
+                                <div className={cn(
+                                  "w-1.5 h-1.5 rounded-full",
+                                  order.payment_status === 'paid' ? "bg-emerald-500" :
+                                  order.payment_status === 'failed' ? "bg-red-500" : "bg-amber-500"
+                                )} />
+                                <span className={cn(
+                                  "text-[9px] font-black uppercase tracking-widest",
+                                  order.payment_status === 'paid' ? "text-emerald-600" :
+                                  order.payment_status === 'failed' ? "text-red-600" : "text-amber-600"
+                                )}>
+                                  {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
+                                </span>
                               </div>
                             </div>
                           </td>
@@ -5177,7 +5199,16 @@ export default function AdminDashboard() {
                           >
                             <div className="flex justify-between items-start mb-4">
                               <span className="font-mono text-xs font-black text-primary tracking-tighter">#ORD-{order.id}</span>
-                              <span className="text-xs font-black text-stone-900 tracking-tight">₹{order.total}</span>
+                              <div className="flex flex-col items-end">
+                                <span className="text-xs font-black text-stone-900 tracking-tight">₹{order.total}</span>
+                                <span className={cn(
+                                  "text-[8px] font-black uppercase tracking-widest mt-0.5 px-1.5 py-0.5 rounded-md",
+                                  order.payment_status === 'paid' ? "bg-emerald-100 text-emerald-600" :
+                                  order.payment_status === 'failed' ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                                )}>
+                                  {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
+                                </span>
+                              </div>
                             </div>
                             <h5 className="text-sm font-black text-stone-900 mb-1 truncate">{order.user_name || 'Anonymous Customer'}</h5>
                             <p className="text-[10px] text-stone-400 font-medium mb-4 line-clamp-1">{order.items?.length || 0} unique SKU items</p>
@@ -8495,7 +8526,7 @@ export default function AdminDashboard() {
                  <div className="w-px h-10 bg-stone-100" />
                  <div className="flex flex-col">
                    <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Average Rating</span>
-                   <span className="text-2xl font-black text-primary">{(reviews.reduce((acc, r) => acc + r.rating, 0) / (reviews.length || 1)).toFixed(1)} / 5.0</span>
+                   <span className="text-2xl font-black text-primary">{reviews.length > 0 ? (reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0) / reviews.length).toFixed(1) : "0.0"} / 5.0</span>
                  </div>
               </div>
             </header>
@@ -8557,8 +8588,12 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-6 whitespace-nowrap">
                            <div className="flex flex-col">
-                             <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(review.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-                             <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">{new Date(review.created_at).getFullYear()}</span>
+                             <span className="text-xs font-black text-stone-800 tracking-tight">
+                               {review.created_at ? new Date(review.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'N/A'}
+                             </span>
+                             <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">
+                               {review.created_at ? new Date(review.created_at).getFullYear() : ''}
+                             </span>
                            </div>
                         </td>
                         <td className="px-10 py-6 text-right">
@@ -11092,7 +11127,16 @@ export default function AdminDashboard() {
           >
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h3 className="text-2xl font-bold">Order #ORD-{orderModal.order.id}</h3>
+                <div className="flex items-center space-x-3">
+                  <h3 className="text-2xl font-bold">Order #ORD-{orderModal.order.id}</h3>
+                  <span className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm",
+                    orderModal.order.payment_status === 'paid' ? "bg-emerald-500 text-white" :
+                    orderModal.order.payment_status === 'failed' ? "bg-red-500 text-white" : "bg-amber-400 text-white"
+                  )}>
+                    {orderModal.order.payment_status ? orderModal.order.payment_status.toUpperCase() : 'PENDING'}
+                  </span>
+                </div>
                 <p className="text-stone-500">{new Date(orderModal.order.created_at).toLocaleString()}</p>
               </div>
               <button onClick={() => setOrderModal({ open: false, order: null })} className="p-2 hover:bg-stone-100 rounded-full">
@@ -11148,9 +11192,18 @@ export default function AdminDashboard() {
                         <span>Delivery Fee</span>
                         <span>₹{orderModal.order.delivery_fee || 0}</span>
                       </div>
-                      <div className="pt-3 border-t border-stone-100 flex justify-between font-bold text-lg">
-                        <span>Total</span>
-                        <span className="text-primary">₹{orderModal.order.total}</span>
+                      <div className="pt-3 border-t border-stone-100 flex justify-between items-center">
+                        <span className="font-bold text-lg text-stone-900">Total</span>
+                        <div className="flex flex-col items-end">
+                          <span className="text-2xl font-black text-primary">₹{orderModal.order.total}</span>
+                          <span className={cn(
+                             "text-[9px] font-black uppercase tracking-widest mt-1",
+                             orderModal.order.payment_status === 'paid' ? "text-emerald-600" :
+                             orderModal.order.payment_status === 'failed' ? "text-red-600" : "text-amber-500"
+                          )}>
+                             Payment: {orderModal.order.payment_status || 'Awaiting Verification'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -11459,24 +11512,48 @@ export default function AdminDashboard() {
                               const reason = prompt('Enter rejection reason:');
                               if (reason) {
                                 try {
+                                  const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/fail-payment`, {
+                                    method: 'POST',
+                                    headers: getAuthHeaders(),
+                                    body: JSON.stringify({ reason })
+                                  });
+                                  if (data) {
+                                    toast.error('Payment Proof Rejected. User notified.');
+                                    setOrderModal({ open: false, order: null });
+                                    fetchOrders();
+                                  }
+                                } catch (err) {
+                                  console.error('Fail payment error:', err);
+                                }
+                              }
+                            }}
+                            className="flex-1 bg-amber-600 text-white py-2 rounded-xl font-bold hover:bg-amber-700"
+                          >
+                            Reject Proof
+                          </button>
+                          <button 
+                            onClick={async () => {
+                              const reason = prompt('Enter cancellation reason:');
+                              if (reason) {
+                                try {
                                   const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
                                     method: 'POST',
                                     headers: getAuthHeaders(),
                                     body: JSON.stringify({ status: 'cancelled', rejection_reason: reason })
                                   });
                                   if (data) {
-                                    toast.error('Order Rejected');
+                                    toast.error('Order Cancelled');
                                     setOrderModal({ open: false, order: null });
                                     fetchOrders();
                                   }
                                 } catch (err) {
-                                  console.error('Reject order error:', err);
+                                  console.error('Cancel order error:', err);
                                 }
                               }
                             }}
                             className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700"
                           >
-                            Reject
+                            Cancel Order
                           </button>
                         </div>
                       )}

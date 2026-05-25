@@ -771,249 +771,71 @@ export default function Products() {
             <motion.div 
               key={product.id}
               layout
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: -20, transition: { duration: 0.2 } }}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              whileHover={{ 
+                y: -10,
+                transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] }
+              }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              onMouseEnter={() => setHoverQuickView(product.id)}
-              onMouseLeave={() => setHoverQuickView(null)}
-              className="relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-xl transition-all duration-300 flex flex-col p-4 md:p-6"
-              whileHover={{ y: -5, scale: 1.02 }}
+              className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-2xl hover:shadow-stone-200/50 hover:border-primary/20 transition-all duration-300 flex flex-col p-3 z-0 hover:z-10"
             >
-              <Link to={`/product/${product.id}`} className="relative h-40 sm:h-64 overflow-hidden block group/image mb-4 -mx-4 -mt-4 md:-mx-6 md:-mt-6">
+              <Link 
+                to={`/product/${product.id}`} 
+                className="relative h-44 overflow-hidden block group/image mb-3 -mx-3 -mt-3 rounded-t-2xl bg-stone-50"
+              >
                 {showImages ? (
-                  <img 
+                  <motion.img 
                     src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
                     alt={product.name}
                     loading="lazy"
                     referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover/image:scale-105 transition-transform duration-500 bg-stone-100"
+                    whileHover={{ scale: 1.1 }}
+                    transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                    className="w-full h-full object-cover bg-stone-100"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
-                    <Camera size={48} />
+                    <Camera size={24} />
                   </div>
                 )}
                 
-                {/* Improved Quick View Overlay */}
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10">
-                  <button 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setQuickViewProduct(product);
-                    }}
-                    className="bg-white text-stone-900 px-6 py-3 rounded-full font-black text-xs md:text-sm flex items-center space-x-2 pointer-events-auto hover:bg-stone-50 hover:scale-105 transition-all shadow-xl"
-                  >
-                    <Search size={18} />
-                    <span>Quick View</span>
-                  </button>
-                </div>
-
-                <div className="absolute top-4 left-4 flex flex-col space-y-2 z-20">
+                <div className="absolute top-2 left-2 flex flex-col space-y-1 z-20">
                     {product.discount > 0 && (
-                      <div className="bg-accent text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider shadow-lg">
+                      <div className="bg-accent text-white px-1.5 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-wider shadow">
                         {product.discount}% OFF
                       </div>
                     )}
                 </div>
-                <div className="absolute top-4 right-4 flex flex-col space-y-2 z-20">
-                    <div className={cn(
-                      "bg-white/90 backdrop-blur px-3 py-2 rounded-xl text-sm font-black shadow-sm flex flex-col items-end",
-                      getProductPrice(product, user?.role) < product.price ? "text-accent" : "text-primary"
-                    )}>
-                    <div className="flex flex-col items-end">
-                      <div className="flex items-center space-x-1">
-                        {getProductPrice(product, user?.role) < product.price && (
-                          <span className="text-xs text-stone-400 line-through font-bold">₹{product.price}</span>
-                        )}
-                        <span className="text-xl">₹{getProductPrice(product, user?.role)}</span>
-                      </div>
-                      {user?.role === 'wholesaler' && product.wholesale_price && (
-                        <span className="text-[10px] font-black uppercase tracking-tighter">Wholesale</span>
-                      )}
-                      {user?.role === 'retailer' && product.retail_price && (
-                        <span className="text-[10px] font-black uppercase tracking-tighter">Retail</span>
-                      )}
-                    </div>
-                  </div>
-                  <button 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      toggleWishlist(product.id);
-                    }}
-                    className={cn(
-                      "p-3 rounded-xl backdrop-blur shadow-sm transition-all pointer-events-auto",
-                      wishlist.includes(product.id) 
-                        ? "bg-red-500 text-white" 
-                        : "bg-white/90 text-stone-400 hover:text-red-500"
-                    )}
-                  >
-                    <Heart size={20} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
-                  </button>
-                </div>
-                
-                {/* Direct Add to Cart on Image */}
-                <div className="absolute bottom-4 right-4 z-20">
-                  {product.stock <= 0 ? (
-                    <div className="bg-stone-900/90 text-white text-[10px] uppercase font-black px-3 py-2 rounded-xl backdrop-blur shadow-xl">
-                      Out of Stock
-                    </div>
-                  ) : cartItem ? (
-                     <div className="flex flex-col items-center bg-white/90 backdrop-blur rounded-full shadow-xl border border-stone-100 pointer-events-auto">
-                        <button 
-                          onClick={(e) => { 
-                            e.preventDefault(); 
-                            if (cartItem.quantity >= product.stock) {
-                              toast.error(`Only ${product.stock} items left`);
-                              return;
-                            }
-                            updateQuantity(product.id, 1); 
-                          }} 
-                          className="p-3 hover:bg-stone-100 text-primary transition-colors rounded-t-full"
-                        >
-                          <Plus size={16} className="stroke-[3px]" />
-                        </button>
-                        <span className="font-bold text-sm py-1 font-mono">{cartItem.quantity}</span>
-                        <button 
-                          onClick={(e) => { e.preventDefault(); updateQuantity(product.id, -1); }} 
-                          className="p-3 hover:bg-stone-100 text-primary transition-colors rounded-b-full"
-                        >
-                          <Minus size={16} className="stroke-[3px]" />
-                        </button>
-                     </div>
-                  ) : (
-                    <button 
-                      onClick={(e) => { e.preventDefault(); addToCart(product); }}
-                      className="bg-primary hover:bg-primary/90 text-white rounded-full shadow-2xl flex items-center justify-center pointer-events-auto transition-transform active:scale-95 group/add"
-                    >
-                      <div className="p-4">
-                        <Plus size={24} className="stroke-[3px] group-hover/add:rotate-90 transition-transform duration-300" />
-                      </div>
-                    </button>
-                  )}
-                </div>
               </Link>
               
               <div className="flex-1 flex flex-col">
-                <Link to={`/product/${product.id}`} className="mb-4 block group">
-                  <span className="text-xs uppercase tracking-widest font-black text-primary">{product.category}</span>
-                  <h3 className="text-sm md:text-xl lg:text-2xl font-black text-stone-900 group-hover:text-primary transition-colors mt-1 leading-tight line-clamp-2">{product.name}</h3>
-                  <div className="flex items-center space-x-2 mt-2">
-                    <div className="flex text-amber-400">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} size={14} fill={i < Math.round((product as any).avg_rating || 0) ? "currentColor" : "none"} />
-                      ))}
-                    </div>
-                    <span className="text-xs text-stone-400 font-black">({(product as any).review_count || 0} reviews)</span>
-                  </div>
+                <Link to={`/product/${product.id}`} className="mb-2 block group">
+                  <h3 className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors leading-tight line-clamp-2">{product.name}</h3>
                 </Link>
-                <p className="hidden sm:block text-base md:text-lg text-stone-600 mb-6 line-clamp-3 leading-relaxed">{product.description}</p>
                 
-                <div className="mt-auto flex space-x-3">
+                <div className="mt-auto flex items-center justify-between pt-2">
+                  <span className="text-sm font-black text-primary">₹{getProductPrice(product, user?.role)}</span>
+
                   {product.stock <= 0 ? (
-                    <div className="flex-1 bg-stone-100 text-stone-500 font-black uppercase text-xs flex items-center justify-center rounded-xl p-3 border border-stone-200 cursor-not-allowed">
-                       Out of Stock
-                    </div>
+                    <div className="text-[9px] uppercase font-black text-stone-400">Out of Stock</div>
                   ) : cartItem ? (
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="flex-1 flex items-center justify-between bg-stone-50 rounded-xl p-1 border border-stone-200"
-                    >
-                      <button 
-                        onClick={() => updateQuantity(product.id, -1)}
-                        className="p-2 hover:bg-white rounded-lg transition-colors text-primary"
-                      >
-                        <Minus size={16} />
-                      </button>
-                      <span className="font-bold">{cartItem.quantity}</span>
-                      <button 
-                        onClick={() => {
-                          if (cartItem.quantity >= product.stock) {
-                            toast.error(`Only ${product.stock} items left in stock`);
-                            return;
-                          }
-                          updateQuantity(product.id, 1);
-                        }}
-                        className="p-2 hover:bg-white rounded-lg transition-colors text-primary"
-                      >
-                        <Plus size={16} />
-                      </button>
-                    </motion.div>
+                     <div className="flex items-center bg-stone-100 rounded-lg">
+                        <button onClick={() => updateQuantity(product.id, -1)} className="p-1 text-primary"><Minus size={14} /></button>
+                        <span className="font-bold text-xs px-2">{cartItem.quantity}</span>
+                        <button onClick={() => updateQuantity(product.id, 1)} className="p-1 text-primary"><Plus size={14} /></button>
+                     </div>
                   ) : (
-                    <motion.button 
-                      whileTap={{ scale: 0.95 }}
+                    <button 
                       onClick={() => addToCart(product)}
-                      className="flex-1 btn-primary flex items-center justify-center space-x-2 shadow-lg shadow-primary/20"
+                      className="bg-primary text-white p-2 rounded-lg transition-transform active:scale-95"
                     >
-                      <ShoppingCart size={18} />
-                      <span className="text-xs font-black uppercase tracking-widest">Add</span>
-                    </motion.button>
+                      <Plus size={16} />
+                    </button>
                   )}
-                  <button 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      const url = `${window.location.origin}/product/${product.id}`;
-                      if (navigator.share) {
-                        navigator.share({ title: product.name, url });
-                      } else {
-                        navigator.clipboard.writeText(url);
-                        toast.success('Link copied');
-                      }
-                    }}
-                    className="p-3 bg-stone-100 text-stone-600 rounded-xl hover:bg-stone-200 transition-all"
-                  >
-                    <Share2 size={18} />
-                  </button>
                 </div>
               </div>
-              <AnimatePresence>
-                {hoverQuickView === product.id && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="absolute inset-0 bg-white/95 backdrop-blur-md z-30 p-6 flex flex-col items-center justify-center text-center shadow-xl hidden sm:flex"
-                  >
-                     <img src={product.image_url} alt={product.name} className="w-32 h-32 object-cover rounded-2xl shadow-md mb-4" />
-                     <h3 className="text-xl font-bold text-stone-900 mb-2 truncate w-full">{product.name}</h3>
-                     <p className="text-primary font-black text-2xl mb-6">₹{getProductPrice(product, user?.role)}</p>
-                     
-                     <div className="w-full flex space-x-2">
-                        {cartItem ? (
-                           <div className="flex-1 flex items-center justify-between bg-stone-100 rounded-xl p-2 border border-stone-200">
-                             <button onClick={() => updateQuantity(product.id, -1)} className="p-3 hover:bg-white rounded-lg transition-colors text-primary"><Minus size={20} /></button>
-                             <span className="font-bold text-lg">{cartItem.quantity}</span>
-                             <button onClick={() => updateQuantity(product.id, 1)} className="p-3 hover:bg-white rounded-lg transition-colors text-primary"><Plus size={20} /></button>
-                           </div>
-                        ) : (
-                          <motion.button 
-                            whileTap={{ scale: 0.95 }}
-                            onClick={(e) => { e.preventDefault(); addToCart(product); }}
-                            className="flex-1 btn-primary py-4 text-lg font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/25 flex justify-center items-center gap-2"
-                          >
-                            <ShoppingCart size={20} />
-                            <span>Quick Add</span>
-                          </motion.button>
-                        )}
-                        <button 
-                           onClick={(e) => {
-                             e.preventDefault();
-                             toggleWishlist(product.id);
-                           }}
-                           className={cn(
-                             "p-4 rounded-xl border border-stone-200 transition-all flex items-center justify-center",
-                             wishlist.includes(product.id) 
-                               ? "bg-red-50 text-red-500 border-red-200 hover:bg-red-100" 
-                               : "bg-white text-stone-400 hover:text-red-500 hover:bg-stone-50"
-                           )}
-                        >
-                           <Heart size={24} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
-                        </button>
-                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </motion.div>
           );
         })}

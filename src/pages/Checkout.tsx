@@ -309,32 +309,32 @@ export default function Checkout() {
   // Removed early return for guest checkout
 
   return (
-    <div className="min-h-screen bg-stone-50 py-12 pb-32 md:pb-12">
-      <div className="max-w-5xl mx-auto px-4">
+    <div className="min-h-screen bg-stone-50 pb-24 md:py-12 md:pb-12">
+      <div className="max-w-5xl mx-auto md:px-4">
         {/* Checkout Steps */}
-        <div className="flex items-center justify-center mb-12">
+        <div className="flex items-center justify-center p-4 bg-white border-b border-stone-100 md:bg-transparent md:border-none md:mb-12">
           {[
             { id: 'address', label: 'Address', icon: MapPin },
             { id: 'payment_method', label: 'Payment', icon: CreditCard },
             { id: 'review', label: 'Review', icon: ShieldCheck },
             { id: 'confirmation', label: 'Done', icon: CheckCircle2 },
           ].map((s, i) => (
-            <div key={s.id} className="flex items-center">
+            <div key={s.id} className="flex items-center shrink-0">
               <div className={cn(
-                "flex flex-col items-center space-y-2",
-                (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "text-primary" : "text-stone-400"
+                "flex flex-col items-center space-y-1",
+                (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "text-primary" : "text-stone-300"
               )}>
                 <div className={cn(
-                  "w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all",
-                  (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "bg-primary text-white border-primary" : "bg-white border-stone-200"
+                  "w-8 h-8 rounded-full flex items-center justify-center transition-all",
+                  (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "bg-primary text-white" : "bg-stone-100"
                 )}>
-                  <s.icon size={20} />
+                  <s.icon size={16} />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest">{s.label}</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest hidden sm:block">{s.label}</span>
               </div>
               {i < 3 && (
                 <div className={cn(
-                  "w-12 h-0.5 mx-2 rounded-full",
+                  "w-8 sm:w-12 h-0.5 mx-1 sm:mx-2 rounded-full",
                   i === 0 && (['payment_method', 'review', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200",
                   i === 1 && (['review', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200",
                   i === 2 && (['confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200"
@@ -344,16 +344,17 @@ export default function Checkout() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 xl:gap-12">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-0 md:gap-6 lg:gap-8 xl:gap-12 p-4 md:p-0">
           <div className="xl:col-span-2">
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="wait" initial={false}>
               {step === 'address' && (
                 <motion.div 
                   key="address"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6"
+                  initial={{ opacity: 0, x: -25, scale: 0.98 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 25, scale: 0.98, filter: "blur(4px)" }}
+                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                  className="bg-white p-5 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-stone-100 space-y-6"
                 >
                   <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -375,8 +376,11 @@ export default function Checkout() {
                          </button>
                       </div>
                       <div className="grid grid-cols-1 gap-4">
-                        {addresses.map((addr) => (
-                          <button
+                        {addresses.map((addr, idx) => (
+                          <motion.button
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.1 }}
                             key={addr.id}
                             onClick={() => {
                               setSelectedAddressId(addr.id);
@@ -393,7 +397,7 @@ export default function Checkout() {
                             }}
                             className={cn(
                               "text-left p-6 rounded-2xl border-2 transition-all relative",
-                              selectedAddressId === addr.id ? "border-primary bg-primary/5" : "border-stone-100 hover:border-stone-200"
+                              selectedAddressId === addr.id ? "border-primary bg-primary/5 shadow-md shadow-primary/5" : "border-stone-100 hover:border-stone-200"
                             )}
                           >
                             <div className="flex justify-between items-start">
@@ -407,12 +411,16 @@ export default function Checkout() {
                                  <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
                               </div>
                               {selectedAddressId === addr.id && (
-                                <div className="text-primary bg-primary/10 rounded-full p-1 shadow-sm">
+                                <motion.div 
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="text-primary bg-primary/10 rounded-full p-1 shadow-sm"
+                                >
                                   <CheckCircle2 size={20} />
-                                </div>
+                                </motion.div>
                               )}
                             </div>
-                          </button>
+                          </motion.button>
                         ))}
                       </div>
                     </div>
@@ -590,22 +598,25 @@ export default function Checkout() {
                       Shipping address details are accurate.
                     </label>
                   </div>
-                  <button 
+                  <motion.button 
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={handleNextStep}
-                    className="w-full btn-primary py-4 flex items-center justify-center space-x-2"
+                    className="w-full btn-primary py-4 flex items-center justify-center space-x-2 shadow-lg shadow-primary/20"
                   >
                     <span>Continue to Payment</span>
                     <ArrowRight size={18} />
-                  </button>
+                  </motion.button>
                 </motion.div>
               )}
 
               {step === 'payment_method' && (
                 <motion.div 
                   key="payment_method"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
+                  initial={{ opacity: 0, x: -25, scale: 0.98 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 25, scale: 0.98, filter: "blur(4px)" }}
+                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
                   className="space-y-6"
                 >
                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
@@ -614,12 +625,14 @@ export default function Checkout() {
                     <div className="grid grid-cols-1 gap-3">
                       {/* UPI QR - Recommended */}
                       <div className="relative group">
-                        <button 
+                        <motion.button 
+                          whileHover={{ scale: 1.01 }}
+                          whileTap={{ scale: 0.98 }}
                           onClick={() => { isLoggedIn && setSelectedPaymentMethod('upi'); isLoggedIn && setStep('review'); }}
                           disabled={isProcessing || !isLoggedIn}
                           className={cn(
                             "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
-                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
+                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 shadow-sm"
                           )}
                         >
                           <div className="flex items-center space-x-4">
@@ -634,8 +647,8 @@ export default function Checkout() {
                               <p className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Fast auto-verification via UPI Note</p>
                             </div>
                           </div>
-                          <ArrowRight size={16} className="text-stone-300 group-hover:text-primary" />
-                        </button>
+                          <ArrowRight size={16} className="text-stone-300 group-hover:text-primary transition-transform group-hover:translate-x-1" />
+                        </motion.button>
                         {!isLoggedIn && (
                           <div className="mt-2 flex items-center justify-between px-2">
                             <p className="text-[10px] text-stone-500 font-medium italic">* Login required for UPI automated payments.</p>
@@ -651,12 +664,14 @@ export default function Checkout() {
 
                       {/* Wallet */}
                       <div className="relative group">
-                        <button 
+                        <motion.button 
+                          whileHover={{ scale: 1.01 }}
+                          whileTap={{ scale: 0.98 }}
                           onClick={() => { isLoggedIn && setSelectedPaymentMethod('wallet'); isLoggedIn && setStep('review'); }}
                           disabled={isProcessing || !isLoggedIn || (user?.wallet_balance || 0) < total}
                           className={cn(
                             "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
-                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 active:scale-[0.98]",
+                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 shadow-sm",
                             isLoggedIn && (user?.wallet_balance || 0) < total && "opacity-50 cursor-not-allowed"
                           )}
                         >
@@ -683,19 +698,21 @@ export default function Checkout() {
                               )}
                             </div>
                           </div>
-                          {isProcessing ? <Loader2 size={16} className="animate-spin text-primary" /> : <ArrowRight size={16} className="text-stone-300 group-hover:text-primary" />}
-                        </button>
+                          {isProcessing ? <Loader2 size={16} className="animate-spin text-primary" /> : <ArrowRight size={16} className="text-stone-300 group-hover:text-primary transition-transform group-hover:translate-x-1" />}
+                        </motion.button>
                       </div>
 
                       {/* Khata */}
                       {(!isLoggedIn || user?.khata_enabled) && (
                         <div className="relative group">
-                          <button 
+                          <motion.button 
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.98 }}
                             onClick={() => { isLoggedIn && setSelectedPaymentMethod('khata'); isLoggedIn && setStep('review'); }}
                             disabled={isProcessing || !isLoggedIn || (user?.khata_balance || 0) + total > (user?.credit_limit || 0)}
                             className={cn(
                               "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
-                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-blue-500 hover:bg-blue-50/50 active:scale-[0.98]",
+                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-blue-500 hover:bg-blue-50/50 shadow-sm",
                               isLoggedIn && (user?.khata_balance || 0) + total > (user?.credit_limit || 0) && "opacity-50 cursor-not-allowed"
                             )}
                           >
@@ -722,16 +739,18 @@ export default function Checkout() {
                                 )}
                               </div>
                             </div>
-                            <ArrowRight size={16} className={cn("text-stone-300", isLoggedIn && "group-hover:text-blue-500")} />
-                          </button>
+                            <ArrowRight size={16} className={cn("text-stone-300", isLoggedIn && "group-hover:text-blue-500 transition-transform group-hover:translate-x-1")} />
+                          </motion.button>
                         </div>
                       )}
 
                       {/* COD */}
-                      <button 
+                      <motion.button 
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={() => { setSelectedPaymentMethod('cod'); setStep('review'); }}
                         disabled={isProcessing}
-                        className="w-full p-5 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group active:scale-[0.98]"
+                        className="w-full p-5 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group shadow-sm"
                       >
                         <div className="flex items-center space-x-4">
                           <div className="p-3 rounded-xl bg-stone-100 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
@@ -742,8 +761,8 @@ export default function Checkout() {
                             <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Pay at your doorstep</p>
                           </div>
                         </div>
-                        <ArrowRight size={16} className="text-stone-300 group-hover:text-emerald-500" />
-                      </button>
+                        <ArrowRight size={16} className="text-stone-300 group-hover:text-emerald-500 transition-transform group-hover:translate-x-1" />
+                      </motion.button>
                     </div>
 
                     <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
@@ -762,7 +781,7 @@ export default function Checkout() {
 
                   <button 
                     onClick={() => setStep('address')}
-                    className="w-full py-4 border border-stone-200 rounded-2xl font-bold text-stone-500 hover:bg-stone-100 flex items-center justify-center space-x-2"
+                    className="w-full py-4 border border-stone-200 rounded-2xl font-bold text-stone-500 hover:bg-stone-50 flex items-center justify-center space-x-2 transition-colors"
                   >
                     <ArrowLeft size={18} />
                     <span>Back to Address</span>

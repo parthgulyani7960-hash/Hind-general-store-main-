@@ -92,7 +92,8 @@ export interface Order {
   user_name?: string;
   user_phone?: string;
   total: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
+  status: 'pending' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
+  payment_status?: 'paid' | 'pending' | 'failed' | 'refunded';
   address: string;
   payment_method: string;
   payment_id?: string;

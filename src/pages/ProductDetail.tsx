@@ -372,13 +372,13 @@ export default function ProductDetail() {
   if (!product) return <div className="text-center py-20">Product not found</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10">
-      <button onClick={() => navigate(-1)} className="flex items-center space-x-2 text-stone-500 hover:text-primary mb-8 transition-colors">
-        <ArrowLeft size={20} />
-        <span>Back to Store</span>
+    <div className="max-w-7xl mx-auto px-4 py-6 pb-24">
+      <button onClick={() => navigate(-1)} className="flex items-center space-x-2 text-stone-500 hover:text-primary mb-6 transition-colors">
+        <ArrowLeft size={18} />
+        <span className="text-sm font-bold">Back</span>
       </button>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
         {/* Image Gallery */}
         <div className="space-y-4">
           <motion.div 
@@ -397,14 +397,22 @@ export default function ProductDetail() {
               {showImages ? (
                 <motion.img 
                   key={activeImage}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  initial={{ opacity: 0, x: 100 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -100 }}
                   src={allImages[activeImage]} 
                   alt={product.name} 
                   loading="lazy"
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover" 
+                  className="w-full h-full object-cover cursor-grab active:cursor-grabbing" 
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={1}
+                  onDragEnd={(e, { offset, velocity }) => {
+                    const swipe = Math.abs(offset.x) * velocity.x;
+                    if (swipe < -10000) setActiveImage((prev) => (prev === allImages.length - 1 ? 0 : prev + 1));
+                    else if (swipe > 10000) setActiveImage((prev) => (prev === 0 ? allImages.length - 1 : prev - 1));
+                  }}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
@@ -479,9 +487,14 @@ export default function ProductDetail() {
         <motion.div 
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5 }}
           className="space-y-8"
         >
-          <div>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
             <div className="flex justify-between items-start">
               <span className="text-xs font-bold uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full">{product.category}</span>
               <div className="flex items-center space-x-1 text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">
@@ -489,7 +502,7 @@ export default function ProductDetail() {
                 <span className="text-[10px] font-bold uppercase">In Stock</span>
               </div>
             </div>
-            <h1 className="text-4xl font-bold text-stone-900 mt-4">{product.name}</h1>
+            <h1 className="text-3xl md:text-4xl font-bold text-stone-900 mt-4">{product.name}</h1>
             <div className="flex items-center space-x-3 mt-2">
               <div className="flex items-center space-x-1.5 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
                 <Star size={14} className="text-amber-500" fill="currentColor" />
@@ -525,17 +538,25 @@ export default function ProductDetail() {
                 <span className="text-xs font-black text-blue-600 uppercase tracking-widest">Retailer Account Pricing Applied</span>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Variant Selection */}
           {variants.length > 0 && (
-            <div className="space-y-4">
+            <motion.div 
+               initial={{ opacity: 0, y: 10 }}
+               animate={{ opacity: 1, y: 0 }}
+               transition={{ delay: 0.2 }}
+               className="space-y-4"
+            >
               <p className="text-sm font-bold text-stone-700 uppercase tracking-wider">Select Variant</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {variants.map((v) => (
                   <button
                     key={v.id}
-                    onClick={() => setSelectedVariant(v)}
+                    onClick={() => {
+                        triggerFeedback('light');
+                        setSelectedVariant(v);
+                    }}
                     className={cn(
                       "p-4 rounded-2xl border-2 transition-all text-left flex flex-col",
                       selectedVariant?.id === v.id 
@@ -556,11 +577,16 @@ export default function ProductDetail() {
                   </button>
                 ))}
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* Delivery Estimate */}
-          <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 space-y-2">
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="p-4 bg-primary/5 rounded-2xl border border-primary/10 space-y-2"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 text-primary">
                 <Truck size={18} />
@@ -575,7 +601,7 @@ export default function ProductDetail() {
             </div>
             <p className="text-lg font-bold text-stone-800">{getDeliveryEstimate()}</p>
             <p className="text-[10px] text-stone-400">Delivery times are estimates and may vary based on order volume.</p>
-          </div>
+          </motion.div>
 
           {/* Bulk Discount Tiers */}
           {productBulkDiscounts.length > 0 && (

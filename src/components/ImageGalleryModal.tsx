@@ -27,9 +27,18 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({ images, in
       <motion.img
         key={index}
         src={images[index]}
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-full max-h-full object-contain"
+        initial={{ opacity: 0, x: 100 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -100 }}
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={1}
+        onDragEnd={(e, { offset, velocity }) => {
+          const swipe = Math.abs(offset.x) * velocity.x;
+          if (swipe < -10000) setIndex((i) => (i + 1) % images.length);
+          else if (swipe > 10000) setIndex((i) => (i - 1 + images.length) % images.length);
+        }}
+        className="max-w-full max-h-full object-contain cursor-grab active:cursor-grabbing"
         onClick={(e) => e.stopPropagation()}
       />
       
