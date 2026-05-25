@@ -70,8 +70,8 @@ try {
       console.log('[BOOT] Firebase Admin initialized with certificate credentials');
     } else if (config?.projectId) {
       // Fallback
-      if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-        console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts.');
+      if (process.env.VERCEL && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts. Missing GOOGLE_APPLICATION_CREDENTIALS.');
       } else {
         admin.initializeApp({
           credential: admin.credential.applicationDefault(),
@@ -111,19 +111,31 @@ try {
   }
 
   if (databaseIdToUse && databaseIdToUse !== '(default)') {
+    console.log('[BOOT] Applying database ID monkey-patch for database:', databaseIdToUse);
     const FIREBASE_DB_ID = databaseIdToUse;
     const originalFirestore = admin.firestore;
+    
+    // Create the patched function ONCE using ES6 Proxy for perfect transparency
+    const patchedFirestore = new Proxy(originalFirestore, {
+      apply: function(target, thisArg, argumentsList) {
+        try {
+          return getFirestore(admin.app(), FIREBASE_DB_ID);
+        } catch (err: any) {
+          console.error('[BOOT] Error invoking patched getFirestore:', err.message, err.stack);
+          throw err;
+        }
+      }
+    });
+    
     Object.defineProperty(admin, 'firestore', {
       get: function() {
-        const fn = function() {
-          return getFirestore(admin.app(), FIREBASE_DB_ID);
-        };
-        Object.assign(fn, originalFirestore);
-        return fn;
+        return patchedFirestore;
       },
       configurable: true
     });
-    console.log('[BOOT] Monkey-patched admin.firestore() to use databaseId:', FIREBASE_DB_ID);
+    console.log('[BOOT] Successfully monkey-patched admin.firestore() to use databaseId:', FIREBASE_DB_ID);
+  } else {
+    console.log('[BOOT] Normal database connection (default ID) in use. No monkey-patch applied.');
   }
 } catch (e: any) {
   console.error('[BOOT] Failed during Firebase Admin setup shell:', e.message);
@@ -403,14 +415,21 @@ const logSuspicious = async (userId: number | string | null, type: string, descr
 // Helper to get settings
 const getSetting = async (key: string): Promise<any> => {
   try {
-    if (!admin.apps.length) return null;
+    if (!admin.apps.length) {
+      console.warn(`[getSetting] Firebase apps not initialized. Skipping key: ${key}`);
+      return null;
+    }
     const doc = await admin.firestore().collection('settings').doc(key).get();
     return doc.exists ? doc.data()?.value : null;
   } catch (err: any) {
     if (err.code === 5 || err.message?.includes('NOT_FOUND')) {
       return null;
     }
-    console.error(`Error getting setting ${key}:`, err);
+    console.error(`[getSetting] Error fetching key "${key}":`, {
+      message: err.message,
+      code: err.code,
+      stack: err.stack
+    });
     return null;
   }
 };
@@ -842,7 +861,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         config: publicSettings
       });
     } catch (err: any) {
-      console.error('Settings fetch error:', err);
+      console.error('Settings fetch error details:', err.message, err.stack);
       res.status(500).json({ success: false, message: 'Failed to fetch settings', error: err.message });
     }
   });
@@ -1555,7 +1574,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       
       res.json({ success: true, user: sessionUser, token });
     } catch (err: any) {
-      console.error('Auth/me error:', err);
+      console.error('[AUTH/ME] Session verification failed stictly:');
+      console.error('  Message:', err.message);
+      console.error('  Code:', err.code);
+      console.error('  Stack:', err.stack);
       res.status(401).json({ success: false, message: 'Failed to verify session', error: err.message });
     }
   });
@@ -3512,30 +3534,36 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       } = req.body;
       
       if (admin.apps.length) {
-         await admin.firestore().collection('bug_reports').add({
-           user_id: user_id || null, 
-           reporter_name: reporter_name || 'System Auto', 
-           message: message || '', 
-           why: why || '', 
-           path: path || '', 
-           action_log: action_log || '',
-           type: type || 'REPORTER',
-           component: component || '',
-           api_endpoint: api_endpoint || '',
-           device_info: device_info || '',
-           screen_resolution: screen_resolution || '',
-           network_status: network_status || '',
-           request_payload: JSON.stringify(request_payload || {}),
-           metadata: JSON.stringify(metadata || {}),
-           status: 'open',
-           created_at: new Date().toISOString()
-         });
-         return res.json({ success: true, message: 'Bug reported successfully' });
+         try {
+           await admin.firestore().collection('bug_reports').add({
+             user_id: user_id || null, 
+             reporter_name: reporter_name || 'System Auto', 
+             message: message || '', 
+             why: why || '', 
+             path: path || '', 
+             action_log: action_log || '',
+             type: type || 'REPORTER',
+             component: component || '',
+             api_endpoint: api_endpoint || '',
+             device_info: device_info || '',
+             screen_resolution: screen_resolution || '',
+             network_status: network_status || '',
+             request_payload: JSON.stringify(request_payload || {}),
+             metadata: JSON.stringify(metadata || {}),
+             status: 'open',
+             created_at: new Date().toISOString()
+           });
+         } catch (dbErr: any) {
+           console.error('[BUGS] Failed to write bug to Firestore. Logging locally to prevent loop:', dbErr.message);
+         }
+      } else {
+         console.warn('[BUGS] Skipped saving bug report. Firebase not initialized.');
       }
-      res.status(500).json({ success: false, message: 'Firebase not connected' });
+      return res.json({ success: true, message: 'Bug reported logged (or skipped gracefully)' });
     } catch (e: any) {
       console.error('Error reporting bug:', e);
-      res.status(500).json({ success: false, message: e.message });
+      // Return 200 so the UI error reporter doesn't get into an infinite recursion loop reporting its own 500 error
+      res.json({ success: false, message: e.message });
     }
   });
 
@@ -3834,12 +3862,22 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/notifications', async (req, res) => {
-    if (!admin.apps.length) return res.json([]);
+    if (!admin.apps.length) {
+      console.warn('[NOTIFICATIONS] Skipped query: Firebase apps not initialized.');
+      return res.json([]);
+    }
     try {
+      console.log('[NOTIFICATIONS] Attempting to fetch notifications from Firestore...');
       const snap = await admin.firestore().collection('notifications').orderBy('created_at', 'desc').limit(50).get();
+      console.log(`[NOTIFICATIONS] Successfully fetched ${snap.docs.length} notifications.`);
       res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch(e) {
-      console.warn('[NOTIFICATIONS] Firestore fetch failed, returning fallback empty list:', e);
+    } catch(e: any) {
+      console.error('[NOTIFICATIONS] Firestore fetch failed strictly:');
+      console.error('  Message:', e.message);
+      console.error('  Code:', e.code);
+      console.error('  Stack:', e.stack);
+      // We gracefully fallback to an empty array so UI doesn't crash, 
+      // but developers can trace the issue in backend logs.
       res.json([]);
     }
   });
@@ -6251,14 +6289,26 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const errorMessage = err instanceof Error ? err.message : String(err);
     const errorStack = err instanceof Error ? err.stack : null;
     
+    let status = err.status || 500;
+    let message = err.userMessage || 'Internal server error';
+
+    // Distinguish Firebase errors for better diagnostics
+    if (err.code === 7 || errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('Missing or insufficient permissions')) {
+      status = 403;
+      message = 'Missing Permissions: The database request was denied by security rules.';
+    } else if (err.code === 'unavailable' || err.code === 'deadline-exceeded' || errorMessage.includes('unreachable') || errorMessage.includes('fetch failed')) {
+      status = 500;
+      message = 'Database Unreachable: The database connection failed or timed out.';
+    }
+
     // If headers already sent, delegate to next
     if (res.headersSent) {
       return next(err);
     }
     
-    res.status(err.status || 500).json({ 
+    res.status(status).json({ 
       success: false, 
-      message: err.userMessage || 'Internal server error', 
+      message,
       error: errorMessage,
       requestId,
       stack: errorStack

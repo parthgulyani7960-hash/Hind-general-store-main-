@@ -8,7 +8,7 @@
   "theme_color": "#10b981",
   "icons": [
     {
-      "src": "https://ais-pre-dplwcc6nxjtzkx2dwfmb3j-323698998999.asia-southeast1.run.app/favicon.ico",
+      "src": "/favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },

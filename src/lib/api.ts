@@ -10,7 +10,8 @@ export interface ApiResponse<T> {
 
 export const fetchWithHandling = async <T>(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retries = 2
 ): Promise<T | null> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -63,10 +64,15 @@ export const fetchWithHandling = async <T>(
           
           // Return null for read operations that failed with 401 to prevent UI crashes
           if (options.method === 'GET' || !options.method) return null;
-        }
- else if (res.status === 403) {
+        } else if (res.status === 403) {
           errorMessage = "You do not have permission to perform this action";
         } else if (res.status >= 500) {
+          if (retries > 0) {
+            console.log(`[API] Retrying ${url} due to ${res.status} error. Retries left: ${retries - 1}`);
+            await new Promise(r => setTimeout(r, 1000));
+            return fetchWithHandling(url, options, retries - 1);
+          }
+
           errorMessage = "Server error. Please try again later.";
           
           // Centralized Error Boundary Categorization for Firebase backend unreachable
@@ -95,6 +101,11 @@ export const fetchWithHandling = async <T>(
     
     return await res.json();
   } catch (err: any) {
+    if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
+      console.log(`[API] Retrying ${url} due to network error. Retries left: ${retries - 1}`);
+      await new Promise(r => setTimeout(r, 1000));
+      return fetchWithHandling(url, options, retries - 1);
+    }
     console.error(`API Error [${url}]:`, err);
     
     // Check if it's a network offline/unreachable error
