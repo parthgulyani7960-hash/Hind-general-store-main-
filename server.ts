@@ -75,11 +75,12 @@ try {
         console.warn('[BOOT] Skipping Firebase Admin initialization on Vercel to prevent metadata timeouts.');
       } else {
         admin.initializeApp({
+          credential: admin.credential.applicationDefault(),
           projectId: config.projectId,
           databaseURL: process.env.FIREBASE_DATABASE_URL || config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`
         });
         isFirebaseReady = true;
-        console.log('[BOOT] Firebase Admin initialized with projectId:', config.projectId);
+        console.log('[BOOT] Firebase Admin initialized with standard applicationDefault and projectId:', config.projectId);
       }
     } else {
       console.error('[BOOT] CRITICAL: Firebase Admin NOT initialized. No credentials found.');
@@ -6218,33 +6219,39 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   if (!process.env.VERCEL) {
     const startListening = (retries = 10, delay = 1000) => {
       try {
-        const listener = httpServer.listen(PORT, '0.0.0.0')
-          .on('listening', () => {
-            console.log('================================================');
-            console.log(`🚀 SERVER RUNNING ON 0.0.0.0:${PORT}`);
-            console.log(`✅ FIREBASE READY: ${isFirebaseReady}`);
-            console.log(`🕒 STARTED AT: ${new Date().toISOString()}`);
-            console.log('================================================');
-          })
-          .on('error', (err: any) => {
-            if (err.code === 'EADDRINUSE') {
-              console.warn(`[WARN] Port ${PORT} is currently in use. Retries left: ${retries}. Retrying in ${delay}ms...`);
-              if (retries > 0) {
-                setTimeout(() => {
-                  try {
-                    httpServer.close();
-                  } catch (e) {}
-                  startListening(retries - 1, Math.min(delay * 1.5, 8000));
-                }, delay);
-              } else {
-                console.error('[CRITICAL] Max retries reached for port binding. Exiting.');
-                process.exit(1);
-              }
+        // Remove previous listeners to prevent memory leak on retries
+        httpServer.removeAllListeners('listening');
+        httpServer.removeAllListeners('error');
+
+        httpServer.listen(PORT, '0.0.0.0');
+        
+        httpServer.once('listening', () => {
+          console.log('================================================');
+          console.log(`🚀 SERVER RUNNING ON 0.0.0.0:${PORT}`);
+          console.log(`✅ FIREBASE READY: ${isFirebaseReady}`);
+          console.log(`🕒 STARTED AT: ${new Date().toISOString()}`);
+          console.log('================================================');
+        });
+
+        httpServer.once('error', (err: any) => {
+          if (err.code === 'EADDRINUSE') {
+            console.warn(`[WARN] Port ${PORT} is currently in use. Retries left: ${retries}. Retrying in ${delay}ms...`);
+            if (retries > 0) {
+              setTimeout(() => {
+                try {
+                  httpServer.close();
+                } catch (e) {}
+                startListening(retries - 1, Math.min(delay * 1.5, 8000));
+              }, delay);
             } else {
-              console.error('[CRITICAL] Server listen error:', err);
+              console.error('[CRITICAL] Max retries reached for port binding. Exiting.');
               process.exit(1);
             }
-          });
+          } else {
+            console.error('[CRITICAL] Server listen error:', err);
+            process.exit(1);
+          }
+        });
       } catch (err: any) {
         console.error('[CRITICAL] Server execution error:', err.message);
       }

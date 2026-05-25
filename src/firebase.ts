@@ -2,9 +2,24 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, onIdTokenChanged } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+
 import firebaseConfig from '../firebase-applet-config.json';
 
-const { firestoreDatabaseId, ...validConfig } = firebaseConfig as any;
+const validConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey || "mock-api-key-please-run-firebase-setup",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain || "mock-project.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || "mock-project",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || "mock-project.appspot.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId || "1234567890",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId || "1:1234567890:web:123456789",
+};
+
+const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || '(default)';
+
+if (!validConfig.projectId || validConfig.projectId === 'mock-project') {
+  console.warn('⚠️ [Firebase] Running in unconfigured fallback/mock mode. Real-time features and authentication will require database provisioning via AI Studio setup.');
+}
+
 const app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app, firestoreDatabaseId || '(default)');
