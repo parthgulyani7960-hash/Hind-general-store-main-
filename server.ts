@@ -48,16 +48,22 @@ try {
     if (!cert && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
       try {
         let rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
-        if (rawKey.startsWith("'") && rawKey.endsWith("'")) {
-          rawKey = rawKey.slice(1, -1);
-        }
+        // Remove potential surrounding quotes from Vercel env var
+        if (rawKey.startsWith("'") && rawKey.endsWith("'")) rawKey = rawKey.slice(1, -1);
+        if (rawKey.startsWith('"') && rawKey.endsWith('"')) rawKey = rawKey.slice(1, -1);
         cert = JSON.parse(rawKey);
         if (cert && cert.private_key) {
           cert.private_key = cert.private_key.replace(/\\n/g, '\n');
         }
-        console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from environment');
+        console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from environment. Project:', cert.project_id);
       } catch (e: any) {
         console.error('[BOOT] Failed dynamic parse of FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
+        // If it looks like base64, try to decode it? (Vercel sometimes encodes)
+        try {
+           const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString('utf8');
+           cert = JSON.parse(decoded);
+           console.log('[BOOT] Parsed FIREBASE_SERVICE_ACCOUNT_KEY from BASE64 environment');
+        } catch {}
       }
     }
 
@@ -95,55 +101,43 @@ try {
   // Determine database ID
   let databaseIdToUse = (config && config.firestoreDatabaseId) ? config.firestoreDatabaseId : '(default)';
 
-  const hasCustomCreds = !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  
   if (process.env.FIREBASE_DATABASE_ID) {
     databaseIdToUse = process.env.FIREBASE_DATABASE_ID;
   } else if (process.env.VERCEL) {
-    // On Vercel, if we have custom credentials, we should typically use (default) 
-    // unless explicitly told otherwise, especially if the configured ID is an AI-Studio one.
+    // On Vercel, if we have a custom ID but it looks like an AI-Studio ID, 
+    // it usually means it won't work in the user's primary project unless explicitly configured.
+    const hasCustomCreds = !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY || !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
     if (hasCustomCreds) {
-      if (databaseIdToUse.startsWith('ai-studio-')) {
-        console.log(`[BOOT] Custom credentials detected on Vercel. Configured database ${databaseIdToUse} looks like an AI-Studio ID. Falling back to '(default)'.`);
-        databaseIdToUse = '(default)';
-      } else {
-        console.log("[BOOT] Custom credentials detected on Vercel. Using configured databaseId:", databaseIdToUse);
-      }
+       if (databaseIdToUse.startsWith('ai-studio-')) {
+         console.log(`[BOOT] Vercel + Custom Creds: Database ${databaseIdToUse} looks like an AI-Studio ID. Falling back to '(default)'.`);
+         databaseIdToUse = '(default)';
+       }
     } else {
-      console.log("[BOOT] Vercel environment detected with default credentials. Defaulting database ID to '(default)'.");
-      databaseIdToUse = '(default)';
+       databaseIdToUse = '(default)';
     }
   }
 
   if (databaseIdToUse && databaseIdToUse !== '(default)') {
-    console.log('[BOOT] Applying database ID monkey-patch for database:', databaseIdToUse);
+    console.log('[BOOT] Applying database ID patch:', databaseIdToUse);
     const FIREBASE_DB_ID = databaseIdToUse;
     const originalFirestore = admin.firestore;
     
-    // Create the patched function ONCE using ES6 Proxy for perfect transparency
-    const patchedFirestore = new Proxy(originalFirestore, {
-      apply: function(target, thisArg, argumentsList) {
-        try {
-          if (admin.apps.length === 0) {
-            throw new Error('Firebase Admin not initialized. Cannot call firestore().');
-          }
-          return getFirestore(admin.app(), FIREBASE_DB_ID);
-        } catch (err: any) {
-          console.error('[BOOT] Error invoking patched getFirestore:', err.message);
-          throw err;
-        }
-      }
-    });
+    // Create the patched function
+    const patchedFirestore = function(this: any, databaseId?: string) {
+      if (admin.apps.length === 0) throw new Error('Firebase Admin not initialized');
+      // Pass the custom database ID if none provided
+      return originalFirestore.call(this || admin, databaseId || FIREBASE_DB_ID);
+    };
     
-    Object.defineProperty(admin, 'firestore', {
-      get: function() {
-        return patchedFirestore;
-      },
-      configurable: true
-    });
-    console.log('[BOOT] Successfully monkey-patched admin.firestore() to use databaseId:', FIREBASE_DB_ID);
-  } else {
-    console.log('[BOOT] Normal database connection (default ID) in use. No monkey-patch applied.');
+    // Copy all static properties (Timestamp, FieldValue, Filter, GeoPoint, etc.)
+    // These are essential for code that uses admin.firestore.FieldValue.increment()
+    Object.assign(patchedFirestore, originalFirestore);
+    
+    // Replace the original with our patch
+    // @ts-ignore
+    admin.firestore = patchedFirestore;
+    
+    console.log('[BOOT] Successfully patched admin.firestore to use databaseId by default:', FIREBASE_DB_ID);
   }
 } catch (e: any) {
   console.error('[BOOT] Failed during Firebase Admin setup shell:', e.message);
@@ -568,7 +562,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.use(cookieParser());
   
   app.use(session({
-    secret: 'hind-store-secret-2024',
+    secret: process.env.SESSION_SECRET || 'hind-store-secret-2024',
     resave: false,
     saveUninitialized: false,
     proxy: true,
@@ -882,7 +876,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         dbConnected: true
       });
     } catch (err: any) {
-      console.error('Settings fetch error details:', err.message);
+      console.error('[SETTINGS] Fatal fetch error:', {
+        message: err.message,
+        stack: err.stack,
+        code: err.code
+      });
       res.status(500).json({ success: false, message: 'Failed to fetch settings', error: err.message });
     }
   });
