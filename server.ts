@@ -47,9 +47,16 @@ try {
     // Try environment variable override
     if (!cert && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
       try {
-        cert = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+        let rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
+        if (rawKey.startsWith("'") && rawKey.endsWith("'")) {
+          rawKey = rawKey.slice(1, -1);
+        }
+        cert = JSON.parse(rawKey);
+        if (cert && cert.private_key) {
+          cert.private_key = cert.private_key.replace(/\\n/g, '\n');
+        }
       } catch (e: any) {
-        console.error('[BOOT] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
+        console.error('[BOOT] Failed dynamic parse of FIREBASE_SERVICE_ACCOUNT_KEY:', e.message);
       }
     }
 
@@ -280,6 +287,18 @@ const createNotification = async (title: string, message: string, type: string =
 // Moved middlewares
 
 async function startServer() {
+  console.log('[BOOT] Creating http server instance and WebSocket server early...');
+  if (!httpServer) {
+    httpServer = createServer(app);
+    io = new Server(httpServer, {
+      cors: { origin: "*", methods: ["GET", "POST"] }
+    });
+    io.on('connection', (socket) => {
+      console.log('Client connected to real-time updates');
+      socket.on('disconnect', () => console.log('Client disconnected'));
+    });
+  }
+
   console.log('[BOOT] Booting routes...');
 
   app.post('/api/orders/:id/cancel', async (req, res) => {
@@ -602,6 +621,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // Global Admin Authorization Middleware
   async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
     if (req.session?.userId) {
+       if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
        const doc = await admin.firestore().collection('users').doc(String(req.session.userId)).get();
        if (doc.exists) return next();
        req.session.destroy(() => {});
@@ -615,6 +635,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
     if (req.session?.userId) {
+      if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
       const role = req.session.role;
       if (['admin', 'owner', 'manager'].includes(role || '')) return next();
       
@@ -6106,7 +6127,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const vite = await createViteServer({
         server: { 
           middlewareMode: true,
-          hmr: false,
+          hmr: {
+            server: httpServer,
+          },
         },
         appType: 'spa',
       });
@@ -6191,26 +6214,45 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   console.log('[BOOT] Finalizing middlewares and starting listen...');
   const PORT = 3000;
-  
-  if (!httpServer) {
-    console.log('[BOOT] Creating http server instance and WebSocket server...');
-    httpServer = createServer(app);
-    io = new Server(httpServer, {
-      cors: { origin: "*", methods: ["GET", "POST"] }
-    });
-    io.on('connection', (socket) => {
-      console.log('Client connected to real-time updates');
-      socket.on('disconnect', () => console.log('Client disconnected'));
-    });
-  }
 
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log('================================================');
-    console.log(`🚀 SERVER RUNNING ON 0.0.0.0:${PORT}`);
-    console.log(`✅ FIREBASE READY: ${isFirebaseReady}`);
-    console.log(`🕒 STARTED AT: ${new Date().toISOString()}`);
-    console.log('================================================');
-  });
+  if (!process.env.VERCEL) {
+    const startListening = (retries = 10, delay = 1000) => {
+      try {
+        const listener = httpServer.listen(PORT, '0.0.0.0')
+          .on('listening', () => {
+            console.log('================================================');
+            console.log(`🚀 SERVER RUNNING ON 0.0.0.0:${PORT}`);
+            console.log(`✅ FIREBASE READY: ${isFirebaseReady}`);
+            console.log(`🕒 STARTED AT: ${new Date().toISOString()}`);
+            console.log('================================================');
+          })
+          .on('error', (err: any) => {
+            if (err.code === 'EADDRINUSE') {
+              console.warn(`[WARN] Port ${PORT} is currently in use. Retries left: ${retries}. Retrying in ${delay}ms...`);
+              if (retries > 0) {
+                setTimeout(() => {
+                  try {
+                    httpServer.close();
+                  } catch (e) {}
+                  startListening(retries - 1, Math.min(delay * 1.5, 8000));
+                }, delay);
+              } else {
+                console.error('[CRITICAL] Max retries reached for port binding. Exiting.');
+                process.exit(1);
+              }
+            } else {
+              console.error('[CRITICAL] Server listen error:', err);
+              process.exit(1);
+            }
+          });
+      } catch (err: any) {
+        console.error('[CRITICAL] Server execution error:', err.message);
+      }
+    };
+    startListening();
+  } else {
+    console.log('[BOOT] Running in Vercel environment - skipping server port listen for serverless function compatibility.');
+  }
 
   return app;
 }

@@ -1237,18 +1237,23 @@ export default function AdminDashboard() {
             break;
             
           case 'LOW_STOCK':
-            data.payload.forEach((item: any) => {
-              toast.error(`Low Stock Alert: ${item.name} (Only ${item.stock} left)`, {
-                duration: 8000,
-                icon: '⚠️',
-                style: {
-                  borderRadius: '16px',
-                  background: '#f59e0b',
-                  color: '#fff',
-                  fontWeight: 'bold'
+            const stockAlerts = data.payload || [{ id: data.product_id, name: data.name, stock: data.stock }];
+            if (Array.isArray(stockAlerts)) {
+              stockAlerts.forEach((item: any) => {
+                if (item && item.name) {
+                  toast.error(`Low Stock Alert: ${item.name} (Only ${item.stock} left)`, {
+                    duration: 8000,
+                    icon: '⚠️',
+                    style: {
+                      borderRadius: '16px',
+                      background: '#f59e0b',
+                      color: '#fff',
+                      fontWeight: 'bold'
+                    }
+                  });
                 }
               });
-            });
+            }
             fetchAllProducts();
             fetchNotifications();
             break;
