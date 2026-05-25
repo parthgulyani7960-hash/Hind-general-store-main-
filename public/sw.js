@@ -9,7 +9,22 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      // Use Promise.allSettled to ensure that even if one resource (like manifest.json or favicon)
+      // fails to fetch, the rest are cached properly and no fatal rejection lands in the console.
+      return Promise.allSettled(
+        ASSETS_TO_CACHE.map((asset) =>
+          fetch(asset)
+            .then((res) => {
+              if (res.ok) {
+                return cache.put(asset, res);
+              }
+              console.warn(`[SW] Caching failed for asset: ${asset} (${res.status})`);
+            })
+            .catch((err) => {
+              console.warn(`[SW] Network error during caching for asset: ${asset}:`, err);
+            })
+        )
+      );
     })
   );
 });

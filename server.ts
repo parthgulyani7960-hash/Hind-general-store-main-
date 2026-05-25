@@ -407,7 +407,7 @@ const getSetting = async (key: string): Promise<any> => {
     const doc = await admin.firestore().collection('settings').doc(key).get();
     return doc.exists ? doc.data()?.value : null;
   } catch (err: any) {
-    if (err.code === 5 || err.message.includes('NOT_FOUND')) {
+    if (err.code === 5 || err.message?.includes('NOT_FOUND')) {
       return null;
     }
     console.error(`Error getting setting ${key}:`, err);
@@ -1736,7 +1736,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
       return res.json([]);
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.warn('[CATEGORIES] Firestore fetch failed, returning fallback empty list:', e.message);
+      res.json([]);
     }
   });
 
@@ -2924,7 +2925,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
            }
         }
       } catch(e: any) {
-         if (e.code !== 5 && !e.message.includes('NOT_FOUND')) {
+         if (e.code !== 5 && !e.message?.includes('NOT_FOUND')) {
              console.error('maintenance check failed', e);
          }
       }
@@ -4784,7 +4785,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       res.json({ success: true, order: orderRecord });
     } catch (err: any) {
-      const isValidationError = err.message.includes('Order Blocked:') || err.message.includes('Insufficient') || err.message.includes('Credit limit');
+      const isValidationError = err.message?.includes('Order Blocked:') || err.message?.includes('Insufficient') || err.message?.includes('Credit limit');
       if (isValidationError) {
         return res.status(400).json({ success: false, message: err.message });
       }
@@ -6104,7 +6105,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         console.warn('[INTEGRITY] Audit: Firestore query disabled or developer/container environment lacks Firestore IAM permission.');
         return;
       }
-      if (err.code !== 5 && !err.message.includes('NOT_FOUND')) {
+      if (err.code !== 5 && !err.message?.includes('NOT_FOUND')) {
         console.error('[INTEGRITY] Audit failed, error context:', {
           message: err.message,
           code: err.code,
