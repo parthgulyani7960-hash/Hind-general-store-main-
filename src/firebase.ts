@@ -3,7 +3,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChang
 import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
-import firebaseConfig from './firebase-applet-config.json';
+import firebaseConfig from './config/firebase-applet-config.json';
 
 const validConfig = {
   apiKey: firebaseConfig.apiKey,
