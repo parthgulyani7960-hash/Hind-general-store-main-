@@ -125,25 +125,25 @@ export default function TrackOrder() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const id = params.get('orderId');
+    const id = params.get('orderId') || params.get('id');
     const phone = params.get('phone');
-    const autoTrackValue = params.get('autotrack');
-    
     if (id) setOrderId(id);
     if (phone) setPhoneNumber(phone);
     
     if (id && phone) {
-      // Auto trigger fetch if both are present
       handleTrackAuto(id, phone);
     }
-  }, []);
+  }, [user]);
 
   const handleTrackAuto = async (id: string, phone: string) => {
     setLoading(true);
     try {
       const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(id.trim())}?phone=${encodeURIComponent(phone.trim())}`);
       if (data && data.success) setOrder(data.order);
-    } catch (err) {}
+      else toast.error(data?.message || 'Could not find order.');
+    } catch (err) {
+        toast.error('Failed to fetch order');
+    }
     finally { setLoading(false); }
   };
 
@@ -229,8 +229,8 @@ export default function TrackOrder() {
     { key: 'pending', label: t('order_placed'), icon: Package, description: 'We have received your order' },
     { key: 'confirmed', label: t('confirmed'), icon: CheckCircle2, description: 'Inventory has been reserved' },
     { key: 'processing', label: t('processing'), icon: Info, description: 'Your items are being packed' },
-    { key: 'shipped', label: t('shipped'), icon: Truck, description: 'Order is out of the store' },
-    { key: 'delivered', label: t('delivered'), icon: Home, description: 'Enjoy your purchase!' }
+    { key: 'shipped', label: order?.delivery_type === 'pickup' ? 'Ready for Pickup' : t('shipped'), icon: Truck, description: order?.delivery_type === 'pickup' ? 'Order is staged at the counter' : 'Order is out of the store' },
+    { key: 'delivered', label: order?.delivery_type === 'pickup' ? 'Picked Up' : t('delivered'), icon: Home, description: order?.delivery_type === 'pickup' ? 'Thank you for visiting!' : 'Enjoy your purchase!' }
   ];
 
   const currentStepIndex = order ? steps.findIndex(s => s.key === order.status) : -1;
@@ -250,7 +250,7 @@ export default function TrackOrder() {
   };
 
   return (
-    <div className="min-h-screen pt-24 pb-32 md:pb-12 bg-stone-50">
+    <div className="track-order-container min-h-screen pt-24 pb-32 md:pb-12 bg-stone-50">
       <div className="max-w-4xl mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-12">
@@ -433,34 +433,35 @@ export default function TrackOrder() {
                     </button>
                   </div>
                 </div>
-                <div className="px-6 py-2 bg-primary/10 rounded-full">
+                <div className="px-6 py-2 bg-primary/10 rounded-full flex items-center gap-2">
                   <span className="text-sm font-black text-primary uppercase tracking-widest">{t(order.status) || order.status}</span>
+                  {order.delivery_type === 'pickup' && (
+                    <span className="bg-emerald-500 text-white text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-sm blur-[0.2px]">Pickup</span>
+                  )}
                 </div>
               </div>
 
-              <div className="relative">
-                {/* Connection Line */}
-                <div className="absolute left-[23px] top-6 bottom-6 w-1.5 bg-stone-100 hidden md:block rounded-full" />
+              <div className="vertical-timeline">
                 <motion.div 
                   initial={{ height: 0 }}
                   animate={{ height: `${(Math.max(0, currentStepIndex) / (steps.length - 1)) * 100}%` }}
-                  className="absolute left-[23px] top-6 w-1.5 bg-primary hidden md:block transition-all duration-1000 ease-in-out origin-top rounded-full shadow-lg shadow-primary/50 z-0"
+                  className="timeline-progress-line"
+                  style={{ height: `calc(${(Math.max(0, currentStepIndex) / (steps.length - 1)) * 100}% - 48px)` }}
                 />
                 
-                <div className="space-y-12">
-                  {steps.map((step, index) => {
-                    const isCompleted = index <= currentStepIndex;
-                    const isCurrent = index === currentStepIndex;
+                {steps.map((step, index) => {
+                  const isCompleted = index <= currentStepIndex;
+                  const isCurrent = index === currentStepIndex;
 
-                    return (
-                      <div key={step.key} className="flex flex-col md:flex-row items-start md:items-center relative z-10">
-                        <div className={cn(
-                          "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 mr-6 mb-4 md:mb-0",
-                          isCompleted ? "bg-primary text-white shadow-lg shadow-primary/30" : "bg-stone-50 text-stone-300 border border-stone-200"
-                        )}>
-                          <step.icon size={24} />
-                        </div>
-                        <div className="flex-1">
+                  return (
+                    <div key={step.key} className="timeline-step">
+                      <div className={cn(
+                        "timeline-icon-box",
+                        isCompleted ? "completed" : "pending"
+                      )}>
+                        <step.icon size={24} />
+                      </div>
+                      <div className="flex-1">
                           <h4 className={cn(
                             "text-lg font-bold transition-colors",
                             isCompleted ? "text-stone-900" : "text-stone-300"
@@ -494,7 +495,6 @@ export default function TrackOrder() {
                   })}
                 </div>
               </div>
-            </div>
 
             {/* Order Items & Summary */}
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">
@@ -588,35 +588,71 @@ export default function TrackOrder() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-stone-900 text-white p-8 rounded-[2.5rem] flex items-center justify-between group">
                 <div>
-                  <h4 className="text-xl font-bold mb-2">Need Help?</h4>
-                  <p className="text-stone-400 text-xs font-medium">Contact our support team for assistance.</p>
+                  <h4 className="text-xl font-bold mb-2 tracking-tight">Support Node</h4>
+                  <p className="text-stone-400 text-xs font-medium">Real-time resolution for order queries.</p>
                 </div>
                 <Link 
-                  to="/support" 
+                  to="/profile?tab=support" 
                   className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center hover:bg-white/20 transition-all group-hover:scale-110"
                 >
                   <ArrowRight size={20} />
                 </Link>
               </div>
-              <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 flex items-center justify-between group">
-                <div>
-                  <h4 className="text-xl font-bold text-stone-900 mb-2">Home Store</h4>
-                  <p className="text-stone-500 text-xs font-medium">Continue shopping Hind General Store.</p>
+              <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 flex items-center justify-between group overflow-hidden relative">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+                <div className="relative z-10">
+                  <h4 className="text-xl font-black text-stone-900 mb-1 tracking-tighter">Prime Catalog</h4>
+                  <p className="text-stone-500 text-xs font-medium">Continue your shopping journey.</p>
                 </div>
                 <Link 
-                  to="/" 
-                  className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center hover:scale-110 transition-all shadow-lg shadow-primary/20"
+                  to="/products"
+                  className="relative z-10 w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center hover:scale-110 transition-all shadow-lg shadow-primary/20"
                 >
-                  <ArrowRight size={20} />
+                  <ShoppingBag size={20} />
                 </Link>
               </div>
               
+              {order.delivery_type === 'pickup' && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="md:col-span-2 bg-emerald-50 p-8 rounded-[2.5rem] border-2 border-emerald-100 shadow-sm relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-8 opacity-5">
+                     <Home size={120} />
+                  </div>
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
+                    <div className="flex items-center gap-6">
+                      <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-emerald-500 shadow-xl shadow-emerald-500/10 border border-emerald-50">
+                         <Home size={32} />
+                      </div>
+                      <div>
+                        <h4 className="text-2xl font-black text-emerald-900 tracking-tighter">Collection Protocol</h4>
+                        <p className="text-sm font-bold text-emerald-700/80 mb-1">New Hind General Store</p>
+                        <p className="text-xs text-emerald-600 font-medium max-w-xs leading-relaxed">Shop No. 1, Main Market, Nayagaon, SAS Nagar, Punjab</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                      <a 
+                        href="https://www.google.com/maps/search/?api=1&query=New+Hind+General+Store+Nayagaon+SAS+Nagar" 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="flex items-center justify-center gap-3 px-8 py-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-600/30 active:scale-95"
+                      >
+                        <Truck size={18} />
+                        <span>Route Navigation</span>
+                      </a>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
               {(order.status === 'pending' || order.status === 'confirmed') && (
                 <button 
                   onClick={() => setShowCancelModal(true)}
-                  className="md:col-span-2 w-full bg-red-50 text-red-600 py-4 rounded-2xl font-bold hover:bg-red-100 transition-all"
+                  className="md:col-span-2 w-full bg-stone-100 text-stone-400 py-4 rounded-2xl font-bold hover:bg-red-50 hover:text-red-500 transition-all text-xs uppercase tracking-[0.2em]"
                 >
-                  Cancel Order
+                  Terminate Order Request
                 </button>
               )}
             </div>

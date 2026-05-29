@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingBag, MapPin, CreditCard, CheckCircle2, 
   ArrowRight, ArrowLeft, Truck, ShieldCheck, 
-  Wallet, Camera, X, AlertCircle, Download, Clock,
-  Plus, Minus, RefreshCcw, Loader2, Copy
+  Wallet, Camera, X, AlertCircle, Download, Clock, Book,
+  Plus, Minus, RefreshCcw, Loader2, Copy, Info
 } from 'lucide-react';
 import { useStore } from '../StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -15,19 +15,32 @@ import { QRCodeCanvas } from 'qrcode.react';
 import InfoButton from '../components/InfoButton';
 import { fetchWithHandling } from '../lib/api';
 import { getAuthHeaders } from '../lib/utils';
+import { autofillLocation } from '../lib/geocoding';
 
 type Step = 'address' | 'payment_method' | 'review' | 'awaiting_payment' | 'confirmation';
+
+const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
 export default function Checkout() {
   const { 
     cart, user, appliedCoupon, clearCart, 
-    fetchUser, bulkDiscounts, config, promotions,
+    fetchUser, bulkDiscounts, fetchBulkDiscounts, config = [], promotions, fetchPromotions,
     addresses, fetchAddresses,
     updateQuantity, removeFromCart,
     isProfileComplete,
     t
   } = useStore();
   const navigate = useNavigate();
+
+  // Full Screen Mode state
+  const [fullscreen, setFullscreen] = useState(true);
+
+  useEffect(() => {
+    fetchBulkDiscounts();
+    fetchPromotions();
+    // Hide chat or other distractions if they exist in a global way? 
+    // Usually we don't have that, but we can make the layout immersive.
+  }, [fetchBulkDiscounts, fetchPromotions]);
 
   useEffect(() => {
     if (!isProfileComplete()) {
@@ -42,21 +55,51 @@ export default function Checkout() {
   
   // Pending Order Details (after creation)
   const [pendingOrder, setPendingOrder] = useState<any>(null);
+  const [manualPaymentInfo, setManualPaymentInfo] = useState({ utr: '', screenshot: '' });
+  const [isSubmittingProof, setIsSubmittingProof] = useState(false);
+
+  // Calculation logic
+
+  const submitPaymentProof = async () => {
+    if (!manualPaymentInfo.utr && !manualPaymentInfo.screenshot) {
+      toast.error('Please provide either UTR number or a payment screenshot URL.');
+      return;
+    }
+    setIsSubmittingProof(true);
+    try {
+      const data = await fetchWithHandling<any>(`/api/orders/${pendingOrder.id}/payment-proof`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(manualPaymentInfo)
+      });
+      if (data) {
+        toast.success('Payment proof submitted! Admin will verify soon.');
+        setStep('confirmation');
+      }
+    } catch (err: any) {
+      handleAppError(err, 'Failed to submit proof', 'submitProof', user?.role === 'admin');
+    } finally {
+      setIsSubmittingProof(false);
+    }
+  };
 
   const downloadQR = () => {
     const canvas = qrRef.current?.querySelector('canvas');
     if (canvas) {
       const url = canvas.toDataURL("image/png");
       const link = document.createElement('a');
-      link.download = `General Store Karyana ShopStore_Order_${pendingOrder.order_id}.png`;
+      link.download = `General_Store_Karyana_Shop_Order_${pendingOrder.order_id}.png`;
       link.href = url;
       link.click();
       toast.success('QR Code saved to gallery!');
     }
   };
 
-  const upiId = config.find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
-  const upiName = config.find(c => c.key === 'upi_name')?.value || 'General Store Karyana Shop';
+  const upiId = (config || []).find(c => c.key === 'upi_id')?.value || 'hindstore@upi';
+  const upiName = (config || []).find(c => c.key === 'upi_name')?.value || 'General Store Karyana Shop';
+  const isUpiEnabled = (config || []).find(c => c.key === 'upi_enabled')?.value !== 'false';
+  const khataEnabled = (config || []).find(c => c.key === 'khata_enabled')?.value === 'true';
+  const upiMode = (config || []).find(c => c.key === 'upi_verification_mode')?.value || 'manual';
   
   // Address State
   const [useCustomAddress, setUseCustomAddress] = useState(false);
@@ -65,6 +108,7 @@ export default function Checkout() {
   // Payment State
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cod' | 'wallet' | 'upi' | 'khata' | null>(null);
 
+  const [isCurrentLocationMode, setIsCurrentLocationMode] = useState(false);
   const [addressData, setAddressData] = useState({
     name: user?.name || '',
     phone: user?.phone || '',
@@ -108,10 +152,13 @@ export default function Checkout() {
       });
   }, []);
 
+  const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery');
   const [addressConfirmed, setAddressConfirmed] = useState(false);
   const [termsConfirmed, setTermsConfirmed] = useState(false);
 
   const validateAddress = () => {
+    if (deliveryMethod === 'pickup') return true; // No address needed for pickup primarily
+    if (isCurrentLocationMode) return addressData.name && addressData.phone && addressConfirmed;
     return addressData.name && addressData.phone && addressData.address && addressData.city && addressData.pin_code && addressData.delivery_area && addressConfirmed;
   };
 
@@ -201,7 +248,7 @@ export default function Checkout() {
         : appliedCoupon.value)
     : 0;
 
-  const deliveryFee = selectedArea ? selectedArea.fee : (subtotal > 500 ? 0 : 40);
+  const deliveryFee = deliveryMethod === 'pickup' ? 0 : (selectedArea ? selectedArea.fee : (subtotal > 500 ? 0 : 40));
   const total = subtotal - couponDiscount + deliveryFee;
 
   useEffect(() => {
@@ -256,8 +303,9 @@ export default function Checkout() {
           promo_discount: totalPromoDiscount,
           coupon_discount: couponDiscount,
           delivery_fee: deliveryFee,
+          delivery_type: deliveryMethod,
           payment_method: method,
-          address: JSON.stringify(addressData), 
+          address: deliveryMethod === 'pickup' ? JSON.stringify({ name: user?.name, phone: user?.phone, address: 'STORE_PICKUP_SELECTED' }) : JSON.stringify(addressData), 
           coupon_code: appliedCoupon?.code
         })
       });
@@ -289,7 +337,7 @@ export default function Checkout() {
       interval = setInterval(async () => {
         try {
           const data = await fetchWithHandling<any>(`/api/orders/${pendingOrder.id}`, { headers: getAuthHeaders() });
-          if (data && (data.status === 'paid' || data.status === 'PAID')) {
+          if (data && (data.status === 'paid' || data.status === 'PAID' || data.payment_status === 'paid')) {
             toast.success('Payment received successfully! ✅');
             clearCart();
             fetchUser();
@@ -299,53 +347,101 @@ export default function Checkout() {
             setStep('payment_method');
           }
         } catch (err) {
-          handleAppError(err, 'Failed to update payment status', 'pollPayment', user?.role === 'admin');
+          // Silent fail for polling errors to avoid toast spam
         }
       }, 10000);
     }
     return () => clearInterval(interval);
   }, [step, pendingOrder]);
 
-  // Removed early return for guest checkout
+  const [checkoutMode, setCheckoutMode] = useState(true);
+
+  if (!cart.length && step !== 'confirmation') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-stone-50">
+        <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mb-6">
+          <ShoppingBag className="text-stone-300" size={40} />
+        </div>
+        <h2 className="text-2xl font-black text-stone-900 mb-2">Cart is Empty</h2>
+        <p className="text-stone-500 mb-8">You need items in your cart to checkout.</p>
+        <button 
+          onClick={() => navigate('/cart')}
+          className="btn-primary px-8 py-3"
+        >
+          Return to Cart
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-stone-50 pb-24 md:py-12 md:pb-12">
-      <div className="max-w-5xl mx-auto md:px-4">
-        {/* Checkout Steps */}
-        <div className="flex items-center justify-center p-4 bg-white border-b border-stone-100 md:bg-transparent md:border-none md:mb-12">
-          {[
-            { id: 'address', label: 'Address', icon: MapPin },
-            { id: 'payment_method', label: 'Payment', icon: CreditCard },
-            { id: 'review', label: 'Review', icon: ShieldCheck },
-            { id: 'confirmation', label: 'Done', icon: CheckCircle2 },
-          ].map((s, i) => (
-            <div key={s.id} className="flex items-center shrink-0">
-              <div className={cn(
-                "flex flex-col items-center space-y-1",
-                (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "text-primary" : "text-stone-300"
-              )}>
-                <div className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center transition-all",
-                  (step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment')) ? "bg-primary text-white" : "bg-stone-100"
-                )}>
-                  <s.icon size={16} />
-                </div>
-                <span className="text-[9px] font-bold uppercase tracking-widest hidden sm:block">{s.label}</span>
-              </div>
-              {i < 3 && (
-                <div className={cn(
-                  "w-8 sm:w-12 h-0.5 mx-1 sm:mx-2 rounded-full",
-                  i === 0 && (['payment_method', 'review', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200",
-                  i === 1 && (['review', 'awaiting_payment', 'confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200",
-                  i === 2 && (['confirmation'].includes(step)) ? "bg-primary" : "bg-stone-200"
-                )} />
-              )}
-            </div>
-          ))}
+    <div className={cn(
+      "min-h-screen bg-stone-50 transition-all duration-700",
+      checkoutMode ? "py-0 sm:py-8" : "py-12"
+    )}>
+      {/* Full Screen Immersive Wrapper */}
+      <div className={cn(
+        "max-w-6xl mx-auto transition-all duration-700",
+        checkoutMode ? "bg-white sm:rounded-[3rem] sm:shadow-[0_40px_100px_-20px_rgba(0,0,0,0.15)] sm:border sm:border-stone-100 min-h-screen sm:min-h-0 overflow-hidden" : ""
+      )}>
+        
+        {/* Header - Minimalist */}
+        <div className="p-6 sm:p-8 flex items-center justify-between border-b border-stone-50">
+          <div className="flex items-center gap-4">
+             <button 
+               onClick={() => step === 'address' ? navigate('/cart') : setStep(step === 'payment_method' ? 'address' : (step === 'review' ? 'payment_method' : 'address'))}
+               className="p-2 hover:bg-stone-50 rounded-full transition-colors"
+             >
+               <ArrowLeft size={20} />
+             </button>
+             <div>
+               <h1 className="text-xl sm:text-2xl font-black font-serif tracking-tight">Secured Checkout</h1>
+               <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest">{cart.length} Items • Standard Shipping</p>
+             </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-3">
+             <div className="text-right">
+                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Total Payable</p>
+                <p className="text-xl font-black text-stone-900">₹{total.toFixed(2)}</p>
+             </div>
+             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                <ShieldCheck size={20} />
+             </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-0 md:gap-6 lg:gap-8 xl:gap-12 p-4 md:p-0">
-          <div className="xl:col-span-2">
+        {/* Improved Step Progress */}
+        <div className="px-6 sm:px-12 py-6 bg-stone-50/50 border-b border-stone-100 flex justify-between overflow-x-auto gap-4 no-scrollbar">
+           {[
+             { id: 'address', label: 'Shipping', icon: MapPin },
+             { id: 'payment_method', label: 'Payment', icon: CreditCard },
+             { id: 'review', label: 'Review', icon: ShieldCheck },
+             { id: 'confirmation', label: 'Complete', icon: CheckCircle2 },
+           ].map((s, i) => {
+             const isActive = step === s.id || (s.id === 'payment_method' && step === 'awaiting_payment');
+             const isPast = ['address', 'payment_method', 'review', 'confirmation'].indexOf(step) > i;
+             
+             return (
+               <div key={s.id} className="flex items-center gap-3 shrink-0">
+                  <div className={cn(
+                    "w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-500",
+                    isActive ? "bg-primary text-white shadow-lg shadow-primary/20 scale-110" : (isPast ? "bg-emerald-500 text-white" : "bg-white border border-stone-100 text-stone-300")
+                  )}>
+                    {isPast ? <CheckCircle2 size={18} /> : <s.icon size={18} />}
+                  </div>
+                  <div className="hidden md:block">
+                     <p className={cn("text-[9px] font-black uppercase tracking-widest leading-none mb-1", isActive ? "text-primary" : "text-stone-300")}>Step {i+1}</p>
+                     <p className={cn("text-xs font-black", isActive ? "text-stone-900" : "text-stone-400")}>{s.label}</p>
+                  </div>
+                  {i < 3 && <div className="h-px w-8 sm:w-12 bg-stone-200 ml-2" />}
+               </div>
+             );
+           })}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden">
+          {/* Main Form Content */}
+          <div className="lg:col-span-8 p-6 sm:p-12 border-r border-stone-100">
             <AnimatePresence mode="wait" initial={false}>
               {step === 'address' && (
                 <motion.div 
@@ -358,234 +454,261 @@ export default function Checkout() {
                 >
                   <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold flex items-center gap-2">
-                       {t('shipping_address') || 'Shipping Address'}
-                       <InfoButton title="Shipping" message="Ensure your delivery address is accurate for timely delivery." />
+                       Fulfillment Method
+                       <InfoButton title="Fulfillment" message="Choose between doorstep delivery or self-pickup from our physical store." />
                     </h2>
                   </div>
 
-                  {!useCustomAddress && addresses.length > 0 ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                         <h3 className="text-sm font-bold text-stone-500 uppercase">Saved Addresses</h3>
-                         <button 
-                           onClick={() => setUseCustomAddress(true)}
-                           className="text-xs font-bold text-primary flex items-center space-x-1 hover:bg-primary/5 px-3 py-1.5 rounded-full transition-colors"
-                         >
-                           <Plus size={14} />
-                           <span>Add New Address</span>
-                         </button>
-                      </div>
-                      <div className="grid grid-cols-1 gap-4">
-                        {addresses.map((addr, idx) => (
-                          <motion.button
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.1 }}
-                            key={addr.id}
-                            onClick={() => {
-                              setSelectedAddressId(addr.id);
-                              setAddressData({
-                                name: addr.name,
-                                phone: addr.phone,
-                                address: addr.address,
-                                city: addr.city,
-                                state: addr.state,
-                                zip_code: addr.zip_code,
-                                pin_code: addr.pin_code,
-                                delivery_area: addr.delivery_area
-                              });
-                            }}
-                            className={cn(
-                              "text-left p-6 rounded-2xl border-2 transition-all relative",
-                              selectedAddressId === addr.id ? "border-primary bg-primary/5 shadow-md shadow-primary/5" : "border-stone-100 hover:border-stone-200"
-                            )}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="space-y-1">
-                                 <div className="flex items-center space-x-2">
-                                    <p className="font-bold text-stone-800 text-lg">{addr.name}</p>
-                                    {addr.is_default && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
-                                 </div>
-                                 <p className="text-sm text-stone-600 font-medium">{addr.phone}</p>
-                                 <p className="text-sm text-stone-500 max-w-[80%] leading-relaxed">{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}</p>
-                                 <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
-                              </div>
-                              {selectedAddressId === addr.id && (
-                                <motion.div 
-                                  initial={{ scale: 0 }}
-                                  animate={{ scale: 1 }}
-                                  className="text-primary bg-primary/10 rounded-full p-1 shadow-sm"
-                                >
-                                  <CheckCircle2 size={20} />
-                                </motion.div>
-                              )}
-                            </div>
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => setDeliveryMethod('delivery')}
+                      className={cn(
+                        "p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all",
+                        deliveryMethod === 'delivery' ? "border-primary bg-primary/5 text-primary" : "border-stone-100 hover:border-stone-200 text-stone-400"
+                      )}
+                    >
+                      <Truck size={24} />
+                      <span className="text-xs font-black uppercase tracking-widest">Home Delivery</span>
+                    </button>
+                    <button 
+                      onClick={() => setDeliveryMethod('pickup')}
+                      className={cn(
+                        "p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all",
+                        deliveryMethod === 'pickup' ? "border-primary bg-primary/5 text-primary" : "border-stone-100 hover:border-stone-200 text-stone-400"
+                      )}
+                    >
+                      <ShoppingBag size={24} />
+                      <span className="text-xs font-black uppercase tracking-widest">Store Pickup</span>
+                    </button>
+                  </div>
+
+                  {deliveryMethod === 'pickup' ? (
+                     <motion.div 
+                       initial={{ opacity: 0, y: 10 }}
+                       animate={{ opacity: 1, y: 0 }}
+                       className="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl space-y-3"
+                     >
+                        <h3 className="text-emerald-900 font-bold flex items-center gap-2 text-lg">
+                           <CheckCircle2 size={20} />
+                           Store Pickup Selected
+                        </h3>
+                        <p className="text-emerald-700 text-sm leading-relaxed">
+                           You can pick up your order from our store once it's confirmed. 
+                           <br />
+                           <strong>Location:</strong> Near Main Market, Sector 12, Chandigarh.
+                           <br />
+                           <strong>Timing:</strong> 9:00 AM - 9:00 PM (Mon-Sat)
+                        </p>
+                        <div className="pt-2">
+                           <span className="px-3 py-1.5 bg-white text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-100">Zero Delivery Fee</span>
+                        </div>
+                     </motion.div>
                   ) : (
-                    <div className="space-y-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-bold text-stone-500 uppercase">New Address</h3>
-                        {addresses.length > 0 && (
-                          <button 
-                            onClick={() => { setUseCustomAddress(false); setSelectedAddressId(addresses[0]?.id || null); }}
-                            className="text-xs font-bold text-stone-500 hover:text-stone-800 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        )}
+                    <>
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold flex items-center gap-2">
+                           Shipping Address
+                           <InfoButton title="Shipping" message="Ensure your delivery address is accurate for timely delivery." />
+                        </h2>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                         {/* Address Mode Cards */}
-                         <button 
-                           onClick={() => {
-                             if ("geolocation" in navigator) {
-                               toast.loading('Fetching precise location...', { id: 'geo_checkout' });
-                               navigator.geolocation.getCurrentPosition(
-                                 async (pos) => {
-                                   const { latitude, longitude } = pos.coords;
-                                   try {
-                                     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-                                     const data = await res.json();
-                                     if (data && data.address) {
-                                       const addr = data.address;
-                                       setAddressData(prev => ({
-                                         ...prev,
-                                         address: `${addr.road || ''}${addr.neighbourhood ? ', ' + addr.neighbourhood : ''}`,
-                                         city: addr.city || addr.town || addr.village || '',
-                                         state: addr.state || '',
-                                         pin_code: addr.postcode?.slice(0, 6) || ''
-                                       }));
-                                       toast.success('Live location secured!', { id: 'geo_checkout' });
-                                     }
-                                   } catch(err) {
-                                     toast.error('Could not reverse geocode', { id: 'geo_checkout' });
-                                   }
-                                 },
-                                 (err) => toast.error('Location denied', { id: 'geo_checkout' }),
-                                 { enableHighAccuracy: true }
-                               );
-                             }
-                           }}
-                           className="col-span-1 md:col-span-2 flex items-center justify-center space-x-3 p-5 rounded-2xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors text-primary"
-                         >
-                            <MapPin size={24} />
-                            <div className="text-left">
-                               <p className="font-bold text-lg">Deliver to Current Location</p>
-                               <p className="text-xs opacity-80">Automatically fetch and fill your precise live location</p>
-                            </div>
-                         </button>
-
-                         <div className="col-span-1 md:col-span-2 flex items-center gap-4 py-2">
-                            <div className="flex-1 h-px bg-stone-200"></div>
-                            <p className="text-xs font-bold text-stone-400 uppercase tracking-widest">OR TYPE MANUALLY</p>
-                            <div className="flex-1 h-px bg-stone-200"></div>
-                         </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Full Name</label>
-                          <input 
-                            type="text" 
-                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                            value={addressData.name}
-                            onChange={(e) => setAddressData({...addressData, name: e.target.value})}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
-                          <input 
-                            type="text" 
-                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                            value={addressData.phone}
-                            onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
-                          />
-                        </div>
-                        <div className="space-y-1 col-span-2 md:col-span-1">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Postcode</label>
-                          <div className="relative">
-                            <input 
-                              type="text" 
-                              disabled
-                              className="w-full px-4 py-3 pr-12 bg-stone-200 border border-stone-200 rounded-2xl outline-none font-bold text-stone-700"
-                              value={addressData.pin_code}
-                              placeholder="Auto-filled via location"
-                            />
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                if ("geolocation" in navigator) {
-                                  toast.loading('Fetching location...', { id: 'geo_pin' });
-                                  navigator.geolocation.getCurrentPosition(
-                                    async (pos) => {
-                                      const { latitude, longitude } = pos.coords;
-                                      try {
-                                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-                                        const data = await res.json();
-                                        if (data && data.address) {
-                                          const addr = data.address;
-                                          const pin = addr.postcode?.slice(0, 6);
-                                          setAddressData(prev => ({
-                                            ...prev,
-                                            pin_code: pin || '',
-                                            city: addr.city || addr.town || addr.village || '',
-                                            state: addr.state || ''
-                                          }));
-                                          toast.success('Pincode & City updated automatically', { id: 'geo_pin' });
-                                        }
-                                      } catch(err) {
-                                        toast.error('Could not reverse geocode', { id: 'geo_pin' });
-                                      }
-                                    },
-                                    (err) => toast.error('Location denied', { id: 'geo_pin' })
-                                  );
-                                }
-                              }}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/20 text-primary rounded-xl hover:bg-primary transition-all hover:text-white"
-                              title="Fetch Pin Code via Location"
-                            >
-                              <MapPin size={16} />
-                            </button>
+                      {!useCustomAddress && addresses.length > 0 ? (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                             <h3 className="text-sm font-bold text-stone-500 uppercase">Saved Addresses</h3>
+                             <button 
+                               onClick={() => setUseCustomAddress(true)}
+                               className="text-xs font-bold text-primary flex items-center space-x-1 hover:bg-primary/5 px-3 py-1.5 rounded-full transition-colors"
+                             >
+                               <Plus size={14} />
+                               <span>Add New Address</span>
+                             </button>
+                          </div>
+                          <div className="grid grid-cols-1 gap-4">
+                            {addresses.map((addr, idx) => (
+                              <motion.button
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.1 }}
+                                key={addr.id}
+                                onClick={() => {
+                                  setSelectedAddressId(addr.id);
+                                  setAddressData({
+                                    name: addr.name,
+                                    phone: addr.phone,
+                                    address: addr.address,
+                                    city: addr.city,
+                                    state: addr.state,
+                                    zip_code: addr.zip_code,
+                                    pin_code: addr.pin_code,
+                                    delivery_area: addr.delivery_area
+                                  });
+                                }}
+                                className={cn(
+                                  "text-left p-6 rounded-2xl border-2 transition-all relative",
+                                  selectedAddressId === addr.id ? "border-primary bg-primary/5 shadow-md shadow-primary/5" : "border-stone-100 hover:border-stone-200"
+                                )}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div className="space-y-1">
+                                     <div className="flex items-center space-x-2">
+                                        <p className="font-bold text-stone-800 text-lg">{addr.name}</p>
+                                        {addr.is_default && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
+                                     </div>
+                                     <p className="text-sm text-stone-600 font-medium">{addr.phone}</p>
+                                     <p className="text-sm text-stone-500 max-w-[80%] leading-relaxed">{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}</p>
+                                     <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
+                                  </div>
+                                  {selectedAddressId === addr.id && (
+                                    <motion.div 
+                                      initial={{ scale: 0 }}
+                                      animate={{ scale: 1 }}
+                                      className="text-primary bg-primary/10 rounded-full p-1 shadow-sm"
+                                    >
+                                      <CheckCircle2 size={20} />
+                                    </motion.div>
+                                  )}
+                                </div>
+                              </motion.button>
+                            ))}
                           </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">City (Auto-filled by Pin Code)</label>
-                          <input 
-                            type="text" 
-                            disabled
-                            className="w-full px-4 py-3 bg-stone-200 text-stone-500 border border-stone-200 rounded-2xl outline-none font-bold"
-                            value={addressData.city}
-                          />
+                      ) : (
+                        <div className="space-y-6">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-sm font-bold text-stone-500 uppercase">New Address</h3>
+                            {addresses.length > 0 && (
+                              <button 
+                                onClick={() => { setUseCustomAddress(false); setSelectedAddressId(addresses[0]?.id || null); }}
+                                className="text-xs font-bold text-stone-500 hover:text-stone-800 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             {/* Address Mode Cards */}
+                             <button 
+                               onClick={async () => {
+                                 setIsCurrentLocationMode(true);
+                                 const data = await autofillLocation(GOOGLE_MAPS_KEY);
+                                 if (data) {
+                                   setAddressData(prev => ({
+                                     ...prev,
+                                     address: data.address,
+                                     city: data.city,
+                                     state: data.state,
+                                     pin_code: data.pin_code
+                                   }));
+                                 }
+                               }}
+                               className="col-span-1 md:col-span-2 flex items-center justify-center space-x-3 p-5 rounded-2xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors text-primary"
+                             >
+                                <MapPin size={24} />
+                                <div className="text-left">
+                                   <p className="font-bold text-lg">Deliver to Current Location</p>
+                                   <p className="text-xs opacity-80">Automatically fetch and fill your precise live location</p>
+                                </div>
+                             </button>
+
+                             <div className="col-span-1 md:col-span-2 flex items-center gap-4 py-2">
+                                <div className="flex-1 h-px bg-stone-200"></div>
+                                <p className="text-xs font-bold text-stone-400 uppercase tracking-widest">OR TYPE MANUALLY</p>
+                                <div className="flex-1 h-px bg-stone-200"></div>
+                             </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Full Name</label>
+                              <input 
+                                type="text" 
+                                className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                                value={addressData.name}
+                                onChange={(e) => setAddressData({...addressData, name: e.target.value})}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
+                              <input 
+                                type="text" 
+                                className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                                value={addressData.phone}
+                                onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
+                              />
+                            </div>
+                            
+                            {!isCurrentLocationMode && (
+                              <>
+                                <div className="space-y-1 col-span-2 md:col-span-1">
+                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Postcode</label>
+                                  <div className="relative">
+                                    <input 
+                                      type="text" 
+                                      disabled
+                                      className="w-full px-4 py-3 pr-12 bg-stone-200 border border-stone-200 rounded-2xl outline-none font-bold text-stone-700"
+                                      value={addressData.pin_code}
+                                      placeholder="Auto-filled via location"
+                                    />
+                                    <button 
+                                      type="button"
+                                      onClick={async () => {
+                                        const data = await autofillLocation(GOOGLE_MAPS_KEY);
+                                        if (data) {
+                                          setAddressData(prev => ({
+                                            ...prev,
+                                            pin_code: data.pin_code,
+                                            city: data.city,
+                                            state: data.state
+                                          }));
+                                        }
+                                      }}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary/20 text-primary rounded-xl hover:bg-primary transition-all hover:text-white"
+                                      title="Fetch Pin Code via Location"
+                                    >
+                                      <MapPin size={16} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">City (Auto-filled by Pin Code)</label>
+                                  <input 
+                                    type="text" 
+                                    disabled
+                                    className="w-full px-4 py-3 bg-stone-200 text-stone-500 border border-stone-200 rounded-2xl outline-none font-bold"
+                                    value={addressData.city}
+                                  />
+                                </div>
+                                <div className="md:col-span-2 space-y-1">
+                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Street Address</label>
+                                  <textarea 
+                                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[80px]"
+                                    value={addressData.address}
+                                    onChange={(e) => setAddressData({...addressData, address: e.target.value})}
+                                  />
+                                </div>
+                                <div className="col-span-2 space-y-1">
+                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Delivery Area</label>
+                                  <select 
+                                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                                    value={addressData.delivery_area}
+                                    onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
+                                  >
+                                    <option value="">Select your delivery area...</option>
+                                    {deliveryAreas.map(area => (
+                                      <option key={area.id} value={area.name}>
+                                         {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Street Address</label>
-                          <textarea 
-                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[80px]"
-                            value={addressData.address}
-                            onChange={(e) => setAddressData({...addressData, address: e.target.value})}
-                          />
-                        </div>
-                        <div className="col-span-2 space-y-1">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Delivery Area</label>
-                          <select 
-                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                            value={addressData.delivery_area}
-                            onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
-                          >
-                            <option value="">Select your delivery area...</option>
-                            {deliveryAreas.map(area => (
-                              <option key={area.id} value={area.name}>
-                                 {area.name} (Min. Order ₹{area.min_order} | Fee ₹{area.fee})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
+                      )}
+                    </>
                   )}
-                  
+                  {deliveryMethod === 'delivery' && (
                   <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
                     <input 
                       type="checkbox" 
@@ -598,13 +721,15 @@ export default function Checkout() {
                       Shipping address details are accurate.
                     </label>
                   </div>
+                )}
+
                   <motion.button 
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleNextStep}
                     className="w-full btn-primary py-4 flex items-center justify-center space-x-2 shadow-lg shadow-primary/20"
                   >
-                    <span>Continue to Payment</span>
+                    <span>{deliveryMethod === 'pickup' ? 'Confirm Pickup & Pay' : 'Continue to Payment'}</span>
                     <ArrowRight size={18} />
                   </motion.button>
                 </motion.div>
@@ -624,45 +749,76 @@ export default function Checkout() {
                     
                     <div className="grid grid-cols-1 gap-3">
                       {/* UPI QR - Recommended */}
-                      <div className="relative group">
-                        <motion.button 
-                          whileHover={{ scale: 1.01 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => { isLoggedIn && setSelectedPaymentMethod('upi'); isLoggedIn && setStep('review'); }}
-                          disabled={isProcessing || !isLoggedIn}
-                          className={cn(
-                            "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
-                            !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 shadow-sm"
+                      {isUpiEnabled && (
+                        <div className="relative group">
+                          <motion.button 
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => { isLoggedIn && setSelectedPaymentMethod('upi'); isLoggedIn && setStep('review'); }}
+                            disabled={isProcessing || !isLoggedIn}
+                            className={cn(
+                              "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
+                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-primary hover:bg-primary/5 shadow-sm"
+                            )}
+                          >
+                            <div className="flex items-center space-x-4">
+                              <div className={cn(
+                                "p-3 rounded-xl transition-colors",
+                                !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-primary group-hover:text-white"
+                              )}>
+                                <CreditCard size={20} />
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold text-stone-800">UPI Payment {upiMode === 'manual' ? '(Manual Proof)' : '(Auto Verification)'}</p>
+                                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">
+                                  {upiMode === 'manual' ? 'Pay & Submit screenshot/UTR' : 'Fast auto-verification via UPI Note'}
+                                </p>
+                              </div>
+                            </div>
+                            <ArrowRight size={16} className="text-stone-300 group-hover:text-primary transition-transform group-hover:translate-x-1" />
+                          </motion.button>
+                          {!isLoggedIn && (
+                            <div className="mt-2 flex items-center justify-between px-2">
+                              <p className="text-[10px] text-stone-500 font-medium italic">* Login required for UPI payments.</p>
+                              <button 
+                                onClick={() => navigate('/login')}
+                                className="text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
+                              >
+                                Login with Google
+                              </button>
+                            </div>
                           )}
-                        >
-                          <div className="flex items-center space-x-4">
-                            <div className={cn(
-                              "p-3 rounded-xl transition-colors",
-                              !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-primary group-hover:text-white"
-                            )}>
-                              <CreditCard size={20} />
-                            </div>
-                            <div className="text-left">
-                              <p className="font-bold text-stone-800">UPI QR Automation</p>
-                              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Fast auto-verification via UPI Note</p>
-                            </div>
-                          </div>
-                          <ArrowRight size={16} className="text-stone-300 group-hover:text-primary transition-transform group-hover:translate-x-1" />
-                        </motion.button>
-                        {!isLoggedIn && (
-                          <div className="mt-2 flex items-center justify-between px-2">
-                            <p className="text-[10px] text-stone-500 font-medium italic">* Login required for UPI automated payments.</p>
-                            <button 
-                              onClick={() => navigate('/login')}
-                              className="text-[10px] font-black text-primary uppercase tracking-wider hover:underline"
-                            >
-                              Login with Google
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
-                      {/* Wallet */}
+                      {/* Khata Credit */}
+                      {khataEnabled && (user?.khata_enabled || user?.khata_allowed) && (
+                        <div className="relative group">
+                          <motion.button 
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => { setSelectedPaymentMethod('khata'); setStep('review'); }}
+                            disabled={isProcessing}
+                            className={cn(
+                              "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
+                              "border-stone-100 hover:border-emerald-500 hover:bg-emerald-50 shadow-sm"
+                            )}
+                          >
+                            <div className="flex items-center space-x-4">
+                              <div className="p-3 rounded-xl bg-emerald-100 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                                <Book size={20} />
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold text-stone-800">Khata Credit</p>
+                                <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Buy Now, Pay Later</p>
+                              </div>
+                            </div>
+                            <ArrowRight size={16} className="text-stone-300 group-hover:text-emerald-500 transition-transform group-hover:translate-x-1" />
+                          </motion.button>
+                        </div>
+                      )}
+
+                      {/* Store Wallet */}
                       <div className="relative group">
                         <motion.button 
                           whileHover={{ scale: 1.01 }}
@@ -702,67 +858,27 @@ export default function Checkout() {
                         </motion.button>
                       </div>
 
-                      {/* Khata */}
-                      {(!isLoggedIn || user?.khata_enabled) && (
-                        <div className="relative group">
-                          <motion.button 
-                            whileHover={{ scale: 1.01 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => { isLoggedIn && setSelectedPaymentMethod('khata'); isLoggedIn && setStep('review'); }}
-                            disabled={isProcessing || !isLoggedIn || (user?.khata_balance || 0) + total > (user?.credit_limit || 0)}
-                            className={cn(
-                              "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
-                              !isLoggedIn ? "bg-stone-50 border-stone-100 cursor-not-allowed opacity-70" : "border-stone-100 hover:border-blue-500 hover:bg-blue-50/50 shadow-sm",
-                              isLoggedIn && (user?.khata_balance || 0) + total > (user?.credit_limit || 0) && "opacity-50 cursor-not-allowed"
-                            )}
-                          >
-                            <div className="flex items-center space-x-4">
-                              <div className={cn(
-                                "p-3 rounded-xl transition-colors",
-                                !isLoggedIn ? "bg-stone-200 text-stone-400" : "bg-stone-100 group-hover:bg-blue-500 group-hover:text-white"
-                              )}>
-                                <Clock size={20} />
-                              </div>
-                              <div className="text-left">
-                                <p className="font-bold text-stone-800">Khata (Credit Line)</p>
-                                {isLoggedIn ? (
-                                  <div className="mt-1 flex flex-wrap gap-2">
-                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100">
-                                      Limit: ₹{user?.credit_limit || 0}
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-stone-50 text-stone-500 border border-stone-200">
-                                      Used: ₹{user?.khata_balance || 0}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <p className="text-[10px] text-stone-500 uppercase tracking-widest font-bold">Login for credit</p>
-                                )}
-                              </div>
-                            </div>
-                            <ArrowRight size={16} className={cn("text-stone-300", isLoggedIn && "group-hover:text-blue-500 transition-transform group-hover:translate-x-1")} />
-                          </motion.button>
-                        </div>
-                      )}
-
                       {/* COD */}
-                      <motion.button 
-                        whileHover={{ scale: 1.01 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => { setSelectedPaymentMethod('cod'); setStep('review'); }}
-                        disabled={isProcessing}
-                        className="w-full p-5 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group shadow-sm"
-                      >
-                        <div className="flex items-center space-x-4">
-                          <div className="p-3 rounded-xl bg-stone-100 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                            <Truck size={20} />
+                      <div className="relative group">
+                        <motion.button 
+                          whileHover={{ scale: 1.01 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => { setSelectedPaymentMethod('cod'); setStep('review'); }}
+                          disabled={isProcessing}
+                          className="w-full p-5 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group shadow-sm"
+                        >
+                          <div className="flex items-center space-x-4">
+                            <div className="p-3 rounded-xl bg-stone-100 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                              <Truck size={20} />
+                            </div>
+                            <div className="text-left">
+                              <p className="font-bold text-stone-800">Cash on Delivery</p>
+                              <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Pay at your doorstep</p>
+                            </div>
                           </div>
-                          <div className="text-left">
-                            <p className="font-bold text-stone-800">Cash on Delivery</p>
-                            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Pay at your doorstep</p>
-                          </div>
-                        </div>
-                        <ArrowRight size={16} className="text-stone-300 group-hover:text-emerald-500 transition-transform group-hover:translate-x-1" />
-                      </motion.button>
+                          <ArrowRight size={16} className="text-stone-300 group-hover:text-emerald-500 transition-transform group-hover:translate-x-1" />
+                        </motion.button>
+                      </div>
                     </div>
 
                     <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
@@ -853,148 +969,59 @@ export default function Checkout() {
               {step === 'awaiting_payment' && pendingOrder && (
                 <motion.div 
                   key="awaiting_payment"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-8 text-center"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="fixed inset-0 z-[100] bg-stone-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 overflow-y-auto"
                 >
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-bold">Complete Your Payment</h2>
-                    <p className="text-stone-500 text-sm">Scan the QR code below using any UPI app (PhonePe, GPay, Paytm, etc.)</p>
-                  </div>
-
-                  <div className="flex flex-col items-center space-y-6">
-                    <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-stone-100 relative group max-w-md w-full overflow-hidden">
-                      {/* Decorative Background Elements */}
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl" />
-                      <div className="absolute bottom-0 left-0 w-32 h-32 bg-emerald-500/5 rounded-full -ml-16 -mb-16 blur-3xl" />
-                      
-                      <div className="relative z-10 flex flex-col items-center">
-                        <div className="flex items-center space-x-3 mb-8">
-                          <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-lg transform rotate-6 border-4 border-white">
-                            <span className="text-white font-black text-xl">H</span>
-                          </div>
-                          <div className="text-left">
-                            <p className="text-sm font-black text-stone-900 leading-tight">General Store Karyana Shop</p>
-                            <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Official Payment QR</p>
-                          </div>
+                   <div className="absolute top-4 right-4 sm:top-8 sm:right-8">
+                      <button onClick={() => setStep('payment')} className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all"><X size={24} /></button>
+                   </div>
+                   <div className="bg-white rounded-[3rem] w-full max-w-lg p-8 shadow-2xl relative">
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-3 mb-8">
+                           <div className="w-12 h-12 bg-stone-900 rounded-2xl flex items-center justify-center text-white"><span className="text-xl font-black">H</span></div>
+                           <div className="text-left">
+                              <p className="text-sm font-black text-stone-900 leading-none">Gateway Node</p>
+                              <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-1">ID: {pendingOrder.order_id}</p>
+                           </div>
                         </div>
 
                         <div className="flex justify-center mb-8" ref={qrRef}>
                           <div className="relative p-6 bg-white rounded-[2.5rem] shadow-sm border border-stone-100 ring-12 ring-stone-50">
                             <QRCodeCanvas 
                               value={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tn=${pendingOrder.order_id}`}
-                              size={220}
+                              size={200}
                               level="H"
-                              includeMargin={false}
-                              fgColor="#1c1917"
-                              eyeRadius={[
-                                { outer: [20, 20, 4, 20], inner: [8, 8, 2, 8] },
-                                { outer: [20, 20, 20, 4], inner: [8, 8, 8, 2] },
-                                { outer: [20, 4, 20, 20], inner: [8, 2, 8, 8] },
-                              ]}
-                              imageSettings={{
-                                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='14' fill='%23ea580c'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-family='Inter, sans-serif' font-weight='900' font-size='24'%3EH%3C/text%3E%3C/svg%3E",
-                                height: 50,
-                                width: 50,
-                                excavate: true,
-                              }}
                             />
                           </div>
                         </div>
 
-                        <div className="w-full space-y-6">
-                          <div className="text-center">
-                            <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.3em] mb-2">Total Amount</p>
-                            <p className="text-5xl font-black text-stone-900 tracking-tight">₹{total}</p>
-                            
-                            <div className="mt-4 inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 shadow-sm shadow-emerald-500/5">
-                               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                               <span className="text-[10px] font-black uppercase tracking-widest">Securing Payment...</span>
-                            </div>
-                          </div>
-
-                          <div className="pt-6 border-t border-dashed border-stone-200">
-                             <div className="bg-primary/5 p-5 rounded-3xl border-2 border-primary/10 text-center relative group/token">
-                                <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-1">Transaction Note (Embedded)</p>
-                                <p className="text-xl font-black text-primary tracking-widest">{pendingOrder.order_id}</p>
-                                <p className="text-[8px] text-primary/60 font-bold mt-1 uppercase tracking-tighter">Automatic matching verification active</p>
-                             </div>
-                             
-                             <div className="mt-4 flex justify-center">
-                                <button 
-                                  onClick={downloadQR}
-                                  className="flex items-center gap-2 px-6 py-2.5 bg-stone-900 text-white rounded-2xl hover:bg-stone-800 transition-all font-black text-[10px] uppercase tracking-[0.1em] shadow-lg shadow-stone-900/20"
-                                >
-                                  <Download size={14} className="text-primary" />
-                                  <span>Download QR Card</span>
-                                </button>
-                             </div>
-                          </div>
+                        <div className="space-y-2 mb-8">
+                           <p className="text-[10px] font-black text-stone-300 uppercase tracking-[0.3em]">Authorized Payload</p>
+                           <p className="text-5xl font-black text-stone-900 tracking-tighter">₹{total}</p>
                         </div>
-                      </div>
-                    </div>
 
-                    <div className="w-full space-y-4 max-w-sm">
-                      {/* Step by Step Instructions */}
-                      <div className="space-y-3 text-xs font-medium text-stone-600 bg-white p-5 rounded-3xl border border-stone-100 shadow-sm">
-                        <p className="font-black text-stone-900 mb-3 flex items-center gap-2">
-                          <CheckCircle2 size={16} className="text-primary" />
-                          Steps for Auto-Verification
-                        </p>
-                        <div className="space-y-3">
-                          <div className="flex items-start gap-3">
-                            <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 border border-stone-200">1</span>
-                            <p>Scan the QR or use the button below to pay.</p>
-                          </div>
-                          <div className="flex items-start gap-3">
-                            <span className="w-5 h-5 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 border border-stone-200">2</span>
-                            <p>In your UPI app, locate the <span className="font-bold text-stone-900 border-b-2 border-primary/20">Note / Add Message</span> field.</p>
-                          </div>
-                          <div className="flex items-start gap-3 bg-primary/5 p-4 rounded-2xl border border-primary/10">
-                            <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5 shadow-sm">3</span>
-                            <div>
-                                <p className="font-black text-stone-900 border-b-2 border-primary/20 inline-block mb-1">Paste your Order ID</p>
-                                <p>Enter <span className="font-black text-primary px-1.5 py-0.5 bg-white rounded border border-primary/20">{pendingOrder.order_id}</span> in the <span className="font-bold text-stone-900 italic">Note / Remark</span> field of your UPI app. This is **CRITICAL** for instant delivery.</p>
-                            </div>
-                          </div>
-                        </div>
+                        {upiMode === 'manual' && (
+                           <div className="space-y-4 bg-stone-50 p-6 rounded-3xl border border-stone-100 text-left">
+                              <input 
+                                type="text" 
+                                placeholder="12-digit UPI Number"
+                                className="w-full px-5 py-4 bg-white border border-stone-200 rounded-2xl outline-none focus:border-primary text-sm font-bold"
+                                value={manualPaymentInfo.utr}
+                                onChange={(e) => setManualPaymentInfo({...manualPaymentInfo, utr: e.target.value})}
+                              />
+                              <button 
+                                onClick={submitPaymentProof}
+                                disabled={isSubmittingProof || !manualPaymentInfo.utr}
+                                className="w-full py-5 bg-stone-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl disabled:opacity-30"
+                              >
+                                Submit Proof
+                              </button>
+                           </div>
+                        )}
+                        <button onClick={downloadQR} className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-8">Download QR Card</button>
                       </div>
-
-                      {/* Mobile Deep Link Button */}
-                      <div className="block md:hidden">
-                        <a 
-                          href={`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${total}&cu=INR&tn=${pendingOrder.order_id}`}
-                          className="w-full btn-primary py-4 rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-primary/20"
-                        >
-                          <CreditCard size={20} />
-                          <span className="font-bold">Pay with UPI App</span>
-                        </a>
-                        <p className="text-[10px] text-stone-400 text-center mt-2">Opens GPay, PhonePe, Paytm, etc.</p>
-                      </div>
-
-                      <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-amber-800 text-xs text-left flex gap-3">
-                        <AlertCircle className="shrink-0" size={18} />
-                        <div>
-                          <p><strong>Crucial:</strong> Do not change the <strong>Note/Remark</strong>. Our system uses the Order ID <strong>{pendingOrder.order_id}</strong> for auto-verification.</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-col items-center space-y-3">
-                        <div className="flex items-center space-x-3 text-primary">
-                          <RefreshCcw className="animate-spin" size={18} />
-                          <span className="font-bold animate-pulse">Waiting for payment confirmation...</span>
-                        </div>
-                        <p className="text-[10px] text-stone-400">Payment detection usually takes 30-60 seconds after successful transaction.</p>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => setStep('payment_method')}
-                      className="text-xs font-bold text-stone-400 hover:text-stone-600 transition-colors"
-                    >
-                      Cancel and choose different method
-                    </button>
-                  </div>
+                   </div>
                 </motion.div>
               )}
 
@@ -1026,11 +1053,11 @@ export default function Checkout() {
                             </div>
                             <div className="flex justify-between space-x-12">
                                 <span className="text-sm text-stone-500">{t('delivery_method') || 'Delivery Method'}</span>
-                                <span className="text-sm font-bold">{t('standard_delivery') || 'Standard Delivery'}</span>
+                                <span className="text-sm font-bold">{deliveryMethod === 'pickup' ? (t('store_pickup') || 'Store Pickup') : (t('standard_delivery') || 'Standard Delivery')}</span>
                             </div>
                             <div className="flex justify-between space-x-12">
                                 <span className="text-sm text-stone-500">{t('estimated_arrival') || 'Estimated Arrival'}</span>
-                                <span className="text-sm font-bold">2-4 {(t('business_days') || 'Business Days')}</span>
+                                <span className="text-sm font-bold">{deliveryMethod === 'pickup' ? (t('ready_in_one_hour') || 'Ready in 1-2 Hours') : `2-4 ${(t('business_days') || 'Business Days')}`}</span>
                             </div>
                         </div>
                         {pendingOrder?.payment_method === 'upi' && (
@@ -1047,14 +1074,14 @@ export default function Checkout() {
                   </div>
                   <div className="flex flex-col sm:flex-row justify-center gap-4">
                     <button 
-                      onClick={() => navigate('/profile')}
-                      className="px-8 py-4 border border-stone-200 rounded-2xl font-bold hover:bg-stone-50 transition-colors"
+                      onClick={() => navigate('/profile?tab=history')}
+                      className="px-8 py-4 bg-white border border-stone-200 rounded-2xl font-bold text-stone-900 hover:bg-stone-50 transition-all active:scale-95 shadow-sm"
                     >
                       View Order History
                     </button>
                     <button 
                       onClick={() => navigate('/products')}
-                      className="px-8 py-4 btn-primary rounded-2xl"
+                      className="px-8 py-4 btn-primary rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95"
                     >
                       Continue Shopping
                     </button>
@@ -1064,87 +1091,80 @@ export default function Checkout() {
             </AnimatePresence>
           </div>
 
-          {/* Order Summary Sidebar */}
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">{t('order_summary') || 'Order Summary'}</h3>
-              
-              <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                {cartWithDiscounts.map((item) => (
-                  <div 
-                    key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
-                    className="flex items-center space-x-4 border-b border-stone-50 pb-4 last:border-0 last:pb-0"
-                  >
-                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stone-100 shrink-0 bg-stone-50">
-                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover mix-blend-multiply" />
+          {/* Right Sidebar - Order Summary (Floating on Desktop) */}
+          <div className="lg:col-span-4 bg-stone-50/50 p-6 sm:p-8 space-y-8 h-full">
+            <div className="sticky top-8 space-y-8">
+              <div>
+                <h3 className="text-lg font-black text-stone-900 mb-6 flex items-center gap-2">
+                   <ShoppingBag size={20} className="text-primary" />
+                   Order Summary
+                </h3>
+                
+                <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 no-scrollbar">
+                  {cartWithDiscounts.map((item) => (
+                    <div key={`${item.id}-${item.selectedVariant?.id || 'base'}`} className="flex gap-4 group">
+                      <div className="w-16 h-16 bg-white rounded-2xl border border-stone-100 flex-shrink-0 overflow-hidden shadow-sm">
+                        <img src={item.image_url} alt={item.name} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black text-stone-800 truncate mb-1">{item.name}</p>
+                        <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1">Qty: {item.quantity}</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-stone-900">₹{(item.finalPrice * item.quantity).toFixed(0)}</span>
+                          {item.price > item.finalPrice && (
+                            <span className="text-[10px] text-stone-400 line-through">₹{(item.price * item.quantity).toFixed(0)}</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold line-clamp-1 text-stone-800">{item.name}</p>
-                      <p className="text-[10px] text-stone-500 mt-0.5 font-medium">{item.quantity} x ₹{item.finalPrice}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-black text-stone-900">₹{item.finalPrice * item.quantity}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
-              {step !== 'address' && step !== 'confirmation' && addressData.name && (
-                <div className="pt-4 border-t border-stone-100">
-                  <div className="bg-stone-50 rounded-2xl p-4 border border-stone-100 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">
-                      <span>Delivery Details</span>
-                      <button onClick={() => setStep('address')} className="text-primary hover:underline">Edit</button>
-                    </div>
-                    <p className="text-sm font-bold text-stone-800">{addressData.name}</p>
-                    <p className="text-xs text-stone-600 leading-relaxed">{addressData.address}</p>
-                    <p className="text-xs text-stone-500">{addressData.city}, {addressData.state} {addressData.pin_code}</p>
-                    <p className="text-xs text-stone-500">Phone: {addressData.phone}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-3 pt-4 border-t border-stone-100">
+              {/* Price Breakdown */}
+              <div className="space-y-4 pt-6 border-t border-stone-100">
                 <div className="flex justify-between text-sm">
-                  <span className="text-stone-500">Subtotal</span>
-                  <span className="font-bold text-stone-800">₹{subtotal}</span>
+                  <span className="text-stone-500 font-bold">Subtotal</span>
+                  <span className="text-stone-900 font-black">₹{subtotal.toFixed(0)}</span>
                 </div>
-                {couponDiscount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-600">
-                    <span>Coupon Discount</span>
-                    <span className="font-black">-₹{couponDiscount}</span>
+                
+                {(totalBulkDiscount + totalPromoDiscount + couponDiscount) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-500 font-bold">Store Discount</span>
+                    <span className="text-emerald-500 font-black">-₹{(totalBulkDiscount + totalPromoDiscount + couponDiscount).toFixed(0)}</span>
                   </div>
                 )}
-                {totalBulkDiscount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-600">
-                    <span>Bulk Discount</span>
-                    <span className="font-black">-₹{totalBulkDiscount}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-stone-500">Delivery Fee</span>
-                  <span className="font-bold text-stone-800">{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}</span>
-                </div>
-                <div className="flex justify-between text-lg pt-3 border-t border-stone-200">
-                  <span className="font-black text-stone-900">Total</span>
-                  <span className="text-2xl font-black text-primary">₹{total}</span>
-                </div>
-              </div>
-            </div>
 
-            <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl shadow-stone-200 space-y-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-primary">
-                  <ShieldCheck size={24} />
+                <div className="flex justify-between text-sm">
+                  <div className="flex items-center gap-1">
+                    <span className="text-stone-500 font-bold">Delivery Fee</span>
+                    {deliveryMethod === 'pickup' && <span className="text-[8px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest">Free</span>}
+                  </div>
+                  <span className="text-stone-900 font-black">₹{deliveryFee.toFixed(0)}</span>
                 </div>
-                <div>
-                  <p className="text-sm font-bold">100% Safe Payments</p>
-                  <p className="text-[10px] text-stone-400">Your transaction is completely safe and private.</p>
+
+                <div className="pt-6 border-t border-stone-100 flex justify-between items-center">
+                  <div>
+                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] leading-none mb-1">Total Amount</p>
+                    <p className="text-3xl font-black text-stone-900 tracking-tight">₹{total.toFixed(0)}</p>
+                  </div>
+                  <div className="text-right">
+                     <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">You Save ₹{(totalBulkDiscount + totalPromoDiscount + couponDiscount).toFixed(0)}</p>
+                  </div>
                 </div>
               </div>
-              <p className="text-[10px] text-stone-500 italic">
-                  Your order is protected by 100% secure, SSL-encrypted transactions. Your privacy and safety are paramount. By placing this order, you agree to our policies regarding returns and cancellations. All UPI payments are processed via secure automated verification.
-                </p>
+
+              {/* Trust Badges */}
+              <div className="grid grid-cols-2 gap-3 pt-4">
+                 <div className="p-3 bg-white rounded-2xl border border-stone-100 flex flex-col items-center text-center gap-1">
+                    <ShieldCheck size={16} className="text-emerald-500" />
+                    <p className="text-[8px] font-black text-stone-800 uppercase tracking-widest">Safe Payments</p>
+                 </div>
+                 <div className="p-3 bg-white rounded-2xl border border-stone-100 flex flex-col items-center text-center gap-1">
+                    <Truck size={16} className="text-primary" />
+                    <p className="text-[8px] font-black text-stone-800 uppercase tracking-widest">Fast Delivery</p>
+                 </div>
+              </div>
             </div>
           </div>
         </div>

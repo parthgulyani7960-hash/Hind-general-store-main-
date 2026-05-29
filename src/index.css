@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 html,
@@ -15,7 +16,8 @@ textarea {
 }
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
   --font-serif: "Cormorant Garamond", serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
@@ -96,6 +98,10 @@ textarea {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  .recharts-responsive-container {
+    @apply min-h-[250px] min-w-0;
   }
 }
 
@@ -220,3 +226,53 @@ select {
 .ql-container.ql-snow {
   border: none !important;
 }
+
+
+/* Track Order Vertical Timeline */
+.track-order-container .vertical-timeline {
+  @apply relative pl-12 space-y-12 before:absolute before:left-[19px] before:top-6 before:bottom-6 before:w-1.5 before:bg-stone-100 before:rounded-full;
+}
+
+.track-order-container .timeline-progress-line {
+  @apply absolute left-[19px] top-6 w-1.5 bg-primary origin-top transition-all duration-1000 ease-in-out rounded-full shadow-lg shadow-primary/20 z-0;
+}
+
+.track-order-container .timeline-step {
+  @apply relative flex flex-col md:flex-row items-start md:items-center z-10;
+}
+
+.track-order-container .timeline-icon-box {
+  @apply w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 mr-8 mb-4 md:mb-0 relative z-10;
+}
+
+.track-order-container .timeline-icon-box.completed {
+  @apply bg-primary text-white shadow-lg shadow-primary/30;
+}
+
+.track-order-container .timeline-icon-box.pending {
+  @apply bg-stone-50 text-stone-300 border border-stone-200;
+}
+
+/* Product View Desktop Optimizations */
+@media (min-width: 1025px) {
+  #root .product-view {
+    @apply max-w-7xl px-12 py-12;
+  }
+  
+  #root .product-view .product-main-grid {
+    @apply gap-16 items-start;
+  }
+  
+  #root .product-view .product-gallery-container {
+    @apply sticky top-32;
+  }
+  
+  #root .product-view .cta-button {
+    @apply py-7 text-xl rounded-[2.5rem];
+  }
+  
+  #root .product-view .quantity-selector {
+    @apply p-3 scale-110 origin-left;
+  }
+}
+

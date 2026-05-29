@@ -1,17 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../../firebase';
 import { collection, query, orderBy, getDocs, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from 'firebase/firestore';
-import { PackagePlus, Plus } from 'lucide-react';
+import { PackagePlus, Plus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getAuthHeaders } from '../../../lib/utils';
 
 export default function PurchaseOrdersTab() {
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const fetchOrders = async () => {
     setLoading(true);
     try {
+      // Prioritize fast, persistent Local-Mock-enabled server endpoints
+      const recordsPromise = fetch('/api/admin/purchase-records', { headers: getAuthHeaders() })
+        .then(res => res.json())
+        .catch(() => null);
+      
+      const productsPromise = fetch('/api/products')
+        .then(res => res.json())
+        .catch(() => null);
+
+      const [recordsData, productsData] = await Promise.all([recordsPromise, productsPromise]);
+      if (recordsData && recordsData.length > 0) {
+        setOrders(recordsData);
+      }
+      if (productsData && productsData.length > 0) {
+        setProducts(productsData);
+      }
+
+      if (recordsData && productsData) {
+        setLoading(false);
+        return;
+      }
+
       const q = query(collection(db, 'purchase_records'), orderBy('created_at', 'desc'));
       const snapshot = await getDocs(q);
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -24,6 +48,27 @@ export default function PurchaseOrdersTab() {
       toast.error('Failed to load purchase orders');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncInventory = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await fetch('/api/admin/inventory/sync', { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+      if (data?.success) {
+        toast.success(`Successfully generated ${data.orders.length} purchase orders`);
+        fetchOrders();
+      } else {
+        toast.error('Sync failed');
+      }
+    } catch (err) {
+      toast.error('Sync failed');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -42,23 +87,52 @@ export default function PurchaseOrdersTab() {
         return;
     }
 
-    const data = {
-      supplier_details: formData.get('supplier_details'),
+    const payload = {
+      supplier_id: formData.get('supplier_details') as string,
       product_id: productId,
       quantity,
       cost_price: Number(formData.get('cost_price')),
-      invoice_number: formData.get('invoice_number'),
-      batch_number: formData.get('batch_number'),
-      expiry_date: formData.get('expiry_date'),
-      created_at: serverTimestamp()
+      invoice_number: formData.get('invoice_number') as string,
+      batch_number: formData.get('batch_number') as string,
+      expiry_date: formData.get('expiry_date') as string,
     };
     
     try {
+      // Always write to the mock-enabled REST API endpoint first to bypass direct Firestore permission blocks
+      const response = await fetch('/api/admin/purchases', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      const restResult = await response.json();
+      if (restResult && restResult.success) {
+        toast.success('Purchase order logged and stock updated successfully');
+        e.currentTarget.reset();
+        fetchOrders();
+        return;
+      }
+      
+      // Fallback direct Firebase transaction
+      const directData = {
+        supplier_details: payload.supplier_id,
+        product_id: payload.product_id,
+        quantity: payload.quantity,
+        cost_price: payload.cost_price,
+        invoice_number: payload.invoice_number,
+        batch_number: payload.batch_number,
+        expiry_date: payload.expiry_date,
+        created_at: serverTimestamp()
+      };
+
       await runTransaction(db, async (transaction) => {
         const productRef = doc(db, 'products', productId);
         transaction.update(productRef, { stock: increment(quantity) });
         const newOrderRef = doc(collection(db, 'purchase_records'));
-        transaction.set(newOrderRef, data);
+        transaction.set(newOrderRef, directData);
       });
       toast.success('Purchase order logged and stock updated successfully');
       e.currentTarget.reset();
@@ -71,9 +145,28 @@ export default function PurchaseOrdersTab() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header>
-        <h2 className="text-4xl font-black text-stone-900 tracking-tight">Purchase Orders</h2>
-        <p className="text-stone-500 mt-2 text-lg font-medium">Log and track supplier purchases.</p>
+      <header className="flex justify-between items-end">
+        <div>
+          <h2 className="text-4xl font-black text-stone-900 tracking-tight">Purchase Orders</h2>
+          <p className="text-stone-500 mt-2 text-lg font-medium">Log and track supplier purchases.</p>
+        </div>
+        <button 
+          onClick={handleSyncInventory}
+          disabled={isSyncing}
+          className="bg-stone-900 text-white px-6 py-3 rounded-2xl font-bold hover:bg-stone-800 transition-colors flex items-center gap-2 disabled:opacity-70"
+        >
+          {isSyncing ? (
+            <>
+              <Loader2 className="animate-spin" size={18} />
+              Syncing Inventory...
+            </>
+          ) : (
+            <>
+              <PackagePlus size={18} />
+              Sync Inventory
+            </>
+          )}
+        </button>
       </header>
       
       <div className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm">

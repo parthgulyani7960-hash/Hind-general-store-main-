@@ -1,10 +1,7 @@
 import React from 'react';
-import { IndianRupee, ShoppingBag, Activity, Users, Calendar } from 'lucide-react';
+import { IndianRupee, ShoppingBag, Activity, Users, ArrowUpRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../../../types';
-import { 
-  AreaChart, Area, CartesianGrid, Tooltip, ResponsiveContainer, XAxis, YAxis
-} from 'recharts';
 
 interface OverviewTabProps {
     stats: any;
@@ -13,24 +10,33 @@ interface OverviewTabProps {
 
 export default function OverviewTab({ stats, setActiveTab }: OverviewTabProps) {
   const metrics = [
-    { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '', color: 'emerald', key: 'revenue' },
-    { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '', color: 'amber', key: 'orders' },
-    { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={22} />, trend: 'Live', color: 'blue' },
-    { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '', color: 'purple' }
+    { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={24} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
+    { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={24} />, trend: '-2.4%', color: 'amber', key: 'orders' },
+    { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={24} />, trend: 'Live', color: 'blue' },
+    { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={24} />, trend: '+5.2%', color: 'purple' }
   ];
 
   return (
-    <div className="space-y-10">
+    <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="space-y-10"
+    >
+        <header className="mb-4">
+            <h1 className="text-4xl font-black text-stone-900 tracking-tighter">Dashboard Overview</h1>
+            <p className="text-stone-500 font-medium mt-1">Here is a quick look at how your store is performing today.</p>
+        </header>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {metrics.map((stat, i) => (
                 <motion.div 
-                    key={i}
-                    variants={{
-                        hidden: { opacity: 0, y: 20 },
-                        show: { opacity: 1, y: 0 }
-                    }}
+                    key={stat.label}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1, duration: 0.4 }}
                     whileHover={{ y: -5 }}
-                    className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 transition-all group relative overflow-hidden"
+                    className="bg-white p-8 rounded-[2rem] shadow-sm border border-stone-100 transition-all group hover:shadow-xl hover:shadow-stone-100"
                 >
                     <div className="flex justify-between items-start mb-6">
                         <div className={cn(
@@ -42,12 +48,22 @@ export default function OverviewTab({ stats, setActiveTab }: OverviewTabProps) {
                         )}>
                             {stat.icon}
                         </div>
+                        {stat.trend && (
+                            <span className={cn(
+                                "flex items-center gap-1 text-xs font-black uppercase tracking-widest px-2 py-1 rounded-full",
+                                stat.trend.includes('+') ? "text-emerald-600 bg-emerald-50" : 
+                                stat.trend === 'Live' ? "text-blue-600 bg-blue-50" : 
+                                "text-red-500 bg-red-50"
+                            )}>
+                                {stat.trend} <ArrowUpRight size={10} />
+                            </span>
+                        )}
                     </div>
-                    <p className="text-stone-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1">{stat.label}</p>
-                    <h3 className="text-3xl font-black text-stone-900 tracking-tighter">{stat.value}</h3>
+                    <p className="text-stone-400 text-xs font-black uppercase tracking-[0.2em] mb-1">{stat.label}</p>
+                    <h3 className="text-3xl font-black text-stone-950 tracking-tighter">{stat.value}</h3>
                 </motion.div>
             ))}
         </div>
-    </div>
+    </motion.div>
   );
 }

@@ -4,11 +4,11 @@ import { Store, MapPin, Phone, Mail, Clock, ShieldCheck, HeartHandshake, Search,
 import { useStore } from '../StoreContext';
 
 export default function AboutUs() {
-  const { config } = useStore();
+  const { config = [] } = useStore();
   
-  const storeAddress = config.find(c => c.key === 'store_address')?.value || 'Main Market, Nayagaon';
-  const storePhone = config.find(c => c.key === 'store_phone')?.value || '+91 98765 43210';
-  const googleMapsLink = config.find(c => c.key === 'store_location')?.value || 'https://maps.google.com/?q=Nayagaon';
+  const storeAddress = (config || []).find(c => c.key === 'store_address')?.value || 'Main Market, Nayagaon';
+  const storePhone = (config || []).find(c => c.key === 'store_phone')?.value || '+91 98765 43210';
+  const googleMapsLink = (config || []).find(c => c.key === 'store_location')?.value || 'https://maps.google.com/?q=Nayagaon';
 
   return (
     <div className="min-h-screen bg-stone-50 pb-20 pt-safe">

@@ -34,6 +34,15 @@ export const fetchWithHandling = async <T>(
           console.warn(`[API] Resource not found: ${url}`);
           errorMessage = "Requested resource not found";
         } else if (res.status === 401) {
+          // Check if user has an auth token. If not, they are just a guest, don't spam.
+          const currentToken = localStorage.getItem('hgs_token');
+          if (!currentToken) {
+            return null; // Silent for guests
+          }
+          
+          // Token is likely invalid/expired, clear it
+          localStorage.removeItem('hgs_token');
+
           // 401 is handled by main.tsx fetch wrapper (token refresh). 
           // If it still reaches here, it means refresh failed or was not possible.
           const silentEndpoints = [
@@ -79,18 +88,22 @@ export const fetchWithHandling = async <T>(
           // Centralized Error Boundary Categorization for Firebase backend unreachable
           const isFirebaseUnreachable = 
             (detailedError && /firebase|credential|firestore|database|connect/i.test(detailedError)) || 
-            (errorMessage && /firebase|credential|firestore|database|connect/i.test(errorMessage)) ||
-            url.includes('/api/settings') || 
-            url.includes('/api/auth/me');
+            (errorMessage && /firebase|credential|firestore|database|connect/i.test(errorMessage));
 
           if (isFirebaseUnreachable) {
             console.error(`[API] Centralized Error Boundary categorized unreachable Firebase backend at ${url} (${res.status}): ${errorMessage}`);
-            errorMessage = "Database unreachable. Redirecting to System Maintenance...";
+            errorMessage = "Database connection unstable. Please try again.";
             
-            // Dispatch custom event to trigger safe UI redirection to Maintenance Mode
-            window.dispatchEvent(new CustomEvent('firebase_unreachable', { 
+            // Dispatch event to warn but don't force lock UI
+            window.dispatchEvent(new CustomEvent('database_error', { 
               detail: { url, status: res.status, message: errorMessage } 
             }));
+          }
+
+          // Return null for read operations to prevent blank white page crashes under rate limits or server errors
+          if (options.method === 'GET' || !options.method) {
+            console.warn(`[API] Returning null for failed GET ${url} on status ${res.status}`);
+            return null;
           }
         }
 
@@ -118,10 +131,8 @@ export const fetchWithHandling = async <T>(
                            err.message?.includes('aborted');
 
     if (isNetworkError) {
-      console.error(`[API] Critical network error or unreachable backend server detected at ${url}`);
-      window.dispatchEvent(new CustomEvent('firebase_unreachable', { 
-        detail: { url, status: 0, message: err.message } 
-      }));
+      console.error(`[API] Network offline or unreachable endpoint at ${url}`);
+      // Do not trigger global maintenance block for temporary fetch drops
     }
 
     // Silent for background/common checks

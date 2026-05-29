@@ -13,7 +13,12 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        request.auth.token.email == 'parthgulyani7960@gmail.com' || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      ); 
+    }
 
     // --- User Profiles ---
     match /users/{userId} {
@@ -36,8 +41,15 @@ service cloud.firestore {
 
     // --- Orders ---
     match /orders/{orderId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        resource.data.user_id == request.auth.uid || 
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        incoming().userId == request.auth.uid || 
+        incoming().user_id == request.auth.uid
+      );
       allow update: if isAdmin();
     }
 
@@ -79,7 +91,9 @@ service cloud.firestore {
       allow update, delete: if isAdmin(); 
     }
     match /support_tickets/{ticketId} { 
-      allow read, write: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()); 
+      allow read: if isSignedIn() && (resource.data.user_id == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin()); 
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
     }
     match /promotions/{promoId} { 
       allow read: if true; 

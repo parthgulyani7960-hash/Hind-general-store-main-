@@ -10,7 +10,7 @@ import { getAuthHeaders } from '../lib/utils';
 
 export default function Invoice() {
   const { id } = useParams();
-  const { config, user } = useStore();
+  const { config = [], user } = useStore();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -111,12 +111,20 @@ export default function Invoice() {
           ) : (
             <div className="relative">
               <div className="flex justify-between relative z-10">
-                {[
-                  { id: 'pending', label: 'Order Placed', icon: CheckCircle },
-                  { id: 'processing', label: 'Packed', icon: Package },
-                  { id: 'shipped', label: 'Shipped', icon: Truck },
-                  { id: 'delivered', label: 'Delivered', icon: Home },
-                ].map((step, i) => {
+                {(order.delivery_type === 'pickup'
+                  ? [
+                      { id: 'pending', label: 'Order Placed', icon: CheckCircle },
+                      { id: 'processing', label: 'Packed', icon: Package },
+                      { id: 'shipped', label: 'Ready for Pickup', icon: Clock },
+                      { id: 'delivered', label: 'Collected', icon: CheckCircle2 },
+                    ]
+                  : [
+                      { id: 'pending', label: 'Order Placed', icon: CheckCircle },
+                      { id: 'processing', label: 'Packed', icon: Package },
+                      { id: 'shipped', label: 'Shipped', icon: Truck },
+                      { id: 'delivered', label: 'Delivered', icon: Home },
+                    ]
+                ).map((step, i) => {
                   const statuses = ['pending', 'processing', 'shipped', 'delivered'];
                   const currentIndex = statuses.indexOf(order.status);
                   const isActive = i <= currentIndex;
@@ -157,11 +165,11 @@ export default function Invoice() {
         <div className="flex flex-col md:flex-row justify-between items-start mb-12 gap-8">
           <div>
             <div className="w-16 h-16 bg-stone-900 text-white rounded-[1.5rem] flex items-center justify-center font-black text-3xl mb-6 shadow-xl shadow-stone-900/20">
-              {(config.find(c => c.key === 'store_name')?.value || 'H')[0]?.toUpperCase()}
+              {((config || []).find(c => c.key === 'store_name')?.value || 'H')[0]?.toUpperCase()}
             </div>
-            <h1 className="text-3xl font-black text-stone-900 tracking-tighter">{config.find(c => c.key === 'store_name')?.value || 'Hind General Store'}</h1>
-            <p className="text-stone-500 text-sm mt-2 font-medium max-w-[250px] leading-relaxed italic opacity-80">{config.find(c => c.key === 'store_address')?.value || 'Nayagaon, India'}</p>
-            <p className="text-stone-600 text-sm font-bold mt-1">{config.find(c => c.key === 'store_phone')?.value || '+91 98765 43210'}</p>
+            <h1 className="text-3xl font-black text-stone-900 tracking-tighter">{(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'}</h1>
+            <p className="text-stone-500 text-sm mt-2 font-medium max-w-[250px] leading-relaxed italic opacity-80">{(config || []).find(c => c.key === 'store_address')?.value || 'Nayagaon, India'}</p>
+            <p className="text-stone-600 text-sm font-bold mt-1">{(config || []).find(c => c.key === 'store_phone')?.value || '+91 98765 43210'}</p>
           </div>
           <div className="text-right flex flex-col items-end">
             <span className="bg-primary/10 text-primary text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest mb-4 inline-block">Pro-Forma Document</span>
@@ -233,13 +241,23 @@ export default function Invoice() {
                           <FileText size={16} />
                         </div>
                         <div>
-                          <p className="font-black text-stone-900 text-sm tracking-tight">{item.product_name}</p>
-                          <p className="text-[10px] text-stone-400 font-bold uppercase">Asset-ID: {item.product_id}</p>
+                          <p className="font-black text-stone-900 text-sm tracking-tight">{item.name}</p>
+                          <p className="text-[10px] text-stone-400 font-bold uppercase">Asset-ID: {item.product_id || item.id}</p>
+                          {item.mrp && item.mrp > item.price && (
+                             <p className="text-[9px] text-stone-300 font-bold line-through mt-0.5">MRP: ₹{item.mrp}</p>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td className="py-6 text-center text-sm font-black text-stone-900">{item.quantity}</td>
-                    <td className="py-6 text-right text-sm font-medium text-stone-500">₹{item.price}</td>
+                    <td className="py-6 text-right text-sm font-medium text-stone-500">
+                       <div className="flex flex-col items-end">
+                          <span>₹{item.price}</span>
+                          {item.mrp && item.mrp > item.price && (
+                             <span className="text-[8px] bg-emerald-500 text-white px-1 rounded uppercase tracking-tighter mt-1">Saved ₹{item.mrp - item.price}</span>
+                          )}
+                       </div>
+                    </td>
                     <td className="py-6 text-right text-base font-black text-stone-900 tracking-tighter">₹{item.price * item.quantity}</td>
                   </tr>
                 ))}
@@ -279,7 +297,7 @@ export default function Invoice() {
           </div>
           <div className="space-y-2">
             <p className="text-xl font-black text-stone-900 tracking-tight uppercase italic">{user?.name},</p>
-            <p className="text-stone-400 font-bold text-sm tracking-widest uppercase">Thank you for orchestrating a transaction with Hind General Store.</p>
+            <p className="text-stone-400 font-bold text-sm tracking-widest uppercase">Thank you for orchestrating a transaction with New Hind General Store.</p>
           </div>
           <p className="text-stone-300 text-[8px] font-black uppercase tracking-[0.4em] mt-12 opacity-50">Authorized Computer-Generated Document-No Sig Required</p>
         </div>

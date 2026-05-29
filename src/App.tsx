@@ -8,6 +8,7 @@ import FloatingCart from './components/FloatingCart';
 import BackToTop from './components/BackToTop';
 import FullScreenAlert from './components/FullScreenAlert';
 import AuthErrorReloader from './components/AuthErrorReloader';
+import ReviewPromptNotification from './components/ReviewPromptNotification';
 
 // Shared Vibration Helper for Flash Messages
 export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') => {
@@ -21,7 +22,7 @@ export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') =>
   }
 };
 import { useStore } from './StoreContext';
-import React, { useState, Suspense, lazy, useEffect } from 'react';
+import React, { useState, Suspense, lazy, useEffect, useRef } from 'react';
 import toast, { useToasterStore } from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from './types';
@@ -62,35 +63,46 @@ const ProductDetail = lazy(() => import('./pages/ProductDetail'));
 const Cart = lazy(() => import('./pages/Cart'));
 const Checkout = lazy(() => import('./pages/Checkout'));
 const Invoice = lazy(() => import('./pages/Invoice'));
-const CompleteProfile = lazy(() => import('./pages/CompleteProfile'));
 const Support = lazy(() => import('./pages/Support'));
 const Wishlist = lazy(() => import('./pages/Wishlist'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Promotions = lazy(() => import('./pages/Promotions'));
 const AboutUs = lazy(() => import('./pages/AboutUs'));
 const TermsAndConditions = lazy(() => import('./pages/TermsAndConditions'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const AddMoney = lazy(() => import('./pages/AddMoney'));
+const ActivityLogs = lazy(() => import('./pages/ActivityLogs'));
 const LegalPage = lazy(() => import('./pages/LegalPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AdminPayments = lazy(() => import('./pages/AdminPayments'));
 const DeliveryDashboard = lazy(() => import('./pages/DeliveryDashboard'));
 const MaintenancePage = lazy(() => import('./pages/MaintenancePage'));
 const TrackOrder = lazy(() => import('./pages/TrackOrder'));
+const UserActivity = lazy(() => import('./pages/UserActivityV2'));
 
 function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
   const { user, isAuthChecking } = useStore();
   const location = useLocation();
 
+  const isUserAdmin = user && user.role === 'admin';
+  const isUserRunner = user && (user.role === 'delivery' || isUserAdmin);
+
+  const hasShownNotLoggedInToast = useRef(false);
+
   useEffect(() => {
     if (!isAuthChecking) {
       if (!user && window.location.pathname !== '/login') {
-        toast.error('Please log in to use these services');
-      } else if (adminOnly && user && user.role !== 'admin') {
+        if (!hasShownNotLoggedInToast.current) {
+          toast.error('Please log in to use these services');
+          hasShownNotLoggedInToast.current = true;
+        }
+      } else if (adminOnly && !isUserAdmin) {
         toast.error('Access denied. Admin privileges required.');
-      } else if (runnerOnly && user && user.role !== 'delivery' && user.role !== 'admin') {
+      } else if (runnerOnly && !isUserRunner) {
         toast.error('Access denied. Delivery runner privileges required.');
       }
     }
-  }, [user, adminOnly, runnerOnly, isAuthChecking]);
+  }, [user, adminOnly, runnerOnly, isAuthChecking, isUserAdmin, isUserRunner]);
 
   if (isAuthChecking) {
     return <LoadingFallback />;
@@ -100,11 +112,11 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (adminOnly && user.role !== 'admin') {
+  if (adminOnly && !isUserAdmin) {
     return <Navigate to="/" replace />;
   }
 
-  if (runnerOnly && user.role !== 'delivery' && user.role !== 'admin') {
+  if (runnerOnly && !isUserRunner) {
     return <Navigate to="/" replace />;
   }
 
@@ -113,107 +125,10 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
 
 function AnimatedRoutes() {
   const location = useLocation();
-  const { isMaintenance, user, isAuthChecking } = useStore();
-  
-  // Secret bypass check: if URL has ?bypass=admin_bypass_2024
-  const hasBypass = new URLSearchParams(window.location.search).get('bypass') === 'admin_bypass_2024';
-  const isAdmin = user?.role === 'admin';
-
-  if (isAuthChecking) {
-    return <LoadingFallback message="Synchronizing secure session..." />;
-  }
-
-  if (isMaintenance && !isAdmin && !hasBypass) {
-    return (
-      <Suspense fallback={<LoadingFallback message="Entering maintenance mode..." />}>
-        <MaintenancePage />
-      </Suspense>
-    );
-  }
-
-  return (
-    <Suspense fallback={<LoadingFallback />}>
-      <AnimatePresence mode="wait">
-        {/* @ts-ignore */}
-        <Routes location={location} key={location.pathname}>
-          <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
-            <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
-          <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
-          <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
-          <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
-          <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
-          <Route path="/checkout" element={<ProtectedRoute><PageWrapper><Checkout /></PageWrapper></ProtectedRoute>} />
-          <Route path="/invoice/:id" element={<ProtectedRoute><PageWrapper><Invoice /></PageWrapper></ProtectedRoute>} />
-          <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
-          <Route path="/complete-profile" element={<ProtectedRoute><PageWrapper><CompleteProfile /></PageWrapper></ProtectedRoute>} />
-          <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
-          <Route path="/wishlist" element={<ProtectedRoute><PageWrapper><Wishlist /></PageWrapper></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><PageWrapper><Profile /></PageWrapper></ProtectedRoute>} />
-          <Route path="/privacy-policy" element={<PageWrapper><LegalPage title="Privacy Policy" type="privacy" /></PageWrapper>} />
-          <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
-          <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
-          <Route path="/admin" element={<ProtectedRoute adminOnly><PageWrapper><AdminDashboard /></PageWrapper></ProtectedRoute>} />
-          <Route path="/admin/payments" element={<ProtectedRoute adminOnly><PageWrapper><AdminPayments /></PageWrapper></ProtectedRoute>} />
-          <Route path="/runner" element={<ProtectedRoute runnerOnly><PageWrapper><DeliveryDashboard /></PageWrapper></ProtectedRoute>} />
-          <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
-        </Routes>
-      </AnimatePresence>
-    </Suspense>
-  );
-}
-
-function PageWrapper({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -20, scale: 0.98 }}
-      transition={{ 
-        duration: 0.5, 
-        ease: [0.22, 1, 0.36, 1],
-        scale: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
-      }}
-      className="page-transition-wrapper origin-top"
-    >
-      <Suspense fallback={<LoadingFallback message="Loading content..." />}>
-         {children}
-      </Suspense>
-    </motion.div>
-  );
-}
-
-export default function App() {
-  const store = useStore();
-  const { subscribeNewsletter, adminTheme, t, config = [] } = store;
+  const { isMaintenance, user, isAuthChecking, subscribeNewsletter, config = [], t } = useStore();
   const [newsletterEmail, setNewsletterEmail] = useState('');
-
-  useEffect(() => {
-    // Global error handler
-    const handleGlobalError = (event: ErrorEvent) => {
-      errorService.report({
-        type: ErrorType.SYSTEM_ERROR,
-        message: event.message || 'Global Runtime Error',
-        stack: event.error?.stack,
-        userId: store.user?.id
-      });
-    };
-
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      errorService.report({
-        type: ErrorType.SYSTEM_ERROR,
-        message: event.reason?.message || 'Unhandled Promise Rejection',
-        stack: event.reason?.stack || String(event.reason),
-        userId: store.user?.id
-      });
-    };
-
-    window.addEventListener('error', handleGlobalError);
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    return () => {
-      window.removeEventListener('error', handleGlobalError);
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-    };
-  }, []);
+  
+  const isAdmin = user && user.role === 'admin';
 
   const handleNewsletter = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,26 +138,47 @@ export default function App() {
     setNewsletterEmail('');
   };
 
+  if (isMaintenance && !isAdmin) {
+    return (
+      <Suspense fallback={<LoadingFallback message="System update in progress..." />}>
+        <MaintenancePage />
+      </Suspense>
+    );
+  }
+
+  const showFooter = ['/', '/profile'].includes(location.pathname);
+
   return (
-    <Router>
-      <ScrollToTopOnNavigate />
-      <AuthErrorReloader />
-      <FullScreenAlert />
-      <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
-        <NetworkBanner />
-        <GlobalAnnouncements />
-        <ToastManager />
-        <Toaster position="top-center" />
-        <Navbar />
-        <main className="flex-1 pb-24 md:pb-0">
-          <ErrorBoundary>
-            <AnimatedRoutes />
-          </ErrorBoundary>
-        </main>
-        <MobileBottomNav />
-        <FloatingCart />
-        <BackToTop />
-        <footer className="bg-stone-900 text-stone-400 py-12 pb-32 md:pb-12">
+    <Suspense fallback={<LoadingFallback />}>
+      <AnimatePresence mode="wait">
+        {/* @ts-ignore */}
+        <Routes location={location} key={location.pathname}>
+          <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
+          <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
+          <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
+          <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
+          <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
+          <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
+          <Route path="/checkout" element={<ProtectedRoute><PageWrapper><Checkout /></PageWrapper></ProtectedRoute>} />
+          <Route path="/invoice/:id" element={<ProtectedRoute><PageWrapper><Invoice /></PageWrapper></ProtectedRoute>} />
+          <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
+          <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
+          <Route path="/wishlist" element={<ProtectedRoute><PageWrapper><Wishlist /></PageWrapper></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><PageWrapper><Profile /></PageWrapper></ProtectedRoute>} />
+          <Route path="/privacy-policy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
+          <Route path="/add-money" element={<ProtectedRoute><PageWrapper><AddMoney /></PageWrapper></ProtectedRoute>} />
+          <Route path="/admin/activity-logs" element={<ProtectedRoute adminOnly><PageWrapper><ActivityLogs /></PageWrapper></ProtectedRoute>} />
+          <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
+          <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
+          <Route path="/admin" element={<ProtectedRoute adminOnly><PageWrapper><AdminDashboard /></PageWrapper></ProtectedRoute>} />
+          <Route path="/admin/payments" element={<ProtectedRoute adminOnly><PageWrapper><AdminPayments /></PageWrapper></ProtectedRoute>} />
+          <Route path="/runner" element={<ProtectedRoute runnerOnly><PageWrapper><DeliveryDashboard /></PageWrapper></ProtectedRoute>} />
+          <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
+          <Route path="/history" element={<ProtectedRoute><PageWrapper><UserActivity /></PageWrapper></ProtectedRoute>} />
+        </Routes>
+      </AnimatePresence>
+      {showFooter && (
+        <footer className="bg-stone-900 text-stone-400 py-12 pb-32 md:pb-12 mt-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="space-y-4">
               <h3 className="text-white font-bold text-lg">General Store Karyana Shop</h3>
@@ -283,9 +219,86 @@ export default function App() {
             </div>
           </div>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-8 border-t border-stone-800 text-center text-xs">
-            © {new Date().getFullYear()} {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'}. All rights reserved.
+            © {new Date().getFullYear()} {(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'}. All rights reserved.
           </div>
         </footer>
+      )}
+    </Suspense>
+  );
+}
+
+function PageWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ 
+        duration: 0.5, 
+        ease: [0.22, 1, 0.36, 1],
+        scale: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
+      }}
+      className="page-transition-wrapper origin-top"
+    >
+      <Suspense fallback={<LoadingFallback message="Loading content..." fullScreen={false} />}>
+         {children}
+      </Suspense>
+    </motion.div>
+  );
+}
+
+export default function App() {
+  const store = useStore();
+  const { adminTheme } = store;
+
+  useEffect(() => {
+    // Global error handler
+    const handleGlobalError = (event: ErrorEvent) => {
+      errorService.report({
+        type: ErrorType.SYSTEM_ERROR,
+        message: event.message || 'Global Runtime Error',
+        stack: event.error?.stack,
+        userId: store.user?.id
+      });
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      errorService.report({
+        type: ErrorType.SYSTEM_ERROR,
+        message: event.reason?.message || 'Unhandled Promise Rejection',
+        stack: event.reason?.stack || String(event.reason),
+        userId: store.user?.id
+      });
+    };
+
+    window.addEventListener('error', handleGlobalError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleGlobalError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
+
+  return (
+    <Router>
+      <ScrollToTopOnNavigate />
+      <AuthErrorReloader />
+      <ReviewPromptNotification />
+      <FullScreenAlert />
+      <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
+        <NetworkBanner />
+        <GlobalAnnouncements />
+        <ToastManager />
+        <Toaster position="top-center" />
+        <Navbar />
+        <main className="flex-1 pb-24 md:pb-0">
+          <ErrorBoundary>
+            <AnimatedRoutes />
+          </ErrorBoundary>
+        </main>
+        <MobileBottomNav />
+        <FloatingCart />
+        <BackToTop />
       </div>
     </Router>
   );

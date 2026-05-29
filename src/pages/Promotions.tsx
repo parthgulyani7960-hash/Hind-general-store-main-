@@ -6,8 +6,6 @@ import SmartLink from '../components/SmartLink';
 import { cn } from '../types';
 import { fetchWithHandling } from '../lib/api';
 
-import Navbar from '../components/Navbar';
-
 interface Promotion {
   id: number;
   title: string;
@@ -40,7 +38,6 @@ export default function Promotions() {
 
   return (
     <div className="min-h-screen bg-stone-50">
-      <Navbar />
       <main className="pt-24 pb-32 md:pb-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
           <div className="text-center space-y-4">
@@ -54,7 +51,7 @@ export default function Promotions() {
             </motion.div>
             <h1 className="text-4xl md:text-5xl font-black text-stone-900">Promotions & Deals</h1>
             <p className="text-stone-500 max-w-2xl mx-auto">
-              Discover the best deals, seasonal offers, and exclusive discounts at Hind General Store.
+              Discover the best deals, seasonal offers, and exclusive discounts at New Hind General Store.
               Don't miss out on our latest promotions!
             </p>
           </div>

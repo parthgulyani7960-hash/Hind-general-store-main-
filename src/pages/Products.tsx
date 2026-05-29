@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Filter, ShoppingCart, Plus, Minus, 
   Share2, Heart, Star, Loader2, X, Camera,
-  Zap, LayoutGrid, ArrowDownNarrowWide, ArrowUpNarrowWide, Clock
+  Zap, LayoutGrid, ArrowDownNarrowWide, ArrowUpNarrowWide, Clock,
+  RefreshCw, ShoppingBag, Maximize2
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Product, cn } from '../types';
@@ -36,75 +37,120 @@ export default function Products() {
   const [sortBy, setSortBy] = useState('relevance');
   const [onSaleOnly, setOnSaleOnly] = useState(false);
   const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
-  const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole, config } = useStore();
-  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
+  const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole, config = [] } = useStore();
+  const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const { isMobile, isTablet } = useDeviceType();
   const activeRole = simulatedRole || user?.role;
 
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [showFloatingButtons, setShowFloatingButtons] = useState(false);
+  const [showOptions, setShowOptions] = useState(true);
+  const [showScrollUpPill, setShowScrollUpPill] = useState(false);
 
   // Use dynamic sticky top based on device
   const stickyTop = isMobile ? 'top-[56px]' : 'top-[64px]';
 
-  const fetchProducts = async () => {
+  const quickRanges = useMemo(() => {
+    try {
+      const setting = (config || []).find(c => c.key === 'quick_ranges');
+      if (setting?.value) {
+        return typeof setting.value === 'string' ? JSON.parse(setting.value) : setting.value;
+      }
+    } catch (e) {}
+    return [
+      { min: '0', max: '200', label: 'Budget' },
+      { min: '200', max: '500', label: 'Daily Needs' },
+      { min: '500', max: '2000', label: 'Premium' },
+      { min: '2000', max: '', label: 'Wholesale' }
+    ];
+  }, [config]);
+
+  useEffect(() => {
+    if (isFilterOpen || quickViewProduct) {
+      document.body.classList.add('drawer-open');
+    } else {
+      document.body.classList.remove('drawer-open');
+    }
+    return () => {
+      document.body.classList.remove('drawer-open');
+    };
+  }, [isFilterOpen, quickViewProduct]);
+
+  const fetchProducts = async (isMounted = true) => {
     setLoading(true);
     setError(null);
+    setLoadFailed(false);
     try {
-      // 1. Try local API
       console.log('Fetching products from /api/products...');
-      const data = await fetchWithHandling<Product[]>('/api/products');
-      if (data) {
-        console.log('Fetched products:', data.length);
-        setProducts(data);
-        if (data.length > 0) {
-          const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
-          setMaxPrice(maxP.toString());
+      const data = await fetchWithHandling<Product[]>('/api/products').catch(() => null);
+      if (data && data.length > 0) {
+        if (isMounted) {
+            setProducts(data);
+            const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
+            setMaxPrice(maxP.toString());
+            setLoading(false);
         }
         return;
       }
       
-      // 2. If API fails, try direct Firestore fallback (User request: "stored in the Firebase")
-      console.log('API failed, attempting Firestore fallback...');
+      // 2. If API fails or is empty, try direct Firestore fallback (User request: "stored in the Firebase")
+      console.log('API failed or empty, attempting Firestore fallback...');
       try {
-        const q = query(collection(fsDb, 'products'), where('is_listed', '==', true), limitFb(50));
+        // Broaden the query; filter on client-side if needed to be safe while troubleshooting rendering
+        const q = query(collection(fsDb, 'products'), limitFb(50));
         let snapshot;
         try {
           snapshot = await getDocs(q);
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, 'products');
+          throw error;
         }
         
         const fbData = snapshot!.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-        console.log('Fetched products from Firestore:', fbData.length);
+        console.log('Firestore fetched products:', fbData.length, fbData.slice(0, 5));
         
-        if (fbData.length > 0) {
-          setProducts(fbData);
-          const maxP = Math.max(...fbData.map((p: any) => getProductPrice(p as any, user?.role)));
-          setMaxPrice(maxP.toString());
-          toast.success('Loaded products from backup source');
-        } else {
-          throw new Error('No products found in backup');
+        if (isMounted) {
+            if (fbData.length > 0) {
+              setProducts(fbData);
+              const maxP = Math.max(...fbData.map((p: any) => getProductPrice(p as any, user?.role)));
+              setMaxPrice(maxP.toString());
+              toast.success('Loaded products from backup source');
+            } else {
+              console.log('No products found in Firestore.');
+              setProducts([]);
+            }
+            setLoading(false);
         }
-      } catch (fbErr: any) {
-        throw new Error(`Primary and backup sources failed. ${fbErr.message}`);
+        return;
+      } catch (fbError) {
+        console.error('Firestore fallback failed:', fbError);
+        throw new Error(`Primary and backup sources failed. ${fbError}`);
       }
     } catch (err: any) {
-      console.error('Products fetch error:', err);
-      setError(err.message || 'Something went wrong');
-      toast.error('Could not load products. Please check your connection.');
-    } finally {
-      setLoading(false);
+      if (isMounted) {
+          console.error('Products fetch error:', err);
+          setProducts([]);
+          setLoadFailed(true);
+          setError(null);
+          toast.error('Search service is temporarily offline or unavailable. Showing empty state.');
+          setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchProducts();
+    let isMounted = true;
+    fetchProducts(isMounted);
 
     // Real-Time Inventory Management Socket.io
     const socket = io();
-
+    
     socket.on('data', (data) => {
-      if (data.type === 'INVENTORY_UPDATE') {
+      if (isMounted && data.type === 'INVENTORY_UPDATE') {
         setProducts(prevProducts => prevProducts.map(p => {
           if (p.id === data.product_id) {
             return { ...p, stock: data.stock };
@@ -115,72 +161,168 @@ export default function Products() {
     });
 
     return () => {
+      isMounted = false;
       socket.disconnect();
     };
   }, [user?.role]);
 
-  const filteredProducts = products
-    .filter(p => {
+  const filteredProducts = useMemo(() => {
+    const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
+    
+    const base = products.filter(p => {
       const activePrice = getProductPrice(p, user?.role);
-      const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
       
-      const matchesSearch = searchTerms.length === 0 || searchTerms.every(term => 
-        (p.name?.toLowerCase() || '').includes(term) || 
-        (p.description?.toLowerCase() || '').includes(term) ||
-        (p.category?.toLowerCase() || '').includes(term) ||
-        (p.variants?.some(v => v.name?.toLowerCase().includes(term)) || false)
-      );
+      const searchableText = `${p.name} ${p.description} ${p.category}`.toLowerCase();
+      const matchesSearch = searchTerms.every(term => searchableText.includes(term));
 
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
       const matchesMinPrice = activePrice >= Number(minPrice);
       const matchesMaxPrice = maxPrice === '' || activePrice <= Number(maxPrice);
       const matchesSale = !onSaleOnly || p.discount > 0;
-      return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && p.is_listed;
-    })
-      .sort((a, b) => {
-        const priceA = getProductPrice(a, user?.role);
-        const priceB = getProductPrice(b, user?.role);
-        
-        switch (sortBy) {
-          case 'price-low': 
-            return priceA - priceB;
-          case 'price-high': 
-            return priceB - priceA;
-          case 'rating': 
-            return (b.avg_rating || 0) - (a.avg_rating || 0);
-          case 'popularity': 
-            return ((b as any).review_count || 0) - ((a as any).review_count || 0);
-          case 'newest': 
-            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-          default:
-            return 0; // Relevance
-        }
-      });
+      const isListedAndActive = p.is_listed !== 0 && p.is_listed !== '0' && p.is_listed !== false && p.is_listed !== 'false' && !p.is_deleted && (p as any).deleted !== true;
+      
+      return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && isListedAndActive;
+    });
 
-  const categories = ['All', ...new Set(products.map(p => p.category))];
+    return base.sort((a, b) => {
+      // If there's a search term, rank by relevance score first
+      if (searchTerms.length > 0 && sortBy === 'relevance') {
+        const getScore = (product: Product) => {
+          let score = 0;
+          const name = (product.name || '').toLowerCase();
+          const fullSearch = searchTerm.toLowerCase().trim();
+          if (name === fullSearch) score += 200;
+          else if (name.startsWith(fullSearch)) score += 100;
+          else if (name.includes(fullSearch)) score += 50;
+          return score;
+        };
+        const scoreDiff = getScore(b) - getScore(a);
+        if (scoreDiff !== 0) return scoreDiff;
+      }
 
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
-  const [zoomImage, setZoomImage] = useState<string | null>(null);
-  const [showFloatingButtons, setShowFloatingButtons] = useState(false);
+      const priceA = getProductPrice(a, user?.role);
+      const priceB = getProductPrice(b, user?.role);
+      
+      switch (sortBy) {
+        case 'price-low': 
+          return priceA - priceB;
+        case 'price-high': 
+          return priceB - priceA;
+        case 'rating': 
+          return (b.avg_rating || 0) - (a.avg_rating || 0);
+        case 'popularity': 
+          return ((b as any).review_count || 0) - ((a as any).review_count || 0);
+        case 'newest': 
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    case 'relevance': 
+    default:
+      return 0; // Default
+  }
+});
+}, [products, searchTerm, selectedCategory, selectedRating, minPrice, maxPrice, sortBy, onSaleOnly, getProductPrice, user?.role]);
 
-  // Body scroll lock
+const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setZoomImage(url);
+};
+
+const categories = ['All', 'Essential Pantry', 'Fresh Produce', 'Personal Care', 'Dairy & Eggs', 'Home Needs', 'Beverages', 'Spices & Masalas'];
+
+  // Body scroll lock and hide mobile nav
   useEffect(() => {
+    const mobileNav = document.querySelector('.mobile-bottom-nav');
     if (isFilterOpen || quickViewProduct) {
       document.body.style.overflow = 'hidden';
+      if (mobileNav) (mobileNav as HTMLElement).style.transform = 'translateY(100px)';
     } else {
       document.body.style.overflow = 'unset';
+      if (mobileNav) (mobileNav as HTMLElement).style.transform = 'translateY(0)';
     }
-    return () => { document.body.style.overflow = 'unset'; };
+    return () => { 
+      document.body.style.overflow = 'unset'; 
+      if (mobileNav) (mobileNav as HTMLElement).style.transform = 'translateY(0)';
+    };
   }, [isFilterOpen, quickViewProduct]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      setShowFloatingButtons(window.scrollY > 300);
+  const saveFilters = () => {
+    const filterState = {
+      selectedCategory,
+      selectedRating,
+      minPrice,
+      maxPrice,
+      sortBy,
+      onSaleOnly
     };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    localStorage.setItem('hgs_saved_filters', JSON.stringify(filterState));
+    toast.success('Filters saved for next time');
+  };
+
+  const loadSavedFilters = () => {
+    try {
+      const saved = localStorage.getItem('hgs_saved_filters');
+      if (saved) {
+        const state = JSON.parse(saved);
+        setSelectedCategory(state.selectedCategory || 'All');
+        setSelectedRating(state.selectedRating || null);
+        setMinPrice(state.minPrice || '0');
+        setMaxPrice(state.maxPrice || '');
+        setSortBy(state.sortBy || 'relevance');
+        setOnSaleOnly(state.onSaleOnly || false);
+        toast.success('Saved filters applied');
+      }
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+
+    const updateScrollDir = () => {
+      const currentY = window.scrollY;
+      
+      // Minimum difference to trigger visibility toggle
+      if (Math.abs(currentY - lastY) < 15) {
+        ticking = false;
+        return;
+      }
+
+      if (currentY > lastY) {
+        // Scrolling down - hide sticky options and the scroll helper
+        setShowOptions(false);
+        setShowScrollUpPill(false);
+        setShowFloatingButtons(false);
+      } else if (currentY < lastY) {
+        // Scrolling up
+        if (currentY > 300) {
+          // Down the page, hide the massive header bar but show sleek scroll-to-top helper
+          setShowOptions(false);
+          setShowScrollUpPill(true);
+          setShowFloatingButtons(true);
+        } else {
+          // Near the top, standard search shows up, helper hides
+          setShowOptions(true);
+          setShowScrollUpPill(false);
+          setShowFloatingButtons(false);
+        }
+      }
+      
+      lastY = currentY <= 0 ? 0 : currentY;
+      ticking = false;
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(updateScrollDir);
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
   }, []);
 
   if (loading) return (
@@ -212,6 +354,8 @@ export default function Products() {
       </div>
     </div>
   );
+
+  const isFilterActive = selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10 space-y-8">
@@ -259,8 +403,8 @@ export default function Products() {
                 <X size={20} />
               </button>
               
-              <div className="flex flex-col md:flex-row">
-                <div className="md:w-1/2 h-[300px] md:h-[500px] relative">
+              <div className="flex flex-col md:flex-row max-h-[90vh] md:max-h-none overflow-y-auto md:overflow-visible no-scrollbar">
+                <div className="md:w-1/2 h-[300px] md:h-[600px] relative">
                   {showImages ? (
                     <img 
                       src={quickViewProduct.image_url || `https://picsum.photos/seed/${quickViewProduct.id}/800/800`} 
@@ -273,14 +417,8 @@ export default function Products() {
                       <Camera size={48} />
                     </div>
                   )}
-                  <button
-                    onClick={() => setZoomImage(quickViewProduct.image_url)}
-                    className="absolute top-4 left-4 p-2 bg-white/80 backdrop-blur-sm rounded-full hover:bg-white transition-colors"
-                  >
-                    <Camera size={20} />
-                  </button>
                 </div>
-                <div className="md:w-1/2 p-8 space-y-6 overflow-y-auto max-h-[500px]">
+                <div className="md:w-1/2 p-6 md:p-12 space-y-8 overflow-y-auto no-scrollbar">
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full">{quickViewProduct.category}</span>
                     <h2 className="text-3xl font-black mt-4">{quickViewProduct.name}</h2>
@@ -360,86 +498,80 @@ export default function Products() {
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col gap-6">
-        {/* Modern Top Navigation & Filter Bar - Enhanced for better stickiness and mobile detection */}
-        <div className={cn("sticky pb-4 z-40 bg-stone-50 bg-opacity-90 backdrop-blur-xl px-4 md:px-0 -mx-4 md:mx-0 transition-all", stickyTop)}>
-          <div className="bg-white p-4 rounded-3xl border border-stone-100 shadow-xl shadow-stone-200/40 space-y-4">
+      <div className="flex flex-col">
+        {/* Modern Top Navigation & Filter Bar - Enhanced for better stickiness */}
+        <div 
+          id="filter-section" 
+          className={cn(
+            "sticky z-40 bg-stone-50/80 backdrop-blur-xl px-4 md:px-0 -mx-4 md:mx-0 transition-transform duration-300 border-b border-stone-200/50 mb-6", 
+            stickyTop,
+            (showOptions || !isMobile) ? "translate-y-0 opacity-100" : "-translate-y-[110%] opacity-0 pointer-events-none"
+          )}
+        >
+          <div className="max-w-7xl mx-auto py-4 space-y-4">
             <div className="flex flex-col md:flex-row gap-4 items-center">
-            {/* Search - More prominent with better focus states */}
-            <div className="relative flex-1 group w-full">
+            {/* Search - More prominent with better focus states & Entrance animation */}
+            <motion.div 
+              initial={{ y: -10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="relative flex-1 group w-full"
+            >
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-primary transition-colors" size={18} />
               <input 
                 type="text" 
-                placeholder="Find something special..."
-                className="w-full bg-stone-50 border-2 border-transparent rounded-2xl py-3.5 pl-12 pr-4 focus:border-primary/20 focus:bg-white transition-all text-sm font-black outline-none placeholder:text-stone-300 placeholder:font-bold"
+                placeholder={t('find_something_special') || "Find something special..."}
+                className="w-full bg-white border-2 border-stone-100 rounded-2xl py-3.5 pl-12 pr-4 focus:border-primary/20 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-medium outline-none placeholder:text-stone-400 shadow-sm hover:shadow-md"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
-            </div>
+            </motion.div>
             
-            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto hide-scrollbar touch-pan-x">
-               {/* Quick Filters & Sorting */}
+            <div className="grid grid-cols-3 gap-2 w-full md:flex md:items-center py-0.5 animate-fade-in">
+               {/* Quick Filters & Sorting - Strictly non-scrollable on mobile */}
                <motion.button
                  whileTap={{ scale: 0.95 }}
                  onClick={() => setOnSaleOnly(!onSaleOnly)}
                  className={cn(
-                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap border-2",
+                   "w-full flex items-center justify-center space-x-1 px-1.5 py-3.5 rounded-2xl font-black text-[9px] uppercase tracking-[0.05em] transition-all whitespace-nowrap border-2",
                    onSaleOnly ? "bg-accent border-accent text-white shadow-lg shadow-accent/30" : "bg-stone-50 border-stone-100 text-stone-400 hover:bg-stone-100"
                  )}
                >
-                 <Zap size={12} fill={onSaleOnly ? "currentColor" : "none"} />
+                 <Zap size={10} fill={onSaleOnly ? "currentColor" : "none"} />
                  <span>On Sale</span>
                </motion.button>
                
-               <div className="relative">
+               <div className="relative w-full">
                  <select 
                    value={sortBy}
                    onChange={(e) => setSortBy(e.target.value)}
-                   className="appearance-none bg-stone-50 border-2 border-stone-100 text-stone-600 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap outline-none focus:border-primary/20"
+                   className="w-full text-center appearance-none bg-stone-50 border-2 border-stone-100 text-stone-600 px-1 py-3.5 rounded-2xl font-black text-[9px] uppercase tracking-[0.05em] transition-all outline-none focus:border-primary/20"
                  >
-                   <option value="relevance">Recommended</option>
-                   <option value="price-low">Price: Low to High</option>
-                   <option value="price-high">Price: High to Low</option>
+                   <option value="relevance">Recommend</option>
+                   <option value="price-low">Price: Low</option>
+                   <option value="price-high">Price: High</option>
                    <option value="rating">Top Rated</option>
                    <option value="popularity">Trending</option>
                  </select>
                </div>
                
-               <motion.button
-                 whileTap={{ scale: 0.95 }}
-                 onClick={() => setIsFilterOpen(true)}
-                 className={cn(
-                   "flex items-center space-x-2 px-5 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap border-2",
-                   (selectedRating !== null || minPrice !== '0' || maxPrice !== '' || sortBy !== 'relevance') 
-                     ? "bg-primary border-primary text-white shadow-lg shadow-primary/30" 
-                     : "bg-stone-900 border-stone-900 text-white hover:bg-stone-800"
-                 )}
-               >
-                 <Filter size={12} />
-                 <span>Filters {(selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance') && '•'}</span>
-               </motion.button>
-            </div>
-          </div>
-        </div>
-
-          <div className="flex flex-col gap-3">
-            {/* Quick Categories Bar */}
-            <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsFilterOpen(true)}
                   className={cn(
-                    "px-5 py-3 md:py-2 min-h-[44px] md:min-h-0 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-2",
-                    selectedCategory === cat 
-                      ? "bg-primary border-primary text-white shadow-lg shadow-primary/20 scale-105" 
-                      : "bg-white border-stone-100 text-stone-400 hover:border-stone-200 hover:text-stone-600"
+                    "w-full flex items-center justify-center space-x-1 px-1.5 py-3.5 rounded-2xl font-black text-[9px] uppercase tracking-[0.05em] transition-all whitespace-nowrap border-2",
+                    isFilterActive
+                      ? "bg-primary border-primary text-white shadow-lg shadow-primary/30 ring-4 ring-primary/10" 
+                      : "bg-stone-900 border-stone-900 text-white hover:bg-stone-800"
                   )}
                 >
-                  {cat}
-                </button>
-              ))}
+                  <Filter size={10} />
+                  <span>Filters {isFilterActive ? '•' : ''}</span>
+                </motion.button>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
 
             {/* Active Filter Chips */}
             {(selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || sortBy !== 'relevance' || searchTerm) && (
@@ -494,10 +626,11 @@ export default function Products() {
         </div>
       </div>
 
-      {/* Filter Drawer Overlay */}
+    {/* Right Slide-Over Mobile Filters Drawer */}
         <AnimatePresence>
           {isFilterOpen && (
             <>
+              {/* Semi-transparent Overlay */}
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -505,249 +638,225 @@ export default function Products() {
                 onClick={() => setIsFilterOpen(false)}
                 className="fixed inset-0 bg-stone-900/60 backdrop-blur-md z-[60] overscroll-none"
               />
+              
+              {/* Drawer Container */}
+              <div className="fixed inset-y-0 right-0 z-[70] flex justify-end pointer-events-none w-full">
               <motion.div 
-                initial={{ x: '100%' }}
+                initial={{ x: "100%" }}
                 animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed top-0 right-0 h-full w-full max-w-sm bg-white z-[70] shadow-2xl flex flex-col overscroll-none"
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 28, stiffness: 220 }}
+                className="bg-white w-full max-w-sm h-full shadow-[0_0_50px_rgba(0,0,0,0.15)] flex flex-col pointer-events-auto border-l border-stone-150 relative pb-safe"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="p-8 border-b border-stone-100 flex items-center justify-between bg-stone-50/50">
+                <div className="p-6 border-b border-stone-100 flex items-center justify-between bg-stone-50/50 shrink-0">
                   <div>
                     <h2 className="text-xl font-black text-stone-900">Filters</h2>
                     <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest">Personalize your feed</p>
                   </div>
                   <button 
                     onClick={() => setIsFilterOpen(false)}
-                    className="p-3 bg-white rounded-2xl hover:bg-stone-50 transition-all shadow-sm border border-stone-100"
+                    className="p-3 bg-white rounded-2xl hover:bg-stone-50 transition-all shadow-sm border border-stone-100 text-stone-500 hover:text-stone-900"
                   >
                     <X size={20} />
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-8 space-y-12 no-scrollbar">
-                  {/* Sorting Section - Redesigned for visual clarity */}
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                  {/* Scrollable Filters Body */}
+                  <div className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar">
+                    {/* Filter Categories Display */}
+                    <div className="space-y-4">
                       <div className="flex items-center gap-2">
-                        <ArrowDownNarrowWide size={16} className="text-primary" />
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Sort Collection</h3>
+                        <LayoutGrid size={14} className="text-primary" />
+                        <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Shop Categories</h3>
                       </div>
-                      <span className="text-[9px] font-bold text-stone-300">Choose logic</span>
+                      <div className="grid grid-cols-2 gap-2">
+                        {categories.map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setSelectedCategory(cat)}
+                            className={cn(
+                              "py-3 px-2 rounded-xl border-2 transition-all text-center text-[9px] font-black uppercase tracking-wider",
+                              selectedCategory === cat 
+                                ? "border-stone-900 bg-stone-900 text-white shadow-xl shadow-stone-900/20" 
+                                : "border-stone-100 bg-white text-stone-500 hover:border-stone-200 hover:bg-stone-50"
+                            )}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { id: 'relevance', label: 'Recommended', icon: Star },
-                        { id: 'popularity', label: 'Trending', icon: Zap },
-                        { id: 'price-low', label: 'Price: Low', icon: ArrowDownNarrowWide },
-                        { id: 'price-high', label: 'Price: High', icon: ArrowUpNarrowWide },
-                        { id: 'rating', label: 'Top Rated', icon: Star },
-                        { id: 'newest', label: 'Newest', icon: Clock },
-                      ].map(option => (
-                        <button
-                          key={option.id}
-                          onClick={() => setSortBy(option.id)}
-                          className={cn(
-                            "group flex flex-col items-start p-4 rounded-2xl border-2 transition-all text-left space-y-3 relative overflow-hidden",
-                            sortBy === option.id 
-                              ? "border-primary bg-primary/5 text-primary" 
-                              : "border-stone-50 text-stone-500 hover:border-stone-200 hover:bg-stone-50"
-                          )}
-                        >
-                          {sortBy === option.id && (
-                            <motion.div 
-                              layoutId="sort-active-bg"
-                              className="absolute top-0 right-0 w-8 h-8 bg-primary/10 rounded-bl-2xl flex items-center justify-center"
-                            >
-                              <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
-                            </motion.div>
-                          )}
-                          <option.icon size={18} className={sortBy === option.id ? "text-primary" : "text-stone-300 group-hover:text-stone-400"} />
-                          <span className="font-black text-[11px] leading-tight uppercase tracking-tight">{option.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
 
-                  {/* Price Section - Bento style inputs */}
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                    {/* Sorting Section */}
+                    <div className="space-y-4">
                       <div className="flex items-center gap-2">
-                        <Zap size={16} className="text-primary" />
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">Cost Spectrum</h3>
+                        <ArrowDownNarrowWide size={14} className="text-primary" />
+                        <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Sort Collection</h3>
                       </div>
-                      <div className="text-[9px] font-bold text-stone-300 bg-stone-50 px-2 py-0.5 rounded-full">INR (₹)</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'relevance', label: 'Recommended' },
+                          { id: 'popularity', label: 'Trending' },
+                          { id: 'price-low', label: 'Price: Low' },
+                          { id: 'price-high', label: 'Price: High' },
+                          { id: 'rating', label: 'Top Rated' },
+                          { id: 'newest', label: 'Newest' },
+                        ].map(option => (
+                          <button
+                            key={option.id}
+                            onClick={() => setSortBy(option.id)}
+                            className={cn(
+                              "py-3 px-4 rounded-xl border-2 transition-all text-center text-[10px] font-black uppercase tracking-wider",
+                              sortBy === option.id 
+                                ? "border-stone-900 bg-stone-900 text-white shadow-xl shadow-stone-900/20" 
+                                : "border-stone-100 bg-white text-stone-400 hover:border-stone-200 hover:bg-stone-50"
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-stone-50 p-5 rounded-[2rem] border border-stone-100 flex flex-col space-y-3 group focus-within:border-primary/20 transition-all">
-                        <label className="text-[9px] font-black uppercase text-stone-400 tracking-tighter ml-1">Minimum</label>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-stone-300 font-black text-xs">₹</span>
+
+                    {/* Price Presets */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Zap size={14} className="text-primary" />
+                        <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Smart Price Ranges</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { min: '0', max: '200', label: 'Budget' },
+                          { min: '200', max: '500', label: 'Mid-Range' },
+                          { min: '500', max: '2000', label: 'Premium' },
+                          { min: '2000', max: '10000', label: 'Wholesale' }
+                        ].map((range, idx) => (
+                          <motion.button
+                            key={idx}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            onClick={() => {
+                              setMinPrice(range.min);
+                              setMaxPrice(range.max);
+                            }}
+                            className={cn(
+                              "py-3 px-4 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest transition-all",
+                              minPrice === range.min && maxPrice === range.max 
+                                ? "border-stone-900 bg-stone-900 text-white shadow-xl shadow-stone-900/20" 
+                                : "border-stone-100 bg-white text-stone-400 hover:border-stone-200"
+                            )}
+                          >
+                            {range.label} (₹{range.max})
+                          </motion.button>
+                        ))}
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-black uppercase text-stone-400 tracking-tighter">Min</label>
                           <input 
                             type="number" 
-                            placeholder="0"
                             value={minPrice} 
                             onChange={(e) => setMinPrice(e.target.value)} 
-                            className="bg-transparent font-black text-xl w-full outline-none placeholder:text-stone-200"
+                            className="w-full bg-stone-50 border border-stone-100 rounded-lg p-2 text-xs font-bold outline-none focus:border-primary/20"
                           />
                         </div>
-                        <div className="flex gap-1">
-                          {[0, 100, 500].map(val => (
-                            <button 
-                              key={val}
-                              onClick={() => setMinPrice(val.toString())}
-                              className="text-[8px] font-black uppercase tracking-tighter text-stone-400 hover:text-primary"
-                            >
-                              {val === 0 ? 'Any' : `₹${val}`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="bg-stone-50 p-5 rounded-[2rem] border border-stone-100 flex flex-col space-y-3 group focus-within:border-primary/20 transition-all">
-                        <label className="text-[9px] font-black uppercase text-stone-400 tracking-tighter ml-1">Maximum</label>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-stone-300 font-black text-xs">₹</span>
+                        <div className="space-y-1">
+                          <label className="text-[8px] font-black uppercase text-stone-400 tracking-tighter">Max</label>
                           <input 
                             type="number" 
-                            placeholder="Any"
                             value={maxPrice} 
                             onChange={(e) => setMaxPrice(e.target.value)} 
-                            className="bg-transparent font-black text-xl w-full outline-none placeholder:text-stone-200"
+                            className="w-full bg-stone-50 border border-stone-100 rounded-lg p-2 text-xs font-bold outline-none focus:border-primary/20"
                           />
-                        </div>
-                        <div className="flex gap-1 justify-end">
-                          {[1000, 5000, 10000].map(val => (
-                            <button 
-                              key={val}
-                              onClick={() => setMaxPrice(val.toString())}
-                              className="text-[8px] font-black uppercase tracking-tighter text-stone-400 hover:text-primary"
-                            >
-                              ₹{val/1000}k
-                            </button>
-                          ))}
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Rating Section - Refined Star Selectors */}
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-2">
-                      <Star size={16} className="text-primary" />
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400">User Satisfaction</h3>
+                    {/* Rating Selector */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Star size={14} className="text-secondary" />
+                        <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Ratings</h3>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {[5, 4, 3, 2].map(rating => (
+                          <button
+                            key={rating}
+                            onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
+                            className={cn(
+                              "px-4 py-2 rounded-xl border transition-all text-[10px] font-bold flex items-center gap-1.5",
+                              selectedRating === rating 
+                                ? "border-amber-400 bg-amber-50 text-amber-700" 
+                                : "border-stone-100 text-stone-500 hover:bg-stone-50"
+                            )}
+                          >
+                            {rating} <Star size={10} fill="currentColor" />
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    {/* On Sale Toggle in Drawer */}
-                    <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100 flex items-center justify-between mb-2">
-                       <div className="flex items-center space-x-3">
-                         <div className="p-2 bg-accent/10 rounded-lg text-accent">
-                           <Zap size={16} fill="currentColor" />
-                         </div>
-                         <div className="flex flex-col">
-                           <span className="text-[11px] font-black uppercase tracking-tight text-stone-900">On Sale Only</span>
-                           <span className="text-[9px] font-bold text-stone-400">Show discounted items</span>
-                         </div>
+
+                    {/* Sale Toggle */}
+                    <div className="bg-stone-50 p-4 rounded-xl border border-stone-100 flex items-center justify-between animate-fade-in">
+                       <div className="flex flex-col">
+                         <span className="text-[10px] font-black uppercase tracking-tight text-stone-900">On Sale Only</span>
+                         <span className="text-[8px] font-bold text-stone-400">Show discounts</span>
                        </div>
                        <button
                          onClick={() => setOnSaleOnly(!onSaleOnly)}
                          className={cn(
-                           "relative w-12 h-6 rounded-full transition-colors",
+                           "relative w-10 h-5 rounded-full transition-colors",
                            onSaleOnly ? "bg-accent" : "bg-stone-200"
                          )}
                        >
                          <motion.div 
-                           animate={{ x: onSaleOnly ? 24 : 4 }}
-                           className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                           animate={{ x: onSaleOnly ? 22 : 4 }}
+                           className="absolute top-1 w-3 h-3 bg-white rounded-full shadow-sm"
                          />
                        </button>
                     </div>
-                    <div className="space-y-3">
-                      {[5, 4, 3, 2].map(rating => (
-                        <button
-                          key={rating}
-                          onClick={() => setSelectedRating(selectedRating === rating ? null : rating)}
-                          className={cn(
-                            "w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all relative overflow-hidden group",
-                            selectedRating === rating 
-                              ? "bg-amber-50/50 border-amber-300 text-amber-700" 
-                              : "bg-white border-stone-50 text-stone-500 hover:border-amber-100"
-                          )}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="flex space-x-1">
-                              {[...Array(5)].map((_, i) => (
-                                <Star 
-                                  key={i} 
-                                  size={12} 
-                                  className={cn(
-                                    "transition-colors",
-                                    i < rating ? "text-amber-400" : "text-stone-100"
-                                  )} 
-                                  fill="currentColor" 
-                                />
-                              ))}
-                            </div>
-                            <span className="font-black text-[11px] uppercase tracking-widest">{rating}+ Stars</span>
-                          </div>
-                          {selectedRating === rating ? (
-                            <motion.div 
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              className="w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center"
-                            >
-                              <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                            </motion.div>
-                          ) : (
-                            <span className="text-[9px] font-bold text-stone-300 group-hover:text-amber-200 transition-colors">Select Range</span>
-                          )}
-                        </button>
-                      ))}
-                      <button 
-                         onClick={() => setSelectedRating(null)}
-                         className={cn(
-                           "w-full text-center py-3 text-[9px] font-black uppercase tracking-widest transition-colors",
-                           selectedRating === null ? "text-primary bg-primary/5 rounded-xl border border-primary/10" : "text-stone-400 hover:text-stone-600"
-                         )}
-                      >
-                        All Ratings
-                      </button>
-                    </div>
                   </div>
-                </div>
 
-                <div className="p-8 bg-white border-t border-stone-100 flex items-center justify-between">
-                  <button 
-                    onClick={() => { 
-                      setSearchTerm(''); 
-                      setSelectedCategory('All'); 
-                      setSelectedRating(null); 
-                      setMinPrice('0'); 
-                      const maxP = Math.max(...products.map(p => getProductPrice(p, user?.role)));
-                      setMaxPrice(maxP.toString());
-                      setOnSaleOnly(false);
-                      setSortBy('relevance');
-                    }} 
-                    className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400 hover:text-primary transition-colors"
-                  >
-                    Reset
-                  </button>
-                  <button 
-                    onClick={() => setIsFilterOpen(false)}
-                    className="px-10 py-4 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-primary/25 hover:scale-105 active:scale-95 transition-all"
-                  >
-                    View Result
-                  </button>
-                </div>
-              </motion.div>
+                  {/* Apply & Reset Buttons */}
+                  <div className="p-6 bg-white border-t border-stone-150 flex items-center justify-between shrink-0">
+                    <button 
+                      onClick={() => { 
+                        setSearchTerm(''); 
+                        setSelectedCategory('All'); 
+                        setSelectedRating(null); 
+                        setMinPrice('0'); 
+                        const maxP = Math.max(...products.map(p => getProductPrice(p, user?.role)));
+                        setMaxPrice(maxP.toString());
+                        setOnSaleOnly(false);
+                        setSortBy('relevance');
+                        toast.success('Filters cleared');
+                      }} 
+                      className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400 hover:text-primary transition-colors"
+                    >
+                      Clear All
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsFilterOpen(false);
+                        toast.success('Filters applied');
+                      }}
+                      className="px-6 py-3.5 bg-stone-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-stone-900/25 hover:scale-105 active:scale-95 transition-all"
+                    >
+                      Apply Filters ({filteredProducts.length})
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
             </>
           )}
         </AnimatePresence>
 
 
-        {/* Product Grid Content */}
-        <div className="flex-1">
+        {/* Full-Width Grid Content */}
+        <div className="w-full">
       <motion.div 
         layout
         initial="hidden"
@@ -761,7 +870,7 @@ export default function Products() {
             }
           }
         }}
-        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8"
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6"
       >
         <AnimatePresence mode="popLayout">
         {filteredProducts.map((product) => {
@@ -783,7 +892,7 @@ export default function Products() {
             >
               <Link 
                 to={`/product/${product.id}`} 
-                className="relative h-44 overflow-hidden block group/image mb-3 -mx-3 -mt-3 rounded-t-2xl bg-stone-50"
+                className="relative aspect-[4/3] w-[calc(100%+1.5rem)] overflow-hidden block group/image mb-2 -mx-3 -mt-3 rounded-t-2xl bg-stone-50"
               >
                 {showImages ? (
                   <motion.img 
@@ -793,7 +902,7 @@ export default function Products() {
                     referrerPolicy="no-referrer"
                     whileHover={{ scale: 1.1 }}
                     transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                    className="w-full h-full object-cover bg-stone-100"
+                    className="w-full h-full object-cover bg-stone-100 animate-fade-in"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
@@ -803,36 +912,53 @@ export default function Products() {
                 
                 <div className="absolute top-2 left-2 flex flex-col space-y-1 z-20">
                     {product.discount > 0 && (
-                      <div className="bg-accent text-white px-1.5 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-wider shadow">
+                      <div className="bg-red-600 text-white px-3 py-1.5 rounded-[0.5rem] text-[11px] font-black uppercase tracking-widest shadow-xl shadow-red-500/20 animate-pulse border border-red-400/30">
                         {product.discount}% OFF
                       </div>
                     )}
                 </div>
+
+                <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/10 transition-colors duration-300" />
+                
+                <button 
+                  onClick={(e) => handleEnlargeImage(e, product.image_url || `https://picsum.photos/seed/${product.id}/800/800`)}
+                  className="absolute bottom-4 right-4 p-3 bg-white/80 backdrop-blur-md text-stone-900 rounded-[1.25rem] opacity-0 group-hover/image:opacity-100 transform translate-y-2 group-hover/image:translate-y-0 transition-all duration-300 shadow-xl border border-stone-100 hover:bg-stone-900 hover:text-white"
+                  title="Enlarge View"
+                >
+                  <Maximize2 size={16} strokeWidth={3} />
+                </button>
               </Link>
               
               <div className="flex-1 flex flex-col">
                 <Link to={`/product/${product.id}`} className="mb-2 block group">
-                  <h3 className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors leading-tight line-clamp-2">{product.name}</h3>
+                  <h3 className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors leading-tight line-clamp-2 min-h-[2.5rem] max-h-[2.5rem] overflow-hidden text-ellipsis break-words">{product.name}</h3>
                 </Link>
                 
-                <div className="mt-auto flex items-center justify-between pt-2">
-                  <span className="text-sm font-black text-primary">₹{getProductPrice(product, user?.role)}</span>
+                <div className="mt-auto flex items-center justify-between pt-2 border-t border-stone-50">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black text-primary">₹{getProductPrice(product, user?.role)}</span>
+                    {product.discount > 0 && (
+                      <span className="text-[10px] text-stone-400 line-through font-bold">₹{product.price}</span>
+                    )}
+                  </div>
 
                   {product.stock <= 0 ? (
-                    <div className="text-[9px] uppercase font-black text-stone-400">Out of Stock</div>
+                    <div className="text-[9px] uppercase font-black text-stone-400 bg-stone-100 px-3 py-2 rounded-xl border border-stone-200">Out of Stock</div>
                   ) : cartItem ? (
-                     <div className="flex items-center bg-stone-100 rounded-lg">
-                        <button onClick={() => updateQuantity(product.id, -1)} className="p-1 text-primary"><Minus size={14} /></button>
-                        <span className="font-bold text-xs px-2">{cartItem.quantity}</span>
-                        <button onClick={() => updateQuantity(product.id, 1)} className="p-1 text-primary"><Plus size={14} /></button>
+                     <div className="flex items-center bg-stone-950 text-white rounded-[1.25rem] p-1.5 shadow-xl border border-stone-800">
+                        <button onClick={() => updateQuantity(product.id, -1)} className="p-2 px-3 hover:bg-white/10 rounded-xl transition-all active:scale-90"><Minus size={18} strokeWidth={4} /></button>
+                        <span className="font-black text-sm px-2 min-w-[1.5rem] text-center">{cartItem.quantity}</span>
+                        <button onClick={() => updateQuantity(product.id, 1)} className="p-2 px-3 hover:bg-white/10 rounded-xl transition-all active:scale-90"><Plus size={18} strokeWidth={4} /></button>
                      </div>
                   ) : (
-                    <button 
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => addToCart(product)}
-                      className="bg-primary text-white p-2 rounded-lg transition-transform active:scale-95"
+                      className="bg-stone-950 text-white p-4 rounded-[1.25rem] shadow-2xl shadow-stone-900/20 transition-all flex items-center justify-center group/btn border border-stone-800"
                     >
-                      <Plus size={16} />
-                    </button>
+                      <Plus size={20} strokeWidth={4} className="group-hover/btn:scale-110 transition-transform" />
+                    </motion.button>
                   )}
                 </div>
               </div>
@@ -844,26 +970,90 @@ export default function Products() {
 
       {filteredProducts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-4">
-          <div className="bg-stone-50 p-8 rounded-[2rem] text-center border border-stone-100 max-w-sm">
-            <h3 className="text-xl font-black text-stone-900 mb-2">No products found</h3>
-            <p className="text-stone-500 mb-6">We couldn't find any products matching the current filters.</p>
-            <button 
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedCategory('All');
-                setSelectedRating(null);
-                setMinPrice('0');
-                setMaxPrice('');
-                setOnSaleOnly(false);
-                setSortBy('relevance');
-              }}
-              className="px-8 py-3 bg-primary text-white rounded-xl font-bold hover:scale-105 transition-transform"
-            >
-              Clear Filters
-            </button>
+          <div className="flex flex-col items-center text-center space-y-8 max-w-lg">
+            <div className="relative">
+              <div className="w-24 h-24 bg-stone-50 rounded-full flex items-center justify-center animate-pulse">
+                <ShoppingBag className="text-stone-300" size={48} />
+              </div>
+              <div className="absolute -bottom-2 -right-2 bg-white p-2 rounded-full shadow-lg">
+                <Search size={20} className={cn("text-primary", loadFailed && "text-red-500")} />
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <h3 className="text-2xl font-black text-stone-900 uppercase tracking-tight">
+                {loadFailed ? 'Service Temporarily Offline' : 'No products match your search'}
+              </h3>
+              <p className="text-stone-500 font-medium leading-relaxed">
+                {loadFailed 
+                  ? 'We are currently unable to connect to the store database. The search service is temporarily offline, but all navigation menus and dashboard elements remain fully responsive.' 
+                  : "We couldn't find anything matching your current filters. Try adjusting your price range or exploring different categories."
+                }
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              {loadFailed ? (
+                <button 
+                  onClick={() => fetchProducts()}
+                  className="flex-1 px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  Retry Connection
+                </button>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => {
+                      setSearchTerm('');
+                      setSelectedCategory('All');
+                      setSelectedRating(null);
+                      setMinPrice('0');
+                      setMaxPrice('');
+                      setOnSaleOnly(false);
+                      setSortBy('relevance');
+                      toast.success('Filters cleared');
+                    }}
+                    className="flex-1 px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    Reset All Filters
+                  </button>
+                  <button 
+                    onClick={() => setIsFilterOpen(true)}
+                    className="flex-1 px-8 py-4 bg-white text-stone-900 border-2 border-stone-100 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-stone-50 transition-all border-dashed"
+                  >
+                    Refine Selection
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
+
+      {/* Dynamic Pop-up Sliding Welcome for Automatic Scroll back to Top */}
+      <AnimatePresence>
+        {showScrollUpPill && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+            className="fixed bottom-[88px] left-1/2 -translate-x-1/2 z-50 pointer-events-auto"
+          >
+            <button
+              onClick={() => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                setShowScrollUpPill(false);
+                setShowOptions(true);
+              }}
+              className="bg-stone-900 border border-stone-800/80 text-white px-6 py-3.5 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.25)] flex items-center space-x-3 text-[10px] font-black uppercase tracking-widest hover:bg-stone-800 focus:outline-none ring-4 ring-primary/20 backdrop-blur-md active:scale-95 transition-all"
+            >
+              <ArrowUpNarrowWide size={12} className="text-primary animate-bounce" />
+              <span>Scroll to Search & Filters?</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Floating Buttons */}
       {showFloatingButtons && (
@@ -892,5 +1082,6 @@ export default function Products() {
       )}
       </div>
     </div>
+  </div>
   );
 }

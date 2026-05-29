@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { FileText, ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import Navbar from '../components/Navbar';
 import { fetchWithHandling } from '../lib/api';
+import { useStore } from '../StoreContext';
 
 export default function TermsAndConditions() {
+  const { config = [] } = useStore();
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -22,7 +23,6 @@ export default function TermsAndConditions() {
 
   return (
     <div className="min-h-screen bg-stone-50">
-      <Navbar />
       
       <main className="pt-24 pb-32 md:pb-20 px-4">
         <div className="max-w-4xl mx-auto">
@@ -66,7 +66,7 @@ export default function TermsAndConditions() {
                           Acceptance of Terms
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p>By accessing, browsing, or using the {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'} platform, you acknowledge that you have read, understood, and agreed to be bound by these Terms and Conditions. These terms constitute a legally binding agreement between you and the store regarding your use of our services, including our web portal, mobile app, and physical store interactions.</p>
+                          <p>By accessing, browsing, or using the {(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'} platform, you acknowledge that you have read, understood, and agreed to be bound by these Terms and Conditions. These terms constitute a legally binding agreement between you and the store regarding your use of our services, including our web portal, mobile app, and physical store interactions.</p>
                           <p>We reserve the right to update or modify these terms at any time without prior notice. Any changes will be effective immediately upon posting. Your continued use of the platform after such changes signifies your acceptance of the revised terms.</p>
                         </div>
                       </section>
@@ -91,7 +91,7 @@ export default function TermsAndConditions() {
                           Pricing, Product Info & Availability
                         </h3>
                         <div class="space-y-4 text-stone-600 leading-relaxed">
-                          <p>While we strive for 100% accuracy, {config.find(c => c.key === 'store_name')?.value || 'Hind General Store'} does not warrant that product descriptions, pricing, or other content is error-free. In the event of a pricing error, we reserve the right to cancel any orders placed for that item.</p>
+                          <p>While we strive for 100% accuracy, {(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'} does not warrant that product descriptions, pricing, or other content is error-free. In the event of a pricing error, we reserve the right to cancel any orders placed for that item.</p>
                           <p>All items are subject to stock availability. We may place limits on the quantity of items purchased per person or per order to ensure fair distribution during high-demand periods.</p>
                         </div>
                       </section>

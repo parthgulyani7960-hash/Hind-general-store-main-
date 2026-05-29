@@ -50,7 +50,7 @@ export default function FeatureToggles({ config, onUpdate }: FeatureTogglesProps
       
       <div className="grid gap-4">
         {FEATURES.map((feature) => {
-          const setting = config.find(c => c.key === feature.key);
+          const setting = (config || []).find(c => c.key === feature.key);
           const isEnabled = setting ? setting.value === 'true' : false;
           
           return (

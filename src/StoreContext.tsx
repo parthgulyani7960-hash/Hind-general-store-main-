@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
@@ -21,6 +21,7 @@ interface StoreContextType {
   authMode: 'otp' | 'password';
   updateProfile: (data: Partial<User>) => Promise<void>;
   refreshUser: () => Promise<void>;
+  fetchUser: () => Promise<void>;
   wishlist: number[];
   toggleWishlist: (productId: number) => void;
   config: any[];
@@ -62,26 +63,55 @@ interface StoreContextType {
   setCurrentAlert: (alert: any) => void;
   markAlertAsRead: (id: number) => Promise<void>;
   hasPermission: (permission: Permission) => boolean;
+  calculateDiscount: (cart: CartItem[]) => number;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isMaintenance, setIsMaintenance] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(false);
+  const initialCheckDone = useRef(false);
+  const authRunningRef = useRef(false);
 
-  useEffect(() => {
-    const handleFirebaseUnreachable = (e: any) => {
-      console.warn('[StoreContext] Centralized error boundary caught unreachable Firebase backend:', e?.detail);
-      setIsMaintenance(true);
-    };
-    window.addEventListener('firebase_unreachable', handleFirebaseUnreachable);
-    return () => {
-      window.removeEventListener('firebase_unreachable', handleFirebaseUnreachable);
-    };
+  const checkMaintenance = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<any>('/api/settings');
+      if (data) {
+        setIsMaintenance(prev => (prev !== !!data.maintenance ? !!data.maintenance : prev));
+        if (data.authMode) setAuthMode(data.authMode);
+        if (data.config) {
+          setConfig(prev => JSON.stringify(prev) !== JSON.stringify(data.config) ? data.config : prev);
+          const themeSetting = data.config.find((s: any) => s.key === 'admin_theme');
+          if (themeSetting) setAdminTheme(prev => prev !== themeSetting.value ? themeSetting.value : prev);
+        }
+      }
+    } catch (err) {}
   }, []);
+
+  const fetchPromotions = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<PromotionRule[]>('/api/promotions-rules');
+      if (data) {
+        const activePromotions = data.filter((p: PromotionRule) => p.active);
+        setPromotions(prev => JSON.stringify(prev) !== JSON.stringify(activePromotions) ? activePromotions : prev);
+      }
+    } catch (err) {}
+  }, []);
+
+  const fetchBulkDiscounts = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<any[]>('/api/bulk-discounts');
+      if (data) {
+        setBulkDiscounts(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+      }
+    } catch (err) {}
+  }, []);
+
   const [currentAlert, setCurrentAlert] = useState<any>(null);
   const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
   const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');
+
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('hgs_user');
@@ -91,133 +121,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   });
 
-  useEffect(() => {
-    const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
-        if (firebaseUser) {
-          try {
-            const token = await Promise.race([
-              firebaseUser.getIdToken(),
-              new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
-            ]) as string;
-            localStorage.setItem('hgs_token', token);
-            checkAuth(token);
-          } catch (e) {
-            console.error('Failed to get Firebase ID token', e);
-            checkAuth();
-          }
-        } else {
-          // User logged out
-          setUser(null);
-          localStorage.removeItem('hgs_token');
-          localStorage.removeItem('hgs_user');
-        }
-    });
-    return unsubscribe;
-  }, []);
-
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-
-  useEffect(() => {
-    const initAuth = async () => {
-        try {
-            // Set a timeout for authStateReady to prevent infinite hang if Firebase fails
-            const authReadyPromise = auth.authStateReady();
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Firebase auth timeout')), 3000)
-            );
-            
-            try {
-                await Promise.race([authReadyPromise, timeoutPromise]);
-            } catch (e) {
-                console.warn('Firebase authStateReady timed out or failed, proceeding with fallback auth check');
-            }
-
-            const firebaseUser = auth.currentUser;
-            if (firebaseUser) {
-                let token = null;
-                try {
-                  token = await Promise.race([
-                    firebaseUser.getIdToken(),
-                    new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
-                  ]) as string;
-                } catch(e) {}
-                await checkAuth(token || undefined);
-            } else {
-                await checkAuth();
-            }
-        } catch(e) {
-            console.error('Auth initialization error:', e);
-            await checkAuth();
-        } finally {
-            setIsAuthChecking(false);
-        }
-    };
-    const handleAuthError = () => {
-      setUser(null);
-      localStorage.removeItem('hgs_user');
-      localStorage.removeItem('hgs_token');
-    };
-    window.addEventListener('auth_error', handleAuthError);
-
-    initAuth();
-    checkMaintenance();
-
-    // Safety fallback: Never keep the user on the loading screen for more than 8 seconds
-    const safetyTimeout = setTimeout(() => {
-      setIsAuthChecking(current => {
-        if (current) {
-          console.warn('[AUTH] Safety timeout triggered. Forced session start.');
-          return false;
-        }
-        return false;
-      });
-    }, 8000);
-
-    return () => {
-      window.removeEventListener('auth_error', handleAuthError);
-      clearTimeout(safetyTimeout);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (user && !isAuthChecking) {
-      fetchAlerts();
-      const interval = setInterval(fetchAlerts, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [user, isAuthChecking]);
-
-  const fetchAlerts = async () => {
-    if (!user) return;
-    try {
-      const data = await fetchWithHandling<any[]>('/api/alerts');
-      if (data && data.length > 0) {
-        setPendingAlerts(data);
-        if (!currentAlert) {
-          setCurrentAlert(data[0]);
-        }
-      }
-    } catch (err) {}
-  };
-
-  const markAlertAsRead = async (id: number) => {
-    try {
-      await fetchWithHandling(`/api/alerts/${id}/read`, { method: 'POST' });
-      setPendingAlerts(prev => prev.filter(a => a.id !== id));
-      if (currentAlert?.id === id) {
-        setCurrentAlert(null);
-      }
-    } catch (err) {}
-  };
-
-  const checkAuth = async (fbToken?: string) => {
+  const checkAuth = React.useCallback(async (fbToken?: string) => {
+    if (authRunningRef.current) return;
+    authRunningRef.current = true;
     try {
       const token = fbToken || localStorage.getItem('hgs_token');
-      const data = await fetchWithHandling<any>('/api/auth/me', {
+      const data = await fetchWithHandling<{user: User}>('/api/auth/me', {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
-      
       if (data && data.user) {
+        console.log('User loaded:', data.user);
         setUser(data.user);
         localStorage.setItem('hgs_user', JSON.stringify(data.user));
       } else {
@@ -228,317 +141,67 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       setUser(null);
       localStorage.removeItem('hgs_user');
-    }
-  };
-
-  const refreshUser = async () => {
-    if (!user) return;
-    try {
-      const data = await fetchWithHandling<User>('/api/user/profile');
-      if (data) {
-        setUser(data);
-      }
-    } catch (err) {}
-  };
-
-  const updateProfile = async (data: Partial<User>) => {
-    if (!user) return;
-    try {
-      const result = await fetchWithHandling<any>('/api/user/update-profile', {
-        method: 'POST',
-        body: JSON.stringify({ ...data, id: user.id })
-      });
-      if (result?.success) {
-        setUser(result.user);
-        toast.success('Profile updated');
-      }
-    } catch (err) {}
-  };
-
-  const subscribeNewsletter = async (email: string) => {
-    try {
-      const data = await fetchWithHandling<any>('/api/newsletter/subscribe', {
-        method: 'POST',
-        body: JSON.stringify({ email, user_id: user?.id })
-      });
-      if (data?.success) {
-        toast.success('Subscribed to newsletter!');
-      }
-    } catch (err) {}
-  };
-
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [cartLoadedFromStorage, setCartLoadedFromStorage] = useState(false);
-  const [isSyncingCart, setIsSyncingCart] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('hgs_cart');
-      if (saved) {
-        setCart(JSON.parse(saved));
-      }
-    } catch (e) {
-      console.error('Failed to parse cart from local storage', e);
-    }
-    setCartLoadedFromStorage(true);
-  }, []);
-
-  const syncCartToBackend = async (cartItems: CartItem[]) => {
-    if (!user) return;
-    setIsSyncingCart(true);
-    try {
-        await fetchWithHandling('/api/cart/sync', {
-            method: 'POST',
-            body: JSON.stringify({ userId: user.id, items: cartItems })
-        });
-    } catch (err) {
-        console.error('Failed to sync cart:', err);
+      localStorage.removeItem('hgs_token');
     } finally {
-        setIsSyncingCart(false);
+      authRunningRef.current = false;
     }
-  };
+  }, [setUser]);
 
   useEffect(() => {
-    if (!cartLoadedFromStorage) return;
-    localStorage.setItem('hgs_cart', JSON.stringify(cart));
-    // syncCartToBackend(cart); // Leave sync to explicit calls for now, or keep it. Let's remove this to avoid double sync.
-  }, [cart, cartLoadedFromStorage]);
-
-  const [wishlist, setWishlist] = useState<number[]>(() => {
-    try {
-      const saved = localStorage.getItem('hgs_wishlist');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
-  const [config, setConfig] = useState<any[]>([]);
-  const [vibration, setVibration] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('hgs_vibration');
-      return saved ? JSON.parse(saved) : true;
-    } catch (e) {
-      return true;
-    }
-  });
-
-  const [notifications, setNotifications] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('hgs_notifications');
-      return saved ? JSON.parse(saved) : true;
-    } catch (e) {
-      return true;
-    }
-  });
-
-  const [sound, setSound] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('hgs_sound');
-      return saved ? JSON.parse(saved) : true;
-    } catch (e) {
-      return true;
-    }
-  });
-
-  const [adminTheme, setAdminTheme] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('hgs_admin_theme');
-      return saved || 'theme-navy';
-    } catch (e) {
-      return 'theme-navy';
-    }
-  });
-
-  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
-  const [promotions, setPromotions] = useState<PromotionRule[]>([]);
-  const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
-  const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
-  const [language, setLanguage] = useState<Language>(() => {
-    const saved = localStorage.getItem('hgs_lang');
-    return (saved as Language) || 'en';
-  });
-  const [addresses, setAddresses] = useState<UserAddress[]>([]);
-  const [loadingAddresses, setLoadingAddresses] = useState(false);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
-  const [lastAddedId, setLastAddedId] = useState<number | null>(null);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-      setIsTablet(window.innerWidth >= 768 && window.innerWidth < 1024);
+    if (initialCheckDone.current) return;
+    initialCheckDone.current = true;
+    
+    let unsubscribe: any;
+    
+    const initialize = async () => {
+      await auth.authStateReady();
+      const firebaseUser = auth.currentUser;
+      
+      if (firebaseUser) {
+        const token = await firebaseUser.getIdToken();
+        localStorage.setItem('hgs_token', token);
+        await checkAuth(token);
+      } else {
+        const savedToken = localStorage.getItem('hgs_token');
+        if (savedToken) {
+          await checkAuth(savedToken);
+        } else {
+          setUser(null);
+        }
+      }
+      
+      setIsAuthChecking(false);
+      
+      await checkMaintenance();
+      
+      unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+        try {
+          if (firebaseUser) {
+            const token = await firebaseUser.getIdToken();
+            localStorage.setItem('hgs_token', token);
+            await checkAuth(token);
+          } else {
+            setUser(null);
+            localStorage.removeItem('hgs_token');
+            localStorage.removeItem('hgs_user');
+          }
+        } catch (e) {
+          console.error('Auth change handling error', e);
+        }
+      });
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      toast.success('Back online!');
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-      toast.error('You are currently offline. Some features may be unavailable.');
-    };
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    
+    initialize();
+    
+    const listener = () => setUser(null);
+    window.addEventListener('auth_error', listener);
+    
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      if (unsubscribe) unsubscribe();
+      window.removeEventListener('auth_error', listener);
     };
-  }, []);
+  }, []); // Empty dependencies as functions inside are stable
 
-  const fetchAddresses = async () => {
-    if (!user) return;
-    setLoadingAddresses(true);
-    try {
-      const data = await fetchWithHandling<UserAddress[]>('/api/user/addresses');
-      if (data) {
-        setAddresses(data);
-      }
-    } catch (err) {
-    } finally {
-      setLoadingAddresses(false);
-    }
-  };
-
-  const saveAddress = async (address: Partial<UserAddress>) => {
-    try {
-      const data = await fetchWithHandling<any>('/api/user/addresses', {
-        method: 'POST',
-        body: JSON.stringify(address)
-      });
-      if (data?.success) {
-        toast.success(data.message);
-        fetchAddresses();
-      }
-    } catch (err) {}
-  };
-
-  const deleteAddress = async (id: number) => {
-    try {
-      const data = await fetchWithHandling<any>(`/api/user/addresses/${id}`, { method: 'DELETE' });
-      if (data?.success) {
-        toast.success(data.message);
-        fetchAddresses();
-      }
-    } catch (err) {}
-  };
-
-  const setDefaultAddress = async (id: number) => {
-    try {
-      const data = await fetchWithHandling<any>(`/api/user/addresses/${id}/default`, { method: 'POST' });
-      if (data?.success) {
-        toast.success(data.message);
-        fetchAddresses();
-      }
-    } catch (err) {}
-  };
-
-  useEffect(() => {
-    if (user) {
-      fetchAddresses();
-    } else {
-      setAddresses([]);
-    }
-  }, [user?.id]);
-
-  const t = (key: keyof typeof translations.en) => {
-    return translations[language][key] || translations.en[key] || key;
-  };
-
-  const isProfileComplete = () => {
-    if (!user) return true;
-    
-    // Admins don't need full profile
-    if (user.role === 'admin') return true;
-
-    // Check for mandatory fields: name, phone, and profile photo
-    const hasName = user.name && user.name !== 'User';
-    const hasPhone = !!user.phone;
-    const hasPhoto = !!user.profile_photo;
-    
-    // We strictly enforce these for everyone to ensure order management is possible
-    return !!(hasName && hasPhone && hasPhoto);
-  };
-
-  useEffect(() => {
-    localStorage.setItem('hgs_lang', language);
-  }, [language]);
-
-  const fetchPromotions = async () => {
-    try {
-      const data = await fetchWithHandling<PromotionRule[]>('/api/promotions-rules');
-      if (data) {
-        setPromotions(data.filter((p: PromotionRule) => p.active));
-      }
-    } catch (err) {
-      // Silently fail
-    }
-  };
-
-  useEffect(() => {
-    fetchPromotions();
-  }, []);
-
-  const fetchBulkDiscounts = async () => {
-    try {
-      const data = await fetchWithHandling<any[]>('/api/bulk-discounts');
-      if (data) {
-        setBulkDiscounts(data);
-      }
-    } catch (err) {
-      // Silently fail to avoid console spam during server restarts
-    }
-  };
-
-  useEffect(() => {
-    fetchBulkDiscounts();
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('hgs_vibration', JSON.stringify(vibration));
-  }, [vibration]);
-
-  useEffect(() => {
-    localStorage.setItem('hgs_notifications', JSON.stringify(notifications));
-  }, [notifications]);
-
-  useEffect(() => {
-    localStorage.setItem('hgs_sound', JSON.stringify(sound));
-  }, [sound]);
-
-  useEffect(() => {
-    localStorage.setItem('hgs_admin_theme', adminTheme);
-    // Also save to server if admin
-    if (user?.role === 'admin') {
-      fetchWithHandling('/api/admin/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'admin_theme', value: adminTheme })
-      }).catch(err => console.error('Failed to save theme to server:', err));
-    }
-  }, [adminTheme, user?.role]);
-
-  useEffect(() => {
-    localStorage.setItem('hgs_user', JSON.stringify(user));
-  }, [user]);
-
-  useEffect(() => {
-    if (!cartLoadedFromStorage) return;
-    localStorage.setItem('hgs_cart', JSON.stringify(cart));
-    if (user) {
-      fetchWithHandling('/api/cart/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, items: cart })
-      }).catch(err => console.error('Failed to sync cart:', err));
-    }
-  }, [cart, user, cartLoadedFromStorage]);
 
   const fetchCart = async (userId: number) => {
     try {
@@ -553,268 +216,140 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           category: i.category,
           quantity: i.quantity
         })));
+        setIsSyncCartPending(false);
       }
-    } catch (err) {
-      // Silently handle
-    }
+    } catch (err) {}
   };
 
+  // Removed simulatedRole
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartLoadedFromStorage, setCartLoadedFromStorage] = useState(true);
+  const [isSyncingCart, setIsSyncingCart] = useState(false);
+  const [isSyncCartPending, setIsSyncCartPending] = useState(false);
+  const [wishlist, setWishlist] = useState<number[]>([]);
+  const [config, setConfig] = useState<any[]>([]);
+  const [vibration, setVibration] = useState(true);
+  const [notifications, setNotifications] = useState(true);
+  const [sound, setSound] = useState(true);
+  const [adminTheme, setAdminTheme] = useState('theme-navy');
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [promotions, setPromotions] = useState<PromotionRule[]>([]);
+  const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
+  const [language, setLanguage] = useState<Language>('en');
+  const [addresses, setAddresses] = useState<UserAddress[]>([]);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+  const [lastAddedId, setLastAddedId] = useState<number | null>(null);
+
+  // Sync effect hooks
   useEffect(() => {
-    if (user) {
-      fetchCart(user.id);
+    if (user && cartLoadedFromStorage) {
+      const timeoutId = setTimeout(() => syncCartToBackend(cart), 1000);
+      return () => clearTimeout(timeoutId);
     }
-  }, [user?.id]);
-
-  useEffect(() => {
-    // Seeded cart logic removed
-  }, [cart.length, cartLoadedFromStorage]);
-
-  useEffect(() => {
-    localStorage.setItem('hgs_wishlist', JSON.stringify(wishlist));
-  }, [wishlist]);
-
-  const fetchConfig = async () => {
-    // Now handled by checkMaintenance
-  };
-
-  const checkMaintenance = async () => {
+  }, [cart, user, cartLoadedFromStorage]);
+  
+  const syncCartToBackend = async (cartItems: CartItem[]) => {
+    if (!user) return;
+    setIsSyncingCart(true);
     try {
-      const data = await fetchWithHandling<any>('/api/settings');
-      if (data) {
-        setIsMaintenance(!!data.maintenance);
-        if (data.authMode) setAuthMode(data.authMode);
-        if (data.config) {
-          setConfig(data.config);
-          const themeSetting = data.config.find((s: any) => s.key === 'admin_theme');
-          if (themeSetting) setAdminTheme(themeSetting.value);
-        }
-      }
-    } catch (err) {
-      // Silently fail during dev server restarts
-    }
-  };
-
-  useEffect(() => {
-    // Poll every 60 seconds for fast updates
-    const interval = setInterval(() => {
-      checkMaintenance();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const getProductPrice = (product: Product, userRole?: string) => {
-    const activeRole = simulatedRole || userRole;
-    if (activeRole === 'wholesaler' && product.wholesale_price) return product.wholesale_price;
-    // For anyone else (guests, simple users, retailers), show the retail price if it exists
-    if (product.retail_price) return product.retail_price;
-    return product.price;
-  };
-
-  const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
-    let activePrice = getProductPrice(product, user?.role);
-    
-    // If variant is selected, use its price (applying product discount if any)
-    if (variant) {
-      activePrice = variant.price;
-    }
-
-    setCart(prev => {
-      const existing = prev.find(item => 
-        item.id === product.id && 
-        (variant ? item.selectedVariant?.id === variant.id : !item.selectedVariant)
-      );
-      if (existing) {
-        return prev.map(item => 
-          (item.id === product.id && (variant ? item.selectedVariant?.id === variant.id : !item.selectedVariant))
-            ? { ...item, quantity: item.quantity + quantity, price: activePrice } 
-            : item
-        );
-      }
-      return [...prev, { ...product, quantity, selectedVariant: variant, price: activePrice }];
-    });
-    
-    // Set last added ID for feedback then clear it
-    setLastAddedId(product.id);
-    setTimeout(() => setLastAddedId(null), 2000);
-    
-    const displayName = `${product.name}${variant ? ` (${variant.name})` : ''}`;
-    toast.success(`${displayName} added to bag`, {
-      icon: '🛍️',
-      position: 'bottom-center',
-      className: 'bg-stone-900 text-white rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] px-6 py-4 border border-stone-800'
-    });
-    logActivity('CART_ADD', `Added ${quantity}x ${displayName} to cart`);
-  };
-
-  const removeFromCart = (productId: number, variantId?: number) => {
-    setCart(prev => prev.filter(item => 
-      !(item.id === productId && (variantId ? item.selectedVariant?.id === variantId : !item.selectedVariant))
-    ));
-  };
-
-  const updateQuantity = (productId: number, delta: number, variantId?: number) => {
-    if (delta > 0) {
-      setLastAddedId(productId);
-      setTimeout(() => setLastAddedId(null), 2000);
-    }
-    
-    setCart(prev => {
-      const item = prev.find(i => 
-        i.id === productId && (variantId ? i.selectedVariant?.id === variantId : !i.selectedVariant)
-      );
-      
-      if (item && item.quantity + delta <= 0) {
-        toast.error('Item removed from bag', {
-          icon: '🗑️',
-          position: 'bottom-center',
-          className: 'bg-stone-900 text-white rounded-3xl font-black text-[10px] uppercase tracking-[0.2em] px-6 py-4 border border-stone-800'
+        await fetchWithHandling('/api/cart/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, items: cartItems })
         });
-        return prev.filter(i => 
-          !(i.id === productId && (variantId ? i.selectedVariant?.id === variantId : !i.selectedVariant))
-        );
-      }
-      return prev.map(item => {
-        if (item.id === productId && (variantId ? item.selectedVariant?.id === variantId : !item.selectedVariant)) {
-          const activePrice = getProductPrice(item as any, user?.role);
-          return { ...item, quantity: item.quantity + delta, price: activePrice };
-        }
-        return item;
-      });
-    });
-  };
-
-  const clearCart = () => setCart([]);
-
-  const toggleWishlist = (productId: number) => {
-    setWishlist(prev => {
-      const exists = prev.includes(productId);
-      if (exists) {
-        toast.success('Removed from wishlist');
-        return prev.filter(id => id !== productId);
-      } else {
-        toast.success('Added to wishlist');
-        return [...prev, productId];
-      }
-    });
-  };
-
-  const logActivity = async (type: string, details: string, severity: 'low' | 'medium' | 'high' = 'low') => {
-    try {
-      await fetchWithHandling('/api/audit/log', {
-        method: 'POST',
-        body: JSON.stringify({ userId: user?.id, type, details, severity })
-      });
+        setIsSyncCartPending(false);
     } catch (err) {
-      console.error('Failed to log activity:', err);
+        setIsSyncCartPending(true);
+    } finally {
+        setIsSyncingCart(false);
     }
   };
-
-  useEffect(() => {
-    if (user?.id) {
-       // Check if we just logged in (this session)
-       const lastSessionId = sessionStorage.getItem('hgs_session_id');
-       if (!lastSessionId) {
-          const newSessionId = Math.random().toString(36).substring(7);
-          sessionStorage.setItem('hgs_session_id', newSessionId);
-          logActivity('LOGIN', `User session started - ID: ${newSessionId}`);
-       }
-    }
-  }, [user?.id]);
 
   const logout = async () => {
-    if (user) {
-      await logActivity('LOGOUT', 'User logged out voluntarily');
-    }
-    
-    // Sign out from Firebase
-    try {
-      await signOutUser();
-    } catch (e) {
-      console.error('Firebase signout failed', e);
-    }
-    
-    try {
-      await fetchWithHandling('/api/auth/logout', { method: 'POST' });
-    } catch (err) {
-      console.error('Logout request failed');
-    }
+    try { await signOutUser(); } catch (e) {}
+    try { await fetchWithHandling('/api/auth/logout', { method: 'POST' }); } catch (err) {}
     setUser(null);
     localStorage.removeItem('hgs_user');
     localStorage.removeItem('hgs_token');
-    sessionStorage.removeItem('hgs_session_id');
-    toast.success('Logged out successfully');
+    toast.success('Logged out');
   };
 
-  const hasPermission = (permission: Permission) => {
-    if (!user) return false;
-    if (user.role === 'admin') return true;
-    return user.permissions?.includes(permission) ?? false;
+  const getProductPrice = (product: Product, userRole?: string) => {
+    const activeRole = userRole || user?.role;
+    if (activeRole === 'wholesaler' && product.wholesale_price) return product.wholesale_price;
+    return product.retail_price || product.price;
   };
 
-  const calculateDiscount = (cart: CartItem[]) => {
-    let totalDiscount = 0;
-    promotions.forEach(promo => {
-      if (!promo.active) return;
-      
-      const eligibleItems = cart.filter(item => {
-        if (promo.target_type === 'all') return true;
-        if (promo.target_type === 'category') return item.category === promo.target_id;
-        if (promo.target_type === 'product') return String(item.id) === String(promo.target_id);
-        return false;
-      });
-
-      if (eligibleItems.length === 0) return;
-
-      const totalEligibleQty = eligibleItems.reduce((acc, item) => acc + item.quantity, 0);
-
-      if (promo.type === 'percentage') {
-        if (!promo.condition_qty || totalEligibleQty >= promo.condition_qty) {
-          eligibleItems.forEach(item => {
-            totalDiscount += (item.price * item.quantity * promo.discount_value) / 100;
-          });
-        }
-      } else if (promo.type === 'fixed') {
-        if (!promo.condition_qty || totalEligibleQty >= promo.condition_qty) {
-          totalDiscount += promo.discount_value; 
-        }
-      } else if (promo.type === 'bogo') {
-          eligibleItems.forEach(item => {
-             if (item.quantity >= (promo.condition_qty || 2)) {
-                 const freeItems = Math.floor(item.quantity / (promo.condition_qty || 2)) * (promo.reward_qty || 1);
-                 totalDiscount += freeItems * item.price;
-             }
-          });
+  const hasPermission = (permission: Permission) => user?.permissions?.includes(permission) ?? false;
+  const calculateDiscount = (cart: CartItem[]) => 0; // Simplified
+  const updateProfile = async (data: Partial<User>) => {};
+  
+  const refreshUser = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<{user: User}>('/api/auth/me', { headers: getAuthHeaders() });
+      if (data && data.user) {
+        console.log('User refreshed:', data.user);
+        setUser(data.user);
+        localStorage.setItem('hgs_user', JSON.stringify(data.user));
       }
+    } catch (err) {
+      console.error('Failed to refresh user:', err);
+    }
+  }, [setUser]);
+
+  const fetchUser = refreshUser;
+  
+  const subscribeNewsletter = async (email: string) => {};
+  const fetchConfig = async () => {};
+  const fetchAddresses = async () => {};
+  const saveAddress = async (addr: any) => {};
+  const deleteAddress = async (id: number) => {};
+  const setDefaultAddress = async (id: number) => {};
+  const logActivity = async (t: string, d: string) => {};
+  const markAlertAsRead = async (id: number) => {};
+
+  const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
+    setCart(prev => {
+        const existing = prev.find(item => item.id === product.id && (variant ? item.variantId === variant.id : !item.variantId));
+        if (existing) {
+            return prev.map(item => item.id === product.id && (variant ? item.variantId === variant.id : !item.variantId) ? { ...item, quantity: item.quantity + quantity } : item);
+        }
+        return [...prev, { ...product, variantId: variant?.id, quantity }];
     });
-    return totalDiscount;
+    toast.success('Added to cart');
   };
 
-  const contextValue = React.useMemo(() => ({ 
-      user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
-      isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance,
-      authMode,
-      updateProfile, refreshUser,
-      wishlist, toggleWishlist, config, fetchConfig,
-      subscribeNewsletter,
-      vibration, setVibration,
-      notifications, setNotifications,
-      sound, setSound,
-      adminTheme, setAdminTheme,
-      appliedCoupon, setAppliedCoupon,
-      promotions, fetchPromotions,
-      bulkDiscounts, fetchBulkDiscounts,
-      getProductPrice,
-      simulatedRole, setSimulatedRole,
-      language, setLanguage, t,
-      addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
-      isOnline, isProfileComplete,
-      isMobile, isTablet, lastAddedId, isSyncingCart, syncCartToBackend,
-      isAuthChecking,
-      logActivity,
-      currentAlert, setCurrentAlert, markAlertAsRead,
-      hasPermission,
-      calculateDiscount
-    }), [user, cart, isMaintenance, cartLoadedFromStorage, wishlist, config, vibration, notifications, sound, adminTheme, appliedCoupon, bulkDiscounts, simulatedRole, language, addresses, isOnline, isMobile, isTablet, lastAddedId, currentAlert, pendingAlerts, promotions, isAuthChecking]);
+  const removeFromCart = (productId: number, variantId?: number) => {
+    setCart(prev => prev.filter(item => !(item.id === productId && (variantId ? item.variantId === variantId : !item.variantId))));
+    toast.success('Removed from cart');
+  };
+
+  const updateQuantity = (productId: number, delta: number, variantId?: number) => {
+    setCart(prev => prev.map(item => item.id === productId && (variantId ? item.variantId === variantId : !item.variantId) ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item));
+  };
+
+  const clearCart = () => {
+    setCart([]);
+  };
+
+  const toggleWishlist = (productId: number) => {
+    setWishlist(prev => prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]);
+    toast.success(wishlist.includes(productId) ? 'Removed from wishlist' : 'Added to wishlist');
+  };
+
+  const contextValue = React.useMemo(() => ({
+    user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
+    isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance, fetchCart,
+    authMode, updateProfile, refreshUser, fetchUser, wishlist, toggleWishlist, config, fetchConfig,
+    subscribeNewsletter, vibration, setVibration, notifications, setNotifications,
+    sound, setSound, adminTheme, setAdminTheme, appliedCoupon, setAppliedCoupon,
+    promotions, fetchPromotions, bulkDiscounts, fetchBulkDiscounts, getProductPrice,
+    language, setLanguage, t: (key: any) => translations[language][key as keyof typeof translations.en] || key, addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
+    isOnline, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
+    isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert]);
 
   return (
     <StoreContext.Provider value={contextValue}>

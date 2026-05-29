@@ -19,7 +19,7 @@ export interface RoleDefinition {
 }
 
 export interface User {
-  id: number;
+  id: string | number;
   phone: string;
   username?: string;
   name: string;
@@ -68,6 +68,7 @@ export interface Product {
   variants?: ProductVariant[];
   avg_rating?: number;
   review_count?: number;
+  sales_count?: number;
   created_at?: string;
 }
 
@@ -174,6 +175,8 @@ export interface PromotionRule {
   target_type: 'all' | 'category' | 'product';
   target_id?: string | number;
   active: boolean;
+  start_date?: string;
+  end_date?: string;
 }
 
 export interface Expense {

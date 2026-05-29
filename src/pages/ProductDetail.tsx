@@ -38,8 +38,8 @@ export default function ProductDetail() {
   const [addingToCart, setAddingToCart] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config, isSyncingCart } = useStore();
-  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
+  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config = [], isSyncingCart } = useStore();
+  const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const navigate = useNavigate();
   const activeRole = simulatedRole || user?.role;
   const isInWishlist = wishlist.includes(product?.id);
@@ -334,6 +334,7 @@ export default function ProductDetail() {
         setComment('');
         setRating(5);
         fetchReviews();
+        fetchProduct();
       }
     } catch (err) {
       console.error('Failed to submit review:', err);
@@ -368,19 +369,21 @@ export default function ProductDetail() {
     }
   };
 
-  if (loading) return <LoadingFallback />;
+  if (loading) return <LoadingFallback message="Loading product details..." fullScreen={false} />;
   if (!product) return <div className="text-center py-20">Product not found</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 pb-24">
-      <button onClick={() => navigate(-1)} className="flex items-center space-x-2 text-stone-500 hover:text-primary mb-6 transition-colors">
-        <ArrowLeft size={18} />
-        <span className="text-sm font-bold">Back</span>
+    <div className="product-view max-w-5xl lg:max-w-7xl mx-auto px-4 py-8 pb-32">
+      <button onClick={() => navigate(-1)} className="group flex items-center space-x-2 text-stone-400 hover:text-primary mb-8 transition-all active:scale-95">
+        <div className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-primary group-hover:text-white transition-all">
+          <ArrowLeft size={20} />
+        </div>
+        <span className="text-sm font-black uppercase tracking-widest">Back to Store</span>
       </button>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
+      <div className="product-main-grid grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
         {/* Image Gallery */}
-        <div className="space-y-4">
+        <div className="product-gallery-container space-y-4">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -667,26 +670,26 @@ export default function ProductDetail() {
           )}
 
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-4 flex-1">
-              <div className="flex items-center justify-between xl:justify-center bg-stone-50 rounded-2xl p-2 border border-stone-200">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 flex-1">
+              <div className="quantity-selector flex items-center justify-between sm:justify-center bg-stone-100/50 rounded-[2rem] p-2 border-2 border-stone-100 shadow-inner">
                 <button 
                   onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
-                  className="p-3 hover:bg-white rounded-xl transition-all text-primary shadow-sm min-w-[48px] min-h-[48px] flex items-center justify-center"
+                  className="p-4 bg-white hover:bg-stone-50 rounded-[1.5rem] transition-all text-primary shadow-md min-w-[56px] min-h-[56px] flex items-center justify-center active:scale-90"
                 >
-                  <Minus size={20} />
+                  <Minus size={24} strokeWidth={3} />
                 </button>
-                <div className="flex flex-col items-center px-4">
-                  <span className="text-2xl font-bold">{quantity}</span>
+                <div className="flex flex-col items-center px-6">
+                  <span className="text-3xl font-black text-stone-900">{quantity}</span>
                 </div>
                 <button 
                   onClick={() => setQuantity(prev => Math.min(selectedVariant ? selectedVariant.stock : product.stock, prev + 1))}
-                  className="p-3 hover:bg-white rounded-xl transition-all text-primary shadow-sm min-w-[48px] min-h-[48px] flex items-center justify-center"
+                  className="p-4 bg-white hover:bg-stone-50 rounded-[1.5rem] transition-all text-primary shadow-md min-w-[56px] min-h-[56px] flex items-center justify-center active:scale-90"
                 >
-                  <Plus size={20} />
+                  <Plus size={24} strokeWidth={3} />
                 </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 flex-1">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
                 <button 
                   disabled={addingToCart || isSyncingCart}
                   onClick={async () => {
@@ -695,12 +698,12 @@ export default function ProductDetail() {
                     await new Promise(resolve => setTimeout(resolve, 600));
                     setAddingToCart(false);
                   }}
-                  className="flex-1 btn-outline border-primary text-primary py-4 flex items-center justify-center space-x-2 text-lg hover:bg-primary/5 min-h-[56px] mobile-active-state disabled:opacity-70"
+                  className="cta-button flex-1 bg-white border-2 border-primary text-primary py-5 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all shadow-lg shadow-primary/10 mobile-active-state disabled:opacity-70"
                 >
                   {addingToCart || isSyncingCart ? (
-                      <Loader2 className="animate-spin" size={22} />
+                      <Loader2 className="animate-spin" size={24} />
                   ) : (
-                      <ShoppingCart size={22} />
+                      <ShoppingCart size={24} strokeWidth={2.5} />
                   )}
                   <span>{addingToCart || isSyncingCart ? 'Adding...' : 'Add to Cart'}</span>
                 </button>
@@ -709,9 +712,9 @@ export default function ProductDetail() {
                     addToCart(product, selectedVariant, quantity);
                     navigate('/cart');
                   }}
-                  className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2 text-lg min-h-[56px] mobile-active-state"
+                  className="cta-button flex-1 bg-primary text-white py-5 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-xl shadow-primary/30 mobile-active-state"
                 >
-                  <ShoppingBag size={22} />
+                  <ShoppingBag size={24} strokeWidth={2.5} />
                   <span>Buy Now</span>
                 </button>
               </div>

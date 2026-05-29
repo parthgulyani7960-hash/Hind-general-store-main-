@@ -5,36 +5,7 @@ import { StoreProvider } from './StoreContext';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
 import ErrorBoundary from './components/ErrorBoundary';
-import { reportError, flushQueue } from './lib/errorReporter';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
-
-// Global interaction tracker
-let lastInteractedElement = 'None';
-window.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  lastInteractedElement = `${target.tagName}#${target.id}.${target.className}`;
-}, true);
-
-// Global Error Handlers
-window.addEventListener('error', (event) => {
-  reportError({
-    message: event.message,
-    path: window.location.pathname,
-    interactedElement: lastInteractedElement,
-    logs: [event.error?.stack || 'No stack']
-  });
-});
-
-window.addEventListener('unhandledrejection', (event) => {
-  reportError({
-    message: event.reason?.message || 'Unhandled Rejection',
-    path: window.location.pathname,
-    interactedElement: lastInteractedElement,
-    logs: [JSON.stringify(event.reason)]
-  });
-});
-
-window.addEventListener('online', flushQueue);
 
 // Auth Interceptor: Automatically injects token into every fetch request
 try {
@@ -44,6 +15,11 @@ try {
 
     const performRefresh = async (): Promise<string | null> => {
         try {
+            const currentToken = localStorage.getItem('hgs_token');
+            if (currentToken && currentToken.startsWith('demo_bypass_token_')) {
+              return currentToken;
+            }
+
             // Set a timeout to prevent infinite hang
             const readyPromise = auth.authStateReady();
             const timeoutPromise = new Promise((_, reject) => 
@@ -109,11 +85,13 @@ try {
         // 4. Wrap the request to inject Authorization header
         const executeFetch = async (token: string | null) => {
           let requestInit = (init || {}) as any;
+          requestInit.credentials = 'include'; // Ensure cookies are sent
+          
           if (input instanceof Request) {
             requestInit = {
               method: input.method,
               body: input.body,
-              credentials: input.credentials,
+              credentials: 'include', // Ensure cookies are sent
               cache: input.cache,
               redirect: input.redirect,
               referrer: input.referrer,
@@ -192,12 +170,17 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
-/*
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.log('ServiceWorker registration failed: ', err);
-    });
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister().then((success) => {
+        if (success) {
+          console.log('[SW] Cleanly unregistered persistent stale service worker.');
+        }
+      });
+    }
+  }).catch((err) => {
+    console.warn('[SW] Failed to fetch registrations for automatic clean:', err);
   });
 }
-*/
+

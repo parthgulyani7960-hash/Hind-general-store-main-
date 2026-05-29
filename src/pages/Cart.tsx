@@ -2,15 +2,21 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock, Camera } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../StoreContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { calculateBulkDiscount, cn } from '../lib/utils';
 import { fetchWithHandling } from '../lib/api';
 import { getAuthHeaders } from '../lib/utils';
 
 export default function Cart() {
-  const { t, cart, updateQuantity, removeFromCart, user, appliedCoupon, setAppliedCoupon, bulkDiscounts, config } = useStore();
-  const showImages = config.find(c => c.key === 'feature_show_product_images')?.value !== 'false';
+  const { t, cart, updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [] } = useStore();
+  
+  useEffect(() => {
+    if (user) fetchCart(user.id);
+    fetchBulkDiscounts();
+  }, [fetchBulkDiscounts]);
+
+  const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const [couponCode, setCouponCode] = useState(appliedCoupon?.code || '');
   const [isValidating, setIsValidating] = useState(false);
 

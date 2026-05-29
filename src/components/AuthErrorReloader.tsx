@@ -67,14 +67,13 @@ export default function AuthErrorReloader() {
               </div>
               
               <div className="space-y-2">
-                <h2 className="text-2xl font-black text-stone-900 uppercase tracking-tight">Session Expired</h2>
+                <h2 className="text-2xl font-black text-stone-900 uppercase tracking-tight">Authentication Error</h2>
                 <p className="text-stone-500 font-medium leading-relaxed">
-                  Your secure session has expired or you've been logged out from another device. 
-                  Please re-authenticate to continue.
+                  The action could not be authenticated. You may operate as a guest, but certain actions require signing in.
                 </p>
                 {errorDetails && (
-                  <p className="text-[10px] font-mono text-stone-400 break-all bg-stone-50 p-2 rounded-lg">
-                    Resource: {errorDetails}
+                  <p className="text-[10px] font-mono text-stone-400 break-all bg-stone-50 p-2 rounded-lg mt-4">
+                    Details: {errorDetails}
                   </p>
                 )}
               </div>

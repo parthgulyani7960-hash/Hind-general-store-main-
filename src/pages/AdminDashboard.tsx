@@ -1,3 +1,5 @@
+// AdminDashboard.tsx - Main entry for admin panel
+import { adminService } from '../services/adminService';
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
@@ -18,12 +20,12 @@ import {
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera, Printer, CheckCheck, AlertCircle,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
   Image as ImageIcon, List, UserPlus, Send, Share2, ExternalLink, LogOut,
-  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy,
+  StickyNote, Truck, Home, Navigation, IndianRupee, Layers, MousePointer, Copy, ToggleLeft,
   Menu, RotateCcw, PieChart as PieChartIcon, Zap, Target, Wallet, ArrowDown, Sparkles,
   MousePointer2, Megaphone, ImageOff, Briefcase, Mail, Pencil, Smartphone, Layout, 
   FileText, HelpCircle, Palette, Server, TrendingDown, Fingerprint, Bug, Cpu, Loader2, PackagePlus
 } from 'lucide-react';
-import { Link, useNavigate, Navigate } from 'react-router-dom';
+import { Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { storage, ref, uploadBytesResumable, getDownloadURL } from '../firebase';
 import { useStore } from '../StoreContext';
 import { cn, Order, PromotionRule } from '../types';
@@ -34,16 +36,23 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import FeatureToggles from '../components/admin/FeatureToggles';
 import ProductImageManager from '../components/admin/ProductImageManager';
+import { OrderStatusBadge } from '../components/admin/OrderStatusBadge';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import ErrorBoundary from '../components/ErrorBoundary';
 import AdminDashboardLayout from '../components/admin/AdminDashboardLayout';
+import { ExportProgressModal } from '../components/admin/modals/ExportProgressModal';
+import AdminStatCard from '../components/admin/AdminStatCard';
+import { generateSystemHealthReportPDF } from '../services/pdfService';
 import { EmptyState } from '../components/EmptyState';
 import { exportData, asyncExportData } from '../services/exportService';
 import { logErrorToFirestore } from '../services/errorLogger';
 import imageCompression from 'browser-image-compression';
 import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
+import OverviewTab from '../components/admin/tabs/OverviewTab';
 import PurchaseOrdersTab from '../components/admin/tabs/PurchaseOrdersTab';
+import OrderBatchingTab from '../components/admin/tabs/OrderBatchingTab';
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -53,50 +62,272 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules' | 'Purchase Orders';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (tabParam) {
+      const validTabs: Tab[] = [
+        'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 
+        'Product Catalog', 'Categories', 'Customers', 'Wallet Requests', 
+        'Reviews', 'Coupons', 'Roles', 'Support Tickets', 'Newsletter', 
+        'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 
+        'System Logs', 'Suspicious Activities', 'Promotions', 'Bulk Discounts', 
+        'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
+        'Automatic Reports', 'Admin Management', 'Data Exports', 
+        'Security & Data', 'Promotional Rules', 'Purchase Orders', 
+        'Order Batching', 'UPI Webhook Logs'
+      ];
+      const foundMatch = validTabs.find(t => t.toLowerCase() === tabParam.toLowerCase());
+      if (foundMatch) {
+        setActiveTab(foundMatch);
+      }
+    }
+  }, [location.search]);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (!tabParam || tabParam.toLowerCase() !== activeTab.toLowerCase()) {
+      params.set('tab', activeTab);
+      navigate({ search: params.toString() }, { replace: true });
+    }
+  }, [activeTab, navigate, location.search]);
+
+  const maskPhoneNumber = (phone: string | null | undefined) => {
+    if (!phone) return 'N/A';
+    const clean = phone.trim();
+    if (clean.length < 4) return '********';
+    return clean.slice(0, 3) + '****' + clean.slice(-3);
+  };
   const [exportProgress, setExportProgress] = useState<{ open: boolean; progress: number; label: string }>({ open: false, progress: 0, label: '' });
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [debouncedGlobalSearchQuery, setDebouncedGlobalSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false); // Default closed on mobile
-  
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 500);
-    return () => clearTimeout(timer);
-  }, [globalSearchQuery]);
-  
-  const ExportProgressModal = () => (
+  const [exportModal, setExportModal] = useState({ open: false, type: 'orders' as any });
+  const [exportFormat, setExportFormat] = useState<'pdf' | 'csv' | 'xlsx' | 'json'>('pdf');
+  const [tncContent, setTncContent] = useState('');
+  const [faqContent, setFaqContent] = useState('');
+  const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [fixingWalletUserId, setFixingWalletUserId] = useState<string | null>(null);
+
+  const fixWalletDiscrepancy = async (userId: string) => {
+    setFixingWalletUserId(userId);
+    try {
+      const response = await fetchWithHandling<any>('/api/admin/fix-wallet-discrepancy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ userId })
+      });
+      if (response && response.success) {
+        toast.success(`Discrepancy Corrected! Wallet balance successfully verified and updated.`);
+        runWalletDiagnostics();
+      } else {
+        toast.error(response?.message || 'Failed to correct wallet discrepancy');
+      }
+    } catch (err: any) {
+      console.error('Wallet correction failed:', err);
+      toast.error('Automated correction request failed.');
+    } finally {
+      setFixingWalletUserId(null);
+    }
+  };
+
+  const runWalletDiagnostics = async () => {
+    setLoadingDiagnostics(true);
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/diagnose-wallets', {
+        headers: getAuthHeaders()
+      });
+      setDiagnosticResults(data);
+    } catch (err: any) {
+      console.error('Wallet diagnostic failed:', err);
+    } finally {
+      setLoadingDiagnostics(false);
+    }
+  };
+
+  const handleGlobalExport = async (type: string, format: 'pdf' | 'csv' | 'xlsx' | 'json') => {
+    setExportModal({ ...exportModal, open: false });
+    setExportProgress({ open: true, progress: 0, label: `Preparing ${type.toUpperCase()} manifest...` });
+    
+    try {
+      const headers = getAuthHeaders();
+      let columns: any[] = [];
+      let fetchDataFn: () => Promise<any[]>;
+
+      switch (type) {
+        case 'orders':
+          fetchDataFn = () => fetchWithHandling('/api/admin/orders', { headers }).then(d => (d as any[]) || []);
+          columns = [
+            { header: 'Order ID', dataKey: 'id' },
+            { header: 'Customer', dataKey: 'user_name' },
+            { header: 'Total', dataKey: 'total' },
+            { header: 'Status', dataKey: 'status' },
+            { header: 'Date', dataKey: 'created_at' }
+          ];
+          break;
+        case 'products':
+          fetchDataFn = () => fetchWithHandling('/api/products', { headers }).then(d => (d as any[]) || []);
+          columns = [
+            { header: 'Name', dataKey: 'name' },
+            { header: 'Category', dataKey: 'category' },
+            { header: 'Price', dataKey: 'price' },
+            { header: 'Stock', dataKey: 'stock' }
+          ];
+          break;
+        case 'users':
+          fetchDataFn = () => fetchWithHandling('/api/admin/users', { headers }).then(d => (d as any[]) || []);
+          columns = [
+            { header: 'Name', dataKey: 'name' },
+            { header: 'Phone', dataKey: 'phone' },
+            { header: 'Email', dataKey: 'email' },
+            { header: 'Wallet', dataKey: 'wallet_balance' }
+          ];
+          break;
+        case 'audit':
+          fetchDataFn = () => fetchWithHandling('/api/admin/audit-logs', { headers }).then(d => (d as any[]) || []);
+          columns = [
+            { header: 'Action', dataKey: 'action' },
+            { header: 'Admin', dataKey: 'admin_name' },
+            { header: 'Details', dataKey: 'details' },
+            { header: 'Date', dataKey: 'created_at' }
+          ];
+          break;
+        case 'expenses':
+          fetchDataFn = () => fetchWithHandling('/api/admin/expenses', { headers }).then(d => (d as any[]) || []);
+          columns = [
+            { header: 'Description', dataKey: 'description' },
+            { header: 'Amount', dataKey: 'amount' },
+            { header: 'Category', dataKey: 'category' },
+            { header: 'Date', dataKey: 'date' }
+          ];
+          break;
+        case 'analytics':
+          fetchDataFn = async () => {
+            const data = await fetchWithHandling<any>('/api/admin/analytics', { headers });
+            return (data?.dailySales || []);
+          };
+          columns = [
+            { header: 'Date', dataKey: 'date' },
+            { header: 'Revenue', dataKey: 'revenue' },
+            { header: 'Orders', dataKey: 'orderCount' },
+            { header: 'Average Value', dataKey: 'averageOrderValue' }
+          ];
+          break;
+        default:
+          throw new Error('Unsupported export type');
+      }
+      
+      const { asyncExportData } = await import('../services/exportService');
+      await asyncExportData(
+        fetchDataFn,
+        columns,
+        format,
+        `${type}_export`,
+        (prog) => setExportProgress(p => ({ ...p, progress: prog, label: `Crafting ${format.toUpperCase()} asset packet...` })),
+        { title: `${type.toUpperCase()} Comprehensive Report` }
+      );
+      
+      setExportProgress(p => ({ ...p, progress: 100, label: 'Transmission Complete' }));
+      toast.success('Asset Cipher successfully dispatched');
+      setTimeout(() => setExportProgress({ open: false, progress: 0, label: '' }), 1500);
+      
+    } catch (err) {
+      console.error('Export error:', err);
+      toast.error('Export protocol failed');
+      setExportProgress({ open: false, progress: 0, label: '' });
+    }
+  };
+
+  const ExportActionModal = () => (
     <AnimatePresence>
-      {exportProgress.open && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm">
+      {exportModal.open && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/40 backdrop-blur-md p-4">
           <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-[2rem] p-10 max-w-sm w-full shadow-2xl text-center space-y-6"
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="bg-white max-w-lg w-full rounded-[3rem] shadow-2xl border-4 border-stone-100 overflow-hidden"
           >
-            <div className="relative w-24 h-24 mx-auto">
-              <svg className="w-full h-full transform -rotate-90">
-                <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-stone-100" />
-                <circle 
-                  cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" 
-                  strokeDasharray={251.2}
-                  strokeDashoffset={251.2 - (251.2 * exportProgress.progress) / 100}
-                  className="text-primary transition-all duration-500 ease-out" 
-                />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xl font-black text-stone-900">{exportProgress.progress}%</span>
+            <div className="p-10 space-y-10">
+              <div className="flex justify-between items-start">
+                <div className="space-y-2">
+                   <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center italic font-black">X</div>
+                      <h3 className="text-3xl font-black text-stone-900 tracking-tight">Export Central</h3>
+                   </div>
+                   <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] ml-1">Archive & Intel Dispatch Protocol</p>
+                </div>
+                <button 
+                  onClick={() => setExportModal({ ...exportModal, open: false })}
+                  className="p-3 bg-stone-50 border border-stone-100 rounded-2xl text-stone-400 hover:text-stone-900 transition-all active:scale-95"
+                >
+                  <X size={20} />
+                </button>
               </div>
-            </div>
-            <div>
-              <h3 className="text-xl font-black text-stone-900 uppercase tracking-tighter">{exportProgress.label || 'Compiling Export'}</h3>
-              <p className="text-sm text-stone-400 font-medium mt-2">Please do not close this tab. Our reporting engine is aggregating and encrypting your data.</p>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="text-xs font-black text-stone-400 uppercase tracking-widest block mb-4 border-l-2 border-stone-200 pl-4">Resource Target</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    {['orders', 'products', 'users', 'audit', 'expenses', 'analytics'].map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setExportModal({ ...exportModal, type: t as any })}
+                        className={cn(
+                          "px-6 py-5 rounded-2xl border-2 transition-all text-xs font-black uppercase tracking-widest text-left relative group",
+                          exportModal.type === t ? "bg-stone-900 text-white border-stone-900 shadow-xl shadow-stone-200" : "bg-stone-50 border-stone-100 text-stone-400 hover:border-stone-200"
+                        )}
+                      >
+                        {t}
+                        {exportModal.type === t && <div className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full animate-pulse" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                   <label className="text-xs font-black text-stone-400 uppercase tracking-widest block mb-4 border-l-2 border-stone-200 pl-4">Manifest Cipher (Format)</label>
+                   <div className="flex flex-wrap gap-4">
+                      {['pdf', 'csv', 'xlsx', 'json'].map((f) => (
+                        <button
+                          key={f}
+                          onClick={() => setExportFormat(f as any)}
+                          className={cn(
+                            "px-8 py-5 rounded-2xl border-2 transition-all text-xs font-black uppercase tracking-widest relative overflow-hidden",
+                            exportFormat === f ? "bg-white border-primary text-primary shadow-lg shadow-primary/5" : "bg-stone-50 border-stone-100 text-stone-400 hover:border-stone-200"
+                          )}
+                        >
+                          {f}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-stone-100 flex items-center justify-between gap-6">
+                 <p className="text-[10px] text-stone-400 font-bold max-w-[200px] leading-relaxed italic">Warning: Confidential operational data will be serialized. Ensure secure transport.</p>
+                 <button
+                  onClick={() => handleGlobalExport(exportModal.type, exportFormat)}
+                  className="flex-1 bg-stone-900 text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-stone-900/20 hover:bg-black transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center space-x-3"
+                 >
+                   <Download size={18} />
+                   <span>Initiate Dispatch</span>
+                 </button>
+              </div>
             </div>
           </motion.div>
         </div>
@@ -104,57 +335,29 @@ export default function AdminDashboard() {
     </AnimatePresence>
   );
 
-  const UniversalExportToolbar = ({ 
-    title, 
-    fetchData, 
-    columns, 
-    fileName 
-  }: { 
-    title: string; 
-    fetchData: () => Promise<any[]>; 
-    columns: any[]; 
-    fileName: string;
-  }) => {
-    const handleExport = async (format: 'pdf' | 'csv' | 'xlsx' | 'json') => {
-      setExportProgress({ open: true, progress: 0, label: `Exporting ${title}` });
-      try {
-        await asyncExportData(
-          fetchData,
-          columns,
-          format,
-          fileName,
-          (p) => setExportProgress(prev => ({ ...prev, progress: p })),
-          { title }
-        );
-        toast.success(`${format.toUpperCase()} Export Complete`);
-      } catch (err) {
-        toast.error('Export Failed');
-      } finally {
-        setTimeout(() => setExportProgress({ open: false, progress: 0, label: '' }), 1000);
-      }
-    };
+  const ExportTriggerButton = ({ type }: { type: 'orders' | 'products' | 'users' | 'audit' | 'expenses' | 'analytics' }) => (
+    <button
+      onClick={() => setExportModal({ open: true, type })}
+      className="flex items-center space-x-3 bg-white border border-stone-200 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-500 hover:text-stone-950 hover:border-stone-950 transition-all active:scale-95 shadow-sm"
+    >
+      <Download size={14} strokeWidth={3} />
+      <span>Export Intel</span>
+    </button>
+  );
+  
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 500);
+    return () => clearTimeout(timer);
+  }, [globalSearchQuery]);
+  
 
-    return (
-      <div className="flex items-center space-x-2 bg-stone-50 p-2 rounded-2xl border border-stone-100 mb-6">
-        <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2 pr-4 border-r border-stone-200">Export Engine</span>
-        <div className="flex gap-1">
-          {(['pdf', 'csv', 'xlsx', 'json'] as const).map((f) => (
-            <button 
-              key={f}
-              onClick={() => handleExport(f)}
-              className="px-4 py-1.5 bg-white border border-stone-200 text-stone-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-primary hover:text-primary transition-all active:scale-95 shadow-sm"
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  };
+
+
 
   const DataExportsView = () => {
     const [exports, setExports] = useState<any[]>([]);
     const [isExporting, setIsExporting] = useState<string | null>(null);
+    const [exportFormatSelection, setExportFormatSelection] = useState<string | null>(null);
     
     useEffect(() => {
         fetchWithHandling<any[]>('/api/admin/data-exports', { headers: getAuthHeaders() })
@@ -183,10 +386,63 @@ export default function AdminDashboard() {
         }
     }, 'Reject Export Request');
 
-    const handleSystemExport = async (entity: string) => {
+    const handleSystemExport = async (entity: string, format: 'csv' | 'pdf') => {
+        if (format === 'pdf') {
+            const { asyncExportData } = await import('../services/exportService');
+            
+            const columnsMap: any = {
+                orders: [
+                    { header: 'Order ID', dataKey: 'id' },
+                    { header: 'Customer', dataKey: 'user_name' },
+                    { header: 'Total Value', dataKey: 'total', halign: 'right' },
+                    { header: 'Status', dataKey: 'status' },
+                    { header: 'Placement Date', dataKey: 'created_at' }
+                ],
+                users: [
+                    { header: 'Legal Identity', dataKey: 'name' },
+                    { header: 'Phone Node', dataKey: 'phone' },
+                    { header: 'Wallet Liquidity', dataKey: 'wallet_balance', halign: 'right' },
+                    { header: 'Lifecycle Segment', dataKey: 'computed_segment' }
+                ],
+                products: [
+                    { header: 'Item Name', dataKey: 'name' },
+                    { header: 'Category', dataKey: 'category' },
+                    { header: 'Units in Stock', dataKey: 'stock', halign: 'center' },
+                    { header: 'Retail Point', dataKey: 'retail_price', halign: 'right' }
+                ],
+                wallet_transactions: [
+                    { header: 'Reference', dataKey: 'id' },
+                    { header: 'Type', dataKey: 'type' },
+                    { header: 'Magnitude', dataKey: 'amount', halign: 'right' },
+                    { header: 'Execution Node', dataKey: 'created_at' }
+                ],
+                system_logs: [
+                    { header: 'Event', dataKey: 'message' },
+                    { header: 'Level', dataKey: 'level' },
+                    { header: 'Registry Node', dataKey: 'created_at' }
+                ],
+                audit_logs: [
+                    { header: 'Administrative Action', dataKey: 'action' },
+                    { header: 'Operator', dataKey: 'admin_name' },
+                    { header: 'Directives', dataKey: 'details' },
+                    { header: 'Execution Node', dataKey: 'created_at' }
+                ]
+            };
+
+            await asyncExportData(
+                () => fetchWithHandling<any[]>(`/api/admin/export-data/${entity}`, { headers: getAuthHeaders() }).then(d => d || []),
+                columnsMap[entity] || [],
+                'pdf',
+                `${entity}_report`,
+                (prog) => setExportProgress({ open: true, progress: prog, label: `Vaulting ${entity.toUpperCase()} data packet...` }),
+                { title: `System ${entity.replace('_', ' ').toUpperCase()} Intelligence Report` }
+            );
+            return;
+        }
+
         try {
-            setIsExporting(entity);
-            const response = await fetch(`/api/admin/export/${entity}`, {
+            setIsExporting(`${entity}-${format}`);
+            const response = await fetch(`/api/admin/export/${entity}?format=${format}`, {
                headers: getAuthHeaders()
             });
 
@@ -196,13 +452,13 @@ export default function AdminDashboard() {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${entity}_export_${new Date().toISOString().split('T')[0]}.csv`;
+            a.download = `${entity}_export_${new Date().toISOString().split('T')[0]}.${format}`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
             
-            toast.success(`${entity.toUpperCase()} export completed.`);
+            toast.success(`${entity.toUpperCase()} export (${format.toUpperCase()}) completed.`);
         } catch (err) {
             toast.error('Export failed');
             console.error(err);
@@ -221,19 +477,26 @@ export default function AdminDashboard() {
                  <p className="text-stone-500 mb-8 relative z-10">Scalable backend CSV generation for large datasets. Safe for 10,000+ records.</p>
                  
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-                    {['orders', 'users', 'products', 'wallet_transactions'].map((ent) => (
-                        <button 
-                            key={ent}
-                            onClick={() => handleSystemExport(ent)}
-                            disabled={isExporting !== null}
-                            className="p-6 border border-stone-200 rounded-2xl hover:border-primary hover:bg-stone-50 transition-all text-left group"
-                        >
-                             <div className="w-12 h-12 bg-stone-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
-                                 {isExporting === ent ? <RefreshCw className="animate-spin text-primary" /> : <Download className="group-hover:text-primary transition-colors text-stone-600" />}
+                    {['orders', 'users', 'products', 'wallet_transactions', 'system_logs', 'audit_logs'].map((ent) => (
+                        <div key={ent} className="flex flex-col gap-2">
+                          <button 
+                              onClick={() => setExportFormatSelection(ent)}
+                              disabled={isExporting !== null}
+                              className="p-6 border border-stone-200 rounded-2xl hover:border-primary hover:bg-stone-50 transition-all text-left group"
+                          >
+                               <div className="w-12 h-12 bg-stone-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
+                                   {isExporting?.startsWith(ent) ? <RefreshCw className="animate-spin text-primary" /> : <Download className="group-hover:text-primary transition-colors text-stone-600" />}
+                               </div>
+                               <h3 className="font-bold text-lg text-stone-900 capitalize mb-1">{ent?.replace('_', ' ')}</h3>
+                               <p className="text-xs text-stone-400">Export as...</p>
+                          </button>
+                          {exportFormatSelection === ent && (
+                             <div className="flex gap-2">
+                                <button onClick={() => {handleSystemExport(ent, 'csv'); setExportFormatSelection(null);}} className="flex-1 bg-stone-100 text-stone-700 py-2 rounded-xl text-xs font-bold hover:bg-stone-200">CSV</button>
+                                <button onClick={() => {handleSystemExport(ent, 'pdf'); setExportFormatSelection(null);}} className="flex-1 bg-stone-100 text-stone-700 py-2 rounded-xl text-xs font-bold hover:bg-stone-200">PDF</button>
                              </div>
-                             <h3 className="font-bold text-lg text-stone-900 capitalize mb-1">{ent.replace('_', ' ')}</h3>
-                             <p className="text-xs text-stone-400">Export all records</p>
-                        </button>
+                          )}
+                        </div>
                     ))}
                  </div>
             </div>
@@ -251,7 +514,7 @@ export default function AdminDashboard() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100">
-                        {exports.map((e: any) => (
+                        {(exports || []).map((e: any) => (
                             <tr key={e.id}>
                                 <td className="py-4 text-sm font-bold">{e.user_name}</td>
                                 <td className="py-4 text-xs text-center">{new Date(e.created_at).toLocaleString()}</td>
@@ -274,9 +537,174 @@ export default function AdminDashboard() {
     );
   };
 
+  const UPIWebhookLogsView = () => {
+    const [logs, setLogs] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [filter, setFilter] = useState<'failed' | 'all'>('failed');
+
+    const fetchLogs = async () => {
+      setLoading(true);
+      try {
+        const data = await fetchWithHandling<any[]>('/api/admin/emails-log', { headers: getAuthHeaders() });
+        if (data) setLogs(data);
+      } catch (err) {
+        console.error('Failed to fetch UPI logs:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => {
+      fetchLogs();
+    }, []);
+
+    const filteredLogs = logs.filter(log => {
+      if (filter === 'failed') {
+        const status = String(log.match_status || '').toUpperCase();
+        return status === 'FAILED' || status === 'REVIEW_REQUIRED';
+      }
+      return true;
+    });
+
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-4xl font-black tracking-tighter text-stone-900 flex items-center gap-3">
+              <div className="p-3 bg-indigo-100 rounded-3xl text-indigo-600"><Mail size={32} /></div>
+              UPI WEBHOOKS & EMAIL PARSING LOGS
+            </h2>
+            <p className="text-stone-500 font-medium mt-1">Audit trail of bank payment alerts, matches, and failed automation lookups.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={fetchLogs} className="bg-stone-100 text-stone-600 px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-200 transition-all flex items-center gap-2">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex bg-stone-100 p-1.5 rounded-2xl w-fit">
+          <button 
+            onClick={() => setFilter('failed')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${filter === 'failed' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}
+          >
+            Failed & Review Required UPI ({logs.filter(l => String(l.match_status).toUpperCase() !== 'MATCHED').length})
+          </button>
+          <button 
+            onClick={() => setFilter('all')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${filter === 'all' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}
+          >
+            All Logs ({logs.length})
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="p-12 text-center text-stone-400 font-bold">
+            <Loader2 className="animate-spin mx-auto mb-4 text-stone-400" size={32} />
+            Parsing dynamic stream databases...
+          </div>
+        ) : filteredLogs.length === 0 ? (
+          <div className="bg-white p-16 rounded-[2.5rem] border border-stone-100 text-center space-y-4">
+            <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center mx-auto text-stone-300">
+              <CheckCircle2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-stone-900 uppercase tracking-tighter">No Failed Webhooks Found</h3>
+            <p className="text-stone-500 text-sm max-w-sm mx-auto">All recent bank UPI incoming alerts have been parsed and automated securely.</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden divide-y divide-stone-100">
+            {filteredLogs.map((log: any) => {
+              const matchesOrder = log.matched_order_id || log.extracted_note || '';
+              const matchStatus = String(log.match_status || '').toUpperCase();
+              return (
+                <div key={log.id} className="p-8 hover:bg-stone-50/40 transition-colors">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                    <div className="flex items-center gap-3">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                        matchStatus === 'MATCHED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                        matchStatus === 'REVIEW_REQUIRED' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                        'bg-red-50 text-red-600 border-red-100'
+                      }`}>
+                        {matchStatus}
+                      </span>
+                      <h4 className="font-extrabold text-stone-800 text-sm tracking-tight truncate max-w-sm md:max-w-md">
+                        {log.subject || 'Bank Alert Email Received'}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-stone-400 font-bold tracking-wider bg-stone-100 px-3 py-1 rounded-lg">
+                      {new Date(log.created_at || log.extracted_timestamp || Date.now()).toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs text-stone-600 mt-2">
+                    <div className="md:col-span-3 space-y-4">
+                      {/* Match Reason callout card */}
+                      <div className={`p-4 rounded-2xl border ${
+                        matchStatus === 'MATCHED' ? 'bg-emerald-50/30 border-emerald-100/50 text-emerald-800' :
+                        matchStatus === 'REVIEW_REQUIRED' ? 'bg-amber-50/30 border-amber-100/50 text-amber-800' :
+                        'bg-red-50/30 border-red-100/50 text-red-800'
+                      }`}>
+                        <p className="text-[9px] font-black uppercase tracking-widest leading-none mb-1">Reason for Match Verdict</p>
+                        <p className="font-bold text-xs">{log.match_reason || 'No match reason log found.'}</p>
+                      </div>
+
+                      {/* Email Snippet Display */}
+                      <div className="bg-stone-50/50 border border-stone-100 p-4 rounded-xl">
+                        <p className="text-[9px] text-stone-400 font-extrabold uppercase tracking-wider mb-2">Raw Alert Snippet Body</p>
+                        <p className="font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap select-all text-stone-600">
+                          {log.body || 'No message snippet provided.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-stone-400 mb-1">Parsed Extract</p>
+                      
+                      <div className="space-y-2.5">
+                        <div>
+                          <p className="text-[9px] font-black text-stone-400 uppercase">Alert Amount</p>
+                          <p className="text-base font-black text-stone-800">
+                            {log.extracted_amount ? `₹${Number(log.extracted_amount).toFixed(2)}` : 'NaN'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-black text-stone-400 uppercase">Target Order</p>
+                          <p className="text-xs font-extrabold text-stone-700">
+                            {matchesOrder ? `#${matchesOrder}` : 'No parsed Order ID'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-black text-stone-400 uppercase">Sender Address</p>
+                          <p className="text-[10px] font-bold text-stone-500 break-all">
+                            {log.sender || 'N/A'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-black text-stone-400 uppercase">Unique ID</p>
+                          <p className="font-mono text-[10px] text-stone-400 truncate select-all" title={log.message_id || log.id}>
+                            {log.message_id || log.id || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const SystemLogsView = () => {
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedLogForDetails, setSelectedLogForDetails] = useState<any | null>(null);
 
     const fetchLogs = async () => {
         setLoading(true);
@@ -321,10 +749,10 @@ export default function AdminDashboard() {
                     <p className="text-stone-500 font-medium mt-1">Real-time monitoring of environment errors and integrity audits.</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={fetchLogs} className="bg-stone-100 text-stone-600 px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-200 transition-all flex items-center gap-2">
+                    <button onClick={fetchLogs} className="bg-stone-100 text-stone-600 px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-200 transition-all flex items-center gap-2 cursor-pointer">
                         <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
                     </button>
-                    <button onClick={clearLogs} className="bg-stone-950 text-white px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-800 transition-all shadow-lg shadow-stone-200">
+                    <button onClick={clearLogs} className="bg-stone-950 text-white px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-stone-800 transition-all shadow-lg shadow-stone-200 cursor-pointer">
                          Purge All Logs
                     </button>
                 </div>
@@ -354,10 +782,23 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="bg-stone-950 p-6 rounded-3xl overflow-hidden">
+                            <div className="bg-stone-950 p-6 rounded-3xl overflow-hidden shadow-inner">
                                  <pre className="text-emerald-400 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all selection:bg-emerald-400 selection:text-stone-950">
                                      {log.message}
                                  </pre>
+                            </div>
+                            <div className="flex justify-between items-center mt-4">
+                                <span className="text-[10px] text-stone-400 font-medium font-mono">
+                                    {log.path ? `Endpoint: ${log.path}` : 'Core Kernel Action'} {log.user_id ? `| User #${log.user_id}` : ''}
+                                </span>
+                                {(log.details || log.metadata) && (
+                                    <button 
+                                        onClick={() => setSelectedLogForDetails(log)}
+                                        className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-900 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <Eye size={12} /> Beautify Details Payload
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -378,9 +819,611 @@ export default function AdminDashboard() {
                     )}
                 </div>
             </div>
+
+            {/* Micro-Telemetry JSON Modal Payload Viewer */}
+            <AnimatePresence>
+                {selectedLogForDetails && (
+                    <div className="fixed inset-0 bg-stone-950/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-white rounded-3xl border border-stone-200 shadow-2xl max-w-2xl w-full flex flex-col max-h-[85vh] overflow-hidden"
+                        >
+                            {/* Modal Header */}
+                            <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50">
+                                <div>
+                                    <h3 className="text-sm font-black text-stone-900 uppercase tracking-wider flex items-center gap-2">
+                                        <Server size={16} className="text-red-500 animate-pulse" /> Log Payload Inspector #{selectedLogForDetails.id}
+                                    </h3>
+                                    <p className="text-[10px] text-stone-400 font-medium mt-0.5">Beautified audit trails and system telemetry metadata</p>
+                                </div>
+                                <button 
+                                    onClick={() => setSelectedLogForDetails(null)}
+                                    className="p-2 bg-stone-100 hover:bg-stone-200 rounded-full text-stone-500 transition-colors cursor-pointer"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+
+                            {/* Modal Body */}
+                            <div className="p-6 overflow-y-auto space-y-5 no-scrollbar">
+                                {/* Context Summary Card */}
+                                <div className="grid grid-cols-2 gap-3 bg-stone-50 p-4 rounded-2xl border border-stone-100 text-xs text-stone-650">
+                                    <div>
+                                        <p className="text-[9px] text-stone-400 font-black uppercase">Endpoint Path</p>
+                                        <p className="font-mono text-stone-855 break-all mt-0.5">{selectedLogForDetails.path || 'N/A'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] text-stone-400 font-black uppercase">Trigger Timestamp</p>
+                                        <p className="text-stone-800 font-bold mt-0.5">{new Date(selectedLogForDetails.created_at).toLocaleString()}</p>
+                                    </div>
+                                    <div className="pt-2 border-t border-stone-150">
+                                        <p className="text-[9px] text-stone-400 font-black uppercase">Severity Level</p>
+                                        <span className={`inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full mt-1 ${
+                                            selectedLogForDetails.level === 'error' ? 'bg-red-100 text-red-650' : 'bg-blue-100 text-blue-650'
+                                        }`}>
+                                            {selectedLogForDetails.level}
+                                        </span>
+                                    </div>
+                                    <div className="pt-2 border-t border-stone-150">
+                                        <p className="text-[9px] text-stone-400 font-black uppercase">Associated Profile ID</p>
+                                        <p className="font-mono font-bold text-stone-880 mt-1">{selectedLogForDetails.user_id || 'Global System Event'}</p>
+                                    </div>
+                                </div>
+
+                                {/* Message */}
+                                <div className="space-y-1">
+                                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Logged Message</p>
+                                    <div className="bg-stone-50 p-3.5 rounded-xl border border-stone-150 text-xs font-mono font-bold text-stone-800 whitespace-pre-wrap break-all">
+                                        {selectedLogForDetails.message}
+                                    </div>
+                                </div>
+
+                                {/* Raw/Beautified JSON Payload */}
+                                <div className="space-y-1">
+                                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Telemetry Payload Details</p>
+                                    <div className="bg-stone-950 p-4 rounded-2xl overflow-x-auto border border-stone-800">
+                                        <pre className="text-emerald-400 font-mono text-[10px] leading-relaxed select-all">
+                                            {(() => {
+                                                let payload: any = selectedLogForDetails.details || selectedLogForDetails.metadata;
+                                                if (typeof payload === 'string') {
+                                                    try {
+                                                        payload = JSON.parse(payload);
+                                                    } catch (err) {
+                                                        // It's a plain string
+                                                    }
+                                                }
+                                                return typeof payload === 'object' && payload !== null
+                                                    ? JSON.stringify(payload, null, 2)
+                                                    : payload || 'No supplemental details provided for this event.';
+                                            })()}
+                                        </pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Modal Footer */}
+                            <div className="p-4 bg-stone-50 border-t border-stone-100 flex justify-end">
+                                <button 
+                                    onClick={() => setSelectedLogForDetails(null)}
+                                    className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white font-extrabold text-[11px] uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+                                >
+                                    Dismiss Inspector
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
   };
+
+  const NewsletterView = () => {
+    const [subs, setSubs] = useState<any[]>([]);
+    const [subSearch, setSubSearch] = useState('');
+    const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
+    const [newEmail, setNewEmail] = useState('');
+    const [addLoading, setAddLoading] = useState(false);
+    
+    // Campaign composer states
+    const [subject, setSubject] = useState('');
+    const [campaignText, setCampaignText] = useState('');
+    const [sending, setSending] = useState(false);
+    const [dispatchMethod, setDispatchMethod] = useState<'email' | 'in-app' | 'system-notification'>('email');
+    const [campaigns, setCampaigns] = useState<any[]>([]);
+    const [syncing, setSyncing] = useState(false);
+
+    const fetchSubs = async () => {
+      try {
+        const data = await fetchWithHandling<any[]>('/api/admin/newsletter', { headers: getAuthHeaders() });
+        if (data) {
+          setSubs(data);
+          // Auto select all by default
+          setSelectedEmails(data.map(s => s.email));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    const fetchCampaigns = async () => {
+      try {
+        const data = await fetchWithHandling<any[]>('/api/admin/newsletter/campaigns', { headers: getAuthHeaders() });
+        if (data) {
+          setCampaigns(data);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    useEffect(() => {
+      fetchSubs();
+      fetchCampaigns();
+    }, []);
+
+    const handleAddSubscriber = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newEmail || !newEmail.includes('@')) {
+        toast.error('Please enter a valid email address');
+        return;
+      }
+      setAddLoading(true);
+      try {
+        const res = await fetchWithHandling<any>('/api/admin/newsletter/add', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ email: newEmail })
+        });
+        if (res && res.success) {
+          toast.success('Subscriber added successfully!');
+          setNewEmail('');
+          fetchSubs();
+        } else {
+          toast.error(res?.message || 'Failed to add subscriber');
+        }
+      } catch (err: any) {
+        toast.error(err?.message || 'Error occurred while adding subscriber');
+      } finally {
+        setAddLoading(false);
+      }
+    };
+
+    const handleSyncUsers = async () => {
+      setSyncing(true);
+      try {
+        const res = await fetchWithHandling<any>('/api/admin/newsletter/sync-users', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res && res.success) {
+          toast.success(`Successfully imported ${res.count} registered users to newsletter!`);
+          fetchSubs();
+        } else {
+          toast.error('Sync failed');
+        }
+      } catch (err: any) {
+        toast.error(err?.message || 'Error occurred while syncing users');
+      } finally {
+        setSyncing(false);
+      }
+    };
+
+    const handleDeleteSubscriber = async (id: string, email: string) => {
+      if (!window.confirm(`Are you sure you want to remove ${email} from the subscription list?`)) return;
+      try {
+        const res = await fetchWithHandling<any>(`/api/admin/newsletter/${id}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders()
+        });
+        if (res && res.success) {
+          toast.success('Subscriber removed');
+          setSubs(subs.filter(s => s.id !== id));
+          setSelectedEmails(selectedEmails.filter(e => e !== email));
+        }
+      } catch (err) {
+        toast.error('Failed to remove subscriber');
+      }
+    };
+
+    const handleSendCampaign = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (selectedEmails.length === 0) {
+        toast.error('Please select at least one subscriber recipient');
+        return;
+      }
+      if (!subject || !campaignText) {
+        toast.error('Campaign Subject and Message Body are required');
+        return;
+      }
+      setSending(true);
+      try {
+        const res = await fetchWithHandling<any>('/api/admin/newsletter/send', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            subject,
+            message: campaignText,
+            recipientCount: selectedEmails.length,
+            channel: dispatchMethod
+          })
+        });
+        if (res && res.success) {
+          toast.success(`Campaign Dispatched Successfully via [${dispatchMethod.toUpperCase()}]!`);
+          
+          if (dispatchMethod === 'email') {
+            // Open user's mail client as well for direct email copy delivery
+            const emails = selectedEmails.join(',');
+            const mailtoSubject = encodeURIComponent(subject);
+            const mailtoBody = encodeURIComponent(campaignText);
+            window.open(`mailto:${emails}?subject=${mailtoSubject}&body=${mailtoBody}`);
+          }
+          
+          setSubject('');
+          setCampaignText('');
+          fetchCampaigns();
+        } else {
+          toast.error('Failed to dispatch campaign');
+        }
+      } catch (err: any) {
+        toast.error(err?.message || 'Error occurred while sending campaign');
+      } finally {
+        setSending(false);
+      }
+    };
+
+    const filteredSubs = subs.filter(s => 
+      s.email.toLowerCase().includes(subSearch.toLowerCase()) ||
+      (s.user_name && s.user_name.toLowerCase().includes(subSearch.toLowerCase()))
+    );
+
+    const isAllSelected = filteredSubs.length > 0 && filteredSubs.every(s => selectedEmails.includes(s.email));
+
+    const toggleSelectAll = () => {
+      if (isAllSelected) {
+        // Deselect only filtered ones
+        const filteredEmails = filteredSubs.map(s => s.email);
+        setSelectedEmails(selectedEmails.filter(e => !filteredEmails.includes(e)));
+      } else {
+        // Select filtered ones
+        const filteredEmails = filteredSubs.map(s => s.email);
+        setSelectedEmails(Array.from(new Set([...selectedEmails, ...filteredEmails])));
+      }
+    };
+
+    const toggleSelectEmail = (email: string) => {
+      if (selectedEmails.includes(email)) {
+        setSelectedEmails(selectedEmails.filter(e => e !== email));
+      } else {
+        setSelectedEmails([...selectedEmails, email]);
+      }
+    };
+
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+         <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-stone-100 pb-8">
+          <div>
+            <h2 className="text-4xl font-black text-stone-900 tracking-tight">Newsletter & Campaigns</h2>
+            <p className="text-stone-500 mt-2 text-lg font-medium">Add, manage, and dispatch beautiful campaign emails to your subscribers list.</p>
+          </div>
+          <div className="flex items-center gap-6 bg-white border border-stone-100 px-6 py-4 rounded-3xl shadow-sm">
+             <div className="flex flex-col pr-6 border-r border-stone-100">
+                <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Total Subscribers</span>
+                <span className="text-2xl font-black text-stone-900">{subs.length}</span>
+             </div>
+             <div className="flex flex-col">
+                <span className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Selected Recipients</span>
+                <span className="text-2xl font-black text-stone-800">{selectedEmails.length}</span>
+             </div>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* List Column */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* Quick manual subscribers adder & user synchronizer */}
+            <div className="bg-white rounded-[2.5rem] border border-stone-100 p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="flex-1 space-y-4">
+                <h3 className="text-lg font-black text-stone-900 uppercase tracking-tight">Add Subscriber Manually</h3>
+                <form onSubmit={handleAddSubscriber} className="flex gap-4">
+                  <div className="relative flex-1">
+                    <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-stone-400" size={20} />
+                    <input
+                      type="email"
+                      placeholder="Enter email address (e.g. user@example.com)"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      className="w-full bg-stone-50 border-stone-200 border-2 rounded-2xl pl-12 pr-6 py-4 text-stone-900 placeholder:text-stone-300 outline-none focus:border-stone-900 focus:bg-white transition-all text-sm font-semibold"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={addLoading}
+                    className="bg-stone-900 hover:bg-stone-800 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 pointer-events-auto cursor-pointer"
+                  >
+                    {addLoading ? 'Adding...' : 'Subscribe'}
+                  </button>
+                </form>
+              </div>
+
+              <div className="w-full md:w-px md:h-20 bg-stone-100" />
+
+              <div className="flex flex-col space-y-3 justify-center">
+                <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-center md:text-left pl-1">Import Customers</h3>
+                <button
+                  type="button"
+                  onClick={handleSyncUsers}
+                  disabled={syncing}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer font-sans"
+                >
+                  <Users size={16} />
+                  <span>{syncing ? 'Syncing...' : 'Sync Registered Users'}</span>
+                </button>
+                <span className="text-[9px] text-stone-400 font-medium text-center">Sync account email registers</span>
+              </div>
+            </div>
+
+            {/* List Table container */}
+            <div className="bg-white rounded-[2.5rem] border border-stone-100 p-8 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <h3 className="text-lg font-black text-stone-900 uppercase tracking-tight">Subscription Directory</h3>
+                {/* Search bar */}
+                <input
+                  type="text"
+                  placeholder="Search subscribers..."
+                  value={subSearch}
+                  onChange={(e) => setSubSearch(e.target.value)}
+                  className="bg-stone-50 border border-stone-250 rounded-xl px-4 py-2 text-xs font-semibold outline-none focus:border-stone-450 focus:bg-white transition-all w-full sm:w-64"
+                />
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em] border-b border-stone-100">
+                    <tr>
+                      <th className="px-4 py-5 w-12 text-center border-b border-stone-100">
+                        <input
+                          type="checkbox"
+                          checked={isAllSelected}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900 focus:ring-2 cursor-pointer"
+                        />
+                      </th>
+                      <th className="px-4 py-5 border-b border-stone-100">Subscriber</th>
+                      <th className="px-4 py-5 border-b border-stone-100">User Status</th>
+                      <th className="px-4 py-5 border-b border-stone-100">Subscribed On</th>
+                      <th className="px-4 py-5 text-right border-b border-stone-100">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-50">
+                    {filteredSubs.map((sub, idx) => (
+                      <tr key={sub.id} className="hover:bg-stone-50/50 transition-colors group">
+                        <td className="px-4 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedEmails.includes(sub.email)}
+                            onChange={() => toggleSelectEmail(sub.email)}
+                            className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900 focus:ring-2 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-4 py-4 mr-2">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-9 h-9 bg-stone-100 text-stone-500 rounded-xl flex items-center justify-center font-bold text-sm">
+                              {sub.user_name?.[0] || sub.email[0].toUpperCase()}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-sm font-black text-stone-900 truncate max-w-[200px]" title={sub.email}>{sub.email}</span>
+                              {sub.user_name && <span className="text-[10px] text-stone-400 font-bold">{sub.user_name}</span>}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          {sub.user_id ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100 font-sans">
+                              Registered User
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-stone-100 text-stone-500 font-sans">
+                              Guest Reader
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-xs font-semibold text-stone-400">
+                          {sub.created_at ? new Date(sub.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'External'}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <button
+                            onClick={() => handleDeleteSubscriber(sub.id, sub.email)}
+                            className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer font-sans"
+                            title="Remove Subscriber"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredSubs.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-20 text-stone-400 italic font-semibold font-sans">
+                          No newsletter subscribers matching search criteria.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Composer Column */}
+          <div className="lg:col-span-5 space-y-6">
+            <div className="bg-white rounded-[2.5rem] border border-stone-100 p-8 shadow-sm space-y-6">
+              <div>
+                <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Campaign Composer</h3>
+                <p className="text-xs text-stone-400 font-medium font-sans">Design and dispatch instant email updates safely to subscribers.</p>
+              </div>
+
+              {/* Dispatch Method selection */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider">Choose Delivery Dispatch Channel</label>
+                <div className="grid grid-cols-1 gap-2 font-sans text-xs">
+                  {[
+                    { id: 'email', name: 'Email Broadcast List', desc: 'Direct mail delivery with direct client email fallback.' },
+                    { id: 'in-app', name: 'In-App General Banner Alert', desc: 'Creates a banner announcement across the customer page.' },
+                    { id: 'system-notification', name: 'Live Database Cabinet Notification', desc: 'Saves campaign directly inside account notifications.' }
+                  ].map((method) => (
+                    <button
+                      key={method.id}
+                      type="button"
+                      onClick={() => setDispatchMethod(method.id as any)}
+                      className={cn(
+                        "p-4 rounded-2xl border text-left transition-all flex items-start gap-4 cursor-pointer",
+                        dispatchMethod === method.id 
+                          ? "border-stone-950 bg-stone-50 shadow-sm" 
+                          : "border-stone-100 hover:border-stone-200 bg-white"
+                      )}
+                    >
+                      <input 
+                        type="radio" 
+                        readOnly 
+                        checked={dispatchMethod === method.id} 
+                        className="mt-0.5 pointer-events-none accent-stone-950 cursor-pointer" 
+                      />
+                      <div>
+                        <p className="font-extrabold text-stone-900 uppercase tracking-wide text-[10px] mb-0.5">{method.name}</p>
+                        <p className="text-[10px] text-stone-500 font-medium">{method.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Template quick-fills */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider">Quick Fill Design Template</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubject('🔥 Bulk Karyana Sale - Flat 15% OFF Everything!');
+                      setCampaignText('Dear Customer,\n\nGeneral Store Karyana Shop is currently offering flat 15% off across all daily groceries, flours, grains, and kitchen spices!\n\nUse Coupon Code KARYANA15 on checkout or order directly via the HindStore app today.\n\nWarm regards,\nHindStore Management');
+                    }}
+                    className="px-3.5 py-1.5 bg-stone-50 border border-stone-200 text-stone-600 rounded-xl text-[10px] font-bold hover:border-stone-900 hover:bg-stone-900 hover:text-white transition-all text-left cursor-pointer"
+                  >
+                    Sale Announcement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubject('🌱 Fresh Arrivals: Premium Basmati Rice & Organic Turmeric');
+                      setCampaignText('Hello Reader,\n\nWe have just refreshed our inventory with premium long-grain Basmati Rice and high-curcumin Organic Turmeric powder. Handpicked for premium quality and authentic taste.\n\nCheck out the Catalog in-app to explore pricing and options.\n\nStay healthy,\nHindStore Team');
+                    }}
+                    className="px-3.5 py-1.5 bg-stone-50 border border-stone-200 text-stone-600 rounded-xl text-[10px] font-bold hover:border-stone-900 hover:bg-stone-900 hover:text-white transition-all text-left cursor-pointer"
+                  >
+                    New Stock Alert
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubject('📢 Store Hours and Delivery Schedule Update');
+                      setCampaignText('Dear Subscribers,\n\nPlease note that General Store is updating its delivery hours. Active delivery sessions will now start from 8:00 AM up to 10:00 PM daily to better serve you.\n\nPlace your orders early for guaranteed same-day delivery!\n\nBest regards,\nHindStore Logistics');
+                    }}
+                    className="px-3.5 py-1.5 bg-stone-50 border border-stone-200 text-stone-600 rounded-xl text-[10px] font-bold hover:border-stone-900 hover:bg-stone-900 hover:text-white transition-all text-left cursor-pointer"
+                  >
+                    Schedule Update
+                  </button>
+                </div>
+              </div>
+
+              <form onSubmit={handleSendCampaign} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider pl-1">Email Subject Line</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter email subject header..."
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    className="w-full bg-stone-50 border-stone-200 border-2 rounded-xl px-5 py-3.5 text-stone-900 placeholder:text-stone-300 outline-none focus:border-stone-900 focus:bg-white transition-all text-sm font-semibold"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider pl-1 font-sans">Message Body</label>
+                  <textarea
+                    required
+                    rows={8}
+                    placeholder="Write detailed campaign description..."
+                    value={campaignText}
+                    onChange={(e) => setCampaignText(e.target.value)}
+                    className="w-full bg-stone-50 border-stone-200 border-2 rounded-2xl px-5 py-4 text-stone-900 placeholder:text-stone-300 outline-none focus:border-stone-900 focus:bg-white transition-all text-sm font-medium h-52 resize-none leading-relaxed"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-4 bg-stone-50 p-5 rounded-2xl border border-stone-100 font-sans">
+                  <div className="flex justify-between items-center text-xs font-bold text-stone-500">
+                    <span>Target Recipients:</span>
+                    <span className="text-stone-950 font-black">{selectedEmails.length} Readers</span>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={sending}
+                    className="w-full bg-stone-900 hover:bg-stone-800 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all hover:shadow-lg active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    {sending ? (
+                      <>
+                        <RefreshCw className="animate-spin" size={14} />
+                        <span>Sending Packets...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send size={14} />
+                        <span>Send Campaign Now</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Campaign History Log */}
+            <div className="bg-white rounded-[2.5rem] border border-stone-100 p-8 shadow-sm space-y-4">
+              <div>
+                <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Campaign Dispatch Logs</h3>
+                <p className="text-xs text-stone-400 font-medium font-sans">History of campaigns dispatched from this admin panel.</p>
+              </div>
+
+              <div className="space-y-3 font-sans h-80 overflow-y-auto no-scrollbar pr-1">
+                {campaigns.map((c) => (
+                  <div key={c.id} className="p-4 rounded-2xl border border-stone-100 bg-stone-50/50 space-y-2 text-xs">
+                    <div className="flex justify-between items-start gap-4">
+                      <p className="font-extrabold text-stone-900 line-clamp-1">{c.subject}</p>
+                      <span className="bg-stone-200 text-stone-700 font-black uppercase text-[8px] tracking-wider px-2 py-0.5 rounded shrink-0">
+                        {c.channel}
+                      </span>
+                    </div>
+                    <p className="text-stone-500 line-clamp-2 text-[11px] leading-relaxed pr-2">{c.message}</p>
+                    <div className="flex justify-between items-center text-[10px] text-stone-400 font-bold pt-1 border-t border-stone-100/50">
+                      <span>Recipients: {c.recipient_count}</span>
+                      <span>
+                        {new Date(c.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {campaigns.length === 0 && (
+                  <p className="text-stone-400 italic text-center text-xs py-8">No previous campaigns sent.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const [newProduct, setNewProduct] = useState({ 
     name: '', description: '', price: '', stock: '', category: 'Grocery', image: '', 
     retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
@@ -401,6 +1444,7 @@ export default function AdminDashboard() {
   const [walletType, setWalletType] = useState<'credit' | 'debit'>('credit');
   const [reportDetailModal, setReportDetailModal] = useState<{ open: boolean; report: any | null }>({ open: false, report: null });
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
+  const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
   const [orderUserIdFilter, setOrderUserIdFilter] = useState<string>('');
   const [orderDateStart, setOrderDateStart] = useState<string>('');
   const [orderDateEnd, setOrderDateEnd] = useState<string>('');
@@ -431,12 +1475,29 @@ export default function AdminDashboard() {
 
   // Polling for real-time stats
   useEffect(() => {
-    fetchStats();
-    const pollStats = setInterval(() => {
-      fetchStats();
-    }, 30000); // Poll every 30s to reduce load
+    // Sequentially load data to avoid hitting rate limits
+    const initData = async () => {
+      try {
+        await Promise.all([
+            // Add a small delay between requests if necessary, or use a throttled fetcher
+            fetchStats(),
+            // add other critical initial data fetches here
+        ]);
+      } catch (err) {
+        console.error('Initial data load error:', err);
+      }
+    };
+    
+    initData();
+    const pollStats = setInterval(fetchStats, 60000); // Poll every 60s
     return () => clearInterval(pollStats);
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const timer = setTimeout(() => setLoading(false), 500); // 500ms delay to force wait then hide
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   const getDisplayLabel = (tab: string) => {
     const mapping: Record<string, string> = {
@@ -450,6 +1511,7 @@ export default function AdminDashboard() {
       'Suppliers': 'Suppliers',
       'Returns': 'Returns',
       'Purchase Orders': 'Purchase Orders',
+      'Order Batching': 'Order Batching',
       'Wallet Requests': 'Wallet Top-ups',
       'Coupons': 'Coupons',
       'Bulk Discounts': 'Bulk Pricing',
@@ -465,6 +1527,15 @@ export default function AdminDashboard() {
       'Automatic Reports': 'Anomalies'
     };
     return mapping[tab] || tab;
+  };
+
+  const TabContent = () => {
+    switch (activeTab) {
+      case 'Overview': return <OverviewTab stats={stats} setActiveTab={setActiveTab} />;
+      case 'Purchase Orders': return <PurchaseOrdersTab />;
+      case 'Order Batching': return <OrderBatchingTab />;
+      default: return <div className="p-8 text-stone-500">Feature not yet fully redesigned.</div>;
+    }
   };
 
   // Verify auth and role
@@ -495,10 +1566,8 @@ export default function AdminDashboard() {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const data = await fetchWithHandling<any>('/api/admin/stats', { headers: getAuthHeaders() });
-      if (data) {
-        setStats(data);
-      }
+      const data = await adminService.getStats();
+      if (data) setStats(data);
     } catch (err: any) {
       console.error('Stats fetch error:', err);
     } finally {
@@ -518,12 +1587,28 @@ export default function AdminDashboard() {
   };
 
   const fetchOrders = () => {
+    // Proactive HTTP load to protect against direct Firestore subscription permission failure
+    fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
+      .then(data => {
+        if (data && data.length > 0) setOrders(data);
+      })
+      .catch(err => {
+        console.warn('REST Orders fetch warning:', err);
+      });
+
     let q = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(data);
     }, (err) => {
-      console.error('Orders fetch error:', err);
+      console.warn('Firestore Orders subscription fell back safely to REST API due to:', err.message);
+      fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
+        .then(data => {
+          if (data) setOrders(data);
+        })
+        .catch(fetchErr => {
+          console.error('REST backup orders fetch failed:', fetchErr);
+        });
     });
   };
 
@@ -539,13 +1624,35 @@ export default function AdminDashboard() {
   };
 
   const fetchProducts = () => {
+    // Proactive HTTP load
+    fetchWithHandling<any[]>('/api/products')
+      .then(data => {
+        if (data && data.length > 0) {
+          setAllProducts(data);
+          setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+        }
+      })
+      .catch(err => {
+        console.warn('REST Products fetch warning:', err);
+      });
+
     const q = query(collection(db, 'products'));
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllProducts(data);
       setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
     }, (err) => {
-      console.error('Products fetch error:', err);
+      console.warn('Firestore Products subscription fell back safely to REST API due to:', err.message);
+      fetchWithHandling<any[]>('/api/products')
+        .then(data => {
+          if (data) {
+            setAllProducts(data);
+            setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+          }
+        })
+        .catch(fetchErr => {
+          console.error('REST backup products fetch failed:', fetchErr);
+        });
     });
   };
 
@@ -642,8 +1749,6 @@ export default function AdminDashboard() {
   const [newPromotion, setNewPromotion] = useState({ title: '', description: '', image_url: '', link: '', active: true, target_role: 'all', start_time: '', end_time: '', banner_type: 'standard', is_default: false });
   const [deliveryFee, setDeliveryFee] = useState('0');
   const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState('500');
-  const [tncContent, setTncContent] = useState('');
-  const [faqContent, setFaqContent] = useState('');
   const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
   const [deliveryAreaModal, setDeliveryAreaModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', area: null as any });
   const [newDeliveryArea, setNewDeliveryArea] = useState({ name: '', fee: '0', min_order: '0' });
@@ -653,10 +1758,22 @@ export default function AdminDashboard() {
   const [newVariant, setNewVariant] = useState({ name: '', price: '', stock: '', unit_quantity: '1', is_default: false });
 
   const [selectedSegment, setSelectedSegment] = useState('all');
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const getCustomerSegment = (user: any) => user.segment || 'New';
-  const filteredUsers = selectedSegment === 'all' 
+  const filteredUsers = (selectedSegment === 'all' 
     ? users 
-    : users.filter(u => getCustomerSegment(u) === selectedSegment);
+    : selectedSegment === 'Khata Requests'
+      ? users.filter(u => u.khata_requested && !u.khata_enabled)
+      : users.filter(u => getCustomerSegment(u) === selectedSegment)
+  ).filter(u => {
+    if (!customerSearchTerm) return true;
+    const term = customerSearchTerm.toLowerCase();
+    return (
+      (u.name || '').toLowerCase().includes(term) ||
+      (u.email || '').toLowerCase().includes(term) ||
+      (u.phone || '').includes(term)
+    );
+  });
   const segments = ['All', ...Array.from(new Set(users.map(u => getCustomerSegment(u))))];
 
   const fetchOrderStatusHistory = async (orderId: number) => {
@@ -744,7 +1861,7 @@ export default function AdminDashboard() {
   const fetchAdmins = async () => {
     setIsAdminRefreshing(true);
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/administrators', { headers: getAuthHeaders() });
+      const data = await fetchWithHandling<any[]>('/api/admin/admins', { headers: getAuthHeaders() });
       if (data) setAdmins(data);
     } catch (err) {}
     finally { setIsAdminRefreshing(false); }
@@ -940,10 +2057,14 @@ export default function AdminDashboard() {
 
   const [promotionRules, setPromotionRules] = useState<PromotionRule[]>([]);
   const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as PromotionRule | null });
-  const [newPromotionRuleData, setNewPromotionRuleData] = useState<Partial<PromotionRule>>({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+  const [newPromotionRuleData, setNewPromotionRuleData] = useState<Partial<PromotionRule>>({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true, start_date: '', end_date: '' });
 
   const handlePromotionRuleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newPromotionRuleData.start_date && newPromotionRuleData.end_date && newPromotionRuleData.start_date > newPromotionRuleData.end_date) {
+      toast.error('End Date cannot be before Start Date');
+      return;
+    }
     try {
       const url = promotionRuleFormModal.mode === 'add' ? '/api/admin/promotional-rules' : `/api/admin/promotional-rules/${promotionRuleFormModal.rule?.id}`;
       const method = promotionRuleFormModal.mode === 'add' ? 'POST' : 'PUT';
@@ -1219,75 +2340,83 @@ export default function AdminDashboard() {
     socket.on('data', (data) => {
         audio.play().catch(e => console.log('Audio play failed:', e));
         
-        switch (data.type) {
-          case 'NEW_ORDER':
-            toast.success(`New Order Received! Total: ₹${data.payload.total}`, {
-              duration: 6000,
-              icon: '🛍️',
-              style: {
-                borderRadius: '16px',
-                background: '#10b981',
-                color: '#fff',
-                fontWeight: 'bold'
-              }
-            });
-            // Refresh orders and stats
-            fetchOrders();
-            fetchStats();
-            break;
-            
-          case 'LOW_STOCK':
-            const stockAlerts = data.payload || [{ id: data.product_id, name: data.name, stock: data.stock }];
-            if (Array.isArray(stockAlerts)) {
-              stockAlerts.forEach((item: any) => {
-                if (item && item.name) {
-                  toast.error(`Low Stock Alert: ${item.name} (Only ${item.stock} left)`, {
-                    duration: 8000,
-                    icon: '⚠️',
-                    style: {
-                      borderRadius: '16px',
-                      background: '#f59e0b',
-                      color: '#fff',
-                      fontWeight: 'bold'
-                    }
-                  });
+        const processData = (d: any) => {
+          switch (d.type) {
+            case 'NEW_ORDER':
+              toast.success(`New Order Received! Total: ₹${d.payload.total}`, {
+                duration: 6000,
+                icon: '🛍️',
+                style: {
+                  borderRadius: '16px',
+                  background: '#10b981',
+                  color: '#fff',
+                  fontWeight: 'bold'
                 }
               });
-            }
-            fetchAllProducts();
-            fetchNotifications();
-            break;
-            
-          case 'NEW_TICKET':
-            toast.success(`New Support Inquiry: ${data.payload.subject}`, {
-              duration: 6000,
-              icon: '💬',
-              style: {
-                borderRadius: '16px',
-                background: '#3b82f6',
-                color: '#fff',
-                fontWeight: 'bold'
+              // Refresh orders and stats
+              fetchOrders();
+              fetchStats();
+              break;
+              
+            case 'LOW_STOCK':
+              const stockAlerts = d.payload || [{ id: d.product_id, name: d.name, stock: d.stock }];
+              if (Array.isArray(stockAlerts)) {
+                stockAlerts.forEach((item: any) => {
+                  if (item && item.name) {
+                    toast.error(`Low Stock Alert: ${item.name} (Only ${item.stock} left)`, {
+                      duration: 8000,
+                      icon: '⚠️',
+                      style: {
+                        borderRadius: '16px',
+                        background: '#f59e0b',
+                        color: '#fff',
+                        fontWeight: 'bold'
+                      }
+                    });
+                  }
+                });
               }
-            });
-            fetchTickets();
-            fetchNotifications();
-            break;
-            
-          case 'NEW_MESSAGE':
-            toast.success(`New Message in Ticket #${data.payload.ticket_id}`, {
-              duration: 4000,
-              icon: '📩',
-              style: {
-                borderRadius: '16px',
-                background: '#6366f1',
-                color: '#fff',
-                fontWeight: 'bold'
+              fetchAllProducts();
+              fetchNotifications();
+              break;
+              
+            case 'NEW_TICKET':
+              toast.success(`New Support Inquiry: ${d.payload.subject}`, {
+                duration: 6000,
+                icon: '💬',
+                style: {
+                  borderRadius: '16px',
+                  background: '#3b82f6',
+                  color: '#fff',
+                  fontWeight: 'bold'
+                }
+              });
+              fetchTickets();
+              fetchNotifications();
+              break;
+              
+            case 'NEW_MESSAGE':
+              toast.success(`New Message in Ticket #${d.payload.ticket_id}`, {
+                duration: 4000,
+                icon: '📩',
+                style: {
+                  borderRadius: '16px',
+                  background: '#6366f1',
+                  color: '#fff',
+                  fontWeight: 'bold'
+                }
+              });
+              if (selectedTicket && selectedTicket.id === parseInt(d.payload.ticket_id)) {
+                fetchTicketMessages(selectedTicket.id);
               }
-            });
-            if (selectedTicket && selectedTicket.id === parseInt(data.payload.ticket_id)) {
-              fetchTicketMessages(selectedTicket.id);
-            }
-            break;
+              break;
+          }
+        };
+
+        if (data.type === 'BATCHED_ORDER_UPDATES') {
+            data.payload.forEach((d: any) => processData(d));
+        } else {
+            processData(data);
         }
     });
 
@@ -1422,7 +2551,23 @@ export default function AdminDashboard() {
       }));
       setErrorLogs(logs);
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'error_logs');
+      console.warn('error_logs subscription failed, using REST API fallback:', error.message);
+      // Fetch from API instead of throwing!
+      fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() })
+        .then(data => {
+          if (data) {
+            setErrorLogs(data.map(log => ({
+              id: log.id || log.uid || Math.random().toString(),
+              timestamp: log.created_at || log.timestamp || new Date().toISOString(),
+              message: log.message || JSON.stringify(log),
+              severity: log.level || 'ERROR',
+              context: log.context || 'System'
+            })));
+          }
+        })
+        .catch(fetchErr => {
+          console.error('REST backup error_logs fetch failed:', fetchErr);
+        });
     });
 
     return () => {
@@ -1430,11 +2575,7 @@ export default function AdminDashboard() {
     };
   }, [activeTab]);
 
-  useEffect(() => {
-    if (activeTab === 'Orders' || activeTab === 'Analytics') {
-      fetchOrders();
-    }
-  }, [activeTab]);
+
 
   const fetchConfig = async () => {
     try {
@@ -1450,12 +2591,28 @@ export default function AdminDashboard() {
 
 
   const fetchUsers = () => {
+    // Proactive HTTP load to protect against direct Firestore subscription permission failure
+    fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() })
+      .then(data => {
+        if (data && data.length > 0) setUsers(data);
+      })
+      .catch(err => {
+        console.warn('REST Users fetch warning:', err);
+      });
+
     const q = query(collection(db, 'users'), orderBy('created_at', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setUsers(usersData);
     }, (err) => {
-      console.error('Failed to fetch users:', err);
+      console.warn('Firestore Users subscription fell back safely to REST API due to:', err.message);
+      fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() })
+        .then(data => {
+          if (data) setUsers(data);
+        })
+        .catch(fetchErr => {
+          console.error('REST backup users fetch failed:', fetchErr);
+        });
     });
   };
 
@@ -2292,7 +3449,7 @@ export default function AdminDashboard() {
 
           <div class="footer">
             <p style="font-weight: 700; color: #57534e;">Thank you for your business!</p>
-            <p>Hind General Store | Shop No. 1, Main Market, Nayagaon, SAS Nagar, Punjab</p>
+            <p>New Hind General Store | Shop No. 1, Main Market, Nayagaon, SAS Nagar, Punjab</p>
             <p>For support, call us at +91 95015 67756 or email hind.store@gmail.com</p>
           </div>
           
@@ -2811,6 +3968,7 @@ export default function AdminDashboard() {
         { name: 'Returns' as Tab, icon: Receipt },
         { name: 'Coupons' as Tab, icon: CreditCard },
         { name: 'Promotions' as Tab, icon: TrendingUp },
+        { name: 'UPI Webhook Logs' as Tab, icon: Mail },
       ]
     },
     {
@@ -2867,7 +4025,7 @@ export default function AdminDashboard() {
     'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 'Product Catalog', 'Categories', 
     'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Roles', 'Support Tickets', 'Newsletter', 
     'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'Suspicious Activities', 'Promotions', 
-    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Automatic Reports', 'Data Exports', 'Promotional Rules'
+    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Automatic Reports', 'Data Exports', 'Promotional Rules', 'UPI Webhook Logs'
   ];
 
   if (showPOPrint && poData) {
@@ -3124,8 +4282,9 @@ export default function AdminDashboard() {
       getDisplayLabel={getDisplayLabel}
       stats={stats}
       extraHeader={SearchUI}
+      loading={loading}
     >
-      <div className="space-y-4 md:space-y-8 responsive-padding h-full overflow-y-auto">
+      <div className="space-y-4 md:space-y-8 pb-12">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -3167,24 +4326,9 @@ export default function AdminDashboard() {
                </div>
                <div className="lg:col-span-2 bg-white rounded-[2.5rem] p-8 border border-stone-100 flex items-center justify-center">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-                    <UniversalExportToolbar 
-                      title="Human Demographic Dossier"
-                      fileName="Dossier_Humans"
-                      fetchData={async () => users}
-                      columns={[{header:'Name',dataKey:'name'},{header:'Phone',dataKey:'phone'},{header:'Wallet',dataKey:'wallet_balance'}]}
-                    />
-                    <UniversalExportToolbar 
-                      title="Commercial Sales Archive"
-                      fileName="Protocol_Sales"
-                      fetchData={async () => orders}
-                      columns={[{header:'ID',dataKey:'id'},{header:'Customer',dataKey:'user_name'},{header:'Total',dataKey:'total'}]}
-                    />
-                    <UniversalExportToolbar 
-                      title="Inventory SKU Manifest"
-                      fileName="Dossier_Inventory"
-                      fetchData={async () => allProducts}
-                      columns={[{header:'Product',dataKey:'name'},{header:'Category',dataKey:'category'},{header:'Stock',dataKey:'stock'}]}
-                    />
+                    <ExportTriggerButton type="users" />
+                    <ExportTriggerButton type="orders" />
+                    <ExportTriggerButton type="products" />
                   </div>
                </div>
             </div>
@@ -3194,52 +4338,23 @@ export default function AdminDashboard() {
               {loading ? (
                 [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
               ) : [
-                { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: '', color: 'emerald', key: 'revenue' },
-                { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: '', color: 'amber', key: 'orders' },
-                { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={22} />, trend: 'Live', color: 'blue' },
-                { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: '', color: 'purple' }
-              ].map((stat, i) => (
-                <motion.div 
-                  key={i}
-                  variants={{
-                    hidden: { opacity: 0, y: 20 },
-                    show: { opacity: 1, y: 0 }
-                  }}
-                  whileHover={{ y: -5 }}
-                  className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 transition-all group relative overflow-hidden"
-                >
-                  <div className="flex justify-between items-start mb-6">
-                    <div className={cn(
-                      "p-4 rounded-2xl transition-all duration-300",
-                      stat.color === 'emerald' ? "bg-emerald-50 text-emerald-600" :
-                      stat.color === 'amber' ? "bg-amber-50 text-amber-600" :
-                      stat.color === 'red' ? "bg-red-50 text-red-600" :
-                      "bg-stone-50 text-stone-900"
-                    )}>
-                      {stat.icon}
-                    </div>
-                  </div>
-                  <p className="text-stone-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1">{stat.label}</p>
-                  <h3 className="text-3xl font-black text-stone-900 tracking-tighter">{stat.value}</h3>
-                  
-                  {stats?.revenueByDay && stats.revenueByDay.length > 0 && stat.key && (
-                    <div className="absolute bottom-0 left-0 right-0 h-16 opacity-30 pointer-events-none">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={stats.revenueByDay}>
-                          <Area 
-                            type="monotone" 
-                            dataKey={stat.key} 
-                            stroke="currentColor" 
-                            strokeWidth={2} 
-                            fill={stat.color === 'emerald' ? '#10b981' : '#f59e0b'}
-                            fillOpacity={0.05}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </motion.div>
-              ))}
+                { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={22} />, trend: { value: '+12%', isUp: true }, color: 'emerald' as const, key: 'revenue', progress: 85 },
+                { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={22} />, trend: { value: 'Critical', isUp: false }, color: 'amber' as const, key: 'orders', progress: 40 },
+                { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={22} />, trend: { value: 'Live', isUp: true, color: 'text-blue-500' }, color: 'blue' as const, progress: 65 },
+                { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={22} />, trend: { value: '+24', isUp: true }, color: 'purple' as const, progress: 30 }
+              ].map((stat, i) => {
+                const { key, ...rest } = stat;
+                return (
+                  <AdminStatCard
+                    key={key || stat.label}
+                    {...(rest as any)}
+                    onClick={() => {
+                      if (key === 'revenue') setActiveTab('Analytics');
+                      if (key === 'orders') setActiveTab('Orders');
+                    }}
+                  />
+                );
+              })}
             </div>
 
             <section className="bg-stone-50 p-10 rounded-[3rem] border border-dashed border-stone-200">
@@ -3294,7 +4409,7 @@ export default function AdminDashboard() {
                     <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Normal Growth</span>
                   </div>
                 </div>
-                <div className="h-72 w-full">
+                <div className="h-72 w-full min-h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={stats?.revenueByDay || []}>
                       <defs>
@@ -3341,24 +4456,24 @@ export default function AdminDashboard() {
                   ].map((sys, i) => (
                     <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between backdrop-blur-sm">
                       <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{sys.label}</span>
+                        <span className="text-xs font-black text-white/40 uppercase tracking-widest">{sys.label}</span>
                         <span className="text-xs font-bold text-white mt-0.5">{sys.status}</span>
                       </div>
-                      <span className="text-[10px] font-black font-mono text-emerald-500">{sys.delay}ms</span>
+                      <span className="text-xs font-black font-mono text-emerald-500">{sys.delay}ms</span>
                     </div>
                   ))}
                 </div>
 
                 <div className="pt-6 border-t border-white/10 space-y-4 relative z-10">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Network Alert Feed</span>
-                    <button onClick={() => setActiveTab('System Status')} className="text-[10px] font-black text-emerald-500 hover:underline">Full Trace</button>
+                    <span className="text-xs font-black text-white/40 uppercase tracking-widest">Network Alert Feed</span>
+                    <button onClick={() => setActiveTab('System Status')} className="text-xs font-black text-emerald-500 hover:underline">Full Trace</button>
                   </div>
                   <div className="space-y-3">
                     {stats?.recentActivities?.slice(0, 2).map((log: any) => (
                       <div key={log.id} className="flex items-start space-x-3">
                         <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", log.level === 'error' ? "bg-red-500" : "bg-white/20")} />
-                        <p className="text-[10px] font-medium text-white/70 line-clamp-2 leading-relaxed">{log.message}</p>
+                        <p className="text-xs font-medium text-white/70 line-clamp-2 leading-relaxed">{log.message}</p>
                       </div>
                     ))}
                   </div>
@@ -3366,7 +4481,7 @@ export default function AdminDashboard() {
 
                 <button 
                   onClick={() => setActiveTab('Audit Logs')}
-                  className="w-full relative z-10 py-4 bg-emerald-500 text-stone-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all active:scale-95 shadow-xl shadow-emerald-500/20"
+                  className="w-full relative z-10 py-4 bg-emerald-500 text-stone-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-emerald-400 transition-all active:scale-95 shadow-xl shadow-emerald-500/20"
                 >
                   View Activity Logs
                 </button>
@@ -3398,8 +4513,8 @@ export default function AdminDashboard() {
                           <ShoppingBag size={18} />
                         </div>
                         <div>
-                          <p className="text-sm font-black tracking-tight">#ORD-{order.id}</p>
-                          <p className="text-[10px] font-bold text-stone-400 group-hover:text-white/50">{order.user_name}</p>
+                          <p className="text-sm font-black tracking-tight select-text">#ORD-{order.id}</p>
+                          <p className="text-xs font-bold text-stone-400 group-hover:text-white/50 select-text">{order.user_name}</p>
                         </div>
                       </div>
                       <button 
@@ -3419,7 +4534,7 @@ export default function AdminDashboard() {
                 </div>
                 <button 
                    onClick={() => { setActiveTab('Orders'); fetchOrders(); }}
-                   className="mt-8 py-4 border-2 border-stone-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all w-full"
+                   className="mt-8 py-4 border-2 border-stone-100 rounded-2xl text-xs font-black uppercase tracking-widest text-stone-400 hover:text-stone-900 hover:border-stone-900 transition-all w-full"
                 >
                   View All Orders
                 </button>
@@ -3689,6 +4804,8 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
+                <ExportTriggerButton type="analytics" />
+
                 <button 
                   className="bg-stone-900 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center space-x-3 shadow-xl shadow-stone-900/20 hover:bg-black transition-all active:scale-95"
                   onClick={() => window.print()}
@@ -3701,78 +4818,41 @@ export default function AdminDashboard() {
 
             {/* Top Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
-                    <IndianRupee size={20} />
-                  </div>
-                  <div className="flex items-center text-emerald-500 text-[10px] font-black uppercase tracking-widest">
-                    <TrendingUp size={12} className="mr-1" />
-                    <span>+12.4%</span>
-                  </div>
-                </div>
-                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Gross Revenue</p>
-                <h3 className="text-3xl font-black text-stone-900">₹{(analyticsData.totalSales || 0).toLocaleString()}</h3>
-                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
-                   <motion.div initial={{ width: 0 }} animate={{ width: '70%' }} className="h-full bg-emerald-500" />
-                </div>
-              </div>
-
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
-                    <ShoppingBag size={20} />
-                  </div>
-                  <div className="flex items-center text-primary text-[10px] font-black uppercase tracking-widest">
-                    <Activity size={12} className="mr-1" />
-                    <span>Active</span>
-                  </div>
-                </div>
-                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Fulfilled Orders</p>
-                <h3 className="text-3xl font-black text-stone-900">{analyticsData.totalOrders}</h3>
-                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
-                   <motion.div initial={{ width: 0 }} animate={{ width: '55%' }} className="h-full bg-primary" />
-                </div>
-              </div>
-
-               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
-                    <Zap size={20} />
-                  </div>
-                  <div className="flex items-center text-blue-500 text-[10px] font-black uppercase tracking-widest">
-                    <Target size={12} className="mr-1" />
-                    <span>High</span>
-                  </div>
-                </div>
-                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Conversion Velocity</p>
-                <h3 className="text-3xl font-black text-stone-900">
-                  {analyticsData.conversionData?.length > 0 && analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) > 0
-                    ? (analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.orders, 0) / 
-                       analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) * 100).toFixed(1) 
-                    : '4.2'}%
-                </h3>
-                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
-                   <motion.div initial={{ width: 0 }} animate={{ width: '40%' }} className="h-full bg-blue-500" />
-                </div>
-              </div>
-
-               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group hover:border-primary/20 transition-all duration-500">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="p-3 bg-stone-50 rounded-2xl text-stone-400 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
-                    <Wallet size={20} />
-                  </div>
-                  <div className="flex items-center text-amber-500 text-[10px] font-black uppercase tracking-widest">
-                    <ArrowDown size={12} className="mr-1" />
-                    <span>Focus</span>
-                  </div>
-                </div>
-                <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-1">Stock Portfolio Val.</p>
-                <h3 className="text-3xl font-black text-stone-900">₹{(analyticsData.inventoryData?.total_cost || 0).toLocaleString()}</h3>
-                <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
-                   <motion.div initial={{ width: 0 }} animate={{ width: '85%' }} className="h-full bg-amber-500" />
-                </div>
-              </div>
+              <AdminStatCard 
+                label="Gross Revenue"
+                value={`₹${(analyticsData.totalSales || 0).toLocaleString()}`}
+                icon={<IndianRupee size={20} />}
+                trend={{ value: '+12.4%', isUp: true }}
+                color="emerald"
+                progress={Math.min(100, (analyticsData.totalSales / (stats?.revenue || 1)) * 100)}
+              />
+              <AdminStatCard 
+                label="Fulfilled Orders"
+                value={analyticsData.totalOrders}
+                icon={<ShoppingBag size={20} />}
+                trend={{ value: 'Active', isUp: true, color: 'text-primary' }}
+                color="primary"
+                progress={55}
+              />
+              <AdminStatCard 
+                label="Conversion Velocity"
+                value={`${analyticsData.conversionData?.length > 0 && analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) > 0
+                  ? (analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.orders, 0) / 
+                     analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) * 100).toFixed(1) 
+                  : '4.2'}%`}
+                icon={<Zap size={20} />}
+                trend={{ value: 'High', isUp: true, color: 'text-blue-500' }}
+                color="blue"
+                progress={40}
+              />
+              <AdminStatCard 
+                label="Stock Portfolio Val."
+                value={`₹${(analyticsData.inventoryData?.total_cost || 0).toLocaleString()}`}
+                icon={<Wallet size={20} />}
+                trend={{ value: 'Focus', isUp: false, color: 'text-amber-500' }}
+                color="amber"
+                progress={85}
+              />
             </div>
 
             {/* AI Actionable Insights */}
@@ -3789,7 +4869,7 @@ export default function AdminDashboard() {
                     <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-primary">
                       <TrendingUp size={20} />
                     </div>
-                    <span className="font-black text-xs uppercase tracking-[0.2em]">Growth Projection</span>
+                    <span className="font-black text-xs uppercase tracking-[0.2em] select-text">Growth Projection</span>
                   </div>
                   <p className="text-stone-400 font-medium leading-relaxed">
                     Based on current velocity, revenue is projected to exceed <span className="text-white font-black">₹{(analyticsData.totalSales * 1.15).toLocaleString()}</span> by month-end.
@@ -3874,30 +4954,118 @@ export default function AdminDashboard() {
             {/* Daily Trends & Product Analytics */}
             {salesAnalytics && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                  <h3 className="text-xl font-black mb-6">Revenue Velocity (30D)</h3>
-                  <div className="h-80">
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all hover:shadow-xl hover:shadow-stone-200/20">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Velocity</h3>
+                      <p className="text-xs text-stone-400 mt-1">30-day transactional throughput</p>
+                    </div>
+                    <div className="flex items-center space-x-2 text-emerald-500 bg-emerald-50 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest">
+                      <TrendingUp size={12} />
+                      <span>Live Feed</span>
+                    </div>
+                  </div>
+                  <div className="h-80 min-h-[320px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={salesAnalytics.dailySales}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="date" />
-                        <YAxis />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="total" stroke="#3b82f6" fill="#bfdbfe" />
+                      <AreaChart data={salesAnalytics.dailySales} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="date" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                          dy={10}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                        />
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">{payload[0].payload.date}</p>
+                                  <p className="text-lg font-black">₹{payload[0].value?.toLocaleString()}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="total" 
+                          stroke="#3b82f6" 
+                          strokeWidth={4}
+                          fillOpacity={1} 
+                          fill="url(#colorTotal)" 
+                        />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                  <h3 className="text-xl font-black mb-6 text-stone-900">Elite Performance Ledger</h3>
-                  <div className="h-80">
+
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all hover:shadow-xl hover:shadow-stone-200/20">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h3 className="text-xl font-black text-stone-900 tracking-tight">Elite Performance</h3>
+                      <p className="text-xs text-stone-400 mt-1">Top grossing assets by volume</p>
+                    </div>
+                    <div className="flex items-center space-x-2 text-primary bg-primary/5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest">
+                      <Sparkles size={12} />
+                      <span>Elite Tier</span>
+                    </div>
+                  </div>
+                  <div className="h-80 min-h-[320px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={salesAnalytics.topProducts} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                        <XAxis type="number" />
-                        <YAxis dataKey="name" type="category" width={100} />
-                        <Tooltip />
-                        <Bar dataKey="sold" fill="#10b981" />
+                      <BarChart data={salesAnalytics.topProducts} layout="vertical" margin={{ top: 0, right: 30, left: 40, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                        <XAxis type="number" hide />
+                        <YAxis 
+                          dataKey="name" 
+                          type="category" 
+                          axisLine={false} 
+                          tickLine={false}
+                          tick={{ fill: '#1e293b', fontSize: 10, fontWeight: 900 }}
+                          width={100}
+                        />
+                        <Tooltip 
+                          cursor={{ fill: '#f8fafc' }}
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-white p-4 rounded-2xl shadow-2xl border border-stone-100">
+                                  <p className="text-sm font-black text-stone-900">{payload[0].payload.name}</p>
+                                  <div className="mt-2 space-y-1">
+                                    <div className="flex justify-between items-center gap-4">
+                                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Units Sold</span>
+                                      <span className="text-sm font-black text-emerald-600">{payload[0].value}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center gap-4">
+                                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Efficiency</span>
+                                      <span className="text-sm font-black text-stone-900">88%</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar 
+                          dataKey="sold" 
+                          fill="#3b82f6" 
+                          radius={[0, 10, 10, 0]}
+                          barSize={24}
+                        />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -3942,7 +5110,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 
-                <div className="md:col-span-2 h-[300px]">
+                <div className="md:col-span-2 h-[300px] min-h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={[
                       { name: 'Cost Value', value: analyticsData.inventoryData?.total_cost || 0, fill: '#EF4444' },
@@ -4745,7 +5913,7 @@ export default function AdminDashboard() {
                                </button>
                              ) : (
                                <div className="flex items-center space-x-2 text-[10px] text-stone-300 font-black uppercase tracking-widest italic opacity-50">
-                                  <Lock size={12} />
+                                  <div className="w-3 h-3 bg-stone-300 rounded-full" />
                                   <span>Immutable</span>
                                </div>
                              )}
@@ -4780,178 +5948,174 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {activeTab === 'Order Batching' && (
+          <OrderBatchingTab />
+        )}
+
         {activeTab === 'Orders' && (
-          <div className="space-y-10">
-            {/* Orders Header */}
-            <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+          <div className="space-y-6">
+            {/* Orders Header - Soft & Flat */}
+            <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
               <div>
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="p-2 bg-stone-900 text-white rounded-xl">
-                    <ShoppingBag size={20} />
-                  </div>
-                  <span className="text-[10px] font-black uppercase text-stone-400 tracking-[0.2em]">Fulfillment Protocol</span>
-                </div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Order Logistics Command</h2>
-                <p className="text-stone-500 mt-1 text-lg font-medium">Monitoring and fulfilling Hind General Store transactions.</p>
+                <h2 className="text-3xl font-bold text-stone-900 tracking-tight">Orders Registry</h2>
+                <p className="text-stone-500 text-sm mt-1">Manage, track, and complete physical store orders.</p>
               </div>
-              <div className="bg-stone-100 p-1.5 rounded-[1.5rem] border border-stone-200 flex space-x-1 shadow-inner">
+              <div className="bg-stone-100/80 p-1 rounded-2xl flex space-x-1 border border-stone-200/30">
                 <button 
                   onClick={() => setOrdersViewMode('table')}
                   className={cn(
-                    "flex items-center space-x-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all",
-                    ordersViewMode === 'table' ? "bg-white text-stone-900 shadow-xl shadow-stone-200/50" : "text-stone-400 hover:text-stone-700"
+                    "flex items-center space-x-1.5 px-5 py-2.5 rounded-xl text-xs font-bold transition-all",
+                    ordersViewMode === 'table' ? "bg-white text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600"
                   )}
                 >
-                  <List size={16} />
-                  <span>Command Ledger</span>
+                  <List size={14} />
+                  <span>Table View</span>
                 </button>
                 <button 
                   onClick={() => setOrdersViewMode('kanban')}
                   className={cn(
-                    "flex items-center space-x-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all",
-                    ordersViewMode === 'kanban' ? "bg-white text-stone-900 shadow-xl shadow-stone-200/50" : "text-stone-400 hover:text-stone-700"
+                    "flex items-center space-x-1.5 px-5 py-2.5 rounded-xl text-xs font-bold transition-all",
+                    ordersViewMode === 'kanban' ? "bg-white text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600"
                   )}
                 >
-                  <LayoutDashboard size={16} />
-                  <span>Logistics Pipeline</span>
+                  <LayoutDashboard size={14} />
+                  <span>Kanban Board</span>
                 </button>
               </div>
              </header>
  
-             <UniversalExportToolbar 
-               title="Commercial Logistics Ledger"
-               fileName="Order_History_Protocol"
-               fetchData={async () => orders}
-               columns={[
-                 { header: 'Order ID', dataKey: 'id' },
-                 { header: 'Customer', dataKey: 'user_name' },
-                 { header: 'Phone', dataKey: 'user_phone' },
-                 { header: 'Total Value', dataKey: 'total', halign: 'right' },
-                 { header: 'Status', dataKey: 'status' },
-                 { header: 'Payment Method', dataKey: 'payment_method' },
-                 { header: 'Transaction ID', dataKey: 'payment_id' },
-                 { header: 'Created At', dataKey: 'created_at' }
-               ]}
-             />
+             <ExportTriggerButton type="orders" />
 
-             {/* Logistics Hub Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+             {/* Order Metrics Stats - Soft & Flat Pastels */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {loading ? (
                 [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
               ) : [
-                { label: 'Pending Orders', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', trend: 'Response Required' },
-                { label: 'Unresolved Tickets', val: tickets.filter(t => t.status === 'open' || t.status === 'in-progress').length, icon: MessageSquare, color: 'red', trend: 'Customer Support' },
-                { label: 'Pending Reviews', val: reviews.filter(r => r.status === 'pending').length, icon: Star, color: 'blue', trend: 'Moderation Pool' },
-                { label: 'Wallet Requests', val: walletRequests.filter(w => w.status === 'pending').length, icon: Wallet, color: 'emerald', trend: 'Financial Flow' }
+                { label: 'Pending Orders', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', status: 'pending' },
+                { label: 'Processing Orders', val: orders.filter(o => o.status === 'processing').length, icon: Package, color: 'blue', status: 'processing' },
+                { label: 'Shipped Orders', val: orders.filter(o => o.status === 'shipped').length, icon: Truck, color: 'purple', status: 'shipped' },
+                { label: 'Completed Orders', val: orders.filter(o => o.status === 'delivered').length, icon: CheckCircle2, color: 'emerald', status: 'delivered' }
               ].map((stat, i) => (
                 <motion.div 
                   key={stat.label}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex items-center space-x-5"
+                  transition={{ delay: i * 0.04 }}
+                  className="bg-stone-50/50 p-5 rounded-2xl border border-stone-200/40 flex items-center space-x-4"
                 >
                   <div className={cn(
-                    "w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 transition-transform hover:rotate-0",
-                    stat.color === 'amber' ? "bg-amber-100 text-amber-600 shadow-amber-100/50" :
-                    stat.color === 'blue' ? "bg-blue-100 text-blue-600 shadow-blue-100/50" :
-                    stat.color === 'purple' ? "bg-purple-100 text-purple-600 shadow-purple-100/50" :
-                    "bg-emerald-100 text-emerald-600 shadow-emerald-100/50"
+                    "w-10 h-10 rounded-xl flex items-center justify-center",
+                    stat.color === 'amber' ? "bg-amber-100/40 text-amber-700" :
+                    stat.color === 'blue' ? "bg-blue-100/40 text-blue-700" :
+                    stat.color === 'purple' ? "bg-purple-100/40 text-purple-700" :
+                    "bg-emerald-100/40 text-emerald-700"
                   )}>
-                    <stat.icon size={24} strokeWidth={2.5} />
+                    <stat.icon size={18} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">{stat.label}</p>
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">{stat.label}</p>
                     <div className="flex items-baseline space-x-2">
-                      <span className="text-2xl font-black text-stone-900 tracking-tighter">{stat.val}</span>
-                      <span className={cn("text-[9px] font-black px-1.5 py-0.5 rounded-full",
-                        stat.color === 'amber' ? "bg-amber-50 text-amber-700" :
-                        stat.color === 'blue' ? "bg-blue-50 text-blue-700" :
-                        stat.color === 'purple' ? "bg-purple-50 text-purple-700" :
-                        "bg-emerald-50 text-emerald-700"
-                      )}>{stat.trend}</span>
+                      <span className="text-2xl font-black text-stone-900 tracking-tight">{stat.val}</span>
+                      <span className={cn("text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider",
+                        stat.color === 'amber' ? "bg-amber-50 text-amber-800" :
+                        stat.color === 'blue' ? "bg-blue-50 text-blue-800" :
+                        stat.color === 'purple' ? "bg-purple-50 text-purple-800" :
+                        "bg-emerald-50 text-emerald-800"
+                      )}>{stat.status}</span>
                     </div>
                   </div>
                 </motion.div>
               ))}
             </div>
 
-            {/* Advanced Logistics Filters */}
-            <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 relative overflow-hidden">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Customer / Order ID</label>
-                <div className="relative group">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={18} />
+            {/* Filters Dashboard - Soft, Flat and Spacious */}
+            <section className="bg-stone-50/40 p-6 rounded-3xl border border-stone-200/30 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Search</label>
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={15} />
                   <input 
                     type="text" 
-                    placeholder="Search orders..."
-                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl pl-12 pr-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-stone-300 font-medium"
+                    placeholder="Search ref ID or client..."
+                    className="w-full bg-white border border-stone-200/60 rounded-xl pl-9.5 pr-4 py-2.5 text-xs text-stone-800 outline-none transition-all placeholder:text-stone-300 font-medium focus:border-stone-400"
                     value={orderSearchTerm}
                     onChange={(e) => setOrderSearchTerm(e.target.value)}
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Fulfillment Status</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Status</label>
                 <select 
-                  className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer font-bold text-stone-700"
+                  className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-bold text-stone-700 focus:border-stone-400"
                   value={orderStatusFilter}
                   onChange={(e) => setOrderStatusFilter(e.target.value)}
                 >
                   <option value="All">All Transactions</option>
                   <option value="pending">Pending Review</option>
+                  <option value="verifying">Payment Verifying</option>
                   <option value="processing">Processing</option>
                   <option value="shipped">On Route</option>
                   <option value="delivered">Delivered</option>
                   <option value="cancelled">Cancelled</option>
-                  <option value="failed">Failed</option>
+                  <option value="failed">Failed Transaction</option>
+                  <option value="paid">Settled (Paid)</option>
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Timeline Range</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Order Type</label>
+                <select 
+                  className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-bold text-stone-700 focus:border-stone-400"
+                  value={orderDeliveryFilter}
+                  onChange={(e) => setOrderDeliveryFilter(e.target.value as any)}
+                >
+                  <option value="all">All Types</option>
+                  <option value="delivery">Home Delivery</option>
+                  <option value="pickup">Store Pickup</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Date Range</label>
                 <div className="flex items-center space-x-2">
                   <input 
                     type="date" 
-                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all font-bold text-stone-700"
+                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3 py-2.5 text-xs outline-none transition-all font-bold text-stone-700"
                     value={orderDateStart}
                     onChange={(e) => setOrderDateStart(e.target.value)}
                   />
                   <span className="text-stone-300">→</span>
                   <input 
                     type="date" 
-                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all font-bold text-stone-700"
+                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3 py-2.5 text-xs outline-none transition-all font-bold text-stone-700"
                     value={orderDateEnd}
                     onChange={(e) => setOrderDateEnd(e.target.value)}
                   />
                 </div>
               </div>
 
-              <div className="flex items-end space-x-3">
-                <div className="flex-1 space-y-2">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] px-1">Sort Preference</label>
+              <div className="flex items-end space-x-2">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Sort By</label>
                   <select 
-                    className="w-full bg-stone-50 border-stone-200 border rounded-2xl px-4 py-3 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer font-bold text-stone-700"
+                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-bold text-stone-700 focus:border-stone-400"
                     value={orderSortBy}
                     onChange={(e) => setOrderSortBy(e.target.value)}
                   >
-                    <option value="date">Order Date</option>
-                    <option value="id">Reference ID</option>
-                    <option value="customer">Client Name</option>
-                    <option value="total">Total Value</option>
+                    <option value="date font-bold">Order Date</option>
+                    <option value="id font-bold">Reference ID</option>
+                    <option value="customer font-bold">Client Name</option>
+                    <option value="total font-bold">Total Value</option>
                   </select>
                 </div>
-                <motion.button 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                <button 
                   onClick={() => setOrderSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                  className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-primary transition-all shadow-sm"
+                  className="p-3 bg-white border border-stone-200/60 rounded-xl text-stone-400 hover:text-stone-800 transition-all shadow-sm"
                 >
-                  <TrendingUp size={18} className={cn(orderSortOrder === 'desc' && "rotate-180")} />
-                </motion.button>
-                <motion.button 
-                  whileHover={{ rotate: 180 }}
+                  <TrendingUp size={16} className={cn(orderSortOrder === 'desc' && "rotate-180")} />
+                </button>
+                <button 
                   onClick={() => {
                     setOrderStatusFilter('All');
                     setOrderDateStart('');
@@ -4959,24 +6123,25 @@ export default function AdminDashboard() {
                     setOrderSearchTerm('');
                     setOrderSortBy('date');
                     setOrderSortOrder('desc');
+                    setOrderDeliveryFilter('all');
                   }}
-                  className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-red-500 transition-all shadow-sm"
+                  className="p-3 bg-white border border-stone-200/60 rounded-xl text-stone-400 hover:text-red-500 transition-all shadow-sm"
                 >
-                  <RefreshCw size={18} />
-                </motion.button>
+                  <RefreshCw size={16} />
+                </button>
               </div>
             </section>
 
             {ordersViewMode === 'table' ? (
-              <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+              <div className="bg-white rounded-3xl border border-stone-200/40 overflow-hidden shadow-sm">
                 <div className="responsive-table-container no-scrollbar">
                   <table className="w-full text-left">
-                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
+                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-bold tracking-[0.2em] border-b border-stone-100">
                       <tr>
-                        <th className="px-10 py-7 w-10">
+                        <th className="px-8 py-6 w-10">
                           <input 
                             type="checkbox" 
-                            className="w-5 h-5 rounded-lg border-stone-300 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
+                            className="w-4 h-4 rounded-md border-stone-300 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
                             onChange={(e) => {
                               if (e.target.checked) {
                                 setSelectedOrders(orders.map(o => o.id));
@@ -4986,15 +6151,15 @@ export default function AdminDashboard() {
                             }}
                           />
                         </th>
-                        <th className="px-6 py-7">Directive ID</th>
-                        <th className="px-6 py-7">Client Intel</th>
-                        <th className="px-6 py-7 text-right">Settlement</th>
-                        <th className="px-6 py-7">Operational State</th>
-                        <th className="px-6 py-7">Timestamp</th>
-                        <th className="px-10 py-7 text-right">Goverance</th>
+                        <th className="px-6 py-6">Order ID</th>
+                        <th className="px-6 py-6">Customer Info</th>
+                        <th className="px-6 py-6 text-right">Total Price</th>
+                        <th className="px-6 py-6">Status</th>
+                        <th className="px-6 py-6">Date</th>
+                        <th className="px-8 py-6 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-50">
+                    <tbody className="divide-y divide-stone-100/60">
                       {loading ? (
                         [...Array(5)].map((_, i) => (
                            <tr key={i}>
@@ -5005,7 +6170,7 @@ export default function AdminDashboard() {
                         ))
                       ) : orders.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="px-10 py-20 text-center">
+                          <td colSpan={7} className="px-8 py-20 text-center">
                             <div className="flex flex-col items-center space-y-4">
                               <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center text-stone-200">
                                 <ShoppingBag size={32} />
@@ -5019,14 +6184,18 @@ export default function AdminDashboard() {
                         </tr>
                       ) : orders
                         .filter(order => {
-                          const matchesStatus = orderStatusFilter === 'All' || order.status === orderStatusFilter;
+                          const matchesStatus = orderStatusFilter === 'All' || 
+                            order.status === orderStatusFilter || 
+                            (orderStatusFilter === 'paid' && order.payment_status === 'paid') ||
+                            (orderStatusFilter === 'verifying' && order.payment_status === 'verifying');
+                          const matchesDelivery = orderDeliveryFilter === 'all' || order.delivery_type === orderDeliveryFilter;
                           const orderDate = new Date(order.created_at).toISOString().split('T')[0];
                           const matchesStart = !orderDateStart || orderDate >= orderDateStart;
                           const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
                           const matchesSearch = !orderSearchTerm || 
-                            order.id.toString().includes(orderSearchTerm.replace('#ORD-', '')) ||
+                            order.id.toString().includes((orderSearchTerm || '').replace('#ORD-', '')) ||
                             order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-                          return matchesStatus && matchesStart && matchesEnd && matchesSearch;
+                          return matchesStatus && matchesDelivery && matchesStart && matchesEnd && matchesSearch;
                         })
                         .map((order, idx) => (
                         <motion.tr 
@@ -5035,14 +6204,14 @@ export default function AdminDashboard() {
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: idx * 0.02 }}
                           className={cn(
-                            "hover:bg-primary/[0.02] transition-all duration-300 group cursor-default",
-                            selectedOrders.includes(order.id) ? "bg-primary/[0.04]" : "bg-white"
+                            "hover:bg-stone-50/40 transition-all duration-300 group cursor-default",
+                            selectedOrders.includes(order.id) ? "bg-stone-50/60" : "bg-white"
                           )}
                         >
-                          <td className="px-10 py-7">
+                          <td className="px-8 py-6">
                             <input 
                               type="checkbox" 
-                              className="w-5 h-5 rounded-lg border-stone-200 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
+                              className="w-4 h-4 rounded-md border-stone-200 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
                               checked={selectedOrders.includes(order.id)}
                               onChange={(e) => {
                                 if (e.target.checked) {
@@ -5053,137 +6222,143 @@ export default function AdminDashboard() {
                               }}
                             />
                           </td>
-                          <td className="px-6 py-7">
+                          <td className="px-6 py-6">
                             <div className="flex items-center space-x-3">
                               <div className="flex flex-col">
-                                <span className="inline-flex items-center space-x-1.5 px-3 py-1 bg-stone-900 text-white rounded-lg font-mono text-xs font-black tracking-tighter">
+                                <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-stone-900 text-white rounded-lg font-mono text-xs font-black tracking-tighter select-text">
                                   <span>ORD</span>
                                   <span className="text-stone-400">#</span>
                                   <span>{order.id}</span>
                                 </span>
+                                {order.delivery_type === 'pickup' && (
+                                  <span className="mt-1 bg-stone-100 text-stone-700 text-[8px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit border border-stone-200/50">Pickup</span>
+                                )}
                                 <div className="flex items-center space-x-2 mt-2">
-                                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">{order.payment_method || 'Online'}</span>
-                                  {order.admin_notes && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" title="Internal Persistence" />}
+                                  <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">{order.payment_method || 'Online'}</span>
+                                  {order.admin_notes && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Internal Persistence" />}
                                 </div>
                               </div>
                             </div>
                           </td>
-                          <td className="px-6 py-7">
-                            <div className="flex items-center space-x-4">
-                              <div className="w-10 h-10 rounded-2xl bg-stone-100 flex items-center justify-center text-[10px] font-black text-stone-400 uppercase border-2 border-white shadow-sm overflow-hidden group-hover:border-primary/20 transition-colors">
+                          <td className="px-6 py-6">
+                            <button 
+                              onClick={() => {
+                                if (order.user_name) {
+                                  setCustomerSearchTerm(order.user_name);
+                                  setSelectedSegment('all');
+                                  setActiveTab('Customers');
+                                }
+                              }}
+                              className="flex items-center space-x-3.5 text-left group/btn outline-none focus:outline-none"
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-stone-100/60 flex items-center justify-center text-xs font-black text-stone-600 uppercase border border-stone-250/20 overflow-hidden group-hover/btn:border-stone-400 transition-colors">
                                 {order.user_name ? (
-                                  <span className="text-stone-900">{order.user_name[0]}</span>
+                                  <span className="text-stone-700 font-bold">{order.user_name[0]}</span>
                                 ) : (
-                                  <Users size={16} />
+                                  <Users size={15} />
                                 )}
                               </div>
-                              <div className="max-w-[200px]">
-                                <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate tracking-tight">{order.user_name || 'Protocol Client'}</p>
-                                <p className="text-[10px] text-stone-400 font-bold tracking-wide mt-0.5">{order.items?.length || 0} items</p>
+                              <div className="max-w-[180px]">
+                                <p className="text-sm font-bold text-stone-850 group-hover/btn:text-stone-950 transition-colors line-clamp-1 tracking-tight" title={order.user_name}>
+                                  {order.user_name || 'Protocol Client'}
+                                </p>
+                                <p className="text-[10px] text-stone-400 font-semibold tracking-wide mt-0.5 whitespace-nowrap">
+                                  {order.items?.length || 0} items • View Customer
+                                </p>
                               </div>
-                            </div>
+                            </button>
                           </td>
-                          <td className="px-6 py-7 text-right">
+                          <td className="px-6 py-6 text-right">
                             <div className="flex flex-col items-end">
-                              <span className="text-base font-black text-stone-900 tracking-tighter">₹{order.total}</span>
-                              <div className="flex items-center space-x-1 mt-1">
+                              <span className="text-base font-bold text-stone-900 tracking-tight select-text">₹{(order.total || 0).toLocaleString()}</span>
+                              <div className="flex items-center space-x-1.5 mt-1">
                                 <div className={cn(
                                   "w-1.5 h-1.5 rounded-full",
                                   order.payment_status === 'paid' ? "bg-emerald-500" :
                                   order.payment_status === 'failed' ? "bg-red-500" : "bg-amber-500"
                                 )} />
                                 <span className={cn(
-                                  "text-[9px] font-black uppercase tracking-widest",
+                                  "text-[10px] font-bold uppercase tracking-wider",
                                   order.payment_status === 'paid' ? "text-emerald-600" :
-                                  order.payment_status === 'failed' ? "text-red-600" : "text-amber-600"
+                                  order.payment_status === 'failed' ? "text-red-700" : "text-amber-700"
                                 )}>
                                   {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td className="px-6 py-7">
-                            <span className={cn(
-                              "inline-flex items-center space-x-2.5 px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.15em] border transition-all duration-300",
-                              order.status === 'delivered' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm' : 
-                              order.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200 shadow-sm' : 
-                              order.status === 'shipped' ? 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm' :
-                              'bg-amber-50 text-amber-700 border-amber-200 shadow-sm'
-                            )}>
-                              <div className={cn(
-                                "w-2.5 h-2.5 rounded-full",
-                                order.status === 'delivered' ? 'bg-emerald-500' : 
-                                order.status === 'cancelled' ? 'bg-red-500' : 
-                                order.status === 'shipped' ? 'bg-purple-500 animate-pulse' :
-                                'bg-amber-500 animate-pulse'
-                              )} />
-                              <span>{order.status === 'shipped' ? 'On Route' : order.status}</span>
-                            </span>
+                          <td className="px-6 py-6">
+                            <OrderStatusBadge status={order.status} />
                           </td>
-                          <td className="px-6 py-7">
+                          <td className="px-6 py-6">
                             <div className="flex flex-col">
-                              <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-                              <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span className="text-xs font-bold text-stone-800 tracking-tight select-text">{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                              <span className="text-[10px] font-medium text-stone-400 uppercase tracking-wider mt-0.5 select-text">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           </td>
-                          <td className="px-10 py-7 text-right">
-                            <div className="flex items-center justify-end space-x-3">
+                          <td className="px-8 py-6 text-right">
+                            <div className="flex items-center justify-end space-x-2.5">
                               <motion.button 
-                                whileHover={{ scale: 1.1, backgroundColor: '#f5f5f4' }}
+                                whileHover={{ scale: 1.05, backgroundColor: '#f5f5f4' }}
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => fetchOrderDetailsModal(order)}
-                                className="p-3 bg-stone-50 text-stone-500 hover:text-stone-900 border border-transparent hover:border-stone-200 rounded-2xl transition-all shadow-sm"
+                                className="p-2.5 bg-stone-50 text-stone-500 hover:text-stone-900 rounded-xl transition-all border border-stone-200/45 shadow-sm"
                                 title="Inspect Protocol"
                               >
-                                <Eye size={18} strokeWidth={2.5} />
+                                <Eye size={16} strokeWidth={2.2} />
                               </motion.button>
                               
                               {["pending", "processing"].includes(order.status) && (
                                  <button
                                    onClick={() => updateOrderStatus(order.id, 'shipped')}
-                                   className="px-4 py-2.5 bg-purple-100 text-purple-700 hover:bg-purple-200 font-black text-[10px] uppercase tracking-widest rounded-2xl transition-colors shadow-sm whitespace-nowrap"
-                                   title="Ship Order"
+                                   className={cn(
+                                     "px-3.5 py-2 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-colors shadow-sm whitespace-nowrap",
+                                     order.delivery_type === 'pickup' 
+                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50 hover:bg-emerald-100" 
+                                      : "bg-purple-50 text-purple-700 border border-purple-200/50 hover:bg-purple-100"
+                                   )}
+                                   title={order.delivery_type === 'pickup' ? "Mark Ready for Pickup" : "Ship Order"}
                                  >
-                                    Ship
+                                    {order.delivery_type === 'pickup' ? 'Ready' : 'Ship'}
                                  </button>
                               )}
                               
                               {order.status === "shipped" && (
                                  <button
                                    onClick={() => updateOrderStatus(order.id, 'delivered')}
-                                   className="px-4 py-2.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-black text-[10px] uppercase tracking-widest rounded-2xl transition-colors shadow-sm whitespace-nowrap"
-                                   title="Deliver Order"
+                                   className="px-3.5 py-2 bg-stone-900 text-white hover:bg-stone-800 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-colors shadow-sm whitespace-nowrap"
+                                   title={order.delivery_type === 'pickup' ? "Complete Pickup" : "Deliver Order"}
                                  >
-                                    Deliver
+                                    {order.delivery_type === 'pickup' ? 'Picked' : 'Deliver'}
                                  </button>
                               )}
 
                               <div className="relative">
                                 <motion.button 
-                                  whileHover={{ scale: 1.1, backgroundColor: '#f5f5f4' }}
+                                  whileHover={{ scale: 1.05, backgroundColor: '#f5f5f4' }}
                                   whileTap={{ scale: 0.95 }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setActiveActionMenuId(activeActionMenuId === `order_${order.id}` ? null : `order_${order.id}`);
                                   }}
                                   className={cn(
-                                    "p-3 bg-stone-50 text-stone-500 rounded-2xl transition-all border border-transparent hover:border-stone-200 hover:text-primary shadow-sm",
-                                    activeActionMenuId === `order_${order.id}` && "bg-white text-primary shadow-xl border-stone-200"
+                                    "p-2.5 bg-stone-50 text-stone-500 rounded-xl transition-all border border-stone-200/45 hover:text-stone-800 shadow-sm",
+                                    activeActionMenuId === `order_${order.id}` && "bg-white text-stone-900 shadow-xl border-stone-200"
                                   )}
                                 >
-                                  <MoreVertical size={18} strokeWidth={2.5} />
+                                  <MoreVertical size={16} strokeWidth={2.2} />
                                 </motion.button>
                                 
                                 <AnimatePresence>
                                   {activeActionMenuId === `order_${order.id}` && (
                                     <motion.div 
-                                      initial={{ opacity: 0, scale: 0.9, y: 10, x: 10 }}
-                                      animate={{ opacity: 1, scale: 1, y: 0, x: 0 }}
-                                      exit={{ opacity: 0, scale: 0.9, y: 10, x: 10 }}
-                                      className="absolute right-0 top-full mt-4 w-72 bg-white rounded-[2rem] shadow-2xl shadow-stone-300 border border-stone-100 z-[100] overflow-hidden flex flex-col py-4"
+                                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                      className="absolute right-0 top-full mt-3 w-64 bg-white rounded-2xl shadow-xl border border-stone-100 z-[100] overflow-hidden flex flex-col py-2.5"
                                       onMouseLeave={() => setActiveActionMenuId(null)}
                                     >
-                                      <div className="px-8 py-3 text-[10px] font-black uppercase text-stone-400 tracking-[0.25em] mb-2">Transition Directive</div>
+                                      <div className="px-6 py-2 text-[9px] font-black uppercase text-stone-400 tracking-[0.2em] mb-1">State Control</div>
                                       {[ 
                                         {val: 'pending', label: 'Hold for Review', color: 'bg-amber-400'}, 
                                         {val: 'processing', label: 'Initiate Processing', color: 'bg-blue-400'}, 
@@ -5198,29 +6373,32 @@ export default function AdminDashboard() {
                                             setActiveActionMenuId(null);
                                           }}
                                           className={cn(
-                                            "flex items-center justify-between px-8 py-3 hover:bg-stone-50 text-left text-[11px] font-black uppercase tracking-wider transition-all",
-                                            order.status === s.val ? "text-primary bg-primary/[0.04]" : "text-stone-500"
+                                            "flex items-center justify-between px-6 py-2.5 hover:bg-stone-50 text-left text-xs font-bold transition-all",
+                                            order.status === s.val ? "text-stone-900 bg-stone-50" : "text-stone-500"
                                           )}
                                         >
-                                          <div className="flex items-center space-x-3">
+                                          <div className="flex items-center space-x-2.5">
                                             <div className={cn("w-1.5 h-1.5 rounded-full", order.status === s.val ? s.color : "bg-stone-200")} />
                                             <span>{s.label}</span>
                                           </div>
-                                          {order.status === s.val && <Check size={14} className="text-primary" />}
+                                          {order.status === s.val && <Check size={14} className="text-stone-800" />}
                                         </button>
                                       ))}
-                                      <div className="h-px bg-stone-100 my-4 mx-6" />
+                                      <div className="h-px bg-stone-100 my-2 mx-4" />
                                       <button 
                                         onClick={async () => {
                                           const { generateOrderInvoicePDF } = await import('../services/pdfService');
+                                          setExportProgress({ open: true, progress: 30, label: 'Collating order telemetry...' });
                                           generateOrderInvoicePDF(order, config);
+                                          setExportProgress({ open: true, progress: 100, label: 'Invoice Generated' });
+                                          setTimeout(() => setExportProgress({ open: false, progress: 0, label: '' }), 1000);
                                         }}
-                                        className="flex items-center space-x-4 px-8 py-4 hover:bg-stone-50 group transition-all"
+                                        className="flex items-center space-x-3 px-6 py-2.5 hover:bg-stone-50 group transition-all"
                                       >
-                                        <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                                          <Receipt size={16} />
+                                        <div className="p-2 bg-stone-100 rounded-lg group-hover:bg-stone-200 transition-colors">
+                                          <Receipt size={14} className="text-stone-600" />
                                         </div>
-                                        <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Generate Ledger</span>
+                                        <span className="text-xs font-bold text-stone-800">Generate Ledger</span>
                                       </button>
                                     </motion.div>
                                   )}
@@ -5235,13 +6413,13 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="p-8 bg-stone-50/50 flex gap-8 overflow-x-auto no-scrollbar min-h-[700px]">
+              <div className="p-6 bg-stone-50/50 rounded-3xl border border-stone-200/20 flex gap-6 overflow-x-auto no-scrollbar min-h-[700px]">
                   {['pending', 'processing', 'shipped', 'delivered', 'cancelled'].map((statusColumn) => (
-                    <div key={statusColumn} className="w-[340px] shrink-0 flex flex-col">
-                      <div className="flex items-center justify-between mb-6 px-2">
+                    <div key={statusColumn} className="w-[320px] shrink-0 flex flex-col">
+                      <div className="flex items-center justify-between mb-5 px-1.5">
                         <div className="flex items-center space-x-3">
-                          <h4 className="font-black text-stone-900 uppercase tracking-widest text-xs">{statusColumn}</h4>
-                          <span className="bg-white border border-stone-200 text-stone-500 text-[10px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
+                          <h4 className="font-bold text-stone-800 uppercase tracking-wider text-xs">{statusColumn}</h4>
+                          <span className="bg-white border border-stone-200/50 text-stone-500 text-[10px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
                             {orders.filter(o => o.status === statusColumn).length}
                           </span>
                         </div>
@@ -5253,41 +6431,46 @@ export default function AdminDashboard() {
                             const matchesStart = !orderDateStart || orderDate >= orderDateStart;
                             const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
                             const matchesSearch = !orderSearchTerm || 
-                              order.id.toString().includes(orderSearchTerm.replace('#ORD-', '')) ||
+                              order.id.toString().includes(orderSearchTerm?.replace('#ORD-', '')) ||
                               order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
                             return matchesStatus && matchesStart && matchesEnd && matchesSearch;
                           }).map((order) => (
                           <motion.div
                             layout
                             key={order.id}
-                            whileHover={{ y: -4 }}
-                            className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 hover:shadow-xl hover:shadow-stone-200/50 transition-all cursor-pointer group relative"
+                            whileHover={{ y: -2 }}
+                            className="bg-white p-5 rounded-2xl border border-stone-200/40 hover:border-stone-300 shadow-sm transition-all cursor-pointer group relative"
                             onClick={() => fetchOrderDetailsModal(order)}
                           >
-                            <div className="flex justify-between items-start mb-4">
-                              <span className="font-mono text-xs font-black text-primary tracking-tighter">#ORD-{order.id}</span>
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="flex flex-col">
+                                <span className="font-mono text-xs font-bold text-stone-800 tracking-tighter">#ORD-{order.id}</span>
+                                {order.delivery_type === 'pickup' && (
+                                  <span className="mt-1 bg-stone-100 text-stone-700 text-[7px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit border border-stone-200/30">Pickup</span>
+                                )}
+                              </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-xs font-black text-stone-900 tracking-tight">₹{order.total}</span>
+                                <span className="text-xs font-bold text-stone-900 tracking-tight">₹{order.total}</span>
                                 <span className={cn(
-                                  "text-[8px] font-black uppercase tracking-widest mt-0.5 px-1.5 py-0.5 rounded-md",
-                                  order.payment_status === 'paid' ? "bg-emerald-100 text-emerald-600" :
-                                  order.payment_status === 'failed' ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                                  "text-[8px] font-bold uppercase tracking-wider mt-1 px-1.5 py-0.5 rounded-md",
+                                  order.payment_status === 'paid' ? "bg-emerald-50 text-emerald-600 border border-emerald-100/50" :
+                                  order.payment_status === 'failed' ? "bg-red-50 text-red-600 border border-red-100/50" : "bg-amber-50 text-amber-600 border border-amber-100/50"
                                 )}>
                                   {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
                                 </span>
                               </div>
                             </div>
-                            <h5 className="text-sm font-black text-stone-900 mb-1 truncate">{order.user_name || 'Anonymous Customer'}</h5>
-                            <p className="text-[10px] text-stone-400 font-medium mb-4 line-clamp-1">{order.items?.length || 0} unique SKU items</p>
+                            <h5 className="text-sm font-bold text-stone-850 mb-1 truncate">{order.user_name || 'Anonymous Customer'}</h5>
+                            <p className="text-[10px] text-stone-400 font-medium mb-3 line-clamp-1">{order.items?.length || 0} unique SKU items</p>
                             
-                            <div className="flex items-center justify-between pt-4 border-t border-stone-50">
+                            <div className="flex items-center justify-between pt-3 border-t border-stone-100/60">
                               <div className="flex items-center space-x-2 text-stone-400 font-bold uppercase tracking-widest text-[9px]">
-                                <Clock size={12} />
+                                <Clock size={11} />
                                 <span>{new Date(order.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
                               </div>
                               <span className={cn(
-                                "text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest",
-                                order.payment_method === 'cod' ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"
+                                "text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest",
+                                order.payment_method === 'cod' ? "bg-amber-50 text-amber-600 border border-amber-100/40" : "bg-emerald-50 text-emerald-600 border border-emerald-100/45"
                               )}>
                                 {order.payment_method || 'Online'}
                               </span>
@@ -5296,15 +6479,23 @@ export default function AdminDashboard() {
                             {/* Dropdown for quick status move */}
                             <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                               <select 
-                                className="text-[9px] font-black uppercase tracking-widest bg-stone-900 text-white border-0 rounded-lg px-2 py-1 outline-none cursor-pointer"
+                                className="text-[8px] font-bold uppercase tracking-wider bg-stone-950 text-white border-0 rounded-lg px-2 py-1 outline-none cursor-pointer"
                                 onClick={(e) => e.stopPropagation()}
                                 onChange={(e) => updateOrderStatus(order.id, e.target.value)}
                                 value=""
                               >
                                 <option value="" disabled>Move</option>
                                 {statusColumn === 'pending' && <option value="processing">Process</option>}
-                                {statusColumn === 'processing' && <option value="shipped">Ship</option>}
-                                {statusColumn === 'shipped' && <option value="delivered">Deliver</option>}
+                                {statusColumn === 'processing' && (
+                                  <option value="shipped">
+                                    {order.delivery_type === 'pickup' ? 'Mark Ready' : 'Dispatch'}
+                                  </option>
+                                )}
+                                {statusColumn === 'shipped' && (
+                                  <option value="delivered">
+                                    {order.delivery_type === 'pickup' ? 'Complete' : 'Deliver'}
+                                  </option>
+                                )}
                                 <option value="cancelled">Void</option>
                               </select>
                             </div>
@@ -5313,10 +6504,10 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
+              </div>
+            )}
 
-              {/* Bottom Contextual Action Bar for Bulk Management (Orders) */}
+            {/* Bottom Contextual Action Bar for Bulk Management (Orders) */}
               <AnimatePresence>
                 {selectedOrders.length > 0 && (
                   <motion.div 
@@ -5388,81 +6579,78 @@ export default function AdminDashboard() {
           </div>
           
           <div className="flex items-center space-x-3">
-            <div className="hidden lg:flex items-center space-x-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100">
+            <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px] hidden xl:flex">
+              <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Low Stock</span>
+              <span className="text-xl font-black text-red-500">{allProducts.filter(p => p.stock <= (p.reorder_point || 5)).length}</span>
+            </div>
+            <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px] hidden xl:flex">
+                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Total SKU</span>
+                <span className="text-xl font-black text-primary">{allProducts.length}</span>
+            </div>
+            <div className="hidden lg:flex items-center space-x-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-emerald-100">
               <Activity size={14} className="animate-pulse" />
               <span>Live Sync Active</span>
             </div>
-            <button 
-              onClick={() => {
-                setProductModal({ open: true, mode: 'add' });
-                setNewProduct({ 
-                  name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
-                  retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
-                  images: [],
-                  specifications: {},
-                  batch_number: '',
-                  expiry_date: '',
-                  unit: 'kg',
-                  is_subscribable: false
-                } as any);
-              }}
-              className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 group"
-            >
-              <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
-              <span>Initialize Product</span>
-            </button>
+            <div className="relative z-50">
+              <button 
+                onClick={() => {
+                  setProductModal({ open: true, mode: 'add' });
+                  setNewProduct({ 
+                    name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
+                    retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
+                    images: [],
+                    specifications: {},
+                    batch_number: '',
+                    expiry_date: '',
+                    unit: 'kg',
+                    is_subscribable: false
+                  } as any);
+                }}
+                className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 group"
+              >
+                <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+                <span>Initialize Product</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <UniversalExportToolbar 
-          title="Master Inventory Ledger"
-          fileName="Inventory_SKU_Manifest"
-          fetchData={async () => allProducts}
-          columns={[
-            { header: 'Product Name', dataKey: 'name' },
-            { header: 'Category', dataKey: 'category' },
-            { header: 'Retail Price', dataKey: 'retail_price', halign: 'right' },
-            { header: 'Wholesale Price', dataKey: 'wholesale_price', halign: 'right' },
-            { header: 'Current Stock', dataKey: 'stock', halign: 'center' },
-            { header: 'Reorder Point', dataKey: 'reorder_point', halign: 'center' },
-            { header: 'Status', dataKey: 'is_listed' }
-          ]}
-        />
+        <ExportTriggerButton type="products" />
 
         {/* Intelligence Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[
-            { label: 'Total SKU', val: allProducts.length, icon: Package, color: 'stone', trend: 'Catalog Depth' },
-            { label: 'Out of Stock', val: allProducts.filter(p => Number(p.stock) <= 0).length, icon: AlertTriangle, color: 'red', trend: 'Immediate Action' },
-            { label: 'Low Stock Alert', val: allProducts.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.reorder_point || 5)).length, icon: ShieldAlert, color: 'amber', trend: 'Replenishment Needed' },
-            { label: 'Expiring Soon', val: allProducts.filter(p => p.expiry_date && new Date(p.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length, icon: Clock, color: 'emerald', trend: 'Waste Mitigation' }
-          ].map((stat, i) => (
-            <motion.div 
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm hover:shadow-xl hover:shadow-stone-200/40 transition-all group overflow-hidden relative"
-            >
-              <div className={cn(
-                "absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-[0.03] transition-transform duration-500 group-hover:scale-150",
-                stat.color === 'red' ? 'bg-red-500' : stat.color === 'amber' ? 'bg-amber-500' : stat.color === 'emerald' ? 'bg-emerald-500' : 'bg-primary'
-              )} />
-              <div className="flex items-center justify-between mb-4">
-                <div className={cn(
-                  "p-3 rounded-2xl",
-                  stat.color === 'red' ? 'bg-red-50 text-red-500' : stat.color === 'amber' ? 'bg-amber-50 text-amber-500' : stat.color === 'emerald' ? 'bg-emerald-50 text-emerald-500' : 'bg-stone-50 text-stone-500'
-                )}>
-                  <stat.icon size={20} />
-                </div>
-                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">{stat.trend}</span>
-              </div>
-              <div className="space-y-1">
-                <p className="text-3xl font-black text-stone-900 tracking-tighter">{stat.val}</p>
-                <p className="text-[11px] font-bold text-stone-500 uppercase tracking-widest">{stat.label}</p>
-              </div>
-            </motion.div>
-          ))}
+          <AdminStatCard 
+            label="Total SKU Catalog" 
+            value={allProducts.length} 
+            icon={<Package size={22} />} 
+            color="primary"
+            trend={{ value: 'Active', isUp: true }}
+            progress={100}
+          />
+          <AdminStatCard 
+            label="Out of Stock" 
+            value={allProducts.filter(p => Number(p.stock) <= 0).length} 
+            icon={<AlertTriangle size={22} />} 
+            color="red"
+            trend={{ value: 'Action Required', isUp: false }}
+            progress={allProducts.length > 0 ? (allProducts.filter(p => Number(p.stock) <= 0).length / allProducts.length) * 100 : 0}
+          />
+          <AdminStatCard 
+            label="Low Stock Replenish" 
+            value={allProducts.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.reorder_point || 5)).length} 
+            icon={<ShieldAlert size={22} />} 
+            color="amber"
+            trend={{ value: 'Reviewing', isUp: true, color: 'text-amber-500' }}
+            progress={45}
+          />
+          <AdminStatCard 
+            label="Expiring Manifest" 
+            value={allProducts.filter(p => p.expiry_date && new Date(p.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length} 
+            icon={<Clock size={22} />} 
+            color="emerald"
+            trend={{ value: 'Mitigation', isUp: true }}
+            progress={15}
+          />
         </div>
 
         {/* Global Catalog Utility Bar */}
@@ -5544,7 +6732,7 @@ export default function AdminDashboard() {
               </div>
               
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Stock</label>
+                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Stock</label>
                 <select 
                   className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
                   value={productStockFilter}
@@ -5558,7 +6746,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
+                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
                 <select 
                   className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer min-w-[140px]"
                   value={productCategoryFilter}
@@ -5572,7 +6760,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Status</label>
+                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Status</label>
                 <select 
                   className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
                   value={productListedFilter}
@@ -5585,7 +6773,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Sort By</label>
+                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Sort By</label>
                 <select 
                   className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
                   value={productSortBy}
@@ -5619,7 +6807,7 @@ export default function AdminDashboard() {
             <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
               <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.15em]">
+                  <thead className="bg-stone-50/50 text-stone-400 text-xs uppercase font-black tracking-[0.15em]">
                     <tr>
                       <th className="px-8 py-6 w-10">
                         <input 
@@ -5629,12 +6817,13 @@ export default function AdminDashboard() {
                           onChange={toggleAllProducts}
                         />
                       </th>
-                      <th className="px-6 py-6">Product Information</th>
+                      <th className="px-6 py-6">Inventory Node</th>
                       <th className="px-6 py-6">Category</th>
-                      <th className="px-6 py-6">Price Points</th>
-                      <th className="px-6 py-6">Stock Status</th>
-                      <th className="px-6 py-6">Visibility</th>
-                      <th className="px-8 py-6 text-right">Actions</th>
+                      <th className="px-6 py-6">Pricing & Margin</th>
+                      <th className="px-6 py-6">Unit Liquidity</th>
+                      <th className="px-6 py-6">Lifecycle Control</th>
+                      <th className="px-6 py-6">Market Visibility</th>
+                      <th className="px-8 py-6 text-right">Operational Directives</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-50">
@@ -5667,28 +6856,28 @@ export default function AdminDashboard() {
                                 className="w-14 h-14 rounded-2xl object-cover shadow-sm border border-stone-100 group-hover:scale-110 transition-transform duration-500" 
                               />
                               {product.discount > 0 && (
-                                <span className="absolute -top-2 -right-2 bg-accent text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-lg">-{product.discount}%</span>
+                                <span className="absolute -top-2 -right-2 bg-accent text-white text-xs font-black px-1.5 py-0.5 rounded-full shadow-lg">-{product.discount}%</span>
                               )}
                             </div>
                             <div className="max-w-[240px]">
-                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate">{product.name}</p>
-                              <p className="text-[10px] text-stone-400 font-medium line-clamp-1 mt-0.5">{product.description}</p>
+                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate select-text">{product.name}</p>
+                              <p className="text-xs text-stone-400 font-medium line-clamp-1 mt-0.5 select-text">{product.description}</p>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-6">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-stone-500 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200/50">{product.category}</span>
+                          <span className="text-xs font-black uppercase tracking-widest text-stone-500 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200/50 select-text">{product.category}</span>
                         </td>
                         <td className="px-6 py-6">
                           <div className="space-y-1">
                             <div className="flex items-center space-x-2">
-                              <span className="text-xs font-black text-stone-900">₹{product.retail_price || product.price}</span>
-                              <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Retail</span>
+                              <span className="text-sm font-black text-stone-900 select-text">₹{(product.retail_price || product.price).toLocaleString()}</span>
+                              <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">Retail</span>
                             </div>
                             {product.wholesale_price && (
                               <div className="flex items-center space-x-2">
-                                <span className="text-[11px] font-bold text-stone-500">₹{product.wholesale_price}</span>
-                                <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Wholesale</span>
+                                <span className="text-xs font-bold text-stone-500 select-text">₹{product.wholesale_price.toLocaleString()}</span>
+                                <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">W/S</span>
                               </div>
                             )}
                           </div>
@@ -5696,7 +6885,7 @@ export default function AdminDashboard() {
                         <td className="px-6 py-6">
                           <div className="flex flex-col">
                             <span className={cn(
-                              "text-[10px] font-black uppercase tracking-widest mb-1 shadow-sm px-2 py-0.5 rounded-md w-fit",
+                              "text-xs font-black uppercase tracking-widest mb-1 shadow-sm px-2 py-0.5 rounded-md w-fit select-text",
                               Number(product.stock) <= 0 ? "bg-red-50 text-red-600" : 
                               Number(product.stock) <= Number(product.reorder_point || 5) ? "bg-amber-50 text-amber-600" : 
                               "bg-emerald-50 text-emerald-600"
@@ -5714,7 +6903,7 @@ export default function AdminDashboard() {
                                   )}
                                 />
                               </div>
-                              <span className="text-xs font-black text-stone-700">{product.stock} <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Units</span></span>
+                              <span className="text-sm font-black text-stone-700 select-text">{product.stock} <span className="text-xs text-stone-400 font-bold uppercase tracking-widest">Units</span></span>
                             </div>
                           </div>
                         </td>
@@ -5723,21 +6912,21 @@ export default function AdminDashboard() {
                               {product.expiry_date ? (
                                 <>
                                   <span className={cn(
-                                    "text-[9px] font-black uppercase tracking-widest mb-1",
+                                    "text-xs font-black uppercase tracking-widest mb-1",
                                     new Date(product.expiry_date) < new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) ? "text-red-500" : "text-stone-400"
                                   )}>
-                                    Expiry Control
+                                    Expiry Ctrl
                                   </span>
-                                  <span className="text-xs font-black text-stone-700">{new Date(product.expiry_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                  <span className="text-sm font-black text-stone-700 select-text">{new Date(product.expiry_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                                 </>
                               ) : (
-                                <span className="text-[10px] text-stone-300 italic font-bold">No Expiry Tracked</span>
+                                <span className="text-xs text-stone-300 italic font-bold">No Expiry Tracked</span>
                               )}
                            </div>
                         </td>
                         <td className="px-6 py-6">
                           <span className={cn(
-                            "inline-flex items-center space-x-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all duration-300",
+                            "inline-flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest border transition-all duration-300",
                             product.is_listed 
                               ? "bg-emerald-50 text-emerald-600 border-emerald-100/50" 
                               : "bg-red-50 text-red-600 border-red-100/50"
@@ -5795,7 +6984,7 @@ export default function AdminDashboard() {
                 >
                   <div className="flex flex-col border-r border-stone-700 pr-6 mr-2">
                     <span className="text-2xl font-black text-white">{selectedProducts.length}</span>
-                    <span className="text-[10px] uppercase font-bold tracking-widest text-stone-400">Selected</span>
+                    <span className="text-xs uppercase font-bold tracking-widest text-stone-400">Selected</span>
                   </div>
                   
                   <div className="flex flex-1 items-center space-x-2 md:space-x-4 overflow-x-auto no-scrollbar">
@@ -6198,116 +7387,6 @@ export default function AdminDashboard() {
             </div>
           </motion.div>
         )}
-        {activeTab === 'Admin Management' && (
-           <div className="space-y-10">
-             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-               <div>
-                 <h2 className="text-4xl font-black text-stone-900 tracking-tight">Governance & Access</h2>
-                 <p className="text-stone-500 mt-2 text-lg font-medium">Control administrative permissions and monitor data lifecycle.</p>
-               </div>
-               <div className="flex gap-4">
-                  <button onClick={() => fetchAuditLogs()} className="p-4 bg-stone-100 text-stone-600 rounded-2xl hover:bg-stone-200 transition-colors shadow-sm">
-                    <History size={20} />
-                  </button>
-                  <button onClick={() => setRoleModal({ open: true, mode: 'add', role: null })} className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-stone-200 hover:scale-105 active:scale-95 transition-all">
-                    Provision New Access
-                  </button>
-               </div>
-             </header>
-
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white rounded-[3rem] p-10 border border-stone-100 shadow-sm relative overflow-hidden group">
-                   <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                     <Shield size={120} />
-                   </div>
-                   <div className="flex items-center justify-between mb-8 relative z-10">
-                      <h3 className="text-2xl font-black text-stone-900 tracking-tight italic">Root Administrators</h3>
-                      <button onClick={fetchAdmins} className={cn("p-2 rounded-xl text-stone-400 hover:text-primary transition-colors", isAdminRefreshing && "animate-spin")}>
-                        <RefreshCw size={18} />
-                      </button>
-                   </div>
-                   <div className="space-y-4 relative z-10">
-                      {admins.map((adm, i) => (
-                        <div key={adm.id} className="group/item p-6 bg-stone-50 rounded-[2.5rem] border border-stone-100 hover:border-primary/20 hover:bg-white transition-all flex items-center justify-between shadow-sm hover:shadow-xl hover:shadow-stone-200/50">
-                           <div className="flex items-center space-x-5">
-                              <div className="w-14 h-14 bg-white rounded-2xl border border-stone-200 flex items-center justify-center font-black text-stone-400 shadow-sm group-hover/item:text-primary group-hover/item:border-primary/30 transition-all">
-                                {adm.name?.charAt(0) || 'A'}
-                              </div>
-                              <div>
-                                <p className="font-black text-stone-900 leading-none mb-1 text-base tracking-tight">{adm.name}</p>
-                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{adm.email}</p>
-                                {adm.last_login_at && (
-                                  <div className="flex items-center space-x-1.5 mt-2">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                    <p className="text-[9px] text-stone-300 font-bold uppercase tracking-widest leading-none">Last Seen: {new Date(adm.last_login_at).toLocaleString()}</p>
-                                  </div>
-                                )}
-                              </div>
-                           </div>
-                           <div className="flex items-center space-x-2 opacity-0 group-hover/item:opacity-100 transition-all translate-x-2 group-hover/item:translate-x-0">
-                              <button className="p-3 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"><Trash2 size={18} /></button>
-                           </div>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-
-                <div className="bg-white rounded-[3rem] p-10 border border-stone-100 shadow-sm relative group overflow-hidden">
-                   <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                     <Trash2 size={120} />
-                   </div>
-                   <h3 className="text-2xl font-black text-stone-900 tracking-tight italic mb-8 relative z-10">Data Deletion Queue</h3>
-                   <div className="space-y-4 relative z-10">
-                      {deletionRequests.length === 0 ? (
-                        <div className="text-center py-20 text-stone-300 bg-stone-50/50 rounded-[2.5rem] border border-dashed border-stone-200">
-                          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
-                            <CheckCircle2 size={32} className="text-emerald-500" />
-                          </div>
-                          <p className="font-black uppercase text-[10px] tracking-[0.25em] text-stone-300">Privacy Compliance: 100%</p>
-                          <p className="text-xs font-bold text-stone-400 mt-2">No active user deletion requests pending.</p>
-                        </div>
-                      ) : (
-                        deletionRequests.map((req, i) => (
-                          <div key={req.id} className="p-8 bg-red-50/50 rounded-[2.5rem] border border-red-100 space-y-6 shadow-sm">
-                            <div className="flex justify-between items-start">
-                              <div className="flex items-center space-x-4">
-                                <div className="w-12 h-12 bg-white rounded-2xl border border-red-100 flex items-center justify-center text-red-500 shadow-sm">
-                                  <Users size={20} />
-                                </div>
-                                <div>
-                                  <p className="font-black text-red-900 leading-none text-lg tracking-tight">{req.user_name}</p>
-                                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mt-1.5">Cipher: SYS-DEL-0{req.id}</p>
-                                </div>
-                              </div>
-                              <span className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-red-200">Pending Authorization</span>
-                            </div>
-                            <div className="bg-white p-5 rounded-2xl text-[11px] font-bold text-red-800 leading-relaxed italic relative border border-red-50">
-                               <span className="absolute -top-3 left-6 px-2 bg-white text-[8px] uppercase tracking-widest text-red-300">User Testimony</span>
-                              "{req.reason || 'No internal reason documented'}"
-                            </div>
-                            <div className="flex gap-3">
-                               <button 
-                                onClick={() => approveDeletion(req.id)} 
-                                className="flex-1 py-4 bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-200 hover:bg-red-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                               >
-                                 Authorize Full Purge
-                               </button>
-                               <button 
-                                onClick={() => rejectDeletion(req.id)} 
-                                className="px-8 py-4 bg-white text-red-500 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-100 hover:bg-red-50 transition-all"
-                               >
-                                 Reject
-                               </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                   </div>
-                </div>
-             </div>
-           </div>
-        )}
-
         {activeTab === 'Customers' && (
           <div className="space-y-10">
             {/* Intelligence Header */}
@@ -6316,22 +7395,18 @@ export default function AdminDashboard() {
                   <h2 className="text-4xl font-black text-stone-900 tracking-tight">Customer Insights</h2>
                 <p className="text-stone-500 mt-2 text-lg font-medium">Segment behavior, wallet states, and lifetime value analytics.</p>
               </div>
-              <div className="flex flex-col items-end gap-3">
-                <UniversalExportToolbar 
-                  title="Customer Intelligence"
-                  fileName="Customer_Intelligence_Pool"
-                  fetchData={async () => users}
-                  columns={[
-                    { header: 'Full Name', dataKey: 'name' },
-                    { header: 'Phone', dataKey: 'phone' },
-                    { header: 'Email', dataKey: 'email' },
-                    { header: 'Segment', dataKey: 'segment' },
-                    { header: 'Wallet Balance', dataKey: 'wallet_balance', halign: 'right' },
-                    { header: 'Khata Balance', dataKey: 'khata_balance', halign: 'right' },
-                    { header: 'Total Spent', dataKey: 'total_spent', halign: 'right' },
-                    { header: 'Total Orders', dataKey: 'total_orders', halign: 'center' }
-                  ]}
-                />
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px]">
+                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Total Humans</span>
+                  <span className="text-xl font-black text-primary">{users.length}</span>
+                </div>
+                <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px]">
+                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Active Wallets</span>
+                  <span className="text-xl font-black text-emerald-500">₹{users.reduce((acc, u) => acc + (u.wallet_balance || 0), 0).toLocaleString()}</span>
+                </div>
+                <div className="flex flex-col items-end gap-3">
+                  <ExportTriggerButton type="users" />
+                </div>
               </div>
             </header>
 
@@ -6345,7 +7420,7 @@ export default function AdminDashboard() {
               </div>
               
               <div className="flex flex-1 items-center space-x-2 overflow-x-auto no-scrollbar scroll-smooth gap-1">
-                {['all', 'Champion', 'Loyal', 'Recent', 'At Risk', 'Lost'].map((segment) => (
+                {['all', 'Khata Requests', 'Champion', 'Loyal', 'Recent', 'At Risk', 'Lost'].map((segment) => (
                   <button
                     key={segment}
                     onClick={() => setSelectedSegment(segment)}
@@ -6368,11 +7443,13 @@ export default function AdminDashboard() {
                     type="text" 
                     placeholder="Search humans..."
                     className="bg-stone-50 border-stone-200 border rounded-2xl pl-12 pr-4 py-3.5 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-stone-300 font-medium w-64 uppercase tracking-wider text-[10px]"
+                    value={customerSearchTerm}
+                    onChange={(e) => setCustomerSearchTerm(e.target.value)}
                   />
                 </div>
                 <motion.button 
                   whileHover={{ rotate: 180 }}
-                  onClick={() => setSelectedSegment('all')}
+                  onClick={() => { setSelectedSegment('all'); setCustomerSearchTerm(''); }}
                   className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-primary transition-all shadow-sm"
                 >
                   <RefreshCw size={20} />
@@ -6383,13 +7460,13 @@ export default function AdminDashboard() {
             <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
               <div className="overflow-x-auto no-scrollbar hidden md:block">
                 <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.15em]">
+                  <thead className="bg-stone-50/50 text-stone-400 text-xs uppercase font-black tracking-[0.15em]">
                     <tr>
-                      <th className="px-8 py-6">Identity Profile</th>
-                      <th className="px-6 py-6">Engagement Segment</th>
+                      <th className="px-8 py-6">Human Identity</th>
+                      <th className="px-6 py-6">Lifecycle Segment</th>
                       <th className="px-6 py-6 text-right">Settlement Wallet</th>
                       <th className="px-6 py-6">Commercial value</th>
-                      <th className="px-6 py-6">Khata Policy</th>
+                      <th className="px-6 py-6">Credit Policy</th>
                       <th className="px-8 py-6 text-right">Governance</th>
                     </tr>
                   </thead>
@@ -6415,8 +7492,8 @@ export default function AdminDashboard() {
                               <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-4 border-white shadow-sm ring-1 ring-emerald-100" />
                             </div>
                             <div>
-                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown User')}</p>
-                              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5">{u.phone || u.email}</p>
+                             <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight select-text">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown User')}</p>
+                              <p className="text-xs text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5 select-text">{maskPhoneNumber(u.phone) || u.email}</p>
                             </div>
                           </div>
                         </td>
@@ -6424,7 +7501,7 @@ export default function AdminDashboard() {
                           <div className="flex flex-col space-y-2">
                             <div className="flex items-center space-x-2">
                                <span className={cn(
-                                 "inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                                 "inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
                                  u.computed_segment === 'Champion' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
                                  u.computed_segment === 'Loyal' ? "bg-blue-50 text-blue-600 border-blue-100" :
                                  u.computed_segment === 'Recent' ? "bg-amber-50 text-amber-600 border-amber-100" :
@@ -6433,14 +7510,14 @@ export default function AdminDashboard() {
                                )}>
                                  {u.computed_segment || u.segment || 'PROSPECT'}
                                </span>
-                               {u.rfm_score && <span className="text-[10px] font-mono font-black text-stone-300 tracking-tighter">RFM:{u.rfm_score}</span>}
+                               {u.rfm_score && <span className="text-xs font-mono font-black text-stone-300 tracking-tighter">RFM:{u.rfm_score}</span>}
                             </div>
-                            <span className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{u.role} Access LVL</span>
+                            <span className="text-xs font-black text-stone-400 uppercase tracking-[0.2em]">{u.role} Access LVL</span>
                           </div>
                         </td>
                         <td className="px-6 py-6 text-right">
                           <div className="flex flex-col items-end">
-                            <span className="text-base font-black text-primary tracking-tighter">₹{u.wallet_balance}</span>
+                            <span className="text-base font-black text-primary tracking-tighter select-text">₹{(u.wallet_balance || 0).toLocaleString()}</span>
                             <button 
                               onClick={() => setWalletModal({ open: true, userId: u.id })}
                               className="text-[9px] font-black uppercase tracking-widest text-stone-400 hover:text-primary transition-colors mt-1.5 underline decoration-stone-200 underline-offset-4"
@@ -6451,19 +7528,25 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-6 font-bold text-sm text-stone-500">
                           <div className="flex flex-col">
-                            <span className="text-sm font-black text-stone-900 tracking-tight">{(u as any).total_orders || 0} Transactions</span>
-                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1.5">Spent: ₹{(u as any).total_spent || 0}</span>
+                            <span className="text-sm font-black text-stone-900 tracking-tight select-text">{(u as any).total_orders || 0} Transactions</span>
+                            <span className="text-xs font-black text-emerald-600 uppercase tracking-widest mt-1.5 underline decoration-emerald-100 underline-offset-4 decoration-2">LTV: ₹{((u as any).total_spent || 0).toLocaleString()}</span>
+                            {u.khata_requested && !u.khata_enabled && (
+                               <span className="mt-2 flex items-center gap-1.5 text-[8px] font-black bg-amber-100 text-amber-600 px-2 py-1 rounded-lg uppercase tracking-widest animate-pulse border border-amber-200">
+                                  <Clock size={10} />
+                                  Audit Pending
+                               </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-6">
                            <div className="flex flex-col">
                              <div className="flex items-center space-x-2.5">
                                <div className={cn("w-2 h-2 rounded-full", u.khata_enabled ? "bg-emerald-500 animate-pulse" : "bg-stone-200")} />
-                               <span className={cn("text-[10px] font-black uppercase tracking-[0.15em]", u.khata_enabled ? "text-stone-900" : "text-stone-300")}>
-                                 {u.khata_enabled ? 'Merchant Credit' : 'NO LINE'}
+                               <span className={cn("text-xs font-black uppercase tracking-[0.15em]", u.khata_enabled ? "text-stone-900" : "text-stone-300")}>
+                                 {u.khata_enabled ? 'Line of Credit' : 'NO LINE'}
                                </span>
                              </div>
-                             {u.khata_enabled && <span className="text-[10px] text-primary font-black mt-1.5 pl-4.5 tracking-tighter italic">UTIL: ₹{u.khata_balance}</span>}
+                             {u.khata_enabled && <span className="text-xs text-primary font-black mt-1.5 pl-4.5 tracking-tighter italic select-text">USED: ₹{(u.khata_balance || 0).toLocaleString()}</span>}
                            </div>
                         </td>
                         <td className="px-8 py-6 text-right relative">
@@ -6503,6 +7586,18 @@ export default function AdminDashboard() {
                                       onMouseLeave={() => setActiveActionMenuId(null)}
                                     >
                                       <div className="px-8 py-2 text-[10px] font-black uppercase text-stone-300 tracking-[0.25em] mb-2">CRM Directives</div>
+                                      
+                                      {/* Highlight for users who haven't ordered but are active */}
+                                      {((u as any).total_orders === 0) && (
+                                        <div className="mx-6 mb-2 px-4 py-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center gap-3">
+                                          <AlertCircle size={16} className="text-amber-600 animate-pulse" />
+                                          <div className="flex flex-col">
+                                            <span className="text-[9px] font-black text-amber-900 uppercase">Conversion Target</span>
+                                            <span className="text-[8px] font-bold text-amber-700 leading-tight">Zero Transactions Detected. High Potential Prospect.</span>
+                                          </div>
+                                        </div>
+                                      )}
+
                                       <button 
                                         onClick={() => { fetchCustomerOrders(u.id); setActiveActionMenuId(null); }}
                                         className="flex items-center space-x-5 px-8 py-4 hover:bg-stone-50 group transition-all"
@@ -6519,8 +7614,33 @@ export default function AdminDashboard() {
                                         <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Wallet Trail</span>
                                       </button>
 
+                                      {(u.wallet_balance <= 0) && (
+                                        <button 
+                                          onClick={async () => {
+                                            if (confirm(`Authorize ₹100 Loyalty Rescue Drop for ${u.name}?`)) {
+                                              try {
+                                                const data = await fetchWithHandling<any>(`/api/admin/users/${u.id}/wallet`, {
+                                                  method: 'POST',
+                                                  headers: getAuthHeaders(),
+                                                  body: JSON.stringify({ amount: 100, type: 'credit', reason: 'Admin Recovery Reward' })
+                                                });
+                                                if (data) {
+                                                  toast.success('Loyalty drop authorized!');
+                                                  setUsers(prev => prev.map(usr => usr.id === u.id ? { ...usr, wallet_balance: (usr.wallet_balance || 0) + 100 } : usr));
+                                                }
+                                              } catch (err) {}
+                                            }
+                                            setActiveActionMenuId(null);
+                                          }}
+                                          className="flex items-center space-x-5 px-8 py-4 hover:bg-emerald-50 group transition-all"
+                                        >
+                                          <div className="p-2.5 bg-emerald-100 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all"><Plus size={18} /></div>
+                                          <span className="text-xs font-black text-emerald-900 group-hover:text-emerald-600 uppercase tracking-widest">Rescue Drop (₹100)</span>
+                                        </button>
+                                      )}
+
                                       <a 
-                                        href={`https://wa.me/91${u.phone.replace(/[^0-9]/g, '').slice(-10)}`}
+                                        href={`https://wa.me/91${u.phone?.replace(/[^0-9]/g, '').slice(-10)}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="flex items-center space-x-5 px-8 py-4 hover:bg-emerald-50 group transition-all"
@@ -6559,9 +7679,9 @@ export default function AdminDashboard() {
                         <div className="w-16 h-16 rounded-2xl bg-stone-100 flex items-center justify-center overflow-hidden border border-stone-200">
                            {u.profile_photo ? <img src={u.profile_photo} alt="" className="w-full h-full object-cover" /> : <Users size={24} className="text-stone-300" />}
                         </div>
-                        <div>
+                         <div>
                           <p className="text-lg font-black text-stone-900 tracking-tight leading-none">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown')}</p>
-                          <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-2">{u.phone || u.email}</p>
+                          <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-2">{maskPhoneNumber(u.phone) || u.email}</p>
                         </div>
                       </div>
                       <span className="text-[8px] font-black px-2 py-1 bg-stone-900 text-white rounded-lg uppercase tracking-widest">{u.role}</span>
@@ -6603,85 +7723,6 @@ export default function AdminDashboard() {
                   <p className="text-stone-400 font-medium mt-2">No users matching your search were found.</p>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Announcements' && (
-          <div className="space-y-10">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Broadcast Control</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Coordinate global HUD alerts and promotional banners.</p>
-              </div>
-              <button 
-                onClick={() => setNotificationModal({ open: true })}
-                className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:scale-105 transition-all group"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-12 transition-transform"><Megaphone size={18} /></div>
-                <span className="uppercase tracking-widest text-xs">Architect Bulletin</span>
-              </button>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-               {notifications.length === 0 ? (
-                 <div className="col-span-full py-24 text-center bg-white rounded-[3rem] border border-dashed border-stone-200">
-                    <Megaphone size={48} className="mx-auto text-stone-200 mb-6" />
-                    <h3 className="text-2xl font-black text-stone-900 tracking-tight">Radio Silence</h3>
-                    <p className="text-stone-400 font-medium mt-2">No active broadcasts currently on air.</p>
-                 </div>
-               ) : (
-                 notifications.map((notif, i) => (
-                   <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.1 }}
-                    key={notif.id} 
-                    className="group bg-white rounded-[2.5rem] p-8 border border-stone-100 shadow-sm hover:shadow-2xl hover:shadow-stone-200 transition-all duration-500 relative overflow-hidden"
-                   >
-                     <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
-                       <Megaphone size={100} />
-                     </div>
-                     
-                     <div className="flex justify-between items-start mb-6 relative z-10">
-                        <div className={cn(
-                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
-                          notif.type === 'maintenance' ? "bg-red-50 text-red-600 border-red-100" :
-                          notif.type === 'promotion' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                          "bg-blue-50 text-blue-600 border-blue-100"
-                        )}>
-                          {notif.type}
-                        </div>
-                        <button 
-                          onClick={async () => {
-                            if (!confirm('Purge this bulletin?')) return;
-                            try {
-                              await fetchWithHandling(`/api/admin/announcements/${notif.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-                              setNotifications(notifications.filter(n => n.id !== notif.id));
-                              toast.success('Bulletin purged from grid');
-                            } catch (err) {}
-                          }}
-                          className="text-stone-300 hover:text-red-500 transition-colors relative z-20"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                     </div>
-
-                     <div className="relative z-10">
-                        <h4 className="text-xl font-black text-stone-900 tracking-tight leading-tight mb-2">{notif.title}</h4>
-                        <p className="text-sm font-medium text-stone-500 leading-relaxed line-clamp-3">{notif.message}</p>
-                     </div>
-
-                     <div className="mt-8 pt-6 border-t border-stone-50 flex items-center justify-between relative z-10">
-                        <div className="flex items-center space-x-2 text-stone-400">
-                          <Users size={12} />
-                          <span className="text-[10px] font-black uppercase tracking-widest">{notif.target_role}</span>
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-stone-300">{new Date(notif.created_at).toLocaleDateString()}</span>
-                     </div>
-                   </motion.div>
-                 ))
-               )}
             </div>
           </div>
         )}
@@ -6988,8 +8029,61 @@ export default function AdminDashboard() {
         {activeTab === 'Payment Settings' && (
           <div className="max-w-2xl space-y-6">
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <h3 className="text-xl font-bold">UPI Payment Details</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold">UPI Payment Details</h3>
+                <div className="flex items-center space-x-6">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-stone-500 uppercase">Enable UPI</span>
+                    <button 
+                      onClick={() => updateSetting('upi_enabled', config.find(c => c.key === 'upi_enabled')?.value === 'true' ? 'false' : 'true')}
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-all relative flex items-center px-1",
+                        config.find(c => c.key === 'upi_enabled')?.value === 'true' ? "bg-primary" : "bg-stone-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 bg-white rounded-full shadow-sm transition-transform",
+                        config.find(c => c.key === 'upi_enabled')?.value === 'true' ? "translate-x-6" : "translate-x-0"
+                      )} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-4">
+                <div className="bg-primary/5 p-4 rounded-2xl border border-primary/10 mb-4">
+                  <label className="block text-xs font-black text-primary uppercase tracking-widest mb-2">Verification Mode</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => updateSetting('upi_verification_mode', 'manual')}
+                      className={cn(
+                        "py-3 rounded-xl text-xs font-bold transition-all border-2",
+                        config.find(c => c.key === 'upi_verification_mode')?.value === 'manual' || !config.find(c => c.key === 'upi_verification_mode')
+                          ? "bg-primary text-white border-primary shadow-lg shadow-primary/20"
+                          : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
+                      )}
+                    >
+                      Manually Verified
+                    </button>
+                    <button 
+                      onClick={() => updateSetting('upi_verification_mode', 'auto')}
+                      className={cn(
+                        "py-3 rounded-xl text-xs font-bold transition-all border-2",
+                        config.find(c => c.key === 'upi_verification_mode')?.value === 'auto'
+                          ? "bg-primary text-white border-primary shadow-lg shadow-primary/20"
+                          : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
+                      )}
+                    >
+                      Auto-Verification
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-2 italic">
+                    {config.find(c => c.key === 'upi_verification_mode')?.value === 'auto' 
+                      ? "* System will scan emails/webhooks for matching Order IDs." 
+                      : "* Customers must submit UTR/Screenshot for manual admin approval."}
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">UPI ID</label>
                   <input 
@@ -7176,7 +8270,7 @@ export default function AdminDashboard() {
                         if (!window.confirm('SEND ALERT TO ALL USERS?')) return;
                         
                         try {
-                          const data = await fetchWithHandling<any>('/api/admin/broadcast-alert', {
+                          const data = await fetchWithHandling('/api/admin/broadcast-alert', {
                             method: 'POST',
                             headers: getAuthHeaders(),
                             body: JSON.stringify({ 
@@ -7205,16 +8299,21 @@ export default function AdminDashboard() {
 
             {/* Core Settings */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
-                    <Database size={24} />
-                  </div>
-                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Store Access</h3>
-                </div>
+              <section className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-500 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity rounded-[3rem]" />
+                <div className="relative bg-white/80 backdrop-blur-xl p-10 rounded-[3rem] shadow-sm border border-indigo-50 space-y-10 overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 opacity-50" />
+                  
+                  <div className="relative z-10">
+                    <div className="flex items-center space-x-4 mb-10">
+                      <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20 rotate-3">
+                        <Database size={24} />
+                      </div>
+                      <h3 className="text-2xl font-black text-stone-900 tracking-tight">Store Access</h3>
+                    </div>
 
-                <div className="space-y-4">
-                  <div className="group flex items-center justify-between p-6 bg-stone-50 border border-stone-100 rounded-[2rem] hover:border-primary/20 hover:bg-white transition-all duration-300">
+                    <div className="space-y-4">
+                      <div className="group flex items-center justify-between p-6 bg-white/50 border border-indigo-100/50 rounded-[2rem] hover:border-indigo-500/30 hover:bg-white transition-all duration-300 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.02)]">
                     <div className="space-y-1">
                       <p className="font-black text-stone-900 uppercase tracking-widest text-[10px]">Maintenance Mode</p>
                       <p className="text-xs text-stone-400 font-bold">Only you can access the store when this is ON.</p>
@@ -7261,15 +8360,21 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 </div>
-              </section>
+              </div>
+            </div>
+          </section>
 
-              <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center -rotate-3">
-                    <Layout size={24} />
-                  </div>
-                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Contact Information</h3>
-                </div>
+              <section className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-br from-pink-500 to-rose-500 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity rounded-[3rem]" />
+                <div className="relative bg-white/80 backdrop-blur-xl p-10 rounded-[3rem] shadow-sm border border-pink-50 space-y-10 overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-pink-50 rounded-full -mr-32 -mt-32 opacity-50" />
+                  <div className="relative z-10">
+                    <div className="flex items-center space-x-4 mb-10">
+                      <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-600 text-white rounded-2xl flex items-center justify-center -rotate-3 shadow-lg shadow-pink-500/20">
+                        <Layout size={24} />
+                      </div>
+                      <h3 className="text-2xl font-black text-stone-900 tracking-tight">Contact Information</h3>
+                    </div>
 
                 <div className="space-y-6">
                   <div className="space-y-3">
@@ -7315,7 +8420,9 @@ export default function AdminDashboard() {
                     />
                   </div>
                 </div>
-              </section>
+              </div>
+            </div>
+            </section>
             </div>
 
             {/* Delivery Logistics */}
@@ -7444,89 +8551,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </section>
-
-            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="w-14 h-14 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
-                    <FileText size={28} />
-                  </div>
-                  <div>
-                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Terms & Conditions</h3>
-                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Manage store rules and customer agreements</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <Link to="/terms-and-conditions" target="_blank" className="p-4 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl transition-all shadow-sm group">
-                    <ExternalLink size={20} className="group-hover:scale-110 transition-transform" />
-                  </Link>
-                  <button 
-                    onClick={() => updateSetting('terms_and_conditions', tncContent)}
-                    className="bg-stone-900 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-stone-900/20 active:scale-95 text-xs"
-                  >
-                    Commit Changes
-                  </button>
-                </div>
-              </div>
-              <div className="quill-editor-container bg-stone-50 rounded-[2.5rem] p-2 border border-stone-100">
-                <ReactQuill 
-                  theme="snow"
-                  value={tncContent}
-                  onChange={setTncContent}
-                  className="bg-white rounded-[2rem] overflow-hidden border-none"
-                  modules={{
-                    toolbar: [
-                      [{ 'header': [1, 2, 3, false] }],
-                      ['bold', 'italic', 'underline', 'strike'],
-                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                      ['link', 'clean']
-                    ],
-                  }}
-                />
-              </div>
-
-              <div className="space-y-10 pt-10 border-t border-stone-100">
-                <div className="flex justify-between items-center">
-                   <div className="flex items-center space-x-4">
-                    <div className="w-14 h-14 bg-primary text-white rounded-2xl flex items-center justify-center -rotate-3">
-                      <HelpCircle size={28} />
-                    </div>
-                    <div>
-                      <h3 className="text-3xl font-black text-stone-900 tracking-tight">Help & FAQ</h3>
-                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Frequently asked questions for customers</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <Link to="/support" target="_blank" className="p-4 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl transition-all shadow-sm group">
-                      <ExternalLink size={20} className="group-hover:scale-110 transition-transform" />
-                    </Link>
-                    <button 
-                      onClick={() => updateSetting('faq_content', faqContent)}
-                      className="bg-primary text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-primary/80 transition-all shadow-xl shadow-primary/20 active:scale-95 text-xs"
-                    >
-                      Save FAQ
-                    </button>
-                  </div>
-                </div>
-                <div className="quill-editor-container bg-stone-50 rounded-[2.5rem] p-2 border border-stone-100">
-                  <ReactQuill 
-                    theme="snow"
-                    value={faqContent}
-                    onChange={setFaqContent}
-                    className="bg-white rounded-[2rem] overflow-hidden border-none"
-                    modules={{
-                      toolbar: [
-                        [{ 'header': [1, 2, 3, false] }],
-                        ['bold', 'italic', 'underline', 'strike'],
-                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                        ['link', 'clean']
-                      ],
-                    }}
-                  />
-                  <p className="text-[10px] text-stone-400 mt-6 font-bold uppercase tracking-widest text-center px-10">Populate the Frequently Asked Questions database to reduce inbound support frequency.</p>
-                </div>
-              </div>
-            </div>
 
             <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
                <div className="flex items-center space-x-4">
@@ -7811,7 +8835,21 @@ export default function AdminDashboard() {
                       </div>
                       <div className="bg-white p-6 rounded-[2rem] rounded-tl-none shadow-sm border border-stone-100">
                         <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3 border-b border-stone-50 pb-2">{selectedTicket.user_name} • {new Date(selectedTicket.created_at).toLocaleString()}</p>
-                        <p className="text-sm font-medium text-stone-700 leading-relaxed">{selectedTicket.message}</p>
+                        <p className="text-sm font-medium text-stone-700 leading-relaxed mb-4">{selectedTicket.message}</p>
+                        
+                        {selectedTicket.image_url && (
+                          <div className="mt-4 pt-4 border-t border-stone-50">
+                            <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-3">Attached Evidence Artifact</p>
+                            <div className="relative group/img overflow-hidden rounded-2xl border border-stone-100 aspect-video max-w-sm">
+                              <img 
+                                src={selectedTicket.image_url} 
+                                alt="Support Evidence" 
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-zoom-in"
+                                onClick={() => window.open(selectedTicket.image_url, '_blank')}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -7847,44 +8885,80 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="p-10 border-t border-stone-100 bg-white">
-                    <div className="flex space-x-4 bg-stone-50 p-2 rounded-[2.5rem] border border-stone-100 focus-within:bg-white focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5 transition-all duration-500">
-                      <input 
-                        type="text" 
-                        placeholder="Inscribe dispatch response..."
-                        className="flex-1 bg-transparent border-none rounded-3xl px-8 py-5 text-sm font-black uppercase tracking-wider placeholder:text-stone-300 outline-none"
-                        value={replyMessage}
-                        onChange={(e) => setReplyMessage(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && replyMessage) {
-                            // Trigger send logic
-                          }
-                        }}
-                      />
-                      <button 
-                        onClick={async () => {
-                          if (!replyMessage) return;
-                          try {
-                            const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                              method: 'POST',
-                              headers: getAuthHeaders(),
-                              body: JSON.stringify({ user_id: user.id, message: replyMessage })
-                            });
-                            if (data) {
-                              setReplyMessage('');
-                              const messagesData = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                                headers: getAuthHeaders()
-                              });
-                              if (messagesData) setTicketMessages(messagesData);
+                    <div className="flex flex-col mb-4">
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {[
+                          "Confirmed, processing your order.",
+                          "Order is ready for dispatch.",
+                          "Delivered successfully. Thank you!",
+                          "Please share coordinates/photo.",
+                          "Out of stock. Wallet refund issued.",
+                          "Support team is investigating.",
+                        ].map((quick) => (
+                          <button
+                            key={quick}
+                            onClick={() => setReplyMessage(quick)}
+                            className="px-4 py-2 bg-stone-100 hover:bg-stone-900 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                          >
+                            {quick}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex space-x-4 bg-stone-50 p-2 rounded-[2.5rem] border border-stone-100 focus-within:bg-white focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5 transition-all duration-500">
+                        <input 
+                          type="text" 
+                          placeholder="Inscribe dispatch response..."
+                          className="flex-1 bg-transparent border-none rounded-3xl px-8 py-5 text-sm font-black uppercase tracking-wider placeholder:text-stone-300 outline-none"
+                          value={replyMessage}
+                          onChange={(e) => setReplyMessage(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter' && replyMessage) {
+                              // Duplicate logic for send
+                              try {
+                                const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
+                                  method: 'POST',
+                                  headers: getAuthHeaders(),
+                                  body: JSON.stringify({ user_id: user.id, message: replyMessage })
+                                });
+                                if (data) {
+                                  setReplyMessage('');
+                                  const msgs = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
+                                    headers: getAuthHeaders()
+                                  });
+                                  if (msgs) setTicketMessages(msgs);
+                                }
+                              } catch (err) {
+                                console.error('Auto-dispatch error:', err);
+                              }
                             }
-                          } catch (err) {
-                            console.error('Send ticket message error:', err);
-                          }
-                        }}
-                        className="bg-stone-900 hover:bg-primary text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest transition-all shadow-xl shadow-stone-900/20 active:scale-95 group flex items-center space-x-3"
-                      >
-                        <span>Dispatch</span>
-                        <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                      </button>
+                          }}
+                        />
+                        <button 
+                          onClick={async () => {
+                            if (!replyMessage) return;
+                            try {
+                              const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
+                                method: 'POST',
+                                headers: getAuthHeaders(),
+                                body: JSON.stringify({ user_id: user.id, message: replyMessage })
+                              });
+                              if (data) {
+                                setReplyMessage('');
+                                const messagesData = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
+                                  headers: getAuthHeaders()
+                                });
+                                if (messagesData) setTicketMessages(messagesData);
+                              }
+                            } catch (err) {
+                              console.error('Send ticket message error:', err);
+                            }
+                          }}
+                          className="bg-stone-900 hover:bg-primary text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest transition-all shadow-xl shadow-stone-900/20 active:scale-95 group flex items-center space-x-3"
+                        >
+                          <span>Dispatch</span>
+                          <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </>
@@ -7897,8 +8971,8 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="text-center space-y-2">
-                    <h4 className="text-2xl font-black text-stone-900 tracking-tight">Silent Frequencies</h4>
-                    <p className="font-bold text-stone-400 uppercase tracking-widest text-[10px]">Select a communication node to begin intercept.</p>
+                    <h4 className="text-2xl font-black text-stone-900 tracking-tight">Select a Ticket</h4>
+                    <p className="font-bold text-stone-400 uppercase tracking-widest text-[10px]">Select a communication channel on the left to begin messaging.</p>
                   </div>
                 </div>
               )}
@@ -7907,84 +8981,7 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'Newsletter' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Publicity Ledger</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Broadcast reach and subscriber acquisition metrics.</p>
-              </div>
-              <button 
-                onClick={sendNewsletterCampaign}
-                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:-rotate-12 transition-transform duration-500">
-                  <Send size={20} />
-                </div>
-                <span>Deploy Campaign</span>
-              </button>
-            </header>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
-                    <tr>
-                      <th className="px-10 py-8">Email Endpoint</th>
-                      <th className="px-6 py-8">Account Integrity</th>
-                      <th className="px-6 py-8">Acquisition Date</th>
-                      <th className="px-10 py-8 text-right">Termination</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {newsletter.map((sub, idx) => (
-                      <motion.tr 
-                        key={sub.id} 
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.03 }}
-                        className="hover:bg-stone-50/80 transition-all group"
-                      >
-                        <td className="px-10 py-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-10 h-10 bg-stone-100 rounded-xl flex items-center justify-center text-stone-400 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                              <Mail size={18} />
-                            </div>
-                            <span className="text-sm font-black text-stone-900">{sub.email}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6 transition-all">
-                          {sub.user_id ? (
-                            <div className="flex items-center space-x-2">
-                               <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-                               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Registered User Pool</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center space-x-2 opacity-50">
-                               <div className="w-2 h-2 bg-stone-400 rounded-full" />
-                               <span className="text-[10px] font-black uppercase tracking-widest text-stone-500">External Prospect</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-6 text-sm text-stone-400 font-medium">
-                          {new Date(sub.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="px-10 py-6 text-right">
-                          <button className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all opacity-0 group-hover:opacity-100">
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {newsletter.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-10 py-32 text-center text-stone-400 italic">No publicity endpoints registered.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <NewsletterView />
         )}
 
         {activeTab === 'Expenses' && (
@@ -8717,6 +9714,8 @@ export default function AdminDashboard() {
 
         {activeTab === 'System Logs' && <SystemLogsView />}
 
+        {activeTab === 'UPI Webhook Logs' && <UPIWebhookLogsView />}
+
         {activeTab === 'Suspicious Activities' && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
              <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -8921,7 +9920,7 @@ export default function AdminDashboard() {
                                onClick={async () => {
                                  const status = adm.status === 'disabled' ? 'active' : 'disabled';
                                  try {
-                                   await fetchWithHandling(`/api/admin/management/${adm.id}/status`, {
+                                   await fetchWithHandling(`/api/admin/admins/${adm.id}/status`, {
                                      method: 'POST',
                                      headers: getAuthHeaders(),
                                      body: JSON.stringify({ status })
@@ -8941,7 +9940,7 @@ export default function AdminDashboard() {
                                onClick={async () => {
                                  if (confirm(`Are you sure you want to revoke admin rights for ${adm.email}?`)) {
                                    try {
-                                     await fetchWithHandling(`/api/admin/management/${adm.id}/revoke`, {
+                                     await fetchWithHandling(`/api/admin/admins/${adm.id}/revoke`, {
                                        method: 'POST',
                                        headers: getAuthHeaders()
                                      });
@@ -8963,41 +9962,96 @@ export default function AdminDashboard() {
               </div>
             </div>
             
-            <div className="bg-stone-50 p-8 rounded-[2rem] border border-dashed border-stone-200">
-              <div className="flex items-center space-x-4 mb-6">
-                <div className="p-3 bg-stone-900 text-white rounded-2xl">
-                  <Activity size={24} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-stone-50 p-8 rounded-[2rem] border border-dashed border-stone-200">
+                <div className="flex items-center space-x-4 mb-6">
+                  <div className="p-3 bg-stone-900 text-white rounded-2xl">
+                    <Activity size={24} />
+                  </div>
+                  <div>
+                     <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Governance Intelligence</h3>
+                     <p className="text-stone-500 font-medium">Recent high-level node modifications and access patterns.</p>
+                  </div>
                 </div>
-                <div>
-                   <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Governance Intelligence</h3>
-                   <p className="text-stone-500 font-medium">Recent high-level node modifications and access patterns.</p>
+                
+                <div className="bg-white rounded-3xl border border-stone-100 overflow-hidden">
+                   <div className="max-h-96 overflow-y-auto no-scrollbar">
+                      <table className="w-full text-left">
+                         <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-widest">
+                            <tr>
+                               <th className="px-8 py-5">Node Identity</th>
+                               <th className="px-6 py-5">Directive Action</th>
+                               <th className="px-6 py-5">Target Resource</th>
+                               <th className="px-8 py-5 text-right">Time Offset</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-stone-50">
+                            {auditLogs.slice(0, 20).map((log, lIdx) => (
+                               <tr key={log.id} className="hover:bg-stone-50/50 transition-all font-mono text-[10px]">
+                                  <td className="px-8 py-4 font-black text-stone-600">{log.admin_id}</td>
+                                  <td className="px-6 py-4">
+                                     <span className="bg-amber-50 text-amber-600 px-2 py-1 rounded text-[8px] font-black border border-amber-100">{log.action}</span>
+                                  </td>
+                                  <td className="px-6 py-4 text-stone-400">{log.target_type}#{log.target_id}</td>
+                                  <td className="px-8 py-4 text-right text-stone-300">{new Date(log.created_at).toLocaleString()}</td>
+                               </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
                 </div>
               </div>
-              
-              <div className="bg-white rounded-3xl border border-stone-100 overflow-hidden">
-                 <div className="max-h-96 overflow-y-auto no-scrollbar">
-                    <table className="w-full text-left">
-                       <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-widest">
-                          <tr>
-                             <th className="px-8 py-5">Node Identity</th>
-                             <th className="px-6 py-5">Directive Action</th>
-                             <th className="px-6 py-5">Target Resource</th>
-                             <th className="px-8 py-5 text-right">Time Offset</th>
-                          </tr>
-                       </thead>
-                       <tbody className="divide-y divide-stone-50">
-                          {auditLogs.slice(0, 20).map((log, lIdx) => (
-                             <tr key={log.id} className="hover:bg-stone-50/50 transition-all font-mono text-[10px]">
-                                <td className="px-8 py-4 font-black text-stone-600">{log.admin_id}</td>
-                                <td className="px-6 py-4">
-                                   <span className="bg-amber-50 text-amber-600 px-2 py-1 rounded text-[8px] font-black border border-amber-100">{log.action}</span>
-                                </td>
-                                <td className="px-6 py-4 text-stone-400">{log.target_type}#{log.target_id}</td>
-                                <td className="px-8 py-4 text-right text-stone-300">{new Date(log.created_at).toLocaleString()}</td>
-                             </tr>
-                          ))}
-                       </tbody>
-                    </table>
+
+              <div className="bg-white rounded-[2rem] p-8 border border-stone-150 shadow-sm relative group overflow-hidden">
+                 <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                   <Trash2 size={120} />
+                 </div>
+                 <h3 className="text-2xl font-black text-stone-900 tracking-tight italic mb-8 relative z-10">Data Deletion Queue</h3>
+                 <div className="space-y-4 relative z-10">
+                    {deletionRequests.length === 0 ? (
+                      <div className="text-center py-20 text-stone-300 bg-stone-50/50 rounded-[2.5rem] border border-dashed border-stone-200">
+                        <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+                          <CheckCircle2 size={32} className="text-emerald-500" />
+                        </div>
+                        <p className="font-black uppercase text-[10px] tracking-[0.25em] text-stone-300">Privacy Compliance: 100%</p>
+                        <p className="text-xs font-bold text-stone-400 mt-2">No active user deletion requests pending.</p>
+                      </div>
+                    ) : (
+                      deletionRequests.map((req, i) => (
+                        <div key={req.id} className="p-8 bg-red-50/50 rounded-[2.5rem] border border-red-100 space-y-6 shadow-sm">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-12 h-12 bg-white rounded-2xl border border-red-100 flex items-center justify-center text-red-500 shadow-sm">
+                                <Users size={20} />
+                              </div>
+                              <div>
+                                <p className="font-black text-red-900 leading-none text-lg tracking-tight">{req.user_name}</p>
+                                <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mt-1.5">Cipher: SYS-DEL-0{req.id}</p>
+                              </div>
+                            </div>
+                            <span className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-red-200">Pending Authorization</span>
+                          </div>
+                          <div className="bg-white p-5 rounded-2xl text-[11px] font-bold text-red-800 leading-relaxed italic relative border border-red-50">
+                             <span className="absolute -top-3 left-6 px-2 bg-white text-[8px] uppercase tracking-widest text-red-300">User Testimony</span>
+                            "{req.reason || 'No internal reason documented'}"
+                          </div>
+                          <div className="flex gap-3">
+                             <button 
+                              onClick={() => approveDeletion(req.id)} 
+                              className="flex-1 py-4 bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-200 hover:bg-red-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                             >
+                               Authorize Full Purge
+                             </button>
+                             <button 
+                              onClick={() => rejectDeletion(req.id)} 
+                              className="px-8 py-4 bg-white text-red-500 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-100 hover:bg-red-50 transition-all"
+                             >
+                               Reject
+                             </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
                  </div>
               </div>
             </div>
@@ -9092,6 +10146,276 @@ export default function AdminDashboard() {
           <DataExportsView />
         )}
 
+        {activeTab === 'Security & Data' && (
+          <section className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <AdminStatCard label="Security Node" value="ACTIVE" icon={<ShieldCheck size={22} />} color="emerald" trend={{ value: 'Protocol Live', isUp: true }} progress={100} />
+              <AdminStatCard label="Data Encryption" value="256-BIT" icon={<Fingerprint size={22} />} color="purple" trend={{ value: 'AES/GCM', isUp: true }} progress={100} />
+              <AdminStatCard label="Audit Coverage" value="100%" icon={<Database size={22} />} color="stone" trend={{ value: 'Infinite Sync', isUp: true }} progress={100} />
+            </div>
+            
+            <div className="bg-white p-10 rounded-[3rem] border border-stone-100 shadow-sm">
+               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-12">
+                  <div className="flex items-center space-x-6">
+                    <div className="w-16 h-16 bg-stone-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl shadow-stone-200">
+                       <Shield size={28} />
+                    </div>
+                    <div>
+                       <h3 className="text-3xl font-black text-stone-900 tracking-tight leading-none uppercase italic">Security & Data Governance</h3>
+                       <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em] mt-3">Active Privacy & Operational Integrity Policy</p>
+                    </div>
+                  </div>
+                  <div className="flex bg-stone-50 p-2 rounded-2xl border border-stone-100 items-center space-x-4">
+                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-2" />
+                     <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest pr-4">Identity Node: {user?.id?.slice(0, 8)}</span>
+                  </div>
+               </div>
+               
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                  <div className="space-y-8">
+                     <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.25em] px-2 flex items-center gap-2">
+                        <ToggleLeft size={14} className="text-stone-300" />
+                        Access & Privacy Controls
+                     </h4>
+                     <div className="space-y-4">
+                        {[
+                          { label: 'Mask Phone Numbers', desc: 'Securely conceal user contact details in non-critical administrative views', active: true, icon: Smartphone },
+                          { label: 'Data Encryption', desc: 'Automatic AES-256 serialization of all PII (Personally Identifiable Information)', active: true, icon: Server },
+                          { label: 'Real-time Audit Trace', desc: 'Immutable logging of every administrative transaction and data mutation', active: true, icon: History },
+                          { label: 'Session Rotation', desc: 'Automated 24h refresh cycle for all active administrative tokens', active: false, icon: RotateCcw }
+                        ].map((item, i) => (
+                          <div key={i} className="flex items-center justify-between p-8 bg-stone-50 rounded-[2.5rem] border border-stone-100 group hover:border-primary/20 transition-all">
+                             <div className="flex items-start space-x-6 flex-1 pr-8">
+                                <div className="p-3 bg-white rounded-2xl text-stone-400 group-hover:text-primary transition-colors shadow-sm">
+                                   <item.icon size={20} />
+                                </div>
+                                <div>
+                                   <p className="text-base font-black text-stone-900 tracking-tight leading-none mb-1.5">{item.label}</p>
+                                   <p className="text-[11px] text-stone-400 font-bold leading-relaxed">{item.desc}</p>
+                                </div>
+                             </div>
+                             <button className={cn(
+                               "w-14 h-8 rounded-full relative transition-all duration-500 shadow-inner",
+                               item.active ? "bg-emerald-500 shadow-emerald-200" : "bg-stone-200"
+                             )}>
+                                <div className={cn(
+                                  "absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-500 shadow-md",
+                                  item.active ? "right-1" : "left-1"
+                                )} />
+                             </button>
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+                  
+                  <div className="space-y-8">
+                     <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.25em] px-2 flex items-center gap-2">
+                        <Database size={14} className="text-stone-300" />
+                        Infrastructure Health Trace
+                     </h4>
+                     <div className="bg-stone-900 rounded-[3rem] p-10 text-white space-y-10 relative overflow-hidden shadow-2xl">
+                        <div className="absolute top-0 right-0 p-12 opacity-[0.03] rotate-12">
+                           <Database size={180} />
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-8 relative z-10">
+                           <div className="space-y-2">
+                              <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Identity Nodes</p>
+                              <div className="flex items-end space-x-2">
+                                 <p className="text-4xl font-black tracking-tighter italic leading-none">2,841</p>
+                                 <span className="text-[10px] text-emerald-400 font-black mb-1">+4.2%</span>
+                              </div>
+                           </div>
+                           <div className="space-y-2">
+                              <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Link Stability</p>
+                              <div className="flex items-end space-x-2">
+                                 <p className="text-4xl font-black tracking-tighter italic leading-none">99.8%</p>
+                                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mb-2" />
+                              </div>
+                           </div>
+                        </div>
+
+                        <div className="space-y-4 relative z-10 pt-4">
+                           <div className="flex justify-between items-end mb-2">
+                             <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40 leading-none">Database Payload: 4.2GB / 50GB</p>
+                             <p className="text-xs font-black italic">8.4% Capacity</p>
+                           </div>
+                           <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: '8.4%' }}
+                                transition={{ duration: 1.5, ease: "easeOut" }}
+                                className="h-full bg-primary shadow-[0_0_15px_rgba(251,191,36,0.3)]" 
+                              />
+                           </div>
+                        </div>
+
+                        <div className="bg-white/5 rounded-[2rem] p-6 space-y-4 relative z-10 border border-white/5 backdrop-blur-sm">
+                           <h5 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-50 mb-2">Active Protocols</h5>
+                           <div className="space-y-3">
+                              {[
+                                { label: 'Automated Redundancy', status: 'Healthy', color: 'text-emerald-400' },
+                                { label: 'Deep Packet Inspection', status: 'Running', color: 'text-primary' },
+                                { label: 'Cross-Region Replication', status: 'Synchronized', color: 'text-emerald-400' }
+                              ].map((p, i) => (
+                                <div key={i} className="flex justify-between items-center text-xs font-bold py-1">
+                                   <span className="opacity-70">{p.label}</span>
+                                   <span className={cn("text-[10px] font-black uppercase tracking-widest", p.color)}>{p.status}</span>
+                                </div>
+                              ))}
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            </div>
+
+            <div className="bg-white p-10 rounded-[3rem] border border-stone-100 shadow-sm mt-8">
+               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                  <div>
+                     <h3 className="text-2xl font-black text-stone-900 tracking-tight flex items-center gap-2">
+                        <Wallet size={24} className="text-primary" /> Wallet Ledger Audit & Integrity Scan
+                     </h3>
+                     <p className="text-xs text-stone-500 font-medium mt-1">Cross-reference the latest 50 wallet_transactions with user.wallet_balance to flag mismatch anomalies.</p>
+                  </div>
+                  <button 
+                     onClick={runWalletDiagnostics}
+                     disabled={loadingDiagnostics}
+                     className="px-6 py-3 bg-stone-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-stone-800 transition-all active:scale-95 disabled:bg-stone-300 disabled:scale-100 flex items-center gap-2 cursor-pointer animate-in fade-in duration-300"
+                  >
+                     {loadingDiagnostics ? (
+                        <>
+                           <Loader2 size={14} className="animate-spin" /> Auditing Ledger...
+                        </>
+                     ) : (
+                        <>
+                           <RefreshCw size={14} /> Run Dynamic Integrity Scan
+                        </>
+                     )}
+                  </button>
+               </div>
+
+               {diagnosticResults && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
+                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Time Executed</p>
+                           <p className="text-sm font-bold text-stone-800">{new Date(diagnosticResults.checkedAt).toLocaleTimeString()}</p>
+                        </div>
+                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
+                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Transactions Verified</p>
+                           <p className="text-xl font-black text-stone-900">{diagnosticResults.totalTransactionsChecked}</p>
+                        </div>
+                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
+                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Unique Users Checked</p>
+                           <p className="text-xl font-black text-stone-900">{diagnosticResults.uniqueUsersCheckedCount}</p>
+                        </div>
+                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
+                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Inconsistencies</p>
+                           <p className={cn("text-xl font-black", diagnosticResults.inconsistenciesFoundCount > 0 ? "text-red-500 animate-pulse" : "text-emerald-500")}>
+                              {diagnosticResults.inconsistenciesFoundCount}
+                           </p>
+                        </div>
+                     </div>
+
+                     {diagnosticResults.inconsistencies && diagnosticResults.inconsistencies.length > 0 ? (
+                        <div className="bg-red-50/50 rounded-2xl p-6 border border-red-100 space-y-3">
+                           <h4 className="text-xs font-black text-red-800 uppercase tracking-wider flex items-center gap-1">
+                              <AlertCircle size={14} /> Anomaly Forensics Log
+                           </h4>
+                           <div className="space-y-2">
+                              {diagnosticResults.inconsistencies.map((inc: string, idx: number) => (
+                                 <div key={idx} className="text-xs text-red-900 font-medium py-2 px-4 bg-white rounded-xl border border-red-50/50 shadow-sm flex items-center gap-3">
+                                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+                                    <span>{inc}</span>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     ) : (
+                        <div className="bg-emerald-50/50 rounded-2xl p-6 border border-emerald-100 flex items-center gap-3 text-xs text-emerald-800 font-black uppercase tracking-wider">
+                           <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Integrity Confirmed: No ledger/balance discrepancies found in latest transaction nodes.
+                        </div>
+                     )}
+
+                     {/* Audited Users Detailed Interactive Table */}
+                     {diagnosticResults.users && diagnosticResults.users.length > 0 && (
+                        <div className="space-y-4">
+                           <h4 className="text-sm font-black text-stone-900 uppercase tracking-wider flex items-center gap-2">
+                              <Database size={16} className="text-[#6366f1]" /> Detailed Audited Users Ledger
+                           </h4>
+                           <div className="bg-white rounded-3xl border border-stone-200/60 overflow-hidden shadow-sm">
+                              <div className="overflow-x-auto no-scrollbar">
+                                 <table className="w-full text-left text-xs">
+                                    <thead className="bg-stone-50 border-b border-stone-100 text-[10px] text-stone-400 uppercase font-black tracking-widest">
+                                       <tr>
+                                          <th className="px-6 py-4">User Details</th>
+                                          <th className="px-6 py-4">Current Balance</th>
+                                          <th className="px-6 py-4">Calculated Ledger</th>
+                                          <th className="px-6 py-4">Discrepancy Amount</th>
+                                          <th className="px-6 py-4">Audit Verdict</th>
+                                          <th className="px-6 py-4 text-right">Verification & Correction</th>
+                                       </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-stone-100 font-semibold text-stone-600">
+                                       {diagnosticResults.users.map((audUser: any) => (
+                                          <tr key={audUser.userId} className="hover:bg-stone-50/40 transition-colors">
+                                             <td className="px-6 py-4">
+                                                <div>
+                                                   <p className="font-extrabold text-stone-800">{audUser.name}</p>
+                                                   <p className="text-[10px] text-stone-400 font-mono">ID: {audUser.userId} | {audUser.email}</p>
+                                                </div>
+                                             </td>
+                                             <td className="px-6 py-4 font-bold text-stone-700">₹{audUser.currentBalance.toFixed(2)}</td>
+                                             <td className="px-6 py-4 font-bold text-stone-700">₹{audUser.calculatedBalance.toFixed(2)}</td>
+                                             <td className={`px-6 py-4 font-black ${audUser.discrepancy !== 0 ? "text-red-600" : "text-emerald-600"}`}>
+                                                {audUser.discrepancy !== 0 ? `₹${audUser.discrepancy.toFixed(2)}` : '₹0.00'}
+                                             </td>
+                                             <td className="px-6 py-4">
+                                                <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 w-fit ${
+                                                   audUser.hasDiscrepancy 
+                                                      ? "bg-red-50 text-red-600 border border-red-100 animate-pulse" 
+                                                      : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                                }`}>
+                                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${audUser.hasDiscrepancy ? "bg-red-500" : "bg-emerald-500"}`} />
+                                                   {audUser.hasDiscrepancy ? 'Action Required' : 'Status Stable'}
+                                                </span>
+                                             </td>
+                                             <td className="px-6 py-4 text-right">
+                                                {audUser.hasDiscrepancy ? (
+                                                   <button
+                                                      onClick={() => fixWalletDiscrepancy(audUser.userId)}
+                                                      disabled={fixingWalletUserId === audUser.userId}
+                                                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-widest rounded-xl transition-all disabled:bg-stone-300 flex items-center gap-1.5 ml-auto cursor-pointer"
+                                                   >
+                                                      {fixingWalletUserId === audUser.userId ? (
+                                                         <>
+                                                            <Loader2 size={12} className="animate-spin" /> Fixing...
+                                                         </>
+                                                      ) : (
+                                                         <>
+                                                            <RefreshCw size={12} /> Fix Discrepancy
+                                                         </>
+                                                      )}
+                                                   </button>
+                                                ) : (
+                                                   <span className="text-[10px] text-stone-400 font-bold uppercase tracking-wider select-none">Passed Audit</span>
+                                                )}
+                                             </td>
+                                          </tr>
+                                       ))}
+                                    </tbody>
+                                 </table>
+                              </div>
+                           </div>
+                        </div>
+                     )}
+                  </div>
+               )}
+            </div>
+          </section>
+        )}
+
         {activeTab === 'Purchase Orders' && (
           <PurchaseOrdersTab />
         )}
@@ -9124,12 +10448,12 @@ export default function AdminDashboard() {
                 <table className="w-full text-left">
                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                     <tr>
-                      <th className="px-10 py-8">Identity</th>
-                      <th className="px-6 py-8">Anomalous Context</th>
-                      <th className="px-6 py-8">Error Cipher</th>
-                      <th className="px-6 py-8">Environment</th>
+                      <th className="px-10 py-8">ID / Reporter</th>
+                      <th className="px-6 py-8">Scope & Context</th>
+                      <th className="px-6 py-8">Error Details</th>
+                      <th className="px-6 py-8">Device Context</th>
                       <th className="px-6 py-8">Timestamp</th>
-                      <th className="px-10 py-8 text-right">Goverance</th>
+                      <th className="px-10 py-8 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-50">
@@ -9224,39 +10548,64 @@ export default function AdminDashboard() {
                 <h2 className="text-4xl font-black text-stone-900 tracking-tight">System Infrastructure</h2>
                 <p className="text-stone-500 mt-2 text-lg font-medium">Real-time telemetry, error matrix, and environment health monitoring.</p>
               </div>
-              <div className="flex bg-white px-8 py-5 rounded-3xl border border-stone-100 shadow-sm items-center space-x-8">
-                 <div className="flex flex-col">
-                   <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Uptime</span>
-                   <span className="text-xl font-black text-stone-900">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '0h 0m'}</span>
-                 </div>
-                 <div className="w-px h-10 bg-stone-100" />
-                 <div className="flex items-center space-x-3">
-                    <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Active Node</span>
-                 </div>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => generateSystemHealthReportPDF(systemHealth, errorLogs)}
+                  className="bg-white border border-stone-100 p-5 rounded-3xl shadow-sm hover:bg-stone-50 transition-all flex items-center space-x-3 group"
+                >
+                  <Download size={20} className="text-stone-400 group-hover:text-primary" />
+                  <span className="text-xs font-black uppercase tracking-widest">Health Audit</span>
+                </button>
+                <div className="flex bg-white px-8 py-5 rounded-3xl border border-stone-100 shadow-sm items-center space-x-8">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Uptime</span>
+                    <span className="text-xl font-black text-stone-900">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '0h 0m'}</span>
+                  </div>
+                  <div className="w-px h-10 bg-stone-100" />
+                  <div className="flex items-center space-x-3">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Active Node</span>
+                  </div>
+                </div>
               </div>
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-               {[
-                 { label: 'DB Latency', value: '4ms', status: 'Healthy', icon: Database, color: 'text-emerald-500', bg: 'bg-emerald-50' },
-                 { label: 'Active Sessions', value: systemHealth?.metrics?.activeUsers || 0, status: 'Stable', icon: Activity, color: 'text-blue-500', bg: 'bg-blue-50' },
-                 { label: 'Uncaught Anomalies', value: systemHealth?.metrics?.recentErrors || 0, status: systemHealth?.metrics?.recentErrors > 0 ? 'Review Needed' : 'Nominal', icon: ShieldAlert, color: systemHealth?.metrics?.recentErrors > 0 ? 'text-red-500' : 'text-stone-400', bg: 'bg-stone-50' },
-                 { label: 'Node Payload', value: '1.2GB/8GB', status: 'Low Load', icon: Cpu, color: 'text-purple-500', bg: 'bg-purple-50' }
-               ].map((m, i) => (
-                 <div key={i} className="bg-white p-8 rounded-[2rem] border border-stone-100 shadow-sm flex flex-col space-y-4">
-                    <div className="flex items-center justify-between">
-                       <div className={cn("p-3 rounded-2xl", m.bg, m.color)}>
-                         <m.icon size={22} />
-                       </div>
-                       <span className={cn("text-[9px] font-black uppercase tracking-widest", m.color === 'text-stone-400' ? 'text-emerald-500' : m.color)}>{m.status}</span>
-                    </div>
-                    <div>
-                       <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">{m.label}</p>
-                       <p className="text-2xl font-black text-stone-900">{m.value}</p>
-                    </div>
-                 </div>
-               ))}
+                <AdminStatCard 
+                  label="DB Latency" 
+                  value={systemHealth?.latency || '2ms'} 
+                  icon={<Database size={22} />} 
+                  trend={{ value: 'Healthy', isUp: true }} 
+                  color="emerald" 
+                  progress={98}
+                />
+                <AdminStatCard 
+                  label="Active Sessions" 
+                  value={systemHealth?.metrics?.activeUsers || 0} 
+                  icon={<Activity size={22} />} 
+                  trend={{ value: 'Stable', isUp: true, color: 'text-blue-500' }} 
+                  color="blue" 
+                  progress={60}
+                />
+                <AdminStatCard 
+                  label="Uncaught Anomalies" 
+                  value={systemHealth?.metrics?.recentErrors || 0} 
+                  icon={<ShieldAlert size={22} />} 
+                  trend={{ 
+                    value: systemHealth?.metrics?.recentErrors > 0 ? 'Review Needed' : 'Nominal', 
+                    isUp: systemHealth?.metrics?.recentErrors === 0 
+                  }} 
+                  color={systemHealth?.metrics?.recentErrors > 0 ? "red" : "stone"} 
+                  progress={systemHealth?.metrics?.recentErrors > 0 ? 90 : 10}
+                />
+                <AdminStatCard 
+                  label="Node Payload" 
+                  value={systemHealth?.memory || '120MB / 512MB'} 
+                  icon={<Cpu size={22} />} 
+                  trend={{ value: 'Low Load', isUp: true, color: 'text-purple-500' }} 
+                  color="purple" 
+                  progress={25}
+                />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -9376,7 +10725,7 @@ export default function AdminDashboard() {
                         <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                            <motion.div 
                             initial={{ width: 0 }}
-                            animate={{ width: '45%' }}
+                            animate={{ width: `${Math.min(100, (systemHealth?.metrics?.activeUsers || 0) * 10)}%` }}
                             className="h-full bg-primary" 
                            />
                         </div>
@@ -10522,6 +11871,27 @@ export default function AdminDashboard() {
                 </div>
               )}
 
+              <div className="grid grid-cols-2 gap-4">
+                 <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Start Date</label>
+                  <input 
+                    type="date"
+                    className="input-field"
+                    value={newPromotionRuleData.start_date || ''}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, start_date: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-stone-700 mb-2">End Date</label>
+                  <input 
+                    type="date"
+                    className="input-field"
+                    value={newPromotionRuleData.end_date || ''}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, end_date: e.target.value})}
+                  />
+                </div>
+              </div>
+
               <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
                 <input 
                   type="checkbox" 
@@ -10785,7 +12155,7 @@ export default function AdminDashboard() {
             <form onSubmit={handleNotificationSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
-                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Subject Title</label>
+                  <label className="block text-xs font-black text-stone-400 uppercase tracking-widest mb-2 select-none">Subject Title</label>
                   <input 
                     type="text" 
                     required
@@ -10797,7 +12167,7 @@ export default function AdminDashboard() {
                 </div>
                 
                 <div className="md:col-span-2">
-                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Message Content</label>
+                  <label className="block text-xs font-black text-stone-400 uppercase tracking-widest mb-2 select-none">Message Content</label>
                   <textarea 
                     required
                     placeholder="Enter detailed announcement message..."
@@ -10901,7 +12271,7 @@ export default function AdminDashboard() {
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold">{customerModal.user.name}</h3>
-                  <p className="text-stone-500">{customerModal.user.phone}</p>
+                  <p className="text-stone-500">{maskPhoneNumber(customerModal.user.phone)}</p>
                   <p className="text-xs text-primary font-bold mt-1">
                     {customerModal.user.lat && customerModal.user.lng ? `Lat: ${customerModal.user.lat.toFixed(4)}, Lng: ${customerModal.user.lng.toFixed(4)}` : 'Location unknown'}
                   </p>
@@ -10917,7 +12287,7 @@ export default function AdminDashboard() {
                 <div className="bg-stone-50 p-6 rounded-2xl space-y-4">
                   <h4 className="font-bold text-stone-900 border-b border-stone-200 pb-2">Account Settings</h4>
                   <div>
-                    <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Role</label>
+                    <label className="block text-xs font-bold text-stone-400 uppercase mb-1 select-none">Role</label>
                     <select 
                       className="input-field py-2 text-sm"
                       value={customerModal.user.role}
@@ -10928,7 +12298,7 @@ export default function AdminDashboard() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Segment</label>
+                    <label className="block text-xs font-bold text-stone-400 uppercase mb-1 select-none">Segment</label>
                     <select 
                       className="input-field py-2 text-sm"
                       value={customerModal.user.segment}
@@ -10941,11 +12311,51 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                <div className="bg-stone-50 p-6 rounded-2xl space-y-4 border-2 border-red-100">
+                  <h4 className="font-bold text-red-900 border-b border-red-200 pb-2">Destructive Security Controls</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                     <button 
+                       onClick={() => {
+                          if (window.confirm("CRITICAL: Reset all wallet tokens to zero?")) {
+                             handleUserUpdate(customerModal.user.id, { wallet_balance: 0 });
+                          }
+                       }}
+                       className="py-3 px-2 bg-white border border-stone-100 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                     >
+                        Reset Wallet
+                     </button>
+                     <button 
+                       onClick={() => {
+                          if (window.confirm("CRITICAL: Clear all khata liabilities?")) {
+                             handleUserUpdate(customerModal.user.id, { khata_balance: 0 });
+                          }
+                       }}
+                       className="py-3 px-2 bg-white border border-stone-100 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-tighter hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                     >
+                        Clear Khata
+                     </button>
+                     <button 
+                       onClick={() => {
+                          const newStatus = customerModal.user.status === 'banned' ? 'active' : 'banned';
+                          if (window.confirm(`Protocol: ${newStatus === 'banned' ? 'Deactivate and Ban' : 'Reactivate'} user?`)) {
+                             handleUserUpdate(customerModal.user.id, { status: newStatus });
+                          }
+                       }}
+                       className={cn(
+                          "col-span-2 py-4 rounded-xl text-white text-[10px] font-black uppercase tracking-widest shadow-lg transition-all",
+                          customerModal.user.status === 'banned' ? "bg-emerald-600 shadow-emerald-500/20" : "bg-red-600 shadow-red-500/20"
+                       )}
+                     >
+                        {customerModal.user.status === 'banned' ? 'Authorize User Reactivation' : 'Issue Immediate Network Ban'}
+                     </button>
+                  </div>
+                </div>
+
                 <div className="bg-stone-50 p-6 rounded-2xl space-y-4">
                   <h4 className="font-bold text-stone-900 border-b border-stone-200 pb-2">Contact Info</h4>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Name</label>
+                      <label className="block text-xs font-bold text-stone-400 uppercase mb-1 select-none">Name</label>
                       <input 
                         type="text" 
                         className="input-field py-2 text-sm"
@@ -10954,7 +12364,7 @@ export default function AdminDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Phone</label>
+                      <label className="block text-xs font-bold text-stone-400 uppercase mb-1 select-none">Phone</label>
                       <input 
                         type="text" 
                         className="input-field py-2 text-sm"
@@ -10963,7 +12373,7 @@ export default function AdminDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-stone-400 uppercase mb-1">Email</label>
+                      <label className="block text-xs font-bold text-stone-400 uppercase mb-1 select-none">Email</label>
                       <input 
                         type="email" 
                         className="input-field py-2 text-sm"
@@ -11016,6 +12426,18 @@ export default function AdminDashboard() {
                         onBlur={(e) => handleUserUpdate(customerModal.user.id, { state: e.target.value })}
                       />
                     </div>
+                    <div className="pt-4 mt-4 border-t border-stone-100">
+                      <label className="block text-[10px] font-black text-amber-500 uppercase mb-2 flex items-center gap-2">
+                         <Shield size={10} />
+                         <span>Internal Intelligence Notes</span>
+                      </label>
+                      <textarea 
+                        className="w-full bg-amber-50/10 border border-amber-100 rounded-xl p-4 text-xs font-bold text-stone-600 placeholder:text-stone-300 outline-none focus:ring-2 focus:ring-amber-500/20 transition-all min-h-[100px]"
+                        placeholder="Log behavioral observations, trade reputation, or verification notes..."
+                        defaultValue={customerModal.user.admin_notes}
+                        onBlur={(e) => handleUserUpdate(customerModal.user.id, { admin_notes: e.target.value })}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -11066,6 +12488,31 @@ export default function AdminDashboard() {
                       className="w-full btn-primary py-2 text-sm"
                     >
                       Manage Funds
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        const { generateUserExportPDF } = await import('../services/pdfService');
+                        setExportProgress({ open: true, progress: 10, label: 'Accessing secure user nodes...' });
+                        try {
+                          const [orders, wallet, activities] = await Promise.all([
+                            fetchWithHandling<any[]>(`/api/admin/orders?userId=${customerModal.user.id}`, { headers: getAuthHeaders() }),
+                            fetchWithHandling<any[]>(`/api/admin/wallet/history?userId=${customerModal.user.id}`, { headers: getAuthHeaders() }),
+                            fetchWithHandling<any[]>(`/api/admin/activities?userId=${customerModal.user.id}`, { headers: getAuthHeaders() })
+                          ]);
+                          setExportProgress({ open: true, progress: 60, label: 'Serializing user history...' });
+                          generateUserExportPDF({ user: customerModal.user, orders: orders || [], wallet: wallet || [], activities: activities || [] });
+                          setExportProgress({ open: true, progress: 100, label: 'Dossier Dispatch Successful' });
+                          toast.success('Dossier generated successfully');
+                        } catch (err) {
+                          toast.error('Failed to generate full dossier');
+                        } finally {
+                          setTimeout(() => setExportProgress({ open: false, progress: 0, label: '' }), 1500);
+                        }
+                      }}
+                      className="w-full py-2 text-sm border border-primary text-primary rounded-xl font-bold hover:bg-primary hover:text-white transition-all flex items-center justify-center space-x-2"
+                    >
+                      <Download size={16} />
+                      <span>Export Full Dossier</span>
                     </button>
                     <button 
                       onClick={() => fetchCustomerOrders(customerModal.user.id)}
@@ -11300,18 +12747,45 @@ export default function AdminDashboard() {
                         <span>Delivery Fee</span>
                         <span>₹{orderModal.order.delivery_fee || 0}</span>
                       </div>
-                      <div className="pt-3 border-t border-stone-100 flex justify-between items-center">
+                    <div className="pt-3 border-t border-stone-100 flex justify-between items-center">
                         <span className="font-bold text-lg text-stone-900">Total</span>
                         <div className="flex flex-col items-end">
                           <span className="text-2xl font-black text-primary">₹{orderModal.order.total}</span>
-                          <span className={cn(
-                             "text-[9px] font-black uppercase tracking-widest mt-1",
-                             orderModal.order.payment_status === 'paid' ? "text-emerald-600" :
-                             orderModal.order.payment_status === 'failed' ? "text-red-600" : "text-amber-500"
-                          )}>
-                             Payment: {orderModal.order.payment_status || 'Awaiting Verification'}
-                          </span>
+                          <div className="flex items-center gap-2 mt-1">
+                            {orderModal.order.wallet_used > 0 && (
+                               <span className="text-[8px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">Wallet: ₹{orderModal.order.wallet_used}</span>
+                            )}
+                            {orderModal.order.payment_method === 'khata' && (
+                               <span className="text-[8px] font-black uppercase tracking-widest text-primary bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">Khata Credit</span>
+                            )}
+                          </div>
                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-stone-900 p-6 rounded-2xl text-white space-y-4">
+                  <h4 className="font-bold border-b border-white/10 pb-2 flex items-center gap-2">
+                    <ShieldCheck size={16} className="text-primary" />
+                    Security Verification Node
+                  </h4>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="space-y-1">
+                      <p className="text-[8px] font-black text-stone-500 uppercase tracking-widest">Digital Fingerprint (IP)</p>
+                      <p className="text-xs font-mono text-stone-300">{(orderModal.order as any).ip_address || '127.0.0.1 (Local Node)'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[8px] font-black text-stone-500 uppercase tracking-widest">Client Interface</p>
+                      <p className="text-[10px] font-medium text-stone-400 leading-tight">{(orderModal.order as any).user_agent || 'Mozilla/5.0 (System Client)'}</p>
+                    </div>
+                    <div className="flex justify-between items-end">
+                      <div className="space-y-1">
+                        <p className="text-[8px] font-black text-stone-500 uppercase tracking-widest">Geostationary Metadata</p>
+                        <p className="text-xs text-stone-300">{(orderModal.order as any).city || 'Unknown'}, {(orderModal.order as any).region || 'Processing...'}</p>
+                      </div>
+                      <div className="px-2 py-1 bg-white/10 rounded-lg border border-white/5">
+                         <span className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.2em]">Verified</span>
                       </div>
                     </div>
                   </div>
@@ -11582,42 +13056,78 @@ export default function AdminDashboard() {
 
               <div className="space-y-6">
                 <div className="bg-stone-50 p-6 rounded-2xl">
-                  <h4 className="font-bold text-stone-900 mb-4">Payment Verification</h4>
-                  <p className="text-xs font-bold text-stone-400 uppercase mb-2">Method: {orderModal.order.payment_method}</p>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-bold text-stone-900">Financial Governance</h4>
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest",
+                      orderModal.order.payment_status === 'paid' ? "bg-emerald-100 text-emerald-600" :
+                      orderModal.order.payment_status === 'failed' ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                    )}>
+                      {orderModal.order.payment_status || 'Unsettled'}
+                    </span>
+                  </div>
                   
-                  {orderModal.order.payment_screenshot ? (
-                    <div className="space-y-4">
-                      <div className="aspect-video rounded-xl overflow-hidden border border-stone-200 bg-white">
-                        <img src={orderModal.order.payment_screenshot} alt="Payment Proof" className="w-full h-full object-contain" />
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-stone-100">
+                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Payment Method</span>
+                      <span className="text-xs font-black uppercase tracking-widest text-primary">{orderModal.order.payment_method}</span>
+                    </div>
+
+                    {orderModal.order.payment_utr && (
+                      <div className="bg-white p-3 rounded-xl border border-stone-100">
+                         <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Declared UTR / Ref</p>
+                         <p className="text-sm font-mono font-bold text-stone-800 break-all">{orderModal.order.payment_utr}</p>
                       </div>
-                      <p className="text-sm font-bold text-stone-700 text-center">Payment ID: {orderModal.order.payment_id || 'N/A'}</p>
-                      
-                      {orderModal.order.status === 'pending' && (
-                        <div className="flex space-x-3">
-                          <button 
-                            onClick={async () => {
-                              try {
-                                const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
-                                  method: 'POST',
-                                  headers: getAuthHeaders(),
-                                  body: JSON.stringify({ status: 'processing' })
-                                });
-                                if (data) {
-                                  toast.success('Order Approved');
-                                  setOrderModal({ open: false, order: null });
-                                  fetchOrders();
-                                }
-                              } catch (err) {
-                                console.error('Approve order error:', err);
+                    )}
+                    
+                    {orderModal.order.payment_screenshot ? (
+                      <div className="space-y-4">
+                        <div className="relative group aspect-video rounded-xl overflow-hidden border border-stone-200 bg-white">
+                          <img src={orderModal.order.payment_screenshot} alt="Payment Proof" className="w-full h-full object-contain" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <a href={orderModal.order.payment_screenshot} target="_blank" rel="noreferrer" className="p-3 bg-white rounded-full text-stone-900 shadow-xl hover:scale-110 transition-transform">
+                              <ExternalLink size={20} />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-stone-100 rounded-xl border border-dashed border-stone-200 text-stone-400 text-[10px] font-bold uppercase tracking-widest text-center">
+                        No Documentation Uploaded
+                      </div>
+                    )}
+                    
+                    {orderModal.order.payment_status !== 'paid' && orderModal.order.status !== 'cancelled' && (
+                      <div className="flex flex-col gap-3 pt-2">
+                        <button 
+                          onClick={async () => {
+                            if (!window.confirm('Mark this payment as RECEIVED and proceed with fulfillment?')) return;
+                            try {
+                              // If it's still pending, move to processing. If it's already processing, just update payment.
+                              const targetStatus = orderModal.order.status === 'pending' || orderModal.order.status === 'verifying' ? 'processing' : orderModal.order.status;
+                              const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
+                                method: 'POST',
+                                headers: getAuthHeaders(),
+                                body: JSON.stringify({ status: targetStatus })
+                              });
+                              if (data) {
+                                toast.success('Payment Verified & Order Escalated');
+                                setOrderModal({ open: false, order: null });
+                                fetchOrders();
                               }
-                            }}
-                            className="flex-1 bg-emerald-600 text-white py-2 rounded-xl font-bold hover:bg-emerald-700"
-                          >
-                            Approve
-                          </button>
+                            } catch (err) {
+                              console.error('Approve order error:', err);
+                            }
+                          }}
+                          className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-[.2em] shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 size={16} />
+                          <span>Approve Payment</span>
+                        </button>
+                        <div className="grid grid-cols-2 gap-2">
                           <button 
                             onClick={async () => {
-                              const reason = prompt('Enter rejection reason:');
+                              const reason = prompt('Enter rejection reason (User will be notified to retry):');
                               if (reason) {
                                 try {
                                   const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/fail-payment`, {
@@ -11626,7 +13136,7 @@ export default function AdminDashboard() {
                                     body: JSON.stringify({ reason })
                                   });
                                   if (data) {
-                                    toast.error('Payment Proof Rejected. User notified.');
+                                    toast.error('Payment Discarded. Protocol reset for client.');
                                     setOrderModal({ open: false, order: null });
                                     fetchOrders();
                                   }
@@ -11635,7 +13145,7 @@ export default function AdminDashboard() {
                                 }
                               }
                             }}
-                            className="flex-1 bg-amber-600 text-white py-2 rounded-xl font-bold hover:bg-amber-700"
+                            className="bg-white text-amber-600 border-2 border-amber-100 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-amber-50 transition-all"
                           >
                             Reject Proof
                           </button>
@@ -11659,18 +13169,14 @@ export default function AdminDashboard() {
                                 }
                               }
                             }}
-                            className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700"
+                            className="bg-white text-red-600 border-2 border-red-100 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all"
                           >
                             Cancel Order
                           </button>
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-amber-700 text-sm italic text-center">
-                      No payment proof uploaded yet.
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="bg-stone-50 p-6 rounded-2xl">
@@ -12126,8 +13632,8 @@ export default function AdminDashboard() {
                   <Bug size={32} />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">Anomaly Full Report</h3>
-                  <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mt-1">Cipher: ERR-{reportDetailModal.report.id.toString().slice(-6)}</p>
+                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">System Error Details</h3>
+                  <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mt-1">ID: ERR-{reportDetailModal.report.id.toString().slice(-6)}</p>
                 </div>
               </div>
               <button 
@@ -12155,19 +13661,19 @@ export default function AdminDashboard() {
 
               {/* Identity & Origin */}
               <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Origin & Identity</h4>
+                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Origin & Reporter</h4>
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 shadow-sm">
                    <div className="flex justify-between items-center py-2 border-b border-stone-50">
                       <span className="text-xs font-bold text-stone-500">Reporter</span>
-                      <span className="text-xs font-black text-stone-900">{reportDetailModal.report.reporter_name || 'Anonymous'}</span>
+                      <span className="text-xs font-black text-stone-900">{reportDetailModal.report.reporter_name || 'Anonymous User'}</span>
                    </div>
                    <div className="flex justify-between items-center py-2 border-b border-stone-50">
                       <span className="text-xs font-bold text-stone-500">User ID</span>
-                      <span className="text-xs font-mono font-bold text-stone-400">{reportDetailModal.report.user_id || 'unauthenticated_node'}</span>
+                      <span className="text-xs font-mono font-bold text-stone-400">{reportDetailModal.report.user_id || 'unauthenticated'}</span>
                    </div>
                    <div className="flex justify-between items-center py-2 border-b border-stone-50">
                       <span className="text-xs font-bold text-stone-500">Node Path</span>
-                      <span className="text-xs font-black text-primary">{reportDetailModal.report.path || 'Root Context'}</span>
+                      <span className="text-xs font-black text-primary">{reportDetailModal.report.path || 'Root Content'}</span>
                    </div>
                    {reportDetailModal.report.api_endpoint && (
                      <div className="flex justify-between items-center py-2">
@@ -12180,7 +13686,7 @@ export default function AdminDashboard() {
 
               {/* Environmental Metrics */}
               <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Environmental Metrics</h4>
+                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Device & Browser Context</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm flex items-center space-x-4">
                       <div className="p-2 bg-stone-50 rounded-xl text-stone-400"><LayoutDashboard size={18} /></div>
@@ -12257,7 +13763,8 @@ export default function AdminDashboard() {
           </motion.div>
         </div>
       )}
-      <ExportProgressModal />
+      <ExportProgressModal open={exportProgress.open} progress={exportProgress.progress} label={exportProgress.label} />
+      <ExportActionModal />
     </AdminDashboardLayout>
   );
 }

@@ -4,15 +4,15 @@ import { Hammer, Clock, MessageCircle } from 'lucide-react';
 import { useStore } from '../StoreContext';
 
 export default function MaintenancePage() {
-  const { config, fetchConfig } = useStore();
+  const { config = [], fetchConfig } = useStore();
 
   useEffect(() => {
     fetchConfig();
   }, []);
 
-  const whatsappNumber = config.find(c => c.key === 'whatsapp_number')?.value || '+91 98765 43210';
-  const whatsappMessage = config.find(c => c.key === 'whatsapp_message')?.value || 'Hello General Store Karyana, I would like to inquire about an order.';
-  const maintenanceTime = config.find(c => c.key === 'maintenance_time')?.value || '2 Hours';
+  const whatsappNumber = (config || []).find(c => c.key === 'whatsapp_number')?.value || '+91 98765 43210';
+  const whatsappMessage = (config || []).find(c => c.key === 'whatsapp_message')?.value || 'Hello General Store Karyana, I would like to inquire about an order.';
+  const maintenanceTime = (config || []).find(c => c.key === 'maintenance_time')?.value || '2 Hours';
 
   const handleWhatsApp = () => {
     const encodedMessage = encodeURIComponent(whatsappMessage);

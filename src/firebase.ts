@@ -1,46 +1,28 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, onIdTokenChanged } from 'firebase/auth';
-import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
-// Fallback configuration if the config file is missing
-const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
-  firestoreDatabaseId: "(default)"
-};
+import firebaseConfig from './firebase-applet-config.json';
 
 const validConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey || "mock-api-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain || "mock-project.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || "mock-project",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || "mock-project.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId || "1234567890",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId || "1:1234567890:web:123456789",
+  apiKey: firebaseConfig.apiKey,
+  authDomain: firebaseConfig.authDomain,
+  projectId: firebaseConfig.projectId,
+  storageBucket: firebaseConfig.storageBucket,
+  messagingSenderId: firebaseConfig.messagingSenderId,
+  appId: firebaseConfig.appId,
 };
 
-const isCustomProject = !!import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_PROJECT_ID !== firebaseConfig.projectId;
-const isExternalHost = typeof window !== 'undefined' && 
-                       window.location && 
-                       window.location.hostname && 
-                       !window.location.hostname.includes('.run.app') && 
-                       !window.location.hostname.includes('localhost') && 
-                       !window.location.hostname.includes('127.0.0.1');
-
-const firestoreDatabaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || 
-                            (isCustomProject || isExternalHost ? '(default)' : (firebaseConfig.firestoreDatabaseId || '(default)'));
-
 if (!validConfig.projectId || validConfig.projectId === 'mock-project') {
-  console.warn('⚠️ [Firebase] Running in unconfigured fallback/mock mode. Real-time features and authentication will require database provisioning via AI Studio setup.');
+  console.warn('⚠️ [Firebase] Running in unconfigured fallback/mock mode.');
+} else {
+  console.log('[Firebase] Initialized with Project:', validConfig.projectId, 'AuthDomain:', validConfig.authDomain);
 }
 
 const app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
 export const auth = getAuth(app);
-export const db = getFirestore(app, firestoreDatabaseId || '(default)');
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -67,17 +49,18 @@ export const signInWithGoogle = async () => {
     return { user: result.user, token };
   } catch (error: any) {
     if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in cancelled. Please try again.');
+      throw new Error('Sign-in was cancelled. Please try again when you are ready.');
     } else if (error.code === 'auth/popup-blocked') {
-      throw new Error('Pop-up blocked. Please allow pop-ups for this site.');
+      throw new Error('Your browser blocked the sign-in window. Please allow popups for this site and try again, or click the Open in New Tab icon (↗) at the top right.');
+    } else if (error.code === 'auth/network-request-failed') {
+      throw new Error('Network connection issues detected. Please check your internet connection and try again.');
     } else if (error.code === 'auth/unauthorized-domain') {
-      throw new Error(`Domain not authorized. Please go to Firebase Console -> Authentication -> Settings -> Authorized Domains and add: ${window.location.hostname}`);
+       throw new Error('This app is not yet authorized to use Google Sign-In. The developer needs to update the Firebase configuration.');
     } else {
-        throw new Error(`Sign-in failed (${error.code || 'internal-error'}). Please check that Google Auth is ENABLED in your Firebase Console.`);
+      throw new Error('We could not securely sign you in at this time. Please try again later.');
     }
   }
 };
-
 export const signOutUser = async () => {
   return await signOut(auth);
 };
@@ -118,3 +101,19 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(`Firestore operation failed: ${errInfo.error} at ${path}`);
 }
+
+async function testConnection() {
+  if (!validConfig.projectId || validConfig.projectId === 'mock-project') return;
+  try {
+    await getDocFromServer(doc(db, 'test_connection_ping', 'status'));
+    console.log('[Firebase] Connection test succeeded.');
+  } catch (error: any) {
+    if (error?.message && (error.message.includes('the client is offline') || error.message.includes('unavailable') || error.code === 'unavailable')) {
+      console.warn('[Firebase] Centralized connection test failed or client is offline:', error.message);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('firebase_unreachable', { detail: error.message }));
+      }
+    }
+  }
+}
+// testConnection();

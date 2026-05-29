@@ -1,0 +1,153 @@
+import { cn, Order, PromotionRule } from '../types';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching';
+  const [promotions, setPromotions] = useState<any[]>([]);
+  const [promotionModal, setPromotionModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
+  const [promotionProductsModal, setPromotionProductsModal] = useState({ open: false, promotionId: null as number | null });
+  const [newPromotion, setNewPromotion] = useState({ title: '', description: '', image_url: '', link: '', active: true, target_role: 'all', start_time: '', end_time: '', banner_type: 'standard', is_default: false });
+  const [promotionRules, setPromotionRules] = useState<PromotionRule[]>([]);
+  const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as PromotionRule | null });
+  const [newPromotionRuleData, setNewPromotionRuleData] = useState<Partial<PromotionRule>>({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+  const handlePromotionRuleSubmit = async (e: React.FormEvent) => {
+      const url = promotionRuleFormModal.mode === 'add' ? '/api/admin/promotional-rules' : `/api/admin/promotional-rules/${promotionRuleFormModal.rule?.id}`;
+      const method = promotionRuleFormModal.mode === 'add' ? 'POST' : 'PUT';
+        body: JSON.stringify(newPromotionRuleData)
+        toast.success(promotionRuleFormModal.mode === 'add' ? 'Rule created' : 'Rule updated');
+        fetchPromotionRules();
+        setPromotionRuleFormModal({ open: false, mode: 'add', rule: null });
+        setNewPromotionRuleData({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+      handleAppError(err, 'Failed to save rule', 'promotionRuleSubmit', true);
+      const data = await fetchWithHandling<any>(`/api/admin/promotional-rules/${id}`, { 
+        fetchPromotionRules();
+    if (activeTab === 'Promotional Rules') {
+      fetchPromotionRules();
+  const fetchPromotionProducts = async (promoId: number) => {
+      const data = await fetchWithHandling<any[]>(`/api/admin/promotions/${promoId}/products`, { headers: getAuthHeaders() });
+      console.error('Failed to fetch promotion products:', err);
+    if (promotionProductsModal.open && promotionProductsModal.promotionId) {
+      fetchPromotionProducts(promotionProductsModal.promotionId);
+  }, [promotionProductsModal.open, promotionProductsModal.promotionId]);
+  const fetchPromotions = async () => {
+      const data = await fetchWithHandling<any[]>('/api/promotions', { headers: getAuthHeaders() });
+        setPromotions(data);
+      console.error('Promotions fetch error:', err);
+  const fetchPromotionRules = async () => {
+      const data = await fetchWithHandling<any[]>('/api/admin/promotional-rules', {
+        setPromotionRules(data);
+      handleAppError(err, 'Failed to fetch promotion rules', 'fetchPromotionRules');
+  const handleDeletePromotion = async (id: number) => {
+    if (!window.confirm('Delete this promotion?')) return;
+      const data = await fetchWithHandling<any>(`/api/admin/promotions/${id}`, { 
+        toast.success('Promotion deleted');
+        fetchPromotions();
+      handleAppError(err, 'Failed to delete promotion', 'deletePromotion', true);
+  const handlePromotionSubmit = async (e: React.FormEvent) => {
+    if (!newPromotion.title.trim()) {
+    const url = promotionModal.mode === 'add' ? '/api/admin/promotions' : `/api/admin/promotions/${promotionModal.id}`;
+    const method = promotionModal.mode === 'add' ? 'POST' : 'PUT';
+        body: JSON.stringify(newPromotion)
+        toast.success(`Promotion ${promotionModal.mode === 'add' ? 'added' : 'updated'} successfully`);
+        setPromotionModal({ open: false, mode: 'add', id: null });
+        setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true } as any);
+        fetchPromotions();
+      handleAppError(err, 'Failed to save promotion', 'savePromotion', true);
+  const togglePromotionStatus = async (id: number) => {
+      const data = await fetchWithHandling<any>(`/api/admin/promotions/${id}/toggle`, { 
+        toast.success('Promotion status updated');
+        fetchPromotions();
+      handleAppError(err, 'Failed to update status', 'togglePromotionStatus', true);
+  const togglePromotionRuleStatus = async (id: number) => {
+      const data = await fetchWithHandling<any>(`/api/admin/promotional-rules/${id}/toggle`, { 
+        fetchPromotionRules();
+      handleAppError(err, 'Failed to update rule status', 'togglePromotionRuleStatus', true);
+        { name: 'Promotions' as Tab, icon: TrendingUp },
+    'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'Suspicious Activities', 'Promotions', 
+    'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 'Automatic Reports', 'Data Exports', 'Promotional Rules'
+                <p className="text-stone-500 mt-2 text-lg max-w-md">Communicate with your customers in real-time. Alerts, updates, and promotions.</p>
+                    onClick={() => setActiveTab('Promotions')}
+                <p className="text-stone-500 mt-2 text-lg font-medium">Coordinate global HUD alerts and promotional banners.</p>
+                          notif.type === 'promotion' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+        {activeTab === 'Promotions' && (
+                <p className="text-stone-500 mt-2 text-lg font-medium">Coordinate store-wide visual banners and promotional announcements.</p>
+                  setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true });
+                  setPromotionModal({ open: true, mode: 'add', id: null });
+                 { label: 'Live Banners', val: promotions.filter(p => p.active).length, icon: Eye, color: 'text-primary' },
+                 { label: 'Total Variants', val: promotions.length, icon: Megaphone, color: 'text-purple-500' }
+              {promotions.map((promo, idx) => (
+                          onClick={() => togglePromotionStatus(promo.id)}
+                            setNewPromotion({ 
+                            setPromotionModal({ open: true, mode: 'edit', id: promo.id });
+                          onClick={() => handleDeletePromotion(promo.id)}
+              {promotions.length === 0 && (
+                    setNewPromotionRuleData({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
+                    setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
+                      {promotionRules.map((rule) => (
+                                onClick={() => togglePromotionRuleStatus(rule.id)}
+                                  setNewPromotionRuleData({
+                                  setPromotionRuleFormModal({ open: true, mode: 'edit', rule: rule });
+                      {promotionRules.length === 0 && (
+        {activeTab === 'Promotional Rules' && (
+                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Promotional Rule Configuration</h2>
+                  setNewPromotionRuleData({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
+                  setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
+                      {promotionRules.map((rule) => (
+                                    setNewPromotionRuleData({ title: rule.title, type: rule.type, target_type: rule.target_type, target_id: rule.target_id, condition_qty: rule.condition_qty, reward_qty: rule.reward_qty, discount_value: rule.discount_value, active: rule.active });
+                                    setPromotionRuleFormModal({ open: true, mode: 'edit', rule });
+      {/* Promotion Rule Modal */}
+      {promotionRuleFormModal.open && (
+              {promotionRuleFormModal.mode === 'add' ? 'Create Target Rule' : 'Edit Target Rule'}
+            <form onSubmit={handlePromotionRuleSubmit} className="space-y-4">
+                  value={newPromotionRuleData.title}
+                  onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, title: e.target.value})}
+                    value={newPromotionRuleData.type}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, type: e.target.value})}
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Discount Value {newPromotionRuleData.type === 'bogo' && '(Y)'}</label>
+                    value={newPromotionRuleData.discount_value}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, discount_value: parseFloat(e.target.value)})}
+                    value={newPromotionRuleData.target_type}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, target_type: e.target.value})}
+                  <label className="block text-sm font-bold text-stone-700 mb-2">Required Qty {newPromotionRuleData.type === 'bogo' && '(X)'}</label>
+                    value={newPromotionRuleData.condition_qty}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, condition_qty: parseInt(e.target.value)})}
+              {newPromotionRuleData.target_type !== 'all' && (
+                    placeholder={newPromotionRuleData.target_type === 'category' ? "e.g., Electronics" : "Product ID (e.g., 12)"}
+                    value={newPromotionRuleData.target_id}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, target_id: e.target.value})}
+                  checked={newPromotionRuleData.active}
+                  onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, active: e.target.checked})}
+                  onClick={() => setPromotionRuleFormModal({ open: false, mode: 'add', rule: null })}
+      {/* Promotion Modal */}
+      {promotionModal.open && (
+              {promotionModal.mode === 'add' ? 'Add Promotion' : 'Edit Promotion'}
+            <form onSubmit={handlePromotionSubmit} className="space-y-4">
+                  value={newPromotion.title}
+                  onChange={(e) => setNewPromotion({...newPromotion, title: e.target.value})}
+                  value={newPromotion.description}
+                  onChange={(e) => setNewPromotion({...newPromotion, description: e.target.value})}
+                    value={newPromotion.image_url}
+                    onChange={(e) => setNewPromotion({...newPromotion, image_url: e.target.value})}
+                            setNewPromotion({...newPromotion, image_url: reader.result as string});
+                  value={newPromotion.link}
+                  onChange={(e) => setNewPromotion({...newPromotion, link: e.target.value})}
+                    value={newPromotion.target_role}
+                    onChange={(e) => setNewPromotion({...newPromotion, target_role: e.target.value})}
+                    value={newPromotion.banner_type}
+                    onChange={(e) => setNewPromotion({...newPromotion, banner_type: e.target.value})}
+                    value={newPromotion.start_time}
+                    onChange={(e) => setNewPromotion({...newPromotion, start_time: e.target.value})}
+                    value={newPromotion.end_time}
+                    onChange={(e) => setNewPromotion({...newPromotion, end_time: e.target.value})}
+                  checked={newPromotion.active}
+                  onChange={(e) => setNewPromotion({...newPromotion, active: e.target.checked})}
+                  checked={newPromotion.is_default}
+                  onChange={(e) => setNewPromotion({...newPromotion, is_default: e.target.checked})}
+                  onClick={() => setPromotionModal({ open: false, mode: 'add', id: null })}
+                  {promotionModal.mode === 'add' ? 'Add Promotion' : 'Update Promotion'}
+                    <option value="ad">🏷️ Promotional Ad</option>
+      {/* Promotion Products Modal */}
+      {promotionProductsModal.open && (
+              <h3 className="text-2xl font-bold">Link Products to Promotion</h3>
+                onClick={() => setPromotionProductsModal({ ...promotionProductsModal, open: false })}
+                              const data = await fetchWithHandling<any>(`/api/admin/promotions/${promotionProductsModal.promotionId}/products/${product.id}`, { 
+                              const data = await fetchWithHandling<any>(`/api/admin/promotions/${promotionProductsModal.promotionId}/products`, {
+                            console.error('Update promotion products error:', err);
+                onClick={() => setPromotionProductsModal({ ...promotionProductsModal, open: false })}

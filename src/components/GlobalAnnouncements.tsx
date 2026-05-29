@@ -19,7 +19,7 @@ export default function GlobalAnnouncements() {
     const saved = localStorage.getItem('hgs_dismissed_announcements');
     return saved ? JSON.parse(saved) : [];
   });
-  const { fetchWithHandling } = useStore();
+  const { fetchWithHandling, user } = useStore();
 
   useEffect(() => {
     const load = async () => {
@@ -29,7 +29,7 @@ export default function GlobalAnnouncements() {
       } catch (err) {}
     };
     load();
-  }, []);
+  }, [fetchWithHandling]);
 
   const handleDismiss = (id: number) => {
     const newDismissed = [...dismissedIds, id];
@@ -37,7 +37,15 @@ export default function GlobalAnnouncements() {
     localStorage.setItem('hgs_dismissed_announcements', JSON.stringify(newDismissed));
   };
 
-  const visibleAnnouncements = announcements.filter(a => !dismissedIds.includes(a.id));
+  const processed = announcements
+    .filter(a => !dismissedIds.includes(a.id))
+    .filter(a => {
+        if (user) return true;
+        return a.type === 'maintenance' || a.title.toLowerCase().includes('update');
+    })
+    .sort((a,b) => b.id - a.id);
+
+  const visibleAnnouncements = processed.length > 0 ? [processed[0]] : [];
 
   if (visibleAnnouncements.length === 0) return null;
 

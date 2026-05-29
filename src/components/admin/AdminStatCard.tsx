@@ -1,0 +1,95 @@
+import React from 'react';
+import { motion } from 'motion/react';
+import { cn } from '../../types';
+import { LucideIcon } from 'lucide-react';
+
+interface AdminStatCardProps {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+  trend?: {
+    value: string;
+    isUp?: boolean;
+    label?: string;
+    color?: string;
+  };
+  color?: 'primary' | 'emerald' | 'amber' | 'blue' | 'red' | 'stone' | 'purple';
+  progress?: number;
+  className?: string;
+  onClick?: () => void;
+  selectText?: boolean;
+}
+
+export default function AdminStatCard({
+  label,
+  value,
+  icon,
+  trend,
+  color = 'stone',
+  progress,
+  className,
+  onClick,
+  selectText = true
+}: AdminStatCardProps) {
+  
+  const colorMap: Record<string, string> = {
+    primary: 'bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white',
+    emerald: 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white',
+    amber: 'bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white',
+    blue: 'bg-blue-50 text-blue-600 group-hover:bg-blue-500 group-hover:text-white',
+    red: 'bg-red-50 text-red-600 group-hover:bg-red-500 group-hover:text-white',
+    purple: 'bg-purple-50 text-purple-600 group-hover:bg-purple-500 group-hover:text-white',
+    stone: 'bg-stone-50 text-stone-900 group-hover:bg-stone-900 group-hover:text-white'
+  };
+
+  const trendColors = trend?.isUp ? 'text-emerald-500' : (trend?.color || 'text-red-500');
+
+  return (
+    <motion.div 
+      whileHover={onClick ? { y: -5 } : {}}
+      onClick={onClick}
+      className={cn(
+        "bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all duration-500",
+        onClick && "cursor-pointer hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/40",
+        className
+      )}
+    >
+      <div className="flex justify-between items-start mb-4">
+        <div className={cn(
+          "p-3 rounded-2xl transition-all transform group-hover:-rotate-12",
+          colorMap[color] || colorMap.stone
+        )}>
+          {icon}
+        </div>
+        {trend && (
+          <div className={cn("flex items-center text-xs font-black uppercase tracking-widest", trendColors)}>
+            <span>{trend.value}</span>
+            {trend.label && <span className="ml-1 text-stone-300 font-bold">/ {trend.label}</span>}
+          </div>
+        )}
+      </div>
+      <p className="text-stone-400 text-xs font-black uppercase tracking-widest mb-1 select-none">{label}</p>
+      <h3 className={cn(
+        "text-3xl font-black text-stone-900 tracking-tighter transition-colors",
+        selectText && "select-text"
+      )}>
+        {value}
+      </h3>
+      <div className="mt-4 h-1 w-full bg-stone-50 rounded-full overflow-hidden">
+        <motion.div 
+          initial={{ width: 0 }} 
+          animate={{ width: progress ? `${progress}%` : '60%' }} 
+          className={cn(
+            "h-full transition-all",
+            color === 'primary' ? 'bg-primary' : 
+            color === 'emerald' ? 'bg-emerald-500' : 
+            color === 'amber' ? 'bg-amber-500' :
+            color === 'blue' ? 'bg-blue-500' :
+            color === 'red' ? 'bg-red-500' : 
+            color === 'purple' ? 'bg-purple-600' : 'bg-stone-900'
+          )} 
+        />
+      </div>
+    </motion.div>
+  );
+}
