@@ -1,12 +1,12 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock, Camera } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { calculateBulkDiscount, cn } from '../lib/utils';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { calculateBulkDiscount, cn } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 
 export default function Cart() {
   const { t, cart, updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [] } = useStore();

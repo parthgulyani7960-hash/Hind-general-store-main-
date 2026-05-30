@@ -17,11 +17,11 @@ import {
   Plus,
   Star
 } from 'lucide-react';
-import { useStore } from '../StoreContext';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
-import { cn } from '../lib/utils';
-import LoadingFallback from '../components/LoadingFallback';
+import { useStore } from '@/StoreContext';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import LoadingFallback from '@/components/LoadingFallback';
 import toast from 'react-hot-toast';
 
 type ActivityTab = 'orders' | 'wallet' | 'khata';
@@ -256,86 +256,66 @@ export default function UserActivity() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95 }}
-                      className="bg-stone-50 border border-stone-200/55 rounded-3xl p-5 hover:border-stone-300 transition-all duration-300"
+                      className="bg-white border-2 border-stone-100 rounded-2xl p-4 sm:p-5 hover:border-primary/20 transition-all duration-300 shadow-sm"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-200/40">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-black text-stone-850">Order #ORD-{o.id.slice(-6).toUpperCase()}</span>
+                      <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-50">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-black text-stone-900 uppercase tracking-tight">#{String(o.id).slice(-6).toUpperCase()}</span>
                             <button 
                               onClick={() => {
-                                navigator.clipboard.writeText(`ORD-${o.id}`);
+                                navigator.clipboard.writeText(String(o.id));
                                 toast.success('Order ID copied');
                               }}
-                              className="p-1 hover:bg-stone-200 rounded-lg text-stone-400 hover:text-stone-700 transition"
+                              className="text-stone-400 hover:text-primary transition"
                             >
-                              <Copy size={11} className="inline" />
+                              <Copy size={10} />
                             </button>
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] text-stone-400 font-bold font-mono">
-                            <Calendar size={11} />
-                            <span>{new Date(invoiceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                            <span className="text-stone-300">•</span>
-                            <Clock size={11} />
+                          <div className="flex items-center gap-2 text-[9px] text-stone-400 font-bold uppercase tracking-tighter">
+                            <span>{new Date(invoiceDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                            <span className="text-stone-200">|</span>
                             <span>{new Date(invoiceDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <span className={cn("px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider", getOrderStatusColor(o.status))}>
-                            {o.status}
-                          </span>
-                        </div>
+                        <span className={cn("px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest", getOrderStatusColor(o.status))}>
+                          {o.status}
+                        </span>
                       </div>
 
                       {/* Display items summary preview */}
-                      <div className="pt-4 space-y-2.5">
-                        <div className="flex justify-between text-xs text-stone-500 font-bold">
-                          <span>Items details:</span>
-                          <span className="text-stone-900 font-extrabold">{o.items?.length || 0} product(s)</span>
-                        </div>
-                        
+                      <div className="pt-3 space-y-2">
                         <div className="space-y-1.5">
-                          {o.items?.slice(0, isExpanded ? undefined : 2).map((item: any, idx: number) => (
-                            <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-stone-200/35 text-xs text-stone-700 font-semibold">
-                              <span className="truncate max-w-[200px] sm:max-w-xs">{item.product_name || item.name} <span className="text-stone-400">x{item.quantity}</span></span>
-                              <span className="font-extrabold text-stone-900 font-mono">₹{item.price * item.quantity}</span>
+                          {o.items?.slice(0, isExpanded ? undefined : 1).map((item: any, idx: number) => (
+                            <div key={idx} className="flex justify-between items-center text-[11px] text-stone-600 font-medium">
+                              <span className="truncate max-w-[150px] sm:max-w-xs">{item.product_name || item.name} <span className="text-stone-400 font-bold">x{item.quantity}</span></span>
+                              <span className="font-bold text-stone-900">₹{item.price * item.quantity}</span>
                             </div>
                           ))}
                         </div>
 
-                        {o.items?.length > 2 && (
+                        {o.items?.length > 1 && (
                           <button 
                             onClick={() => toggleOrderExpand(o.id)}
-                            className="text-[10px] uppercase font-black text-indigo-600 hover:text-indigo-800 transition py-1"
+                            className="text-[9px] font-black text-primary hover:underline transition"
                           >
-                            {isExpanded ? 'Collapse list' : `View ${o.items.length - 2} more items...`}
+                            {isExpanded ? 'Show less' : `+ ${o.items.length - 1} more items`}
                           </button>
                         )}
 
-                        <div className="flex items-center justify-between pt-4 mt-2 border-t border-dashed border-stone-200/60">
-                          <div className="flex flex-col">
-                            <span className="text-[10px] uppercase font-bold tracking-widest text-stone-400">Total Charged</span>
-                            <span className="text-lg font-black text-stone-900 tracking-tight leading-tight">₹{o.total?.toLocaleString('en-IN') || '0'}</span>
+                        <div className="flex items-center justify-between pt-3 mt-1 border-t border-stone-50">
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-[10px] font-bold text-stone-400 uppercase">Paid:</span>
+                            <span className="text-sm font-black text-stone-900 tracking-tight">₹{o.total?.toLocaleString('en-IN') || '0'}</span>
                           </div>
 
-                          {/* Action button inside log */}
-                          <div className="flex gap-2">
-                            {o.status === 'delivered' && !o.reviewed && (
-                              <button 
-                                onClick={() => setShowReviewModal({ open: true, orderId: o.id })}
-                                className="px-4 py-2 hover:bg-amber-50 border border-amber-200/70 text-amber-600 rounded-xl font-bold text-xs hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm"
-                              >
-                                <Star size={12} fill="currentColor" />
-                                <span>Review Product</span>
-                              </button>
-                            )}
+                          <div className="flex gap-1.5">
                             <Link 
                               to={`/track-order?id=${o.id}`}
-                              className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white rounded-xl font-bold text-xs hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-1 shadow-sm"
+                              className="px-3 py-1.5 bg-stone-900 hover:bg-black text-white rounded-lg font-black text-[9px] uppercase tracking-wider transition-all shadow-sm"
                             >
-                              <span>Details & Track</span>
-                              <ChevronRight size={12} />
+                              Details
                             </Link>
                           </div>
                         </div>

@@ -1,8 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Home, ShoppingBag, ShoppingCart, User, Heart, Check } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import { useStore } from '../StoreContext';
-import { cn } from '../types';
+import { useStore } from '@/StoreContext';
+import { cn } from '@/types';
 
 export default function MobileBottomNav() {
   const location = useLocation();

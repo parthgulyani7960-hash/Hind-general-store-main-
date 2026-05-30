@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, Star, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { uploadFile } from '../services/storageService';
-import { cn } from '../lib/utils';
+import { uploadFile } from '@/services/storageService';
+import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
 
 interface ImageUploaderProps {

@@ -6,8 +6,9 @@ import {
   Plus, ArrowRight
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
-import { cn, User } from '../types';
+import { cn, User } from '@/types';
 import toast from 'react-hot-toast';
+import ModalContainer from './ui/ModalContainer';
 
 interface WalletModalProps {
   isOpen: boolean;
@@ -98,13 +99,14 @@ export default function WalletModal({ isOpen, onClose, user, refreshHistory, con
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-6 drop-shadow-2xl">
-      <div className="absolute inset-0 bg-stone-900/40 backdrop-blur-xl transition-opacity animate-in fade-in duration-500" onClick={onClose} />
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 40 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white w-full h-full sm:h-auto sm:max-w-4xl sm:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col md:flex-row relative z-10"
-      >
+    <ModalContainer
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      showHeader={false}
+      className="max-w-4xl sm:rounded-[3rem] h-full sm:h-auto border-0"
+    >
+      <div className="flex flex-col md:flex-row h-full relative z-10">
         <button 
           onClick={onClose}
           className="absolute top-4 right-4 sm:top-8 sm:right-8 z-30 p-2 bg-stone-100/80 hover:bg-stone-200 text-stone-900 rounded-full transition-all border border-stone-200/50 shadow-sm"
@@ -404,7 +406,7 @@ export default function WalletModal({ isOpen, onClose, user, refreshHistory, con
             )}
           </AnimatePresence>
         </div>
-      </motion.div>
-    </div>
+      </div>
+    </ModalContainer>
   );
 }

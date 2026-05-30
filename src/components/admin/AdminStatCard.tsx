@@ -1,25 +1,47 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { cn } from '../../types';
+import { cn } from '@/types';
 import { LucideIcon } from 'lucide-react';
 
+/**
+ * Properties accepted by the AdminStatCard component.
+ */
 interface AdminStatCardProps {
+  /** The descriptive text label of the statistic representing the metric. */
   label: string;
+  /** The value (text or number) of the metric to showcase prominently. */
   value: string | number;
+  /** Lucide icon or custom React Node to display on the top-left of the card. */
   icon: React.ReactNode;
+  /** Optional meta trend object indicating percentage/ratio change of the metric. */
   trend?: {
+    /** The displayed change string (e.g., "+12.4%"). */
     value: string;
+    /** If true, styles the metric as trending up (positive green color scheme). */
     isUp?: boolean;
+    /** Supplementary categorization label or timeframe (e.g. "vs last week"). */
     label?: string;
+    /** Custom Tailwind color override class name for the text representation. */
     color?: string;
   };
+  /** Aesthetic color scheme preset mapped to backgrounds and matching status themes. */
   color?: 'primary' | 'emerald' | 'amber' | 'blue' | 'red' | 'stone' | 'purple';
+  /** Completion progress bar percentage (0 to 100). Defaults visually if omitted. */
   progress?: number;
+  /** Supplementary standard CSS class declarations to append to the container container. */
   className?: string;
+  /** Triggered action when clicked. Highlights card container with cursor indicators. */
   onClick?: () => void;
+  /** Allows highlighting or clipboard-copying of the display score metric text. */
   selectText?: boolean;
 }
 
+/**
+ * Render standard administrative kpi metrics cards with beautiful micro-interactions, 
+ * adaptive color mappings, trends, and hover state triggers.
+ *
+ * @component
+ */
 export default function AdminStatCard({
   label,
   value,

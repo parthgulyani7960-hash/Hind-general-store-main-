@@ -1,5 +1,5 @@
 import { toast } from 'react-hot-toast';
-import { logErrorToFirestore } from '../services/errorLogger';
+import { logErrorToFirestore } from '@/services/errorLogger';
 
 export const handleAppError = (error: any, userFriendlyMessage: string, context?: string, isAdmin: boolean = false) => {
   console.error(`[AppError][${context || 'General'}]:`, error);

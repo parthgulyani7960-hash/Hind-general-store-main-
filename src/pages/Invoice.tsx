@@ -4,9 +4,9 @@ import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle, ShieldAlert, FileText, RefreshCw } from 'lucide-react';
 
-import { StoreProvider, useStore } from '../StoreContext';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { StoreProvider, useStore } from '@/StoreContext';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 
 export default function Invoice() {
   const { id } = useParams();

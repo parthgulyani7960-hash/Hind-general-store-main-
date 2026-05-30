@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldAlert, AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
-import { useStore } from '../StoreContext';
-import { cn } from '../lib/utils';
+import { useStore } from '@/StoreContext';
+import { cn } from '@/lib/utils';
 
 export default function FullScreenAlert() {
   const { currentAlert, markAlertAsRead, refreshUser } = useStore();

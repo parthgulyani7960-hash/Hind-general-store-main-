@@ -64,13 +64,18 @@ interface StoreContextType {
   markAlertAsRead: (id: number) => Promise<void>;
   hasPermission: (permission: Permission) => boolean;
   calculateDiscount: (cart: CartItem[]) => number;
+  isSyncCartPending: boolean;
+  logActivity: (type: string, description: string) => Promise<void>;
+  fetchCart: (userId: number) => Promise<void>;
+  lastAddedId: number | null;
+  fetchWithHandling: <T>(url: string, options?: RequestInit) => Promise<T>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isMaintenance, setIsMaintenance] = useState(false);
-  const [isAuthChecking, setIsAuthChecking] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const initialCheckDone = useRef(false);
   const authRunningRef = useRef(false);
 
@@ -131,15 +136,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       if (data && data.user) {
         console.log('User loaded:', data.user);
-        setUser(data.user);
+        setUser(prev => {
+           // Deep comparison to prevent redundant re-renders
+           if (prev && JSON.stringify(prev) === JSON.stringify(data.user)) return prev;
+           return data.user;
+        });
         localStorage.setItem('hgs_user', JSON.stringify(data.user));
       } else {
-        setUser(null);
+        setUser(prev => prev === null ? null : null);
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
       }
     } catch (err) {
-      setUser(null);
+      setUser(prev => prev === null ? null : null);
       localStorage.removeItem('hgs_user');
       localStorage.removeItem('hgs_token');
     } finally {
@@ -154,33 +163,72 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let unsubscribe: any;
     
     const initialize = async () => {
-      await auth.authStateReady();
-      const firebaseUser = auth.currentUser;
-      
-      if (firebaseUser) {
-        const token = await firebaseUser.getIdToken();
-        localStorage.setItem('hgs_token', token);
-        await checkAuth(token);
-      } else {
-        const savedToken = localStorage.getItem('hgs_token');
-        if (savedToken) {
-          await checkAuth(savedToken);
+      try {
+        await auth.authStateReady();
+        const firebaseUser = auth.currentUser;
+        
+        if (firebaseUser) {
+          const token = await firebaseUser.getIdToken();
+          localStorage.setItem('hgs_token', token);
+          await checkAuth(token);
         } else {
-          setUser(null);
+          const savedToken = localStorage.getItem('hgs_token');
+          if (savedToken) {
+            await checkAuth(savedToken);
+          } else {
+            setUser(null);
+          }
         }
+      } catch (e) {
+        console.error('Initialization error', e);
+      } finally {
+        setIsAuthChecking(false);
+        await checkMaintenance();
       }
-      
-      setIsAuthChecking(false);
-      
-      await checkMaintenance();
       
       unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         try {
           if (firebaseUser) {
             const token = await firebaseUser.getIdToken();
-            localStorage.setItem('hgs_token', token);
-            await checkAuth(token);
+            const currentToken = localStorage.getItem('hgs_token');
+            if (token !== currentToken) {
+              localStorage.setItem('hgs_token', token);
+              await checkAuth(token);
+            }
           } else {
+            const savedToken = localStorage.getItem('hgs_token');
+            if (!savedToken) {
+               setUser(null);
+               return;
+            }
+
+            const isDevOrPreview = typeof window !== 'undefined' && (
+              window.location.hostname === 'localhost' || 
+              window.location.hostname === '127.0.0.1' || 
+              window.location.hostname.includes('-dev-') ||
+              window.location.hostname.includes('-pre-') ||
+              window.location.hostname.includes('ais-')
+            );
+            const isSandboxToken = !!(savedToken && (
+              savedToken.includes('google_sandbox_user_') ||
+              (() => {
+                try {
+                  const parts = savedToken.split('.');
+                  if (parts.length === 3) {
+                    const decoded = atob(parts[1]);
+                    const payload = JSON.parse(decoded);
+                    return payload && (payload.uid?.includes('google_sandbox_user_') || payload.user_id?.includes('google_sandbox_user_'));
+                  }
+                } catch(e) {}
+                return false;
+              })()
+            ));
+
+            if (isSandboxToken || (isDevOrPreview && savedToken)) {
+              console.log('[StoreContext] Dev/sandbox session retained on idTokenChange');
+              return;
+            }
+
             setUser(null);
             localStorage.removeItem('hgs_token');
             localStorage.removeItem('hgs_user');
@@ -339,6 +387,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toast.success(wishlist.includes(productId) ? 'Removed from wishlist' : 'Added to wishlist');
   };
 
+  const simulatedRole = null;
+  const setSimulatedRole = (role: string | null) => {};
+
   const contextValue = React.useMemo(() => ({
     user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
     isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance, fetchCart,
@@ -346,10 +397,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     subscribeNewsletter, vibration, setVibration, notifications, setNotifications,
     sound, setSound, adminTheme, setAdminTheme, appliedCoupon, setAppliedCoupon,
     promotions, fetchPromotions, bulkDiscounts, fetchBulkDiscounts, getProductPrice,
+    simulatedRole, setSimulatedRole,
     language, setLanguage, t: (key: any) => translations[language][key as keyof typeof translations.en] || key, addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
     isOnline, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
-    isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert]);
+    isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
+    isSyncCartPending, logActivity,
+    lastAddedId, fetchWithHandling
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId]);
 
   return (
     <StoreContext.Provider value={contextValue}>

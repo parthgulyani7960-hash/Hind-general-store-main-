@@ -1,4 +1,4 @@
-import { logErrorToFirestore } from '../services/errorLogger';
+import { logErrorToFirestore } from '@/services/errorLogger';
 
 export const withErrorReporting = (
   fn: (...args: any[]) => Promise<void>,

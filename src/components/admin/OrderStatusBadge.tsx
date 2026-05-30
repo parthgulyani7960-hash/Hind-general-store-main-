@@ -1,11 +1,21 @@
 import React, { useEffect } from 'react';
 import { motion, useAnimation } from 'motion/react';
-import { cn } from '../../types';
+import { cn } from '@/types';
 
+/**
+ * Properties accepted by the OrderStatusBadge component.
+ */
 interface OrderStatusBadgeProps {
+  /** The current status string of the order (e.g. 'delivered', 'cancelled', 'shipped', 'pending'). */
   status: string;
 }
 
+/**
+ * A highly visual badging component that maps order statuses to standard matching status themes
+ * and executes a dynamic, satisfying scaling bump on state changes.
+ *
+ * @component
+ */
 export const OrderStatusBadge: React.FC<OrderStatusBadgeProps> = ({ status }) => {
   const controls = useAnimation();
 

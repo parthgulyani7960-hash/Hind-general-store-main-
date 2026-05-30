@@ -7,17 +7,18 @@ import {
   ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag,
   CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2, Loader2
 } from 'lucide-react';
-import { ImageGalleryModal } from '../components/ImageGalleryModal';
-import { ReviewSection } from '../components/ReviewSection';
-import { Product, Review, cn } from '../types';
-import { useStore } from '../StoreContext';
+import { ImageGalleryModal } from '@/components/ImageGalleryModal';
+import { ReviewSection } from '@/components/ReviewSection';
+import { Product, Review, cn } from '@/types';
+import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
-import { triggerFeedback } from '../App';
-import { handleAppError } from '../lib/errorUtils';
-import { fetchWithHandling } from '../lib/api';
-import LoadingFallback from '../components/LoadingFallback';
-import { Skeleton } from '../components/ui/Skeleton';
-import { getAuthHeaders } from '../lib/utils';
+import { triggerFeedback } from '@/App';
+import { handleAppError } from '@/lib/errorUtils';
+import { fetchWithHandling } from '@/lib/api';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import LoadingFallback from '@/components/LoadingFallback';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { getAuthHeaders } from '@/lib/utils';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -136,13 +137,18 @@ export default function ProductDetail() {
   };
 
   useEffect(() => {
+    // Only fetch if product is not loaded or product ID does not match current route param
+    if (product && product.id === Number(id)) return;
+
+    setLoading(true);
+    // Standard effect run
     fetchProduct();
     fetchReviews();
     fetchVariants();
     fetchRelatedProducts();
     setQuantity(1);
     window.scrollTo(0, 0);
-  }, [id]);
+  }, [id, product?.id]); // Added product?.id for stability
 
   const allImages = product 
     ? [product.image_url, ...(product.images || []).filter((img: string) => img !== product.image_url)].filter(Boolean)
@@ -369,17 +375,18 @@ export default function ProductDetail() {
     }
   };
 
-  if (loading) return <LoadingFallback message="Loading product details..." fullScreen={false} />;
+  if (loading) return <LoadingFallback message="Retrieving product details..." fullScreen={false} />;
   if (!product) return <div className="text-center py-20">Product not found</div>;
 
   return (
-    <div className="product-view max-w-5xl lg:max-w-7xl mx-auto px-4 py-8 pb-32">
-      <button onClick={() => navigate(-1)} className="group flex items-center space-x-2 text-stone-400 hover:text-primary mb-8 transition-all active:scale-95">
-        <div className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-primary group-hover:text-white transition-all">
-          <ArrowLeft size={20} />
-        </div>
-        <span className="text-sm font-black uppercase tracking-widest">Back to Store</span>
-      </button>
+    <ErrorBoundary>
+      <div className="product-view product-detail-view max-w-5xl lg:max-w-7xl mx-auto px-4 py-8 pb-32">
+        <button onClick={() => navigate(-1)} className="group flex items-center space-x-2 text-stone-400 hover:text-primary mb-8 transition-all active:scale-95">
+          <div className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-primary group-hover:text-white transition-all">
+            <ArrowLeft size={20} />
+          </div>
+          <span className="text-sm font-black uppercase tracking-widest">Back to Store</span>
+        </button>
 
       <div className="product-main-grid grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
         {/* Image Gallery */}
@@ -705,7 +712,7 @@ export default function ProductDetail() {
                   ) : (
                       <ShoppingCart size={24} strokeWidth={2.5} />
                   )}
-                  <span>{addingToCart || isSyncingCart ? 'Adding...' : 'Add to Cart'}</span>
+                  <span>{addingToCart ? 'Adding to cart...' : isSyncingCart ? 'Securing Item...' : 'Add to Cart'}</span>
                 </button>
                 <button 
                   onClick={() => {
@@ -1154,6 +1161,7 @@ export default function ProductDetail() {
               </div>
             )}
           </AnimatePresence>
-    </div>
+        </div>
+    </ErrorBoundary>
   );
 }

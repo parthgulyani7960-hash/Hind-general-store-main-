@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useStore } from '../StoreContext';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { useStore } from '@/StoreContext';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { Star } from 'lucide-react';
 

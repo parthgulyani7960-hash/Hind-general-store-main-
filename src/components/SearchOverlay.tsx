@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Star, Zap, ShoppingCart, Minus, Plus, Camera, Filter, Maximize2 } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useStore } from '../StoreContext';
-import { cn, Product } from '../types';
+import { useStore } from '@/StoreContext';
+import { cn, Product } from '@/types';
 
 export default function SearchOverlay({
   isOpen,

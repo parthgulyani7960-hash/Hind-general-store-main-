@@ -6,16 +6,16 @@ import {
   Wallet, Camera, X, AlertCircle, Download, Clock, Book,
   Plus, Minus, RefreshCcw, Loader2, Copy, Info
 } from 'lucide-react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { cn, calculateBulkDiscount } from '../lib/utils';
-import { handleAppError } from '../lib/errorUtils';
+import { cn, calculateBulkDiscount } from '@/lib/utils';
+import { handleAppError } from '@/lib/errorUtils';
 import { QRCodeCanvas } from 'qrcode.react';
-import InfoButton from '../components/InfoButton';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
-import { autofillLocation } from '../lib/geocoding';
+import InfoButton from '@/components/InfoButton';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
+import { autofillLocation } from '@/lib/geocoding';
 
 type Step = 'address' | 'payment_method' | 'review' | 'awaiting_payment' | 'confirmation';
 
@@ -974,7 +974,7 @@ export default function Checkout() {
                   className="fixed inset-0 z-[100] bg-stone-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 overflow-y-auto"
                 >
                    <div className="absolute top-4 right-4 sm:top-8 sm:right-8">
-                      <button onClick={() => setStep('payment')} className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all"><X size={24} /></button>
+                      <button onClick={() => setStep('payment_method')} className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all"><X size={24} /></button>
                    </div>
                    <div className="bg-white rounded-[3rem] w-full max-w-lg p-8 shadow-2xl relative">
                       <div className="text-center">

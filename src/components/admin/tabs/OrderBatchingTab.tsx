@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Truck, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { fetchWithHandling } from '../../../lib/api';
-import { getAuthHeaders } from '../../../lib/utils';
-import { Order } from '../../../types';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
+import { Order } from '@/types';
 
 export default function OrderBatchingTab() {
   const [pendingOrders, setPendingOrders] = useState<Order[]>([]);

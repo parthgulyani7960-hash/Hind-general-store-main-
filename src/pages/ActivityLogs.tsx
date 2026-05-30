@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Activity, ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders, cn } from '@/lib/utils';
 
 export default function ActivityLogs() {
   const [logs, setLogs] = useState<any[]>([]);

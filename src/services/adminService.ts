@@ -1,5 +1,5 @@
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 
 const cache: Record<string, { data: any, timestamp: number }> = {};
 const CACHE_TIME = 60000; // 60 seconds

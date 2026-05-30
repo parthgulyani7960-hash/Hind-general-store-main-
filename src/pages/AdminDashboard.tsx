@@ -1,13 +1,13 @@
 // AdminDashboard.tsx - Main entry for admin panel
-import { adminService } from '../services/adminService';
+import { adminService } from '@/services/adminService';
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
-import { withErrorReporting } from '../lib/uiUtils';
-import { handleAppError } from '../lib/errorUtils';
+import { withErrorReporting } from '@/lib/uiUtils';
+import { handleAppError } from '@/lib/errorUtils';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend
@@ -15,7 +15,7 @@ import {
 import { 
   LayoutDashboard, ShoppingBag, Package, Users, MessageSquare, 
   Settings, CreditCard, Activity, TrendingUp, AlertTriangle,
-  ChevronRight, ChevronLeft, Search, Filter, MoreVertical, Tag, Receipt, ArrowRight,
+  ChevronRight, ChevronLeft, ChevronDown, Search, Filter, MoreVertical, Tag, Receipt, ArrowRight,
   BarChart3, Plus, Trash2, Download, Star, Clock, CheckCircle2,
   Calendar, X, Upload, History, Eye, Check, MessageCircle, Camera, Printer, CheckCheck, AlertCircle,
   MapPin, Phone, Globe, Shield, ShieldCheck, Bell, Database, RefreshCw, ShieldAlert,
@@ -26,33 +26,34 @@ import {
   FileText, HelpCircle, Palette, Server, TrendingDown, Fingerprint, Bug, Cpu, Loader2, PackagePlus
 } from 'lucide-react';
 import { Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
-import { storage, ref, uploadBytesResumable, getDownloadURL } from '../firebase';
-import { useStore } from '../StoreContext';
-import { cn, Order, PromotionRule } from '../types';
-import { getAuthHeaders } from '../lib/utils';
-import { fetchWithHandling } from '../lib/api';
-import { StatSkeleton, TableRowSkeleton, OrderSkeleton } from '../components/ui/Skeleton';
+import { storage, ref, uploadBytesResumable, getDownloadURL } from '@/firebase';
+import { useStore } from '@/StoreContext';
+import { cn, Order, PromotionRule } from '@/types';
+import { getAuthHeaders } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { StatSkeleton, TableRowSkeleton, OrderSkeleton } from '@/components/ui/Skeleton';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import FeatureToggles from '../components/admin/FeatureToggles';
-import ProductImageManager from '../components/admin/ProductImageManager';
-import { OrderStatusBadge } from '../components/admin/OrderStatusBadge';
+import FeatureToggles from '@/components/admin/FeatureToggles';
+import ProductImageManager from '@/components/admin/ProductImageManager';
+import { OrderStatusBadge } from '@/components/admin/OrderStatusBadge';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import ErrorBoundary from '../components/ErrorBoundary';
-import AdminDashboardLayout from '../components/admin/AdminDashboardLayout';
-import { ExportProgressModal } from '../components/admin/modals/ExportProgressModal';
-import AdminStatCard from '../components/admin/AdminStatCard';
-import { generateSystemHealthReportPDF } from '../services/pdfService';
-import { EmptyState } from '../components/EmptyState';
-import { exportData, asyncExportData } from '../services/exportService';
-import { logErrorToFirestore } from '../services/errorLogger';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import AdminDashboardLayout from '@/components/admin/AdminDashboardLayout';
+import { ExportProgressModal } from '@/components/admin/modals/ExportProgressModal';
+import AdminStatCard from '@/components/admin/AdminStatCard';
+import { generateSystemHealthReportPDF } from '@/services/pdfService';
+import { EmptyState } from '@/components/EmptyState';
+import { exportData, asyncExportData } from '@/services/exportService';
+import { logErrorToFirestore } from '@/services/errorLogger';
 import imageCompression from 'browser-image-compression';
-import OverviewTabHeader from '../components/admin/tabs/OverviewTabHeader';
-import OverviewTab from '../components/admin/tabs/OverviewTab';
-import PurchaseOrdersTab from '../components/admin/tabs/PurchaseOrdersTab';
-import OrderBatchingTab from '../components/admin/tabs/OrderBatchingTab';
+import OverviewTabHeader from '@/components/admin/tabs/OverviewTabHeader';
+import OverviewTab from '@/components/admin/tabs/OverviewTab';
+import PurchaseOrdersTab from '@/components/admin/tabs/PurchaseOrdersTab';
+import OrderBatchingTab from '@/components/admin/tabs/OrderBatchingTab';
+import ModalContainer from '@/components/ui/ModalContainer';
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -699,18 +700,24 @@ export default function AdminDashboard() {
         )}
       </div>
     );
-  };
-
-  const SystemLogsView = () => {
+  };  const SystemLogsView = () => {
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedLogForDetails, setSelectedLogForDetails] = useState<any | null>(null);
+    const [sortField, setSortField] = useState<'created_at' | 'id' | 'level' | 'path'>('created_at');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+    const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+    const [filterLevel, setFilterLevel] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState<string>('');
 
     const fetchLogs = async () => {
         setLoading(true);
         try {
             const data = await fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() });
-            if (data) setLogs(data);
+            if (data) {
+                setLogs(data);
+                setLastRefreshed(new Date());
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -738,6 +745,49 @@ export default function AdminDashboard() {
         }
     };
 
+    const handleSort = (field: 'created_at' | 'id' | 'level' | 'path') => {
+        if (sortField === field) {
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('desc');
+        }
+    };
+
+    // Filter logs
+    const filteredLogs = logs.filter(log => {
+        const matchesSearch = !searchQuery || 
+            (log.message && log.message.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (log.path && log.path.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (log.id && String(log.id).includes(searchQuery));
+        
+        const matchesLevel = filterLevel === 'all' || 
+            (log.level && log.level.toLowerCase() === filterLevel.toLowerCase());
+            
+        return matchesSearch && matchesLevel;
+    });
+
+    // Sort logs
+    const sortedLogs = [...filteredLogs].sort((a, b) => {
+        let valA = a[sortField];
+        let valB = b[sortField];
+        
+        if (sortField === 'created_at') {
+            valA = new Date(valA || 0).getTime();
+            valB = new Date(valB || 0).getTime();
+        } else if (sortField === 'id') {
+            valA = Number(valA || 0);
+            valB = Number(valB || 0);
+        } else {
+            valA = String(valA || '').toLowerCase();
+            valB = String(valB || '').toLowerCase();
+        }
+        
+        if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+    });
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -758,65 +808,147 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            <div className="bg-white rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden">
-                <div className="p-8 border-b border-stone-50 bg-stone-50/10 flex items-center gap-4">
-                     <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-200"></div>
-                     <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Stream Online: Capturing Environment Exception Buffers</span>
+            {/* Search and Filters Bar */}
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between p-6 bg-stone-50/50 border border-stone-100 rounded-3xl">
+                <div className="relative w-full md:w-96">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-stone-400">
+                        <Search size={16} />
+                    </span>
+                    <input
+                        type="text"
+                        placeholder="Search logs by message, path or ID..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-11 pr-4 py-2.5 bg-white border border-stone-200 focus:border-indigo-500 rounded-2xl text-xs text-stone-800 transition-all outline-none animate-none"
+                    />
                 </div>
-                <div className="divide-y divide-stone-50 overflow-y-auto max-h-[70vh]">
-                    {logs.map((log: any) => (
-                        <div key={log.id} className="p-8 hover:bg-stone-50/50 transition-colors group">
-                            <div className="flex items-start justify-between mb-4">
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${log.level === 'error' ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
-                                        {log.level === 'error' ? <AlertTriangle size={20} /> : <Activity size={20} />}
+                
+                <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">Severity:</span>
+                        <select
+                            value={filterLevel}
+                            onChange={(e) => setFilterLevel(e.target.value)}
+                            className="bg-white border border-stone-200 text-stone-700 font-bold text-xs rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
+                        >
+                            <option value="all">⚡ All Severities</option>
+                            <option value="error">❌ Errors</option>
+                            <option value="info">ℹ️ Info</option>
+                            <option value="warn">⚠️ Warnings</option>
+                        </select>
+                    </div>
+
+                    {/* Dynamic Auto-indicator badge (Visual Refresh Indicator) */}
+                    <div className="flex items-center gap-2 px-3.5 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl text-[11px] font-bold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="font-mono tracking-wide">{loading ? 'SYNCING...' : `SYNCED: ${lastRefreshed.toLocaleTimeString()}`}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto no-scrollbar">
+                    <table className="w-full text-left">
+                        <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em] border-b border-stone-100">
+                            <tr>
+                                <th 
+                                    onClick={() => handleSort('id')}
+                                    className="px-6 py-5 cursor-pointer hover:bg-stone-100/50 transition-colors select-none"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        ID {sortField === 'id' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
                                     </div>
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${log.level === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                                                {log.level}
-                                            </span>
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-stone-300">| Registry Entry #{log.id}</span>
+                                </th>
+                                <th 
+                                    onClick={() => handleSort('created_at')}
+                                    className="px-6 py-5 cursor-pointer hover:bg-stone-100/50 transition-colors select-none"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        Timestamp {sortField === 'created_at' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+                                    </div>
+                                </th>
+                                <th 
+                                    onClick={() => handleSort('level')}
+                                    className="px-6 py-5 cursor-pointer hover:bg-stone-100/50 transition-colors select-none"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        Severity {sortField === 'level' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+                                    </div>
+                                </th>
+                                <th 
+                                    onClick={() => handleSort('path')}
+                                    className="px-6 py-5 cursor-pointer hover:bg-stone-100/50 transition-colors select-none"
+                                >
+                                    <div className="flex items-center gap-1">
+                                        Pathway {sortField === 'path' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+                                    </div>
+                                </th>
+                                <th className="px-6 py-5 font-bold">Message Exception Buffer</th>
+                                <th className="px-6 py-5 text-right">Intervention</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                            {sortedLogs.map((log: any, idx: number) => (
+                                <motion.tr 
+                                    key={log.id}
+                                    initial={{ opacity: 0, y: 4 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: Math.min(idx * 0.02, 0.4) }}
+                                    className="hover:bg-stone-50/40 transition-colors group text-xs text-stone-600"
+                                >
+                                    <td className="px-6 py-4 font-mono font-bold text-stone-400">#{log.id}</td>
+                                    <td className="px-6 py-4 font-medium whitespace-nowrap">
+                                        {new Date(log.created_at).toLocaleString()}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <span className={`inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                                            log.level === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                                        }`}>
+                                            {log.level}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 font-mono text-[10px] max-w-[150px] truncate">
+                                        {log.path || 'Core Kernel Action'}
+                                    </td>
+                                    <td className="px-6 py-4 max-w-sm truncate font-mono text-[11px] text-stone-800">
+                                        {log.message}
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button 
+                                                onClick={() => setSelectedLogForDetails(log)}
+                                                className="p-2.5 bg-stone-100 hover:bg-stone-200 text-stone-600 hover:text-stone-900 rounded-xl transition-all cursor-pointer"
+                                                title="Beautify Details Payload"
+                                            >
+                                                <Eye size={13} />
+                                            </button>
                                         </div>
-                                        <p className="text-xs text-stone-400 font-mono">{new Date(log.created_at).toLocaleString()}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="bg-stone-950 p-6 rounded-3xl overflow-hidden shadow-inner">
-                                 <pre className="text-emerald-400 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all selection:bg-emerald-400 selection:text-stone-950">
-                                     {log.message}
-                                 </pre>
-                            </div>
-                            <div className="flex justify-between items-center mt-4">
-                                <span className="text-[10px] text-stone-400 font-medium font-mono">
-                                    {log.path ? `Endpoint: ${log.path}` : 'Core Kernel Action'} {log.user_id ? `| User #${log.user_id}` : ''}
-                                </span>
-                                {(log.details || log.metadata) && (
-                                    <button 
-                                        onClick={() => setSelectedLogForDetails(log)}
-                                        className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-900 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                        <Eye size={12} /> Beautify Details Payload
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                    {logs.length === 0 && !loading && (
-                        <div className="py-32 text-center">
-                            <div className="w-24 h-24 bg-stone-50 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-stone-200">
-                                <CheckCircle2 size={48} />
-                            </div>
-                            <h3 className="text-xl font-black text-stone-900 uppercase tracking-tighter">Environment Stable</h3>
-                            <p className="text-stone-400 text-sm mt-2 max-w-xs mx-auto">No significant errors or integrity issues have been registered in the system logs buffer.</p>
-                        </div>
-                    )}
-                    {loading && (
-                        <div className="py-32 flex flex-col items-center justify-center">
-                            <Loader2 className="animate-spin text-primary mb-4" size={48} />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Syncing with Registry...</span>
-                        </div>
-                    )}
+                                    </td>
+                                </motion.tr>
+                            ))}
+                            {sortedLogs.length === 0 && !loading && (
+                                <tr>
+                                    <td colSpan={6} className="py-24 text-center text-stone-400 font-bold italic bg-stone-50/50">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <CheckCircle2 size={36} className="text-emerald-500 mb-3" />
+                                            <p className="text-sm font-black uppercase tracking-tight text-stone-800">Empty Exception Buffer</p>
+                                            <p className="text-xs text-stone-400 font-normal mt-1 leading-normal max-w-xs">No registries match your search criteria or the server environment is fully stable.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                            {loading && sortedLogs.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="py-24 text-center">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <div className="animate-spin text-primary mb-3"><RefreshCw size={24} /></div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Syncing with Registry...</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -1531,7 +1663,7 @@ export default function AdminDashboard() {
 
   const TabContent = () => {
     switch (activeTab) {
-      case 'Overview': return <OverviewTab stats={stats} setActiveTab={setActiveTab} />;
+      case 'Overview': return <OverviewTab stats={stats} setActiveTab={setActiveTab} refreshStats={fetchStats} />;
       case 'Purchase Orders': return <PurchaseOrdersTab />;
       case 'Order Batching': return <OrderBatchingTab />;
       default: return <div className="p-8 text-stone-500">Feature not yet fully redesigned.</div>;
@@ -1590,7 +1722,7 @@ export default function AdminDashboard() {
     // Proactive HTTP load to protect against direct Firestore subscription permission failure
     fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
       .then(data => {
-        if (data && data.length > 0) setOrders(data);
+        if (data) setOrders(data);
       })
       .catch(err => {
         console.warn('REST Orders fetch warning:', err);
@@ -1627,7 +1759,7 @@ export default function AdminDashboard() {
     // Proactive HTTP load
     fetchWithHandling<any[]>('/api/products')
       .then(data => {
-        if (data && data.length > 0) {
+        if (data) {
           setAllProducts(data);
           setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
         }
@@ -1714,6 +1846,7 @@ export default function AdminDashboard() {
   const [analyticsCategory, setAnalyticsCategory] = useState<string>('all');
   const [analyticsSegment, setAnalyticsSegment] = useState<string>('all');
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
+  const [showWeeklyComparison, setShowWeeklyComparison] = useState<boolean>(false);
   const [roles, setRoles] = useState<any[]>([]);
   const [roleModal, setRoleModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', role: null as any });
   const [newRole, setNewRole] = useState({ name: '', permissions: [] as string[] });
@@ -2054,6 +2187,7 @@ export default function AdminDashboard() {
   const [supplierModal, setSupplierModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', supplier: null as any });
   const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', email: '', phone: '', address: '' });
   const [returns, setReturns] = useState<any[]>([]);
+  const [selectedReturnReason, setSelectedReturnReason] = useState<string>('all');
 
   const [promotionRules, setPromotionRules] = useState<PromotionRule[]>([]);
   const [promotionRuleFormModal, setPromotionRuleFormModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', rule: null as PromotionRule | null });
@@ -2594,7 +2728,7 @@ export default function AdminDashboard() {
     // Proactive HTTP load to protect against direct Firestore subscription permission failure
     fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() })
       .then(data => {
-        if (data && data.length > 0) setUsers(data);
+        if (data) setUsers(data);
       })
       .catch(err => {
         console.warn('REST Users fetch warning:', err);
@@ -2920,7 +3054,7 @@ export default function AdminDashboard() {
     try {
       const orderDetails = await fetchWithHandling<any>(`/api/orders/${order.id}`, { headers: getAuthHeaders() });
       if (orderDetails) {
-        setOrderModal({ open: true, order: orderDetails });
+        setOrderModal({ open: true, order: orderDetails, statusHistory: [] });
 
         const histData = await fetchWithHandling<any>(`/api/admin/orders/${order.id}/status-history`, { headers: getAuthHeaders() });
         if (histData) {
@@ -2930,7 +3064,7 @@ export default function AdminDashboard() {
     } catch (err: any) {
       console.error('Failed to fetch order details:', err);
       // Fallback
-      setOrderModal({ open: true, order });
+      setOrderModal({ open: true, order, statusHistory: [] });
     }
   };
 
@@ -2968,6 +3102,54 @@ export default function AdminDashboard() {
     } finally {
       setIsFetchingAnalytics(false);
     }
+  };
+
+  const getWeeklyComparisonData = () => {
+    if (!salesAnalytics?.dailySales || salesAnalytics.dailySales.length === 0) {
+      return [];
+    }
+    
+    const rawData = [...salesAnalytics.dailySales];
+    const thisWeekDays = rawData.slice(-7);
+    const lastWeekDays = rawData.slice(-14, -7);
+    
+    const weekdaysShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    const comparisonList = weekdaysShort.map((dayName, idx) => {
+      const thisWeekItem = thisWeekDays.find(item => {
+        const d = new Date(item.date);
+        return d.getDay() === idx;
+      });
+      
+      const lastWeekItem = lastWeekDays.find(item => {
+        const d = new Date(item.date);
+        return d.getDay() === idx;
+      });
+      
+      return {
+        day: dayName,
+        dayIdx: idx,
+        thisWeek: thisWeekItem ? thisWeekItem.total : 0,
+        lastWeek: lastWeekItem ? lastWeekItem.total : 0,
+        thisWeekDate: thisWeekItem?.date || '',
+        lastWeekDate: lastWeekItem?.date || '',
+      };
+    });
+    
+    if (thisWeekDays.length > 0) {
+      const firstDayIdx = new Date(thisWeekDays[0].date).getDay();
+      const orderedList = [];
+      for (let i = 0; i < 7; i++) {
+        const targetIdx = (firstDayIdx + i) % 7;
+        const compItem = comparisonList.find(c => c.dayIdx === targetIdx);
+        if (compItem) {
+          orderedList.push(compItem);
+        }
+      }
+      return orderedList;
+    }
+    
+    return comparisonList;
   };
 
   useEffect(() => {
@@ -4955,28 +5137,79 @@ export default function AdminDashboard() {
             {salesAnalytics && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all hover:shadow-xl hover:shadow-stone-200/20">
-                  <div className="flex items-center justify-between mb-8">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                     <div>
                       <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Velocity</h3>
-                      <p className="text-xs text-stone-400 mt-1">30-day transactional throughput</p>
+                      <p className="text-xs text-stone-400 mt-1">
+                        {showWeeklyComparison ? "Last week vs This week performance comparison" : "30-day transactional throughput"}
+                      </p>
                     </div>
-                    <div className="flex items-center space-x-2 text-emerald-500 bg-emerald-50 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest">
-                      <TrendingUp size={12} />
-                      <span>Live Feed</span>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Weekly Comparison Toggle Switch */}
+                      <div className="flex bg-stone-100 p-1 rounded-xl">
+                        <button
+                          onClick={() => setShowWeeklyComparison(false)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-200 ${
+                            !showWeeklyComparison 
+                              ? 'bg-white text-stone-900 shadow-sm' 
+                              : 'text-stone-400 hover:text-stone-600'
+                          }`}
+                        >
+                          30 Days
+                        </button>
+                        <button
+                          onClick={() => setShowWeeklyComparison(true)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-200 ${
+                            showWeeklyComparison 
+                              ? 'bg-white text-stone-900 shadow-sm' 
+                              : 'text-stone-400 hover:text-stone-600'
+                          }`}
+                        >
+                          Weekly Comp
+                        </button>
+                      </div>
+
+                      <div className="flex items-center space-x-2 text-emerald-500 bg-emerald-50 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest">
+                        <TrendingUp size={12} />
+                        <span>Live Feed</span>
+                      </div>
                     </div>
                   </div>
                   <div className="h-80 min-h-[320px] w-full">
+                    {showWeeklyComparison && (
+                      <div className="flex items-center justify-end space-x-6 mb-4 text-[10px] font-black uppercase tracking-wider">
+                        <div className="flex items-center">
+                          <span className="w-3 h-1.5 rounded bg-emerald-500 mr-2" />
+                          <span className="text-stone-600">This Week</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="w-3 h-1.5 border-t-2 border-stone-400 border-dashed mr-2" />
+                          <span className="text-stone-400">Last Week</span>
+                        </div>
+                      </div>
+                    )}
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={salesAnalytics.dailySales} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <AreaChart 
+                        data={showWeeklyComparison ? getWeeklyComparisonData() : salesAnalytics.dailySales} 
+                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                      >
                         <defs>
                           <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
                             <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                           </linearGradient>
+                          <linearGradient id="colorThisWeek" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.11}/>
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="colorLastWeek" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.05}/>
+                            <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
+                          </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis 
-                          dataKey="date" 
+                          dataKey={showWeeklyComparison ? "day" : "date"} 
                           axisLine={false} 
                           tickLine={false} 
                           tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
@@ -4990,24 +5223,86 @@ export default function AdminDashboard() {
                         <Tooltip 
                           content={({ active, payload }) => {
                             if (active && payload && payload.length) {
-                              return (
-                                <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">{payload[0].payload.date}</p>
-                                  <p className="text-lg font-black">₹{payload[0].value?.toLocaleString()}</p>
-                                </div>
-                              );
+                              const data = payload[0].payload;
+                              if (showWeeklyComparison) {
+                                return (
+                                  <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10 space-y-2 select-text">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">
+                                      Day: {data.day}
+                                    </p>
+                                    <div className="flex items-center justify-between space-x-6">
+                                      <span className="text-xs text-emerald-400 font-bold flex items-center">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5" />
+                                        This Week ({data.thisWeekDate || 'Date N/A'}):
+                                      </span>
+                                      <span className="text-xs font-black">₹{(data.thisWeek || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between space-x-6">
+                                      <span className="text-xs text-stone-400 font-bold flex items-center">
+                                        <span className="w-2 h-2 rounded-full bg-stone-400 mr-1.5" />
+                                        Last Week ({data.lastWeekDate || 'Date N/A'}):
+                                      </span>
+                                      <span className="text-xs font-black text-stone-300">₹{(data.lastWeek || 0).toLocaleString()}</span>
+                                    </div>
+                                    {data.lastWeek > 0 && (
+                                      <div className="pt-1.5 border-t border-white/5 text-[10px] font-bold">
+                                        {data.thisWeek >= data.lastWeek ? (
+                                          <span className="text-emerald-400">
+                                            ▲ +{(((data.thisWeek - data.lastWeek) / data.lastWeek) * 100).toFixed(1)}% vs last week
+                                          </span>
+                                        ) : (
+                                          <span className="text-rose-400">
+                                            ▼ -{(((data.lastWeek - data.thisWeek) / data.lastWeek) * 100).toFixed(1)}% vs last week
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              } else {
+                                return (
+                                  <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">{payload[0].payload.date}</p>
+                                    <p className="text-lg font-black">₹{payload[0].value?.toLocaleString()}</p>
+                                  </div>
+                                );
+                              }
                             }
                             return null;
                           }}
                         />
-                        <Area 
-                          type="monotone" 
-                          dataKey="total" 
-                          stroke="#3b82f6" 
-                          strokeWidth={4}
-                          fillOpacity={1} 
-                          fill="url(#colorTotal)" 
-                        />
+                        {showWeeklyComparison ? (
+                          <>
+                            <Area 
+                              type="monotone" 
+                              dataKey="thisWeek" 
+                              name="This Week"
+                              stroke="#10b981" 
+                              strokeWidth={4}
+                              fillOpacity={1} 
+                              fill="url(#colorThisWeek)" 
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="lastWeek" 
+                              name="Last Week"
+                              stroke="#94a3b8" 
+                              strokeWidth={3}
+                              strokeDasharray="5 5"
+                              fillOpacity={1}
+                              fill="url(#colorLastWeek)"
+                            />
+                          </>
+                        ) : (
+                          <Area 
+                            type="monotone" 
+                            dataKey="total" 
+                            stroke="#3b82f6" 
+                            strokeWidth={4}
+                            fillOpacity={1} 
+                            fill="url(#colorTotal)" 
+                          />
+                        )}
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -9333,105 +9628,154 @@ export default function AdminDashboard() {
         )}
 
         {/* Returns Tab */}
-        {activeTab === 'Returns' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Resolution Depot</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Verify grievances, inspect liabilities, and restore customer favor.</p>
-              </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
-                 <div className="flex flex-col">
-                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Liability Pool</span>
-                   <span className="text-2xl font-black text-red-500">{returns.length} Pending</span>
-                 </div>
-                 <div className="w-px h-10 bg-stone-100" />
-                 <div className="flex flex-col">
-                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Health Score</span>
-                   <span className="text-2xl font-black text-emerald-500">99.2%</span>
-                 </div>
-              </div>
-            </header>
+        {activeTab === 'Returns' && (() => {
+          const filteredReturns = returns.filter((ret) => {
+            if (selectedReturnReason === 'all') return true;
+            if (!ret.reason) return false;
+            const reasonLower = ret.reason.toLowerCase();
+            const filterLower = selectedReturnReason.toLowerCase();
+            return reasonLower.includes(filterLower);
+          });
 
-            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-               <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">Origin Order</th>
-                      <th className="px-6 py-8">Claimant Node</th>
-                      <th className="px-6 py-8">Faulty SKU</th>
-                      <th className="px-6 py-8">Reason Cipher</th>
-                      <th className="px-6 py-8">Protocol State</th>
-                      <th className="px-10 py-8 text-right">Intervention</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {returns.map((ret, idx) => (
-                      <motion.tr 
-                        key={ret.id} 
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.04 }}
-                        className="hover:bg-stone-50/80 transition-all group"
-                      >
-                        <td className="px-10 py-6 font-black text-stone-900 tracking-tighter">ORD-{ret.order_num}</td>
-                        <td className="px-6 py-6 font-bold text-stone-600 text-xs uppercase tracking-widest">{ret.user_name}</td>
-                        <td className="px-6 py-6">
-                           <div className="flex flex-col">
-                             <span className="text-sm font-black text-stone-900">{ret.product_name}</span>
-                             <span className="text-[10px] font-black text-primary uppercase mt-1 tracking-widest">Quantity: {ret.quantity} units</span>
-                           </div>
-                        </td>
-                        <td className="px-6 py-6 italic text-stone-400 font-medium text-xs max-w-[200px] truncate">{ret.reason}</td>
-                        <td className="px-6 py-6">
-                          <span className={cn(
-                            "px-4 py-1.5 rounded-2xl text-[9px] font-black uppercase tracking-widest border",
-                            ret.status === 'pending' ? "bg-amber-50 text-amber-600 border-amber-100 active:animate-pulse" :
-                            ret.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                            "bg-red-50 text-red-600 border-red-100"
-                          )}>
-                            {ret.status}
-                          </span>
-                        </td>
-                        <td className="px-10 py-6 text-right">
-                          {ret.status === 'pending' ? (
-                            <div className="flex justify-end space-x-3">
-                              <button 
-                                onClick={() => handleApproveReturn(ret)}
-                                className="p-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
-                                title="Authorize Refund"
-                              >
-                                <Check size={18} />
-                              </button>
-                              <button 
-                                onClick={() => handleRejectReturn(ret.id)}
-                                className="p-4 bg-red-600 text-white rounded-2xl hover:bg-red-700 transition-all shadow-xl shadow-red-500/20 active:scale-95"
-                                title="Decline Claim"
-                              >
-                                <X size={18} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex justify-end items-center space-x-2 text-stone-300">
-                               <ShieldCheck size={16} />
-                               <span className="text-[10px] font-black uppercase tracking-widest">Settled</span>
-                            </div>
-                          )}
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {returns.length === 0 && (
+          return (
+            <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+                <div>
+                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Resolution Depot</h2>
+                  <p className="text-stone-500 mt-2 text-lg font-medium">Verify grievances, inspect liabilities, and restore customer favor.</p>
+                </div>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
+                   <div className="flex flex-col">
+                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Liability Pool</span>
+                     <span className="text-2xl font-black text-red-500">{returns.length} Pending</span>
+                   </div>
+                   <div className="w-px h-10 bg-stone-100" />
+                   <div className="flex flex-col">
+                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Health Score</span>
+                     <span className="text-2xl font-black text-emerald-500">99.2%</span>
+                   </div>
+                </div>
+              </header>
+
+              {/* Filter Dropdown Area */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 bg-stone-50/50 rounded-3xl border border-stone-100 gap-4">
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Catalogic Issue Filter:</span>
+                  <div className="relative">
+                    <select
+                      id="return-reason-filter"
+                      value={selectedReturnReason}
+                      onChange={(e) => setSelectedReturnReason(e.target.value)}
+                      className="appearance-none bg-white border border-stone-200 text-stone-700 font-extrabold text-xs rounded-2xl pl-4 pr-10 py-2.5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer"
+                    >
+                      <option value="all">🔍 Show All Returns</option>
+                      <option value="Damaged">⚠️ Damaged / Quality Issues</option>
+                      <option value="Incorrect Item">📦 Incorrect Item Sent</option>
+                      <option value="Customer Change of Mind">💭 Customer Change of Mind</option>
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-stone-400">
+                      <ChevronDown size={14} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quality Insights summary */}
+                {returns.length > 0 && (() => {
+                  const total = returns.length;
+                  const damagedCount = returns.filter(r => r.reason?.toLowerCase().includes('damaged')).length;
+                  const incorrectCount = returns.filter(r => r.reason?.toLowerCase().includes('incorrect')).length;
+                  const mindCount = returns.filter(r => r.reason?.toLowerCase().includes('mind') || r.reason?.toLowerCase().includes('change') || r.reason?.toLowerCase().includes('customer')).length;
+                  
+                  return (
+                    <div className="flex flex-wrap gap-2 text-[10px] font-mono text-stone-500 font-bold bg-white border border-stone-100 rounded-2xl p-2">
+                      <span className="px-2 py-1 bg-red-50 text-red-700 rounded-lg">Damaged: {damagedCount}</span>
+                      <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg">Incorrect: {incorrectCount}</span>
+                      <span className="px-2 py-1 bg-sky-50 text-sky-700 rounded-lg">Change of Mind: {mindCount}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
+                 <div className="overflow-x-auto no-scrollbar">
+                  <table className="w-full text-left">
+                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                       <tr>
-                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2.5rem]">No pending returns or refunds.</td>
+                        <th className="px-10 py-8">Origin Order</th>
+                        <th className="px-6 py-8">Claimant Node</th>
+                        <th className="px-6 py-8">Faulty SKU</th>
+                        <th className="px-6 py-8">Reason Cipher</th>
+                        <th className="px-6 py-8">Protocol State</th>
+                        <th className="px-10 py-8 text-right">Intervention</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-stone-50">
+                      {filteredReturns.map((ret, idx) => (
+                        <motion.tr 
+                          key={ret.id} 
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.04 }}
+                          className="hover:bg-stone-50/80 transition-all group"
+                        >
+                          <td className="px-10 py-6 font-black text-stone-900 tracking-tighter">ORD-{ret.order_num}</td>
+                          <td className="px-6 py-6 font-bold text-stone-600 text-xs uppercase tracking-widest">{ret.user_name}</td>
+                          <td className="px-6 py-6">
+                             <div className="flex flex-col">
+                               <span className="text-sm font-black text-stone-900">{ret.product_name}</span>
+                               <span className="text-[10px] font-black text-primary uppercase mt-1 tracking-widest">Quantity: {ret.quantity} units</span>
+                             </div>
+                          </td>
+                          <td className="px-6 py-6 italic text-stone-400 font-medium text-xs max-w-[200px] truncate">{ret.reason}</td>
+                          <td className="px-6 py-6">
+                            <span className={cn(
+                              "px-4 py-1.5 rounded-2xl text-[9px] font-black uppercase tracking-widest border",
+                              ret.status === 'pending' ? "bg-amber-50 text-amber-600 border-amber-100 active:animate-pulse" :
+                              ret.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                              "bg-red-50 text-red-600 border-red-100"
+                            )}>
+                              {ret.status}
+                            </span>
+                          </td>
+                          <td className="px-10 py-6 text-right">
+                            {ret.status === 'pending' ? (
+                              <div className="flex justify-end space-x-3">
+                                <button 
+                                  onClick={() => handleApproveReturn(ret)}
+                                  className="p-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
+                                  title="Authorize Refund"
+                                >
+                                  <Check size={18} />
+                                </button>
+                                <button 
+                                  onClick={() => handleRejectReturn(ret.id)}
+                                  className="p-4 bg-red-600 text-white rounded-2xl hover:bg-red-700 transition-all shadow-xl shadow-red-500/20 active:scale-95"
+                                  title="Decline Claim"
+                                >
+                                  <X size={18} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex justify-end items-center space-x-2 text-stone-300">
+                                 <ShieldCheck size={16} />
+                                 <span className="text-[10px] font-black uppercase tracking-widest">Settled</span>
+                              </div>
+                            )}
+                          </td>
+                        </motion.tr>
+                      ))}
+                      {filteredReturns.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2.5rem]">No returns or refunds match this filter criteria.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {activeTab === 'Feature Toggles' && (
           <FeatureToggles config={config} onUpdate={fetchConfig} />
@@ -10740,363 +11084,350 @@ export default function AdminDashboard() {
       </AnimatePresence>
     </div>
 
-      {walletModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full space-y-6"
-          >
-            <h3 className="text-xl font-bold">Update Wallet</h3>
-            <div className="space-y-4">
-              <div className="flex bg-stone-100 p-1 rounded-xl">
-                <button 
-                  onClick={() => setWalletType('credit')}
-                  className={cn("flex-1 py-2 rounded-lg text-sm font-bold transition-all", walletType === 'credit' ? "bg-white shadow-sm text-primary" : "text-stone-500")}
+      <ModalContainer
+        isOpen={walletModal.open}
+        onClose={() => setWalletModal({ open: false, userId: null })}
+        title="Update Wallet"
+        size="sm"
+      >
+        <div className="p-8 pb-10 space-y-6">
+          <div className="space-y-4">
+            <div className="flex bg-stone-100 p-1 rounded-xl">
+              <button 
+                onClick={() => setWalletType('credit')}
+                className={cn("flex-1 py-2 rounded-lg text-sm font-bold transition-all", walletType === 'credit' ? "bg-white shadow-sm text-primary" : "text-stone-500")}
+              >
+                Add Money
+              </button>
+              <button 
+                onClick={() => setWalletType('debit')}
+                className={cn("flex-1 py-2 rounded-lg text-sm font-bold transition-all", walletType === 'debit' ? "bg-white shadow-sm text-red-600" : "text-stone-500")}
+              >
+                Deduct Money
+              </button>
+            </div>
+            <input 
+              type="number" 
+              placeholder="Amount (₹)"
+              className="input-field text-center text-2xl font-bold"
+              value={walletAmount}
+              onChange={(e) => setWalletAmount(e.target.value)}
+            />
+          </div>
+          <div className="flex space-x-3">
+            <button 
+              onClick={() => setWalletModal({ open: false, userId: null })}
+              className="flex-1 py-3 rounded-xl font-bold text-stone-500 hover:bg-stone-100"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleWalletUpdate}
+              className="flex-1 btn-primary py-3"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      </ModalContainer>
+
+      {/* Bulk Discount Modal */}
+      <ModalContainer
+        isOpen={bulkDiscountModal.open}
+        onClose={() => setBulkDiscountModal({ open: false, mode: 'add', discount: null })}
+        title={bulkDiscountModal.mode === 'add' ? 'Create Bulk Discount' : 'Edit Bulk Discount'}
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleBulkDiscountSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Discount Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewBulkDiscount({ ...newBulkDiscount, entity_type: 'product', entity_id: '' })}
+                  className={cn(
+                    "py-2 rounded-xl text-sm font-bold border transition-all",
+                    newBulkDiscount.entity_type === 'product' ? "bg-primary/10 border-primary text-primary" : "border-stone-200 text-stone-400 hover:bg-stone-50"
+                  )}
                 >
-                  Add Money
+                  Product Based
                 </button>
-                <button 
-                  onClick={() => setWalletType('debit')}
-                  className={cn("flex-1 py-2 rounded-lg text-sm font-bold transition-all", walletType === 'debit' ? "bg-white shadow-sm text-red-600" : "text-stone-500")}
+                <button
+                  type="button"
+                  onClick={() => setNewBulkDiscount({ ...newBulkDiscount, entity_type: 'category', entity_id: '' })}
+                  className={cn(
+                    "py-2 rounded-xl text-sm font-bold border transition-all",
+                    newBulkDiscount.entity_type === 'category' ? "bg-primary/10 border-primary text-primary" : "border-stone-200 text-stone-400 hover:bg-stone-50"
+                  )}
                 >
-                  Deduct Money
+                  Category Based
                 </button>
               </div>
-              <input 
-                type="number" 
-                placeholder="Amount (₹)"
-                className="input-field text-center text-2xl font-bold"
-                value={walletAmount}
-                onChange={(e) => setWalletAmount(e.target.value)}
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">
+                Select {newBulkDiscount.entity_type === 'product' ? 'Product' : 'Category'}
+              </label>
+              <select
+                required
+                className="input-field"
+                value={newBulkDiscount.entity_id}
+                onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, entity_id: e.target.value })}
+              >
+                <option value="">Select Target</option>
+                {newBulkDiscount.entity_type === 'product' ? (
+                  allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                ) : (
+                  categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                )}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Min. Quantity</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  className="input-field"
+                  value={newBulkDiscount.min_qty}
+                  onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, min_qty: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Discount Type</label>
+                <select
+                  className="input-field"
+                  value={newBulkDiscount.discount_type}
+                  onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, discount_type: e.target.value as any })}
+                >
+                  <option value="percentage">Percentage (%)</option>
+                  <option value="flat">Flat Amount (₹)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Discount Value</label>
+              <input
+                type="number"
+                required
+                min="0"
+                className="input-field"
+                value={newBulkDiscount.discount_value}
+                onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, discount_value: e.target.value })}
               />
             </div>
-            <div className="flex space-x-3">
+
+            <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
+              <input 
+                type="checkbox" 
+                id="bd_active"
+                className="w-5 h-5 rounded border-stone-300 text-primary focus:ring-primary"
+                checked={newBulkDiscount.active}
+                onChange={(e) => setNewBulkDiscount({...newBulkDiscount, active: e.target.checked})}
+              />
+              <label htmlFor="bd_active" className="text-sm font-bold text-stone-700">Active Discount</label>
+            </div>
+
+            <div className="flex space-x-3 pt-4">
               <button 
-                onClick={() => setWalletModal({ open: false, userId: null })}
-                className="flex-1 py-3 rounded-xl font-bold text-stone-500 hover:bg-stone-100"
+                type="button"
+                onClick={() => setBulkDiscountModal({ open: false, mode: 'add', discount: null })}
+                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
               >
                 Cancel
               </button>
               <button 
-                onClick={handleWalletUpdate}
-                className="flex-1 btn-primary py-3"
+                type="submit"
+                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
               >
-                Confirm
+                {bulkDiscountModal.mode === 'add' ? 'Create' : 'Update'}
               </button>
             </div>
-          </motion.div>
+          </form>
         </div>
-      )}
-
-      {/* Bulk Discount Modal */}
-      {bulkDiscountModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-6">
-              {bulkDiscountModal.mode === 'add' ? 'Create Bulk Discount' : 'Edit Bulk Discount'}
-            </h3>
-            <form onSubmit={handleBulkDiscountSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Discount Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewBulkDiscount({ ...newBulkDiscount, entity_type: 'product', entity_id: '' })}
-                    className={cn(
-                      "py-2 rounded-xl text-sm font-bold border transition-all",
-                      newBulkDiscount.entity_type === 'product' ? "bg-primary/10 border-primary text-primary" : "border-stone-200 text-stone-400 hover:bg-stone-50"
-                    )}
-                  >
-                    Product Based
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewBulkDiscount({ ...newBulkDiscount, entity_type: 'category', entity_id: '' })}
-                    className={cn(
-                      "py-2 rounded-xl text-sm font-bold border transition-all",
-                      newBulkDiscount.entity_type === 'category' ? "bg-primary/10 border-primary text-primary" : "border-stone-200 text-stone-400 hover:bg-stone-50"
-                    )}
-                  >
-                    Category Based
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">
-                  Select {newBulkDiscount.entity_type === 'product' ? 'Product' : 'Category'}
-                </label>
-                <select
-                  required
-                  className="input-field"
-                  value={newBulkDiscount.entity_id}
-                  onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, entity_id: e.target.value })}
-                >
-                  <option value="">Select Target</option>
-                  {newBulkDiscount.entity_type === 'product' ? (
-                    allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
-                  ) : (
-                    categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
-                  )}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Min. Quantity</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    className="input-field"
-                    value={newBulkDiscount.min_qty}
-                    onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, min_qty: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Discount Type</label>
-                  <select
-                    className="input-field"
-                    value={newBulkDiscount.discount_type}
-                    onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, discount_type: e.target.value as any })}
-                  >
-                    <option value="percentage">Percentage (%)</option>
-                    <option value="flat">Flat Amount (₹)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Discount Value</label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  className="input-field"
-                  value={newBulkDiscount.discount_value}
-                  onChange={(e) => setNewBulkDiscount({ ...newBulkDiscount, discount_value: e.target.value })}
-                />
-              </div>
-
-              <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
-                <input 
-                  type="checkbox" 
-                  id="bd_active"
-                  className="w-5 h-5 rounded border-stone-300 text-primary focus:ring-primary"
-                  checked={newBulkDiscount.active}
-                  onChange={(e) => setNewBulkDiscount({...newBulkDiscount, active: e.target.checked})}
-                />
-                <label htmlFor="bd_active" className="text-sm font-bold text-stone-700">Active Discount</label>
-              </div>
-
-              <div className="flex space-x-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setBulkDiscountModal({ open: false, mode: 'add', discount: null })}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
-                >
-                  {bulkDiscountModal.mode === 'add' ? 'Create' : 'Update'}
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
+      </ModalContainer>
 
       {/* Coupon Modal */}
-      {couponModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-6">{couponModal.mode === 'edit' ? 'Update Coupon' : 'Create Coupon'}</h3>
-            <form onSubmit={handleAddCoupon} className="space-y-4">
+      <ModalContainer
+        isOpen={couponModal.open}
+        onClose={() => setCouponModal({ open: false })}
+        title={couponModal.mode === 'edit' ? 'Update Coupon' : 'Create Coupon'}
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleAddCoupon} className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Coupon Code</label>
+              <input 
+                type="text" 
+                required
+                className="input-field uppercase font-mono"
+                placeholder="WELCOME10"
+                value={newCoupon.code}
+                onChange={(e) => setNewCoupon({...newCoupon, code: e.target.value.toUpperCase()})}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Coupon Code</label>
-                <input 
-                  type="text" 
-                  required
-                  className="input-field uppercase font-mono"
-                  placeholder="WELCOME10"
-                  value={newCoupon.code}
-                  onChange={(e) => setNewCoupon({...newCoupon, code: e.target.value.toUpperCase()})}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Type</label>
-                  <select 
-                    className="input-field"
-                    value={newCoupon.type}
-                    onChange={(e) => setNewCoupon({...newCoupon, type: e.target.value})}
-                  >
-                    <option value="flat">Flat Amount</option>
-                    <option value="percentage">Percentage</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Value</label>
-                  <input 
-                    type="number" 
-                    required
-                    className="input-field"
-                    value={newCoupon.value}
-                    onChange={(e) => setNewCoupon({...newCoupon, value: e.target.value})}
-                  />
-                </div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Type</label>
+                <select 
+                  className="input-field"
+                  value={newCoupon.type}
+                  onChange={(e) => setNewCoupon({...newCoupon, type: e.target.value})}
+                >
+                  <option value="flat">Flat Amount</option>
+                  <option value="percentage">Percentage</option>
+                </select>
               </div>
               <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Min. Order (₹)</label>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Value</label>
                 <input 
                   type="number" 
                   required
                   className="input-field"
-                  value={newCoupon.min_order}
-                  onChange={(e) => setNewCoupon({...newCoupon, min_order: e.target.value})}
+                  value={newCoupon.value}
+                  onChange={(e) => setNewCoupon({...newCoupon, value: e.target.value})}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Limit Per User</label>
-                  <input 
-                    type="number" 
-                    required
-                    className="input-field"
-                    value={newCoupon.limit_per_user}
-                    onChange={(e) => setNewCoupon({...newCoupon, limit_per_user: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Expiry Date</label>
-                  <input 
-                    type="date" 
-                    className="input-field"
-                    value={(newCoupon as any).expiry_date || ''}
-                    onChange={(e) => setNewCoupon({...newCoupon, expiry_date: e.target.value} as any)}
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setCouponModal({ open: false })}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
-                >
-                  {couponModal.mode === 'edit' ? 'Update' : 'Create'}
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Expense Modal */}
-      {expenseModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-6">Add Expense</h3>
-            <form onSubmit={handleAddExpense} className="space-y-4">
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Min. Order (₹)</label>
+              <input 
+                type="number" 
+                required
+                className="input-field"
+                value={newCoupon.min_order}
+                onChange={(e) => setNewCoupon({...newCoupon, min_order: e.target.value})}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Description</label>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Limit Per User</label>
                 <input 
-                  type="text" 
+                  type="number" 
                   required
                   className="input-field"
-                  placeholder="Electricity Bill, Rent, etc."
-                  value={newExpense.description}
-                  onChange={(e) => setNewExpense({...newExpense, description: e.target.value})}
+                  value={newCoupon.limit_per_user}
+                  onChange={(e) => setNewCoupon({...newCoupon, limit_per_user: e.target.value})}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Amount (₹)</label>
-                  <input 
-                    type="number" 
-                    required
-                    className="input-field"
-                    value={newExpense.amount}
-                    onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-2">Category</label>
-                  <select 
-                    className="input-field"
-                    value={newExpense.category}
-                    onChange={(e) => setNewExpense({...newExpense, category: e.target.value})}
-                  >
-                    <option value="Stock">Stock</option>
-                    <option value="Utilities">Utilities</option>
-                    <option value="Rent">Rent</option>
-                    <option value="Staff">Staff</option>
-                    <option value="Others">Others</option>
-                  </select>
-                </div>
-              </div>
               <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Date</label>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Expiry Date</label>
                 <input 
                   type="date" 
-                  required
                   className="input-field"
-                  value={newExpense.date}
-                  onChange={(e) => setNewExpense({...newExpense, date: e.target.value})}
+                  value={(newCoupon as any).expiry_date || ''}
+                  onChange={(e) => setNewCoupon({...newCoupon, expiry_date: e.target.value} as any)}
                 />
               </div>
-              <div className="flex space-x-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setExpenseModal({ open: false })}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
-                >
-                  Add
-                </button>
-              </div>
-            </form>
-          </motion.div>
+            </div>
+            <div className="flex space-x-3 pt-4">
+              <button 
+                type="button"
+                onClick={() => setCouponModal({ open: false })}
+                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit"
+                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
+              >
+                {couponModal.mode === 'edit' ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </ModalContainer>
+
+      {/* Expense Modal */}
+      <ModalContainer
+        isOpen={expenseModal.open}
+        onClose={() => setExpenseModal({ open: false })}
+        title="Add Expense"
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleAddExpense} className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Description</label>
+              <input 
+                type="text" 
+                required
+                className="input-field"
+                placeholder="Electricity Bill, Rent, etc."
+                value={newExpense.description}
+                onChange={(e) => setNewExpense({...newExpense, description: e.target.value})}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Amount (₹)</label>
+                <input 
+                  type="number" 
+                  required
+                  className="input-field"
+                  value={newExpense.amount}
+                  onChange={(e) => setNewExpense({...newExpense, amount: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-stone-700 mb-2">Category</label>
+                <select 
+                  className="input-field"
+                  value={newExpense.category}
+                  onChange={(e) => setNewExpense({...newExpense, category: e.target.value})}
+                >
+                  <option value="Stock">Stock</option>
+                  <option value="Utilities">Utilities</option>
+                  <option value="Rent">Rent</option>
+                  <option value="Staff">Staff</option>
+                  <option value="Others">Others</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Date</label>
+              <input 
+                type="date" 
+                required
+                className="input-field"
+                value={newExpense.date}
+                onChange={(e) => setNewExpense({...newExpense, date: e.target.value})}
+              />
+            </div>
+            <div className="flex space-x-3 pt-4">
+              <button 
+                type="button"
+                onClick={() => setExpenseModal({ open: false })}
+                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit"
+                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+        </div>
+      </ModalContainer>
       {/* Product Modal */}
-      {productModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]"
-          >
-            <h3 className="text-2xl font-bold mb-6">
-              {productModal.mode === 'add' ? 'Add New Product' : 'Edit Product'}
-            </h3>
-            <form onSubmit={handleProductSubmit} className="space-y-4">
+      <ModalContainer
+        isOpen={productModal.open}
+        onClose={() => setProductModal({ open: false, mode: 'add' })}
+        title={productModal.mode === 'add' ? 'Add New Product' : 'Edit Product'}
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleProductSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-stone-700 mb-2">Product Name</label>
                 <input 
@@ -11432,28 +11763,17 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
       {/* Purchase / Stock Entry Modal */}
-      {stockEntryModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative max-h-[90vh] overflow-y-auto"
-          >
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-bold">New Stock Entry</h3>
-              <button 
-                onClick={() => setStockEntryModal({ open: false, product: null })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            
-            <form onSubmit={handleStockEntrySubmit} className="space-y-4">
+      <ModalContainer
+        isOpen={stockEntryModal.open}
+        onClose={() => setStockEntryModal({ open: false, product: null })}
+        title="New Stock Entry"
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleStockEntrySubmit} className="space-y-4">
               <div className="bg-stone-50 p-4 rounded-2xl flex items-center space-x-4 mb-4">
                 <div className="w-12 h-12 bg-white rounded-xl border border-stone-100 overflow-hidden shrink-0">
                   <img src={stockEntryModal.product?.image_url} alt="" className="w-full h-full object-cover" />
@@ -11552,250 +11872,221 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
 
       {/* Image Management Modal */}
-      {imageModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]"
-          >
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-2xl font-bold">Manage Product Images</h3>
-                <p className="text-stone-500 text-sm">Upload, reorder, and set main image</p>
-              </div>
-              <button 
-                onClick={() => setImageModal({ ...imageModal, open: false })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
-              >
-                <X size={24} />
-              </button>
-            </div>
+      <ModalContainer
+        isOpen={imageModal.open}
+        onClose={() => setImageModal({ ...imageModal, open: false })}
+        title="Manage Product Images"
+        size="lg"
+      >
+        <div className="p-8 pb-10 flex flex-col max-h-[80vh] overflow-hidden">
+          <p className="text-stone-500 text-sm mb-6">Upload, reorder, and set main image</p>
 
-            <div className="flex-1 overflow-y-auto pr-2">
-              <ProductImageManager 
-                allImages={imageModal.images} 
-                primaryImage={newProduct.image} 
-                onUpdate={(allImages, primaryImage) => {
-                  setNewProduct({ ...newProduct, images: allImages, image: primaryImage });
-                  setImageModal({ ...imageModal, images: allImages }); 
-                }}
-              />
-            </div>
+          <div className="flex-1 overflow-y-auto pr-2 no-scrollbar">
+            <ProductImageManager 
+              allImages={imageModal.images} 
+              primaryImage={newProduct.image} 
+              onUpdate={(allImages, primaryImage) => {
+                setNewProduct({ ...newProduct, images: allImages, image: primaryImage });
+                setImageModal({ ...imageModal, images: allImages }); 
+              }}
+            />
+          </div>
 
-            <div className="mt-8 pt-6 border-t border-stone-100">
-              <button 
-                onClick={() => setImageModal({ ...imageModal, open: false })}
-                className="w-full py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all"
-              >
-                Done Managing Images
-              </button>
-            </div>
-          </motion.div>
+          <div className="mt-8 pt-6 border-t border-stone-100">
+            <button 
+              onClick={() => setImageModal({ ...imageModal, open: false })}
+              className="w-full py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all"
+            >
+              Done Managing Images
+            </button>
+          </div>
         </div>
-      )}
+      </ModalContainer>
 
       {/* Category Batch Update Modal */}
-      {categoryBatchModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl"
-          >
-            <h3 className="text-xl font-bold mb-4">Change Category</h3>
-            <p className="text-sm text-stone-500 mb-6">
-              Update category for {selectedProducts.length} selected products.
-            </p>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Select New Category</label>
-                <select 
-                  className="input-field"
-                  value={newBatchCategory}
-                  onChange={(e) => setNewBatchCategory(e.target.value)}
-                >
-                  <option value="">Select Category</option>
-                  {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
-              </div>
-
-              <div className="flex space-x-3 pt-4">
-                <button 
-                  onClick={() => {
-                    setCategoryBatchModal({ open: false });
-                    setNewBatchCategory('');
-                  }}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleBatchCategoryUpdate}
-                  disabled={!newBatchCategory}
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50"
-                >
-                  Update
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Wallet History Modal */}
-      {walletHistoryModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
-          >
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-bold">Transaction History</h3>
-              <button 
-                onClick={() => setWalletHistoryModal({ ...walletHistoryModal, open: false })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
+      <ModalContainer
+        isOpen={categoryBatchModal.open}
+        onClose={() => {
+          setCategoryBatchModal({ open: false });
+          setNewBatchCategory('');
+        }}
+        title="Change Category"
+        size="sm"
+      >
+        <div className="p-8 pb-10">
+          <p className="text-sm text-stone-500 mb-6">
+            Update category for {selectedProducts.length} selected products.
+          </p>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Select New Category</label>
+              <select 
+                className="input-field"
+                value={newBatchCategory}
+                onChange={(e) => setNewBatchCategory(e.target.value)}
               >
-                <X size={24} />
+                <option value="">Select Category</option>
+                {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+            </div>
+
+            <div className="flex space-x-3 pt-4">
+              <button 
+                onClick={() => {
+                  setCategoryBatchModal({ open: false });
+                  setNewBatchCategory('');
+                }}
+                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleBatchCategoryUpdate}
+                disabled={!newBatchCategory}
+                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50"
+              >
+                Update
               </button>
             </div>
+          </div>
+        </div>
+      </ModalContainer>
 
-            <div className="flex-1 overflow-y-auto pr-2">
-              {walletHistoryModal.history.length === 0 ? (
-                <div className="text-center py-12 text-stone-400">
-                  <History size={48} className="mx-auto mb-4 opacity-20" />
-                  <p>No transactions found for this user.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {walletHistoryModal.history.map((tx) => (
-                    <div key={tx.id} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 flex justify-between items-center">
-                      <div className="flex items-center space-x-4">
-                        <div className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center",
-                          tx.type === 'credit' ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
-                        )}>
-                          {tx.type === 'credit' ? <Plus size={20} /> : <X size={20} />}
-                        </div>
-                        <div>
-                          <p className="font-bold text-sm">{tx.description}</p>
-                          <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">
-                            {new Date(tx.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
+      {/* Wallet History Modal */}
+      <ModalContainer
+        isOpen={walletHistoryModal.open}
+        onClose={() => setWalletHistoryModal({ ...walletHistoryModal, open: false })}
+        title="Transaction History"
+        size="lg"
+      >
+        <div className="p-8 pb-10 flex flex-col max-h-[70vh]">
+          <div className="flex-1 overflow-y-auto pr-2 no-scrollbar">
+            {walletHistoryModal.history.length === 0 ? (
+              <div className="text-center py-12 text-stone-400">
+                <History size={48} className="mx-auto mb-4 opacity-20" />
+                <p>No transactions found for this user.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {walletHistoryModal.history.map((tx) => (
+                  <div key={tx.id} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
                       <div className={cn(
-                        "font-bold text-lg",
-                        tx.type === 'credit' ? "text-emerald-600" : "text-red-600"
+                        "w-10 h-10 rounded-xl flex items-center justify-center",
+                        tx.type === 'credit' ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
                       )}>
-                        {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
+                        {tx.type === 'credit' ? <Plus size={20} /> : <X size={20} />}
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">{tx.description}</p>
+                        <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">
+                          {new Date(tx.created_at).toLocaleString()}
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.div>
+                    <div className={cn(
+                      "font-bold text-lg",
+                      tx.type === 'credit' ? "text-emerald-600" : "text-red-600"
+                    )}>
+                      {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </ModalContainer>
+
       {/* Supplier Modal */}
-      {supplierModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-6">
-              {supplierModal.mode === 'add' ? 'Add Supplier' : 'Edit Supplier'}
-            </h3>
-            <form onSubmit={handleSupplierSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Supplier Name</label>
-                <input 
-                  type="text" 
-                  required
-                  className="input-field"
-                  value={newSupplier.name}
-                  onChange={(e) => setNewSupplier({...newSupplier, name: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Contact Person</label>
-                <input 
-                  type="text" 
-                  required
-                  className="input-field"
-                  value={newSupplier.contact_person}
-                  onChange={(e) => setNewSupplier({...newSupplier, contact_person: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Email</label>
-                <input 
-                  type="email" 
-                  className="input-field"
-                  value={newSupplier.email}
-                  onChange={(e) => setNewSupplier({...newSupplier, email: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Phone</label>
-                <input 
-                  type="text" 
-                  required
-                  className="input-field"
-                  value={newSupplier.phone}
-                  onChange={(e) => setNewSupplier({...newSupplier, phone: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Address</label>
-                <textarea 
-                  className="input-field h-24"
-                  value={newSupplier.address}
-                  onChange={(e) => setNewSupplier({...newSupplier, address: e.target.value})}
-                />
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setSupplierModal({ open: false, mode: 'add', supplier: null })}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </motion.div>
+      <ModalContainer
+        isOpen={supplierModal.open}
+        onClose={() => setSupplierModal({ open: false, mode: 'add', supplier: null })}
+        title={supplierModal.mode === 'add' ? 'Add Supplier' : 'Edit Supplier'}
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleSupplierSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Supplier Name</label>
+              <input 
+                type="text" 
+                required
+                className="input-field"
+                value={newSupplier.name}
+                onChange={(e) => setNewSupplier({...newSupplier, name: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Contact Person</label>
+              <input 
+                type="text" 
+                required
+                className="input-field"
+                value={newSupplier.contact_person}
+                onChange={(e) => setNewSupplier({...newSupplier, contact_person: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Email</label>
+              <input 
+                type="email" 
+                className="input-field"
+                value={newSupplier.email}
+                onChange={(e) => setNewSupplier({...newSupplier, email: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Phone</label>
+              <input 
+                type="text" 
+                required
+                className="input-field"
+                value={newSupplier.phone}
+                onChange={(e) => setNewSupplier({...newSupplier, phone: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Address</label>
+              <textarea 
+                className="input-field h-24"
+                value={newSupplier.address}
+                onChange={(e) => setNewSupplier({...newSupplier, address: e.target.value})}
+              />
+            </div>
+            <div className="flex space-x-3 pt-4">
+              <button 
+                type="button"
+                onClick={() => setSupplierModal({ open: false, mode: 'add', supplier: null })}
+                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit"
+                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
+              >
+                Save
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </ModalContainer>
 
       {/* Promotion Rule Modal */}
-      {promotionRuleFormModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl relative max-h-[90vh] overflow-y-auto"
-          >
-            <h3 className="text-2xl font-bold mb-6">
-              {promotionRuleFormModal.mode === 'add' ? 'Create Target Rule' : 'Edit Target Rule'}
-            </h3>
-            <form onSubmit={handlePromotionRuleSubmit} className="space-y-4">
+      <ModalContainer
+        isOpen={promotionRuleFormModal.open}
+        onClose={() => setPromotionRuleFormModal({ open: false, mode: 'add', rule: null })}
+        title={promotionRuleFormModal.mode === 'add' ? 'Create Target Rule' : 'Edit Target Rule'}
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handlePromotionRuleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-stone-700 mb-2">Rule Title</label>
                 <input 
@@ -11918,22 +12209,18 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
 
       {/* Promotion Modal */}
-      {promotionModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-6">
-              {promotionModal.mode === 'add' ? 'Add Promotion' : 'Edit Promotion'}
-            </h3>
-            <form onSubmit={handlePromotionSubmit} className="space-y-4">
+      <ModalContainer
+        isOpen={promotionModal.open}
+        onClose={() => setPromotionModal({ open: false, mode: 'add', id: null })}
+        title={promotionModal.mode === 'add' ? 'Add Promotion' : 'Edit Promotion'}
+        size="md"
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handlePromotionSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-stone-700 mb-2">Title</label>
                 <input 
@@ -12076,83 +12363,67 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
 
       {/* Category Modal */}
-      {categoryModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-          >
-            <h3 className="text-2xl font-bold mb-6">
-              {categoryModal.mode === 'add' ? 'Add Category' : 'Edit Category'}
-            </h3>
-            <form onSubmit={handleCategorySubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Category Name</label>
-                <input 
-                  type="text" 
-                  required
-                  className="input-field"
-                  value={newCategory.name}
-                  onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Icon Name (Lucide)</label>
-                <input 
-                  type="text" 
-                  className="input-field"
-                  value={newCategory.icon}
-                  onChange={(e) => setNewCategory({...newCategory, icon: e.target.value})}
-                />
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setCategoryModal({ open: false, mode: 'add' })}
-                  className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Notification Modal */}
-      {notificationModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[2.5rem] p-10 max-w-xl w-full shadow-2xl border border-stone-100"
-          >
-            <div className="flex justify-between items-center mb-8">
-              <div>
-                <h3 className="text-2xl font-black text-stone-900">Broadcast Announcement</h3>
-                <p className="text-stone-500 text-sm mt-1">Create and dispatch informative messages across the platform.</p>
-              </div>
+      <ModalContainer
+        isOpen={categoryModal.open}
+        onClose={() => setCategoryModal({ open: false, mode: 'add' })}
+        title={categoryModal.mode === 'add' ? 'Add Category' : 'Edit Category'}
+        size="sm"
+        showHeader={true}
+      >
+        <div className="p-8 pb-10">
+          <form onSubmit={handleCategorySubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Category Name</label>
+              <input 
+                type="text" 
+                required
+                className="input-field"
+                value={newCategory.name}
+                onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-stone-700 mb-2">Icon Name (Lucide)</label>
+              <input 
+                type="text" 
+                className="input-field"
+                value={newCategory.icon}
+                onChange={(e) => setNewCategory({...newCategory, icon: e.target.value})}
+              />
+            </div>
+            <div className="flex space-x-3 pt-4">
               <button 
-                onClick={() => setNotificationModal({ open: false })}
-                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400"
+                type="button"
+                onClick={() => setCategoryModal({ open: false, mode: 'add' })}
+                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
               >
-                <X size={20} />
+                Cancel
+              </button>
+              <button 
+                type="submit"
+                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90"
+              >
+                Save
               </button>
             </div>
-            
-            <form onSubmit={handleNotificationSubmit} className="space-y-6">
+          </form>
+        </div>
+      </ModalContainer>
+
+      {/* Notification Modal */}
+      <ModalContainer
+        isOpen={notificationModal.open}
+        onClose={() => setNotificationModal({ open: false })}
+        title="Broadcast Announcement"
+        size="lg"
+      >
+        <div className="p-8 pb-10">
+          <p className="text-stone-500 text-sm mt-1 mb-8 select-none">Create and dispatch informative messages across the platform.</p>
+          <form onSubmit={handleNotificationSubmit} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-stone-400 uppercase tracking-widest mb-2 select-none">Subject Title</label>
@@ -12246,18 +12517,18 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
 
       {/* Customer Detail Modal */}
-      {customerModal.open && customerModal.user && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]"
-          >
+      <ModalContainer
+        isOpen={customerModal.open && customerModal.user !== null}
+        onClose={() => setCustomerModal({ open: false, user: null })}
+        size="lg"
+        showHeader={false}
+      >
+        {customerModal.user && (
+          <div className="p-8 pb-10">
             <div className="flex justify-between items-start mb-6">
               <div className="flex items-center space-x-4">
                 <div className="w-16 h-16 rounded-full bg-stone-100 overflow-hidden">
@@ -12610,28 +12881,19 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        )}
+      </ModalContainer>
 
       {/* Order Detail Modal */}
-      {reviewResponseModal.open && reviewResponseModal.review && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden"
-          >
-            <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-              <h3 className="text-xl font-bold">Respond to Review</h3>
-              <button 
-                onClick={() => setReviewResponseModal({ open: false, review: null })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
+      <ModalContainer
+        isOpen={reviewResponseModal.open && reviewResponseModal.review !== null}
+        onClose={() => setReviewResponseModal({ open: false, review: null })}
+        title="Respond to Review"
+        size="md"
+        showHeader={true}
+      >
+        <div className="p-6 space-y-4">
               <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
                 <div className="flex justify-between items-start mb-2">
                   <p className="font-bold text-sm">{reviewResponseModal.review.user_name}</p>
@@ -12669,17 +12931,16 @@ export default function AdminDashboard() {
                 Submit Response
               </button>
             </div>
-          </motion.div>
-        </div>
-      )}
+        </ModalContainer>
 
-      {orderModal.open && orderModal.order && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh]"
-          >
+      <ModalContainer
+        isOpen={orderModal.open && orderModal.order !== null}
+        onClose={() => setOrderModal({ open: false, order: null, statusHistory: [] })}
+        size="lg"
+        showHeader={false}
+      >
+        {orderModal.order && (
+          <div className="p-8">
             <div className="flex justify-between items-start mb-6">
               <div>
                 <div className="flex items-center space-x-3">
@@ -12694,7 +12955,7 @@ export default function AdminDashboard() {
                 </div>
                 <p className="text-stone-500">{new Date(orderModal.order.created_at).toLocaleString()}</p>
               </div>
-              <button onClick={() => setOrderModal({ open: false, order: null })} className="p-2 hover:bg-stone-100 rounded-full">
+              <button onClick={() => setOrderModal({ open: false, order: null, statusHistory: [] })} className="p-2 hover:bg-stone-100 rounded-full">
                 <X size={24} />
               </button>
             </div>
@@ -13112,7 +13373,7 @@ export default function AdminDashboard() {
                               });
                               if (data) {
                                 toast.success('Payment Verified & Order Escalated');
-                                setOrderModal({ open: false, order: null });
+                                setOrderModal({ open: false, order: null, statusHistory: [] });
                                 fetchOrders();
                               }
                             } catch (err) {
@@ -13136,9 +13397,9 @@ export default function AdminDashboard() {
                                     body: JSON.stringify({ reason })
                                   });
                                   if (data) {
-                                    toast.error('Payment Discarded. Protocol reset for client.');
-                                    setOrderModal({ open: false, order: null });
-                                    fetchOrders();
+                                     toast.error('Payment Discarded. Protocol reset for client.');
+                                     setOrderModal({ open: false, order: null, statusHistory: [] });
+                                     fetchOrders();
                                   }
                                 } catch (err) {
                                   console.error('Fail payment error:', err);
@@ -13160,9 +13421,9 @@ export default function AdminDashboard() {
                                     body: JSON.stringify({ status: 'cancelled', rejection_reason: reason })
                                   });
                                   if (data) {
-                                    toast.error('Order Cancelled');
-                                    setOrderModal({ open: false, order: null });
-                                    fetchOrders();
+                                     toast.error('Order Cancelled');
+                                     setOrderModal({ open: false, order: null, statusHistory: [] });
+                                     fetchOrders();
                                   }
                                 } catch (err) {
                                   console.error('Cancel order error:', err);
@@ -13203,26 +13464,18 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        )}
+      </ModalContainer>
       {/* Customer History Modal */}
-      {customerHistoryModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
-          >
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-bold">Customer Order History</h3>
-              <button 
-                onClick={() => setCustomerHistoryModal({ ...customerHistoryModal, open: false })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
-              >
-                <X size={24} />
-              </button>
-            </div>
+      <ModalContainer
+        isOpen={customerHistoryModal.open}
+        onClose={() => setCustomerHistoryModal({ ...customerHistoryModal, open: false })}
+        title="Customer Order History"
+        size="lg"
+        showHeader={true}
+      >
+        <div className="p-8 pb-10">
 
             <div className="flex-1 overflow-y-auto pr-2">
               {customerHistoryModal.orders.length === 0 ? (
@@ -13238,7 +13491,7 @@ export default function AdminDashboard() {
                         <div className="flex items-center space-x-2">
                           <p className="font-bold text-sm">#ORD-{order.id}</p>
                           {order.admin_notes && (
-                            <StickyNote size={12} className="text-amber-500" title="Has internal notes" />
+                            <StickyNote size={12} className="text-amber-500" />
                           )}
                         </div>
                         <p className="text-[10px] text-stone-400 uppercase font-bold tracking-wider">
@@ -13268,27 +13521,18 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
 
       {/* Promotion Products Modal */}
-      {promotionProductsModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
-          >
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-bold">Link Products to Promotion</h3>
-              <button 
-                onClick={() => setPromotionProductsModal({ ...promotionProductsModal, open: false })}
-                className="p-2 hover:bg-stone-100 rounded-full text-stone-400"
-              >
-                <X size={24} />
-              </button>
-            </div>
+      <ModalContainer
+        isOpen={promotionProductsModal.open}
+        onClose={() => setPromotionProductsModal({ ...promotionProductsModal, open: false })}
+        title="Link Products to Promotion"
+        size="lg"
+        showHeader={true}
+      >
+        <div className="p-8 pb-10">
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -13351,30 +13595,19 @@ export default function AdminDashboard() {
                 Done
               </button>
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
 
       {/* Variant Modal */}
-      {variantModal.open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 bg-stone-900/40 backdrop-blur-md">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="bg-white rounded-[32px] p-6 sm:p-10 max-w-4xl w-full shadow-2xl flex flex-col max-h-[90vh] border border-stone-100 relative"
-          >
-            <div className="flex justify-between items-start mb-8">
-              <div>
-                <h3 className="text-3xl font-black text-stone-900 tracking-tight mb-2">Manage Variants</h3>
-                <p className="text-sm text-stone-500 font-medium tracking-wide">Configure distinct pricing, stock, and multiple options for this product.</p>
-              </div>
-              <button 
-                onClick={() => setVariantModal({ ...variantModal, open: false })}
-                className="p-3 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-700 transition-colors bg-stone-50"
-              >
-                <X size={20} className="stroke-[3]" />
-              </button>
-            </div>
+      <ModalContainer
+        isOpen={variantModal.open}
+        onClose={() => setVariantModal({ ...variantModal, open: false })}
+        title="Manage Variants"
+        size="xl"
+        showHeader={true}
+      >
+        <div className="p-8 pb-10">
+          <p className="text-sm text-stone-500 font-medium tracking-wide mb-8 select-none">Configure distinct pricing, stock, and multiple options for this product.</p>
 
             <div className="flex-1 overflow-y-auto pr-2 -mr-2 space-y-4 rounded-xl">
               {productVariants.length === 0 ? (
@@ -13514,31 +13747,18 @@ export default function AdminDashboard() {
                 Save All Variants
               </button>
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </ModalContainer>
       {/* Role Modal */}
-      {roleModal.open && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-8 overflow-hidden relative"
-          >
-            <button 
-              onClick={() => setRoleModal({ ...roleModal, open: false })}
-              className="absolute top-6 right-6 p-2 hover:bg-stone-100 rounded-full transition-colors"
-            >
-              <X size={20} className="text-stone-400" />
-            </button>
-
-            <div className="mb-8">
-              <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center text-primary mb-4">
-                <Shield size={28} />
-              </div>
-              <h3 className="text-2xl font-bold">{roleModal.mode === 'add' ? 'Create New Role' : 'Edit Role'}</h3>
-              <p className="text-stone-500 text-sm">Define permissions for this administrative role.</p>
-            </div>
+      <ModalContainer
+        isOpen={roleModal.open}
+        onClose={() => setRoleModal({ ...roleModal, open: false })}
+        title={roleModal.mode === 'add' ? 'Create New Role' : 'Edit Role'}
+        size="md"
+        showHeader={true}
+      >
+        <div className="p-8 pb-10">
+          <p className="text-stone-500 text-sm mb-6">Define permissions for this administrative role.</p>
 
             <div className="space-y-6">
               <div>
@@ -13616,16 +13836,16 @@ export default function AdminDashboard() {
                 {roleModal.mode === 'add' ? 'Create Role' : 'Save Changes'}
               </button>
             </div>
-          </motion.div>
-        </div>
-      )}
-      {reportDetailModal.open && reportDetailModal.report && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-md">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="bg-white rounded-[3rem] p-8 max-w-2xl w-full shadow-2xl overflow-y-auto max-h-[90vh] border border-stone-100"
-          >
+          </div>
+        </ModalContainer>
+      <ModalContainer
+        isOpen={reportDetailModal.open && reportDetailModal.report !== null}
+        onClose={() => setReportDetailModal({ open: false, report: null })}
+        size="lg"
+        showHeader={false}
+      >
+        {reportDetailModal.report && (
+          <div className="p-8">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center space-x-4">
                 <div className="p-3 bg-red-50 text-red-500 rounded-2xl">
@@ -13760,9 +13980,9 @@ export default function AdminDashboard() {
                  <Trash2 size={24} />
                </button>
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        )}
+      </ModalContainer>
       <ExportProgressModal open={exportProgress.open} progress={exportProgress.progress} label={exportProgress.label} />
       <ExportActionModal />
     </AdminDashboardLayout>

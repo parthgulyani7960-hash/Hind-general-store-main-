@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Hammer, Clock, MessageCircle } from 'lucide-react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 
 export default function MaintenancePage() {
   const { config = [], fetchConfig } = useStore();

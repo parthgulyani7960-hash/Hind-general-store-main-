@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Filter, ShoppingCart, Plus, Minus, 
@@ -7,13 +7,13 @@ import {
   RefreshCw, ShoppingBag, Maximize2
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import { Product, cn } from '../types';
-import { useStore } from '../StoreContext';
-import { useDeviceType } from '../lib/device';
+import { Product, cn } from '@/types';
+import { useStore } from '@/StoreContext';
+import { useDeviceType } from '@/lib/device';
 import toast from 'react-hot-toast';
-import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '../firebase';
-import { fetchWithHandling } from '../lib/api';
-import { ProductSkeleton } from '../components/ui/Skeleton';
+import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '@/firebase';
+import { fetchWithHandling } from '@/lib/api';
+import { ProductSkeleton } from '@/components/ui/Skeleton';
 
 import { io } from 'socket.io-client';
 
@@ -142,8 +142,15 @@ export default function Products() {
     }
   };
 
+  const lastFetchRef = useRef<string>('');
   useEffect(() => {
     let isMounted = true;
+    const currentKey = `${user?.id}-${user?.role}`;
+    
+    // Prevent redundant fetches if role/user hasn't changed meaningfully
+    if (lastFetchRef.current === currentKey && products.length > 0) return;
+    lastFetchRef.current = currentKey;
+
     fetchProducts(isMounted);
 
     // Real-Time Inventory Management Socket.io
@@ -164,7 +171,7 @@ export default function Products() {
       isMounted = false;
       socket.disconnect();
     };
-  }, [user?.role]);
+  }, [user?.id, user?.role]);
 
   const filteredProducts = useMemo(() => {
     const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
@@ -180,7 +187,7 @@ export default function Products() {
       const matchesMinPrice = activePrice >= Number(minPrice);
       const matchesMaxPrice = maxPrice === '' || activePrice <= Number(maxPrice);
       const matchesSale = !onSaleOnly || p.discount > 0;
-      const isListedAndActive = p.is_listed !== 0 && p.is_listed !== '0' && p.is_listed !== false && p.is_listed !== 'false' && !p.is_deleted && (p as any).deleted !== true;
+      const isListedAndActive = p.is_listed && !p.is_deleted && (p as any).deleted !== true;
       
       return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && isListedAndActive;
     });
@@ -540,6 +547,7 @@ const categories = ['All', 'Essential Pantry', 'Fresh Produce', 'Personal Care',
                  <Zap size={10} fill={onSaleOnly ? "currentColor" : "none"} />
                  <span>On Sale</span>
                </motion.button>
+               
                
                <div className="relative w-full">
                  <select 

@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Menu, Activity, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { fetchWithHandling } from '../../lib/api';
-import { getAuthHeaders } from '../../lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 import AdminSidebar from './AdminSidebar';
-import { cn } from '../../types';
-import LoadingFallback from '../LoadingFallback';
+import { cn } from '@/types';
+import LoadingFallback from '@/components/LoadingFallback';
 
 interface AdminDashboardLayoutProps {
   children: React.ReactNode;
@@ -23,6 +23,23 @@ interface AdminDashboardLayoutProps {
   loading?: boolean;
 }
 
+/**
+ * AdminDashboardLayout provides the main structure for the admin dashboard,
+ * including the layout for the navigation sidebar, header, and content area.
+ * 
+ * @param children - The main content elements to be rendered in the dashboard.
+ * @param activeTab - The currently active navigation tab.
+ * @param setActiveTab - Function to change the active tab.
+ * @param user - The current logged-in user profile object.
+ * @param logout - Function to trigger the logout process.
+ * @param adminTheme - The visual theme applied to the admin interface.
+ * @param sidebarOpen - Whether the sidebar is currently open (for mobile).
+ * @param setSidebarOpen - Function to toggle the sidebar (for mobile).
+ * @param getDisplayLabel - Function to map tab names to display labels.
+ * @param stats - Object containing store statistics (e.g., low stock).
+ * @param extraHeader - Optional content for the header area.
+ * @param loading - Whether the page content is currently loading.
+ */
 export default function AdminDashboardLayout({ 
   children, activeTab, setActiveTab, user, logout, adminTheme, 
   sidebarOpen, setSidebarOpen, getDisplayLabel, stats, extraHeader, loading
@@ -31,6 +48,15 @@ export default function AdminDashboardLayout({
   const navigate = useNavigate();
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'offline'>('offline');
   const [isMinimized, setIsMinimized] = useState(false);
+  
+  useEffect(() => {
+    const handleSystemError = (event: any) => {
+      const report = event.detail;
+      toast.error(`System Error: ${report.message || 'An unexpected error occurred'}`);
+    };
+    window.addEventListener('system_error', handleSystemError);
+    return () => window.removeEventListener('system_error', handleSystemError);
+  }, []);
   
   useEffect(() => {
     if (user && user.role !== 'admin') {

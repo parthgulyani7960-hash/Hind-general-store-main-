@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Heart, ShoppingCart, Trash2, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Product } from '../types';
-import { useStore } from '../StoreContext';
+import { Product } from '@/types';
+import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
-import { fetchWithHandling } from '../lib/api';
-import { ProductSkeleton } from '../components/ui/Skeleton';
+import { fetchWithHandling } from '@/lib/api';
+import { ProductSkeleton } from '@/components/ui/Skeleton';
 
 export default function Wishlist() {
   const [products, setProducts] = useState<Product[]>([]);

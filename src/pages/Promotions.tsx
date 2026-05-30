@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Tag, ExternalLink, ShoppingBag, ArrowRight, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import SmartLink from '../components/SmartLink';
-import { cn } from '../types';
-import { fetchWithHandling } from '../lib/api';
+import SmartLink from '@/components/SmartLink';
+import { cn } from '@/types';
+import { fetchWithHandling } from '@/lib/api';
 
 interface Promotion {
   id: number;

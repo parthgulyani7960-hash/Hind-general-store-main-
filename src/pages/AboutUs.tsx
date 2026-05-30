@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Store, MapPin, Phone, Mail, Clock, ShieldCheck, HeartHandshake, Search, ExternalLink } from 'lucide-react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 
 export default function AboutUs() {
   const { config = [] } = useStore();

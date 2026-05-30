@@ -13,6 +13,12 @@ export const fetchWithHandling = async <T>(
   options: RequestInit = {},
   retries = 2
 ): Promise<T | null> => {
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (isOffline) {
+    console.warn(`[API] Suppressed fetch to ${url} (Browser Offline)`);
+    return null;
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -32,7 +38,10 @@ export const fetchWithHandling = async <T>(
         
         if (res.status === 404) {
           console.warn(`[API] Resource not found: ${url}`);
-          errorMessage = "Requested resource not found";
+          // Only use generic message if server didn't provide one
+          if (!errorMessage || errorMessage.includes('Error:')) {
+            errorMessage = "Requested resource not found";
+          }
         } else if (res.status === 401) {
           // Check if user has an auth token. If not, they are just a guest, don't spam.
           const currentToken = localStorage.getItem('hgs_token');
@@ -131,22 +140,29 @@ export const fetchWithHandling = async <T>(
                            err.message?.includes('aborted');
 
     if (isNetworkError) {
-      console.error(`[API] Network offline or unreachable endpoint at ${url}`);
+      console.warn(`[API] Network offline or unreachable endpoint at ${url}`);
       // Do not trigger global maintenance block for temporary fetch drops
     }
 
     // Silent for background/common checks
-    const isBackground = url.includes('/api/auth/me') || 
+    const isPassiveGet = options.method === 'GET' || !options.method;
+    const isBackground = isNetworkError || 
+                       url.includes('/api/auth/me') || 
                        url.includes('/api/alerts') || 
                        url.includes('/api/notifications') ||
                        url.includes('/runner-location') ||
                        url.includes('/api/cart/sync') ||
                        url.includes('/api/admin/stats') ||
                        url.includes('/api/settings') ||
+                       url.includes('/api/categories') ||
+                       url.includes('/api/promotions') ||
+                       url.includes('/api/promotions-rules') ||
+                       url.includes('/api/bulk-discounts') ||
                        url.includes('/api/user/export-status') ||
                        url.includes('/api/user/deletion-request');
 
-    if (!isBackground && err.status !== 401) {
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if ((!isBackground || !isPassiveGet) && err.status !== 401 && !isOffline) {
         toast.error(err.message || 'Something went wrong');
         errorService.report({
           type: ErrorType.API_ERROR,

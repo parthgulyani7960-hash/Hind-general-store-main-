@@ -5,21 +5,24 @@ import {
   ChevronRight, Camera, LogOut, Settings, Bell, CreditCard, 
   History, Wallet, Info, MessageSquare, ExternalLink, Activity, Globe, Plus, X,
   Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy, Navigation2, MoreVertical,
-  ArrowRight, ShieldCheck, Book
+  ArrowRight, ShieldCheck, Book, TrendingUp
 } from 'lucide-react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
-import { cn, Product } from '../types';
+import { cn, Product } from '@/types';
 import { useEffect } from 'react';
-import WholesaleInsights from '../components/WholesaleInsights';
-import LocationPicker from '../components/LocationPicker';
-import WalletModal from '../components/WalletModal';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
-import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '../components/ui/Skeleton';
-import { autofillLocation } from '../lib/geocoding';
+import WholesaleInsights from '@/components/WholesaleInsights';
+import LocationPicker from '@/components/LocationPicker';
+import WalletModal from '@/components/WalletModal';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
+import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
+import { autofillLocation } from '@/lib/geocoding';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from 'recharts';
 
 const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -149,6 +152,7 @@ export default function Profile() {
   const [editingAddress, setEditingAddress] = useState<any>(null);
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [showEditOrderModal, setShowEditOrderModal] = useState(false);
+  const [showAddMoney, setShowAddMoney] = useState(false);
   const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
 
   const maskPhoneNumber = (phone: string | null | undefined) => {
@@ -532,6 +536,40 @@ export default function Profile() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const getMonthlySpendingData = () => {
+    const activeOrders = orders.filter(o => o.status !== 'cancelled' && o.status !== 'failed');
+    const monthsData: Record<string, number> = {};
+    const now = new Date();
+    
+    // Initialize last 6 months sequentially
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthName = d.toLocaleString('en-US', { month: 'short' });
+      const year = d.getFullYear().toString().slice(-2);
+      const key = `${monthName} '${year}`;
+      monthsData[key] = 0;
+    }
+    
+    activeOrders.forEach(o => {
+      const date = new Date(o.created_at);
+      const monthName = date.toLocaleString('en-US', { month: 'short' });
+      const year = date.getFullYear().toString().slice(-2);
+      const key = `${monthName} '${year}`;
+      
+      const totalAmount = Number(o.total || 0);
+      if (key in monthsData) {
+        monthsData[key] += totalAmount;
+      } else {
+        monthsData[key] = totalAmount;
+      }
+    });
+    
+    return Object.entries(monthsData).map(([month, amount]) => ({
+      month,
+      amount: Math.round(amount * 100) / 100
+    }));
   };
 
   React.useEffect(() => {
@@ -1241,13 +1279,110 @@ export default function Profile() {
               </motion.div>
             )}
             {activeProfileTab === 'history' && (
-              <motion.div 
-                key="history"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden"
-              >
+              <div className="space-y-6">
+                {/* Monthly Spending Trend Recharts wrapper */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white rounded-3xl shadow-sm border border-stone-100 p-6 space-y-6 overflow-hidden bg-gradient-to-br from-white to-stone-50/20"
+                >
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 text-stone-800">
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                          <TrendingUp size={18} />
+                        </div>
+                        <h3 className="font-extrabold text-lg tracking-tight">Monthly Spending Trend</h3>
+                      </div>
+                      <p className="text-xs text-stone-400 mt-1">A timeline of your overall store spending (excluding cancelled or failed orders)</p>
+                    </div>
+                    {/* Summary Quick Metrics */}
+                    {orders.length > 0 && (() => {
+                      const monthlySpendingData = getMonthlySpendingData();
+                      const totalSpent6m = monthlySpendingData.reduce((acc, item) => acc + item.amount, 0);
+                      const avgSpent6m = Math.round((totalSpent6m / 6) * 100) / 100;
+                      return (
+                        <div className="flex gap-4">
+                          <div className="bg-stone-50 border border-stone-150 rounded-xl px-4 py-2 text-right">
+                            <span className="text-[9px] text-stone-400 font-bold uppercase tracking-wider block">Total Spent</span>
+                            <span className="text-sm font-black text-stone-800">₹{totalSpent6m.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="bg-stone-50 border border-stone-150 rounded-xl px-4 py-2 text-right">
+                            <span className="text-[9px] text-stone-400 font-bold uppercase tracking-wider block">Avg/Month</span>
+                            <span className="text-sm font-black text-stone-800">₹{avgSpent6m.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Chart representation */}
+                  {orders.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-stone-400 select-none italic">
+                      No order details available to generate spending trends.
+                    </div>
+                  ) : (
+                    <div className="w-full h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={getMonthlySpendingData()}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="spendingColor" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#10b981" stopOpacity={0.01}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f1f1" />
+                          <XAxis 
+                            dataKey="month" 
+                            stroke="#888888" 
+                            fontSize={10}
+                            fontWeight={600}
+                            tickLine={false} 
+                            axisLine={false}
+                          />
+                          <YAxis 
+                            stroke="#888888" 
+                            fontSize={10} 
+                            fontWeight={600}
+                            tickLine={false} 
+                            axisLine={false}
+                            tickFormatter={(v) => `₹${v}`}
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              background: '#ffffff', 
+                              border: '1px solid #e5e7eb', 
+                              borderRadius: '1rem',
+                              boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)',
+                              fontFamily: 'Inter, sans-serif'
+                            }}
+                            formatter={(value: any) => [`₹${Number(value).toFixed(2)}`, 'Spending']}
+                            labelClassName="font-extrabold text-[#111827] text-xs"
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="amount" 
+                            stroke="#10b981" 
+                            strokeWidth={2.5}
+                            fillOpacity={1} 
+                            fill="url(#spendingColor)" 
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </motion.div>
+
+                <motion.div 
+                  key="history"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden"
+                >
                 <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/30">
                   <div className="flex items-center space-x-3">
                     <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
@@ -1631,6 +1766,7 @@ export default function Profile() {
                   )}
                 </div>
               </motion.div>
+            </div>
             )}
 
             {activeProfileTab === 'wishlist' && (
@@ -1661,7 +1797,7 @@ export default function Profile() {
                       {wishlistProducts.map((product) => (
                         <div key={product.id} className="flex items-center space-x-4 p-4 bg-stone-50 rounded-2xl border border-stone-100 group hover:border-primary transition-colors">
                           <img 
-                            src={product.image} 
+                            src={product.image_url} 
                             alt={product.name} 
                             className="w-16 h-16 object-cover rounded-xl"
                             referrerPolicy="no-referrer"

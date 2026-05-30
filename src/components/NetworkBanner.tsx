@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNetwork } from '../hooks/useNetwork';
+import { useNetwork } from '@/hooks/useNetwork';
 import { WifiOff, AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 

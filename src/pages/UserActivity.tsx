@@ -7,12 +7,13 @@ import {
   Settings, Info, ExternalLink, Calendar, MapPin, Receipt, ArrowRight,
   TrendingUp, TrendingDown, History, CreditCard, Activity, RefreshCw, Shield
 } from 'lucide-react';
-import { useStore } from '../StoreContext';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
-import { cn } from '../types';
-import LoadingFallback from '../components/LoadingFallback';
+import { useStore } from '@/StoreContext';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
+import { cn } from '@/types';
+import LoadingFallback from '@/components/LoadingFallback';
 import toast from 'react-hot-toast';
+import { OrderStatusTimeline } from '@/components/admin/OrderStatusTimeline';
 
 type ActivityTab = 'orders' | 'wallet' | 'other';
 
@@ -197,7 +198,7 @@ export default function UserActivity() {
                     layout
                     className="bg-white border border-stone-100 rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-stone-200/50 transition-all group"
                   >
-                    <div className="p-8">
+                    <div className="p-5 md:p-8">
                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
                           <div className="flex items-center space-x-4">
                              <div className="w-14 h-14 bg-stone-50 rounded-2xl flex items-center justify-center text-stone-400 group-hover:bg-primary group-hover:text-white transition-all duration-500 shadow-inner">
@@ -228,46 +229,49 @@ export default function UserActivity() {
                           </div>
                        </div>
 
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-8 border-t border-stone-50">
+                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8 py-6 md:py-8 border-t border-stone-50">
                           <div className="space-y-4">
-                             <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Asset Manifest</p>
-                             <div className="space-y-3">
+                             <div className="flex items-center justify-between">
+                                <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Asset Manifest</p>
+                                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none sm:hidden">{order.items.length} Items</p>
+                             </div>
+                             <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-1 gap-3 md:space-y-3">
                                 {order.items.slice(0, 3).map((item: any, idx: number) => (
-                                  <div key={idx} className="flex items-center gap-4 group/item">
-                                     <div className="w-10 h-10 bg-stone-50 rounded-lg overflow-hidden border border-stone-100 flex items-center justify-center">
+                                  <div key={idx} className="flex items-center gap-3 md:gap-4 group/item bg-stone-50/30 p-2 sm:p-0 rounded-xl sm:bg-transparent">
+                                     <div className="w-8 h-8 md:w-10 md:h-10 bg-stone-50 rounded-lg overflow-hidden border border-stone-100 flex items-center justify-center shrink-0">
                                         <img src={item.image_url} alt="" className="w-full h-full object-cover opacity-80 group-hover/item:opacity-100 transition-opacity" />
                                      </div>
                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-bold text-stone-700 truncate">{item.name}</p>
-                                        <p className="text-[10px] text-stone-400 font-medium">Qty: {item.quantity} • ₹{item.price}</p>
+                                        <p className="text-[11px] md:text-xs font-bold text-stone-700 truncate">{item.name}</p>
+                                        <p className="text-[9px] md:text-[10px] text-stone-400 font-medium whitespace-nowrap">Qty: {item.quantity} • ₹{item.price}</p>
                                      </div>
                                   </div>
                                 ))}
                                 {order.items.length > 3 && (
-                                  <p className="text-[10px] text-stone-400 font-bold italic ml-14">+ {order.items.length - 3} more assets</p>
+                                  <p className="text-[9px] text-stone-400 font-bold italic ml-2 sm:ml-14">+ {order.items.length - 3} more assets</p>
                                 )}
                              </div>
                           </div>
                           
-                          <div className="space-y-4 md:border-l md:border-stone-50 md:pl-8">
+                          <div className="space-y-4 lg:border-l lg:border-stone-50 lg:pl-8">
                              <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Transaction Logistics</p>
-                             <div className="space-y-4">
-                                <div className="flex items-start gap-4">
-                                   <div className="w-8 h-8 rounded-lg bg-stone-50 flex items-center justify-center text-stone-400">
-                                      <MapPin size={16} />
+                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+                                <div className="flex items-start gap-3 md:gap-4">
+                                   <div className="w-8 h-8 rounded-lg bg-stone-50 flex items-center justify-center text-stone-400 shrink-0">
+                                      <MapPin size={14} className="md:w-4 md:h-4" />
                                    </div>
-                                   <div>
-                                      <p className="text-xs font-bold text-stone-700">Delivery Address</p>
-                                      <p className="text-[10px] text-stone-400 mt-1 leading-relaxed max-w-[200px] truncate">{order.address}</p>
+                                   <div className="min-w-0">
+                                      <p className="text-[11px] md:text-xs font-bold text-stone-700">Delivery Address</p>
+                                      <p className="text-[9px] md:text-[10px] text-stone-400 mt-1 leading-relaxed truncate sm:whitespace-normal sm:max-w-none max-w-[150px]">{order.address}</p>
                                    </div>
                                 </div>
-                                <div className="flex items-start gap-4">
-                                   <div className="w-8 h-8 rounded-lg bg-stone-50 flex items-center justify-center text-stone-400">
-                                      <CreditCard size={16} />
+                                <div className="flex items-start gap-3 md:gap-4">
+                                   <div className="w-8 h-8 rounded-lg bg-stone-50 flex items-center justify-center text-stone-400 shrink-0">
+                                      <CreditCard size={14} className="md:w-4 md:h-4" />
                                    </div>
-                                   <div>
-                                      <p className="text-xs font-bold text-stone-700">Payment Protocol</p>
-                                      <p className="text-[10px] text-stone-400 mt-1 uppercase font-black tracking-widest">{order.payment_method || 'COD'} • {order.payment_status?.toUpperCase() || 'SETTLED'}</p>
+                                   <div className="min-w-0">
+                                      <p className="text-[11px] md:text-xs font-bold text-stone-700">Payment Protocol</p>
+                                      <p className="text-[9px] md:text-[10px] text-stone-400 mt-1 uppercase font-black tracking-widest">{order.payment_method || 'COD'} • {order.payment_status?.toUpperCase() || 'SETTLED'}</p>
                                    </div>
                                 </div>
                              </div>
@@ -277,31 +281,36 @@ export default function UserActivity() {
                        <div className="pt-8 border-t border-stone-50 grid grid-cols-2 lg:grid-cols-4 gap-4">
                           <Link 
                             to={`/invoice/${order.id}`}
-                            className="flex items-center justify-center space-x-3 py-4 bg-stone-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-stone-900/10 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all"
+                            className="flex items-center justify-center space-x-3 py-3 md:py-4 bg-stone-900 text-white rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest shadow-lg shadow-stone-900/10 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all"
                           >
-                             <Receipt size={14} />
+                             <Receipt size={14} className="w-3.5 h-3.5 md:w-4 md:h-4" />
                              <span>Digital Invoice</span>
                           </Link>
                           <Link 
                             to={`/track-order?orderId=${order.order_id || order.id}&phone=${order.user_phone || user?.phone}`}
-                            className="flex items-center justify-center space-x-3 py-4 bg-white border border-stone-200 text-stone-950 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:border-stone-900 hover:bg-stone-50 active:scale-95 transition-all shadow-sm"
+                            className="flex items-center justify-center space-x-3 py-3 md:py-4 bg-white border border-stone-200 text-stone-950 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:border-stone-900 hover:bg-stone-50 active:scale-95 transition-all shadow-sm"
                           >
-                             <Activity size={14} />
+                             <Activity size={14} className="w-3.5 h-3.5 md:w-4 md:h-4" />
                              <span>Real-time Track</span>
                           </Link>
                           {order.status === 'pending' && (
-                             <button className="flex items-center justify-center space-x-3 py-4 bg-amber-50 text-amber-600 border border-amber-100 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-100 active:scale-95 transition-all shadow-sm">
-                                <Settings size={14} />
+                             <button className="flex items-center justify-center space-x-3 py-3 md:py-4 bg-amber-50 text-amber-600 border border-amber-100 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-amber-100 active:scale-95 transition-all shadow-sm">
+                                <Settings size={14} className="w-3.5 h-3.5 md:w-4 md:h-4" />
                                 <span>Adjust Assets</span>
                              </button>
                           )}
                           <Link 
                             to="/support"
-                            className="hidden lg:flex items-center justify-center space-x-3 py-4 bg-white border border-stone-200 text-stone-400 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:text-stone-900 hover:border-stone-900 active:scale-95 transition-all shadow-sm"
+                            className="flex lg:flex items-center justify-center space-x-3 py-3 md:py-4 bg-white border border-stone-200 text-stone-400 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:text-stone-900 hover:border-stone-900 active:scale-95 transition-all shadow-sm"
                           >
-                             <Info size={14} />
+                             <Info size={14} className="w-3.5 h-3.5 md:w-4 md:h-4" />
                              <span>Help Node</span>
                           </Link>
+                       </div>
+                       
+                       {/* Timeline Component Injection */}
+                       <div className="mt-6">
+                           <OrderStatusTimeline orderId={order.id} />
                        </div>
                     </div>
                   </motion.div>

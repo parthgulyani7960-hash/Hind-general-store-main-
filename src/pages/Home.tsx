@@ -2,14 +2,14 @@ import { motion } from 'motion/react';
 import { ArrowRight, ShieldCheck, Truck, Clock, PhoneCall, ShoppingBag, Eye, X, Search } from 'lucide-react';
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import SmartLink from '../components/SmartLink';
-import { useStore } from '../StoreContext';
+import SmartLink from '@/components/SmartLink';
+import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
-import { cn } from '../lib/utils';
-import { fetchWithHandling } from '../lib/api';
-import LoadingFallback from '../components/LoadingFallback';
+import { cn } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import LoadingFallback from '@/components/LoadingFallback';
 
-import ErrorBoundary from '../components/ErrorBoundary';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 function HomeInner() {
   const { user, simulatedRole, t, config = [] } = useStore();

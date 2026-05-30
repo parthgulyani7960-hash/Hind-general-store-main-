@@ -16,9 +16,6 @@ try {
     const performRefresh = async (): Promise<string | null> => {
         try {
             const currentToken = localStorage.getItem('hgs_token');
-            if (currentToken && currentToken.startsWith('demo_bypass_token_')) {
-              return currentToken;
-            }
 
             // Set a timeout to prevent infinite hang
             const readyPromise = auth.authStateReady();

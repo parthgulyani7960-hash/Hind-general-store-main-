@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, Info, Megaphone, X, ChevronRight, Zap } from 'lucide-react';
-import { cn } from '../types';
-import { useStore } from '../StoreContext';
+import { cn } from '@/types';
+import { useStore } from '@/StoreContext';
 
 interface Announcement {
   id: number;

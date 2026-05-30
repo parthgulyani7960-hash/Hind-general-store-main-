@@ -36,6 +36,12 @@ class ErrorReportingService {
   }
 
   public report(reportData: Omit<ErrorReport, 'timestamp' | 'browser' | 'path'>): void {
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (isOffline) {
+      console.warn(`[ErrorService] Suppressed automated background report (Offline Status): ${reportData.message}`);
+      return;
+    }
+
     const report: ErrorReport = {
       ...reportData,
       path: window.location.pathname,
@@ -44,6 +50,8 @@ class ErrorReportingService {
     };
 
     console.error(`[ErrorService] [${report.type}] ${report.message}`, report);
+    
+    window.dispatchEvent(new CustomEvent('system_error', { detail: report }));
     
     this.queue.push(report);
     this.processQueue();

@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { FileText, ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { fetchWithHandling } from '../lib/api';
-import { useStore } from '../StoreContext';
+import { fetchWithHandling } from '@/lib/api';
+import { useStore } from '@/StoreContext';
 
 export default function TermsAndConditions() {
   const { config = [] } = useStore();

@@ -2,8 +2,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star, Camera, Store, ChevronDown, LogOut, ArrowRight, Wallet, Sparkles, ShieldCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink, useLocation } from 'react-router-dom';
-import { useStore } from '../StoreContext';
-import { cn } from '../types';
+import { useStore } from '@/StoreContext';
+import { cn } from '@/types';
 import toast from 'react-hot-toast';
 
 import UserAvatar from './UserAvatar';

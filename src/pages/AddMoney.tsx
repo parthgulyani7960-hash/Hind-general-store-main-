@@ -14,11 +14,11 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { useStore } from '../StoreContext';
-import { cn } from '../lib/utils';
+import { useStore } from '@/StoreContext';
+import { cn } from '@/lib/utils';
 
 export default function AddMoney() {
   const navigate = useNavigate();
@@ -103,56 +103,60 @@ export default function AddMoney() {
       </div>
 
       {/* Main Content Area (No Scroll) */}
-      <div className="flex-1 relative overflow-hidden">
-        <AnimatePresence mode="wait">
-          
-          {/* Step 1: Amount */}
-          {step === 1 && (
-            <motion.div key="1" initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -50, opacity: 0 }} className="h-full w-full flex flex-col items-center justify-center p-6 space-y-8">
-              <h2 className="text-2xl font-black text-stone-900">Enter Amount</h2>
-              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="w-full max-w-xs text-center text-4xl font-extrabold py-4 bg-transparent outline-none" placeholder="₹ 0" />
-              <div className="flex gap-2">
-                {quickAmounts.map(a => (
-                  <button key={a} onClick={() => setAmount(String(a))} className="px-4 py-2 bg-stone-200 rounded-xl font-bold text-xs">+ ₹{a}</button>
-                ))}
-              </div>
-              <button disabled={Number(amount) < 50} onClick={() => setStep(2)} className="bg-stone-900 text-white px-8 py-3 rounded-2xl font-black disabled:opacity-40">Continue</button>
-            </motion.div>
-          )}
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6 bg-stone-50 overflow-hidden">
+        <div className="bg-white rounded-[2.5rem] shadow-2xl p-8 max-w-md w-full border border-stone-100/50 flex flex-col mr-auto ml-auto relative">
+          <AnimatePresence mode="wait">
+            
+            {/* Step 1: Amount */}
+            {step === 1 && (
+              <motion.div key="1" initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -50, opacity: 0 }} className="w-full flex flex-col items-center justify-center space-y-8">
+                <h2 className="text-2xl font-black text-stone-900">Enter Amount</h2>
+                <input type="number" value={amount} onChange={e => setAmount(e.target.value)} className="w-full text-center text-4xl font-extrabold py-4 bg-transparent outline-none" placeholder="₹ 0" />
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {quickAmounts.map(a => (
+                    <button key={a} onClick={() => setAmount(String(a))} className="px-4 py-2 bg-stone-100 hover:bg-stone-200 transition-colors rounded-xl font-bold text-xs">+ ₹{a}</button>
+                  ))}
+                </div>
+                <button disabled={Number(amount) < 50} onClick={() => setStep(2)} className="bg-stone-900 hover:bg-primary transition-all text-white px-8 py-3.5 rounded-2xl font-black disabled:opacity-40 w-full text-center">Continue</button>
+              </motion.div>
+            )}
 
-          {/* Step 2: Payment */}
-          {step === 2 && (
-            <motion.div key="2" initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -50, opacity: 0 }} className="h-full w-full flex flex-col items-center justify-center p-6 space-y-6">
-              <div className="p-4 bg-white rounded-3xl shadow-sm border border-stone-100">
-                <img src={displayQr} alt="QR" className="w-56 h-56" />
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleCopyUpiId} className="px-4 py-2 bg-stone-100 rounded-xl text-xs font-bold flex items-center gap-2"><Copy size={14}/> ID: {upiId.slice(0,10)}...</button>
-                <button onClick={downloadQR} className="px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-bold flex items-center gap-2"><Download size={14}/> Save QR</button>
-              </div>
-              <div className="flex gap-4">
-                <button onClick={() => setStep(1)} className="text-sm font-bold text-stone-500">Back</button>
-                <button onClick={() => setStep(3)} className="bg-emerald-600 text-white px-8 py-3 rounded-2xl font-black">Paid</button>
-              </div>
-            </motion.div>
-          )}
+            {/* Step 2: Payment */}
+            {step === 2 && (
+              <motion.div key="2" initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -50, opacity: 0 }} className="w-full flex flex-col items-center justify-center space-y-6">
+                <div className="p-4 bg-white rounded-3xl shadow-sm border border-stone-100">
+                  <img src={displayQr} alt="QR" className="w-48 h-48 sm:w-56 sm:h-56" />
+                </div>
+                <div className="flex gap-2 w-full">
+                  <button onClick={handleCopyUpiId} className="flex-1 px-4 py-3 bg-stone-100 hover:bg-stone-200 transition-colors rounded-xl text-xs font-bold flex items-center justify-center gap-2"><Copy size={14}/> ID: {upiId.slice(0,10)}...</button>
+                  <button onClick={downloadQR} className="flex-1 px-4 py-3 bg-stone-900 border border-stone-900 hover:bg-stone-800 transition-colors text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2"><Download size={14}/> Save QR</button>
+                </div>
+                <div className="flex gap-4 w-full pt-2">
+                  <button onClick={() => setStep(1)} className="flex-1 py-3 text-sm font-bold text-stone-500 hover:bg-stone-50 transition-colors rounded-xl border border-stone-100">Back</button>
+                  <button onClick={() => setStep(3)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 transition-colors text-white py-3 rounded-2xl font-black">Paid</button>
+                </div>
+              </motion.div>
+            )}
 
-          {/* Step 3: Proof */}
-          {step === 3 && (
-            <motion.div key="3" initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -50, opacity: 0 }} className="h-full w-full flex flex-col items-center justify-center p-6 space-y-6">
-              <input type="text" value={paymentId} onChange={e => setPaymentId(e.target.value)} placeholder="UTR / Transaction ID" className="w-full max-w-sm px-4 py-3 bg-white rounded-xl border border-stone-200" />
-              <input type="file" accept="image/*" onChange={e => {
-                const reader = new FileReader();
-                reader.onloadend = () => setScreenshot(reader.result as string);
-                reader.readAsDataURL(e.target.files![0]);
-              }} className="hidden" id="file" />
-              <label htmlFor="file" className="cursor-pointer text-xs font-bold p-4 border rounded-xl">{screenshot ? 'Screenshot Attached' : 'Attach Screenshot'}</label>
-              <label className="flex gap-2 text-xs"><input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)}/> Acknowledge audit logs</label>
-              <button disabled={isSubmitting} onClick={handleSubmit} className="bg-stone-900 text-white px-8 py-3 rounded-2xl font-black">{isSubmitting ? '...' : 'Complete Deposit'}</button>
-            </motion.div>
-          )}
-          
-        </AnimatePresence>
+            {/* Step 3: Proof */}
+            {step === 3 && (
+              <motion.div key="3" initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -50, opacity: 0 }} className="w-full flex flex-col items-center justify-center space-y-6">
+                <input type="text" value={paymentId} onChange={e => setPaymentId(e.target.value)} placeholder="UTR / Transaction ID" className="w-full px-4 py-3 bg-white rounded-xl border border-stone-200 focus:border-stone-900 outline-none transition-colors" />
+                <input type="file" accept="image/*" onChange={e => {
+                  if (e.target.files?.[0]) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setScreenshot(reader.result as string);
+                    reader.readAsDataURL(e.target.files[0]);
+                  }
+                }} className="hidden" id="file" />
+                <label htmlFor="file" className="cursor-pointer text-xs font-bold p-4 border rounded-xl hover:bg-stone-50 transition-colors w-full text-center">{screenshot ? 'Screenshot Attached ✓' : 'Attach Screenshot'}</label>
+                <label className="flex gap-2 text-xs items-center cursor-pointer select-none"><input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)}/> Acknowledge audit logs</label>
+                <button disabled={isSubmitting || !confirm || !paymentId} onClick={handleSubmit} className="bg-stone-900 hover:bg-primary transition-all text-white py-3.5 rounded-2xl font-black w-full text-center disabled:opacity-40">{isSubmitting ? '...' : 'Complete Deposit'}</button>
+              </motion.div>
+            )}
+            
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );

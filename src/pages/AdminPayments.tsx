@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
-import { cn, getAuthHeaders } from '../lib/utils';
-import { fetchWithHandling } from '../lib/api';
+import { cn, getAuthHeaders } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
 
 interface EmailLog {
   id: number;

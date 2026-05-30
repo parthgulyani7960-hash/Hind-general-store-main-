@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 
 export default function FloatingCart() {
   const location = useLocation();

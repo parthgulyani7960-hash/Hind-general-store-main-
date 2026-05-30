@@ -1,20 +1,28 @@
 import React from 'react';
 import { IndianRupee, ShoppingBag, Activity, Users, ArrowUpRight } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn } from '../../../types';
+import { cn } from '@/types';
 
 interface OverviewTabProps {
     stats: any;
     setActiveTab: (tab: string) => void;
+    refreshStats: () => Promise<void>;
 }
 
-export default function OverviewTab({ stats, setActiveTab }: OverviewTabProps) {
+export default function OverviewTab({ stats, setActiveTab, refreshStats }: OverviewTabProps) {
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const metrics = [
     { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={24} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
     { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={24} />, trend: '-2.4%', color: 'amber', key: 'orders' },
     { label: 'Online Customers', value: stats?.activeUsers || 0, icon: <Activity size={24} />, trend: 'Live', color: 'blue' },
     { label: 'New Customers', value: stats?.newUserCount || 0, icon: <Users size={24} />, trend: '+5.2%', color: 'purple' }
   ];
+
+  const handleRefresh = async () => {
+      setIsRefreshing(true);
+      await refreshStats();
+      setIsRefreshing(false);
+  }
 
   return (
     <motion.div 
@@ -23,9 +31,19 @@ export default function OverviewTab({ stats, setActiveTab }: OverviewTabProps) {
         transition={{ duration: 0.5 }}
         className="space-y-10"
     >
-        <header className="mb-4">
-            <h1 className="text-4xl font-black text-stone-900 tracking-tighter">Dashboard Overview</h1>
-            <p className="text-stone-500 font-medium mt-1">Here is a quick look at how your store is performing today.</p>
+        <header className="mb-4 flex items-center justify-between">
+            <div>
+                <h1 className="text-4xl font-black text-stone-900 tracking-tighter">Dashboard Overview</h1>
+                <p className="text-stone-500 font-medium mt-1">Here is a quick look at how your store is performing today.</p>
+            </div>
+            <button 
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-2 bg-stone-100 hover:bg-stone-200 text-stone-700 px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all"
+            >
+                {isRefreshing ? <Activity size={14} className="animate-spin" /> : <Activity size={14} />} 
+                Refresh
+            </button>
         </header>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

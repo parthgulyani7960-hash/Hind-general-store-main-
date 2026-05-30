@@ -1,7 +1,7 @@
 import React from 'react';
 import toast from 'react-hot-toast';
-import { cn, getAuthHeaders } from '../../lib/utils';
-import { fetchWithHandling } from '../../lib/api';
+import { cn, getAuthHeaders } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
 import { Settings } from 'lucide-react';
 import * as motion from 'motion/react-client';
 

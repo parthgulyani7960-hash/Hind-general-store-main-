@@ -11,11 +11,28 @@ interface ImageGalleryModalProps {
 export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({ images, initialIndex, onClose }) => {
   const [index, setIndex] = React.useState(initialIndex);
 
+  React.useEffect(() => {
+    console.log('[DEBUG] #product-modal .modal-content-wrapper loaded');
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" onClick={onClose}>
-      <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white hover:bg-white/20">
-        <X size={24} />
-      </button>
+    <div id="product-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4" onClick={onClose}>
+      <motion.div 
+         initial={{ opacity: 0, y: 50, scale: 0.95 }}
+         animate={{ opacity: 1, y: 0, scale: 1 }}
+         exit={{ opacity: 0, y: 20, scale: 0.95 }}
+         className="modal-content-wrapper backdrop-blur-xl bg-white/10 p-6 rounded-3xl"
+         onClick={(e) => e.stopPropagation()}
+      >
+        <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white hover:bg-white/20">
+          <X size={24} />
+        </button>
       
       <button 
         onClick={(e) => { e.stopPropagation(); setIndex((i) => (i - 1 + images.length) % images.length); }}
@@ -52,6 +69,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({ images, in
       <div className="absolute bottom-4 text-white text-sm">
         {index + 1} / {images.length}
       </div>
+      </motion.div>
     </div>
   );
 };

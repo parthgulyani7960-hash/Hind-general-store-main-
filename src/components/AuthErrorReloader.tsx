@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogIn, X, AlertCircle, RefreshCw } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 
 export default function AuthErrorReloader() {
   const [showError, setShowError] = useState(false);

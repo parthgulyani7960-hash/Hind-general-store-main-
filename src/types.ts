@@ -27,20 +27,26 @@ export interface User {
   shop_name?: string;
   pin_code?: string;
   role: 'customer' | 'admin' | 'retailer' | 'wholesaler';
-  permissions?: Permission[]; // Added permissions field
+  permissions?: Permission[]; 
   wallet_balance: number;
   khata_enabled: boolean;
   khata_limit: number;
   khata_balance: number;
   khata_due_date?: string;
+  khata_allowed?: boolean;
+  khata_requested?: boolean;
+  credit_limit?: number;
   segment: 'Regular' | 'Irregular';
   profile_photo?: string;
   street_address?: string;
+  address?: string;
   city?: string;
   state?: string;
   zip_code?: string;
   notification_orders?: boolean;
   notification_promotions?: boolean;
+  status?: 'active' | 'disabled';
+  last_login_at?: string;
 }
 
 export interface Product {
@@ -61,6 +67,7 @@ export interface Product {
   supplier_id?: number;
   lead_time_days?: number;
   is_listed: boolean;
+  is_deleted?: boolean;
   unit: string;
   image_url: string;
   images?: string[];
@@ -84,6 +91,7 @@ export interface ProductVariant {
 
 export interface CartItem extends Product {
   quantity: number;
+  variantId?: number;
   selectedVariant?: ProductVariant;
 }
 
@@ -93,6 +101,7 @@ export interface Order {
   user_name?: string;
   user_phone?: string;
   total: number;
+  total_amount?: number;
   status: 'pending' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
   payment_status?: 'paid' | 'pending' | 'failed' | 'refunded';
   address: string;
@@ -140,6 +149,7 @@ export interface UserAddress {
   name: string;
   phone: string;
   address: string;
+  house_number?: string;
   city: string;
   state: string;
   zip_code: string;
@@ -168,12 +178,16 @@ export interface PromotionRule {
   id: number;
   title: string;
   description?: string;
-  type: 'bogo' | 'percentage' | 'fixed';
+  type: 'bogo' | 'percentage' | 'fixed' | 'discount';
   discount_value: number; 
+  value?: number;
   condition_qty?: number;
+  min_qty?: number;
   reward_qty?: number;
   target_type: 'all' | 'category' | 'product';
   target_id?: string | number;
+  category?: string;
+  product_id?: number | string;
   active: boolean;
   start_date?: string;
   end_date?: string;

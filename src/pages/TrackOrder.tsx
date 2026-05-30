@@ -3,13 +3,14 @@ import { motion } from 'motion/react';
 import { Package, Truck, CheckCircle2, Search, ArrowRight, Home, Info, Phone, User, ShoppingBag, Copy, Share2, XCircle, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { cn } from '../types';
-import { handleAppError } from '../lib/errorUtils';
-import { useStore } from '../StoreContext';
+import { OrderStatusTimeline } from '@/components/admin/OrderStatusTimeline';
+import { cn } from '@/types';
+import { handleAppError } from '@/lib/errorUtils';
+import { useStore } from '@/StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
-import { Skeleton } from '../components/ui/Skeleton';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/Skeleton';
 import L from 'leaflet';
 import { io } from 'socket.io-client';
 import 'leaflet/dist/leaflet.css';
@@ -28,6 +29,7 @@ export default function TrackOrder() {
   const [phoneNumber, setPhoneNumber] = useState(user?.phone || '');
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [searchPerformed, setSearchPerformed] = useState(false);
   const [runnerLocation, setRunnerLocation] = useState<any>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
@@ -159,7 +161,7 @@ export default function TrackOrder() {
     const phoneRegex = /^[6-9]\d{9}$/;
 
     if (!orderIdRegex.test(orderId.trim()) && !/^\d+$/.test(orderId.trim())) {
-      toast.error('Invalid Order ID format (Expected: HGS-YYYYMMDD-XXXXX)');
+      toast.error('Invalid Order ID format. Expected: HGS-YYYYMMDD-XXXXX');
       return;
     }
 
@@ -168,18 +170,22 @@ export default function TrackOrder() {
       return;
     }
 
+    setOrder(null); // Clear previous results
     setLoading(true);
+    setSearchPerformed(false); // Reset to show a fresh state
     try {
-      // Input sanitation/format check (optional but good for security)
+      // Input sanitation/format check
       const cleanOrderId = orderId.trim();
-      const cleanPhone = phoneNumber.trim().replace(/\D/g, ''); // Extract only digits for server check or keep if using PhoneInput
+      const cleanPhone = phoneNumber.trim().replace(/\D/g, ''); 
 
-      const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(cleanOrderId)}?phone=${encodeURIComponent(phoneNumber.trim())}`);
+      const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(cleanOrderId)}?phone=${encodeURIComponent(cleanPhone)}`);
       
+      setSearchPerformed(true); // Mark as done for feedback
       if (data && data.success) {
         setOrder(data.order);
-      } else if (data) {
-        toast.error(data.message || 'Order not found');
+        toast.success('Order details found successfully.');
+      } else {
+        toast.error(data?.message || 'Order not found. Please check your details.');
         setOrder(null);
       }
     } catch (err: any) {
@@ -348,6 +354,12 @@ export default function TrackOrder() {
               </div>
             </div>
           </div>
+        ) : !loading && searchPerformed && !order ? (
+          <div className="text-center py-20 bg-white rounded-[2.5rem] border border-stone-100 shadow-sm">
+              <Package className="mx-auto text-stone-300 mb-4" size={48} />
+              <p className="text-stone-500 font-bold text-lg">Order not found.</p>
+              <p className="text-stone-400 text-sm mt-1">Please check your Order ID and phone number.</p>
+          </div>
         ) : order && (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -494,6 +506,7 @@ export default function TrackOrder() {
                     );
                   })}
                 </div>
+                <OrderStatusTimeline orderId={order.id} />
               </div>
 
             {/* Order Items & Summary */}

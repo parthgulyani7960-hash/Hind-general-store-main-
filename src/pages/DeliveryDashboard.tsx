@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 import { Package, MapPin, CheckCircle, Navigation, Phone, Map, Car, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { fetchWithHandling } from '../lib/api';
-import { getAuthHeaders } from '../lib/utils';
+import { fetchWithHandling } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/utils';
 
 export default function DeliveryDashboard() {
   const { user } = useStore();

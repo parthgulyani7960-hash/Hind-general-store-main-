@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bell, X, CheckCircle2 } from 'lucide-react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 import { Link } from 'react-router-dom';
-import { cn } from '../types';
+import { cn } from '@/types';
 
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<any[]>([]);

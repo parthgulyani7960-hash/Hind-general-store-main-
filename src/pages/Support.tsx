@@ -5,13 +5,13 @@ import {
   Shield, FileText, Wallet, ShoppingBag, LogOut, Plus, ChevronRight,
   CheckCircle, Package, Truck, Home as HomeIcon, Clock, XCircle, Search, LifeBuoy, AlertTriangle,Camera
 } from 'lucide-react';
-import { useStore } from '../StoreContext';
+import { useStore } from '@/StoreContext';
 import { Link } from 'react-router-dom';
-import { cn } from '../types';
+import { cn } from '@/types';
 import toast from 'react-hot-toast';
-import UserAvatar from '../components/UserAvatar';
-import { getAuthHeaders } from '../lib/utils';
-import { fetchWithHandling } from '../lib/api';
+import UserAvatar from '@/components/UserAvatar';
+import { getAuthHeaders } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
 
 export default function Support() {
   const { user, logout, refreshUser, config = [], fetchConfig, simulatedRole } = useStore();
@@ -39,6 +39,17 @@ export default function Support() {
   ];
 
   useEffect(() => {
+    if (user) {
+      setForm(prev => ({ 
+        ...prev, 
+        name: user.name || prev.name || '', 
+        email: user.email || prev.email || '',
+        phone: user.phone || prev.phone || ''
+      }));
+    }
+  }, [user]);
+
+  useEffect(() => {
     fetchConfig();
     fetchWithHandling<any>('/api/settings').then(data => {
       if (data) {
@@ -52,14 +63,6 @@ export default function Support() {
     const messageParam = params.get('message');
 
     if (user) {
-      setForm(prev => ({ 
-        ...prev, 
-        name: user.name || '', 
-        email: user.email || '',
-        phone: user.phone || '',
-        subject: subjectParam || prev.subject,
-        message: messageParam || prev.message
-      }));
       refreshUser();
       fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
         .then(data => {
@@ -77,7 +80,7 @@ export default function Support() {
         message: messageParam || prev.message
       }));
     }
-  }, [user]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,7 +205,7 @@ export default function Support() {
               color: 'text-emerald-600', 
               bg: 'bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-500/40',
               text: 'Message Us', 
-              action: `https://wa.me/${((config || []).find(c => c.key === 'whatsapp_number')?.value || '919876543210').replace(/\D/g, '')}?text=${encodeURIComponent(user ? `Hello Hind Store Support, I need assistance with my account.\n\n👤 Name: ${user.name}\n📱 Phone: ${user.phone}\n📧 Email: ${user.email}\n🆔 User ID: ${user.id}\n\nI have a question regarding:` : "Hello Hind Store Support, I need assistance with a query. Please help.")}` 
+              action: `https://wa.me/${((config || []).find(c => c.key === 'whatsapp_number')?.value || '919876543210').replace(/\D/g, '')}?text=${encodeURIComponent(user ? `Hello Hind Store Support, I need assistance with my account.\n\n👤 Name: ${user.name || 'N/A'}\n📱 Phone: ${user.phone || 'N/A'}\n📧 Email: ${user.email || 'N/A'}\n🆔 User ID: ${user.id}\n\nI have a question regarding:` : "Hello Hind Store Support, I need assistance with a query. Please help.")}` 
             },
             { 
               title: 'Call Support', 

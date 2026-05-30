@@ -1,7 +1,7 @@
 import React from 'react';
 import { Star, ThumbsUp } from 'lucide-react';
-import { Review } from '../types';
-import { cn } from '../lib/utils';
+import { Review } from '@/types';
+import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 
 interface ReviewSectionProps {

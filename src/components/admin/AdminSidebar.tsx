@@ -5,7 +5,7 @@ import {
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
   Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus
 } from 'lucide-react';
-import { cn } from '../../types';
+import { cn } from '@/types';
 
 const menuGroups = [
   {
@@ -73,6 +73,20 @@ interface AdminSidebarProps {
   isMinimized: boolean;
 }
 
+/**
+ * AdminSidebar manages the main navigation for the admin panel,
+ * displaying menu groups, stock alerts, and profile actions.
+ * 
+ * @param activeTab - The currently active tab name.
+ * @param setActiveTab - Callback for updating the active tab.
+ * @param user - Current user object.
+ * @param logout - Callback for handling user logout.
+ * @param isOpen - Whether the navigation panel is visible (mobile).
+ * @param setIsOpen - Callback for toggling the sidebar visibility.
+ * @param lowStockCount - Numerical count of products with low stock.
+ * @param newUserCount - Numerical count of new user registrations.
+ * @param isMinimized - Whether the sidebar is in a minimized collapsed state (desktop).
+ */
 export default function AdminSidebar({ activeTab, setActiveTab, user, logout, isOpen, setIsOpen, lowStockCount = 0, newUserCount = 0, isMinimized }: AdminSidebarProps) {
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

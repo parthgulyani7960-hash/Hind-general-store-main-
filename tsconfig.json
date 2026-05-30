@@ -19,8 +19,17 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
+      "@config/*": [
+        "./src/config/*"
+      ],
+      "@config": [
+        "./src/config"
+      ],
       "@/*": [
-        "./*"
+        "./src/*"
+      ],
+      "@": [
+        "./src"
       ]
     },
     "allowImportingTsExtensions": true,

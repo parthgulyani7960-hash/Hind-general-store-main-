@@ -1,4 +1,4 @@
-import { storage, ref, uploadBytesResumable, getDownloadURL } from '../firebase';
+import { storage, ref, uploadBytesResumable, getDownloadURL } from '@/firebase';
 
 export interface UploadOptions {
   path: string;

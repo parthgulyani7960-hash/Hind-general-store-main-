@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../../firebase';
+import { db } from '@/firebase';
 import { collection, query, orderBy, getDocs, addDoc, serverTimestamp, doc, updateDoc, increment, runTransaction } from 'firebase/firestore';
 import { PackagePlus, Plus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getAuthHeaders } from '../../../lib/utils';
+import { getAuthHeaders } from '@/lib/utils';
 
 export default function PurchaseOrdersTab() {
   const [orders, setOrders] = useState<any[]>([]);

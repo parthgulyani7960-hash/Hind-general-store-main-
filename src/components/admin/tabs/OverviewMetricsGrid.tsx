@@ -1,7 +1,7 @@
 import React from 'react';
 import { IndianRupee, ShoppingBag, Activity, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import { cn } from '../../../types';
+import { cn } from '@/types';
 
 interface OverviewMetricsGridProps {
   stats: any;
