@@ -103,6 +103,12 @@ export default function AdminDashboard() {
     }
   }, [activeTab, navigate, location.search]);
 
+  React.useEffect(() => {
+    if (activeTab === 'System Status' || activeTab === 'Security & Data') {
+      runDbDiagnostics();
+    }
+  }, [activeTab]);
+
   const maskPhoneNumber = (phone: string | null | undefined) => {
     if (!phone) return 'N/A';
     const clean = phone.trim();
@@ -110,6 +116,63 @@ export default function AdminDashboard() {
     return clean.slice(0, 3) + '****' + clean.slice(-3);
   };
   const [exportProgress, setExportProgress] = useState<{ open: boolean; progress: number; label: string }>({ open: false, progress: 0, label: '' });
+  const [dbDiag, setDbDiag] = useState<any>(null);
+  const [isInitializingDb, setIsInitializingDb] = useState(false);
+
+  const runDbDiagnostics = async () => {
+    try {
+      const data = await fetchWithHandling<any>('/api/db-test', { headers: getAuthHeaders() });
+      setDbDiag(data);
+      if (data?.connection === 'FAILED') {
+        toast.error('Database connection failed. See System Status for details.');
+      }
+    } catch (err) {
+      toast.error('Failed to run database diagnostics');
+    }
+  };
+
+  const initializeDatabase = async () => {
+    if (!window.confirm('This will create initialization documents for all required collections. Continue?')) return;
+    setIsInitializingDb(true);
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/db-initialize', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data.success) {
+        toast.success(data.message);
+        runDbDiagnostics();
+      } else {
+        toast.error(data.message);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to initialize database');
+    } finally {
+      setIsInitializingDb(false);
+    }
+  };
+
+  const seedDatabase = async () => {
+    if (!window.confirm('This will populate the database with sample products and categories. Continue?')) return;
+    setIsInitializingDb(true);
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/db-seed', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (data.success) {
+        toast.success(data.message);
+        runDbDiagnostics();
+      } else {
+        toast.error(data.message);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to seed database');
+    } finally {
+      setIsInitializingDb(false);
+    }
+  };
+
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [debouncedGlobalSearchQuery, setDebouncedGlobalSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false); // Default closed on mobile
@@ -10908,8 +10971,13 @@ export default function AdminDashboard() {
                   </div>
                   <div className="w-px h-10 bg-stone-100" />
                   <div className="flex items-center space-x-3">
-                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Active Node</span>
+                      <div className={cn("w-3 h-3 rounded-full animate-pulse", dbDiag?.connection === 'CONNECTED' ? 'bg-emerald-500' : dbDiag?.mode === 'SANDBOX' ? 'bg-amber-500' : 'bg-red-500')} />
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Database</span>
+                        <span className={cn("text-xs font-black uppercase tracking-widest", dbDiag?.connection === 'CONNECTED' ? 'text-emerald-600' : dbDiag?.mode === 'SANDBOX' ? 'text-amber-600' : 'text-red-600')}>
+                          {dbDiag?.mode === 'SANDBOX' ? 'Sandbox Mode' : dbDiag?.connection === 'CONNECTED' ? 'Active Production' : 'Connection Failed'}
+                        </span>
+                      </div>
                   </div>
                 </div>
               </div>

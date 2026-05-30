@@ -301,15 +301,22 @@ const getFirestoreInstance = (databaseId?: string): any => {
   }
 
   const app = admin.app();
-  const targetDatabaseId = databaseId || config?.firestoreDatabaseId || '(default)';
+  // Fixed: Correctly prioritizing environment variables for the database ID, explicitly allowing (default) fallback
+  const envDbId = process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID;
+  const targetDatabaseId = databaseId || (envDbId && envDbId !== 'default' ? envDbId : '(default)') || config?.firestoreDatabaseId || '(default)';
   
-  console.log('[DEBUG] Firestore App Name:', app.name, 'Project ID:', app.options.projectId, 'Database ID:', targetDatabaseId);
+  if (global.firebaseDebugLogged !== true) {
+    console.log('[DEBUG] Firestore Connection Info - Project:', app.options.projectId, 'Database:', targetDatabaseId);
+    global.firebaseDebugLogged = true;
+  }
   
   try {
     return getFirestore(app, targetDatabaseId);
   } catch (err: any) {
-    console.error(`[FIREBASE] Failed to get Firestore instance for DB: ${targetDatabaseId}. Falling back to Mock DB. Error: ${err.message}`);
-    return new MockFirestore();
+    console.error(`[FIREBASE] Failed to get Firestore instance for DB: ${targetDatabaseId}. Error: ${err.message}`);
+    const mock = new MockFirestore();
+    (mock as any)._isMock = true;
+    return mock;
   }
 };
 
@@ -409,18 +416,30 @@ async function initializeFirebase() {
       console.log('[FIREBASE] Config baseline loaded from file.');
     }
     
-    // Attempt Production Initialization via Environment Variables (Prioritized)
+    console.log('[FIREBASE] Environment Variables Booting:');
+    Object.keys(process.env).forEach(key => {
+      if (key.includes('FIREBASE') || key.includes('FIRESTORE')) {
+        console.log(`   ${key}: [PRESENT, obscured]`);
+      }
+    });
+
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.VITE_FIREBASE_SERVICE_ACCOUNT_KEY;
     const envProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || config?.projectId;
     const envDatabaseId = process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID || config?.firestoreDatabaseId || '(default)';
 
     if (serviceAccountKey) {
       try {
-        const credential = admin.credential.cert(JSON.parse(serviceAccountKey));
+        const certData = JSON.parse(serviceAccountKey);
+        const credential = admin.credential.cert(certData);
         admin.initializeApp({
           credential,
           projectId: envProjectId
         });
+        
+        const db = getFirestoreInstance();
+        // Probe for database existence
+        await db.collection('_health_').limit(1).get();
+
         isFirebaseReady = true;
         useLocalDatabaseFallback = false;
         
@@ -432,23 +451,34 @@ async function initializeFirebase() {
         console.log('[FIREBASE] Production Initialization Successful (Service Account) for project:', envProjectId);
         return;
       } catch (certErr: any) {
-        console.warn('[FIREBASE] Service Account initialization failed, falling back to PROJECT_ID mode:', certErr.message);
+        console.warn('[FIREBASE] Service Account initialization or connection probe failed, falling back to PROJECT_ID mode:', certErr.message);
         dbConnectionStatus.details = `Service Account Failed: ${certErr.message}. Trying Project ID fallback...`;
+        // admin.app().delete() if we wanted to be super clean, but usually initializeFirebase is only called once
       }
     }
 
     if (envProjectId && envProjectId !== 'mock-project') {
-       admin.initializeApp({ projectId: envProjectId });
-       isFirebaseReady = true;
-       useLocalDatabaseFallback = false;
-       
-       dbConnectionStatus.mode = 'PRODUCTION';
-       dbConnectionStatus.active = true;
-       dbConnectionStatus.isFallback = false;
-       dbConnectionStatus.details = `Connected to Production Firestore via Project ID discovery (Project: ${envProjectId})`;
-       
-       console.log('[FIREBASE] Production Initialization Successful (Project ID Only) for project:', envProjectId);
-       return;
+       try {
+         admin.initializeApp({ projectId: envProjectId });
+         const db = getFirestoreInstance();
+         // Probe for database existence
+         await db.collection('_health_').limit(1).get();
+         
+         isFirebaseReady = true;
+         useLocalDatabaseFallback = false;
+         
+         dbConnectionStatus.mode = 'PRODUCTION';
+         dbConnectionStatus.active = true;
+         dbConnectionStatus.isFallback = false;
+         dbConnectionStatus.details = `Connected to Production Firestore via Project ID discovery (Project: ${envProjectId})`;
+         
+         console.log('[FIREBASE] Production Initialization Successful (Project ID Only) for project:', envProjectId);
+         return;
+       } catch (probeErr: any) {
+         console.warn(`[FIREBASE] Project ID ${envProjectId} detected but Firestore connection failed (${probeErr.message}). Falling back to local sandbox.`);
+         dbConnectionStatus.details = `Project Detected but Connection Failed: ${probeErr.message}. Reverting to local sandbox mode.`;
+         // Clean up failed app if needed, though admin.app() might reuse it
+       }
     }
 
     // Fallback to local sandbox mode
@@ -590,34 +620,53 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/db-test', async (req, res) => {
   const projectId = admin.app()?.options.projectId || 'unknown';
-  const databaseId = config?.firestoreDatabaseId || '(default)';
+  const envDbId = process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID;
+  const databaseId = config?.firestoreDatabaseId || envDbId || '(default)';
   const results: any = {
     projectId,
     databaseId,
+    envDbId,
     initialized: admin.apps.length > 0,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    appsCount: admin.apps.length,
+    appName: admin.app()?.name
   };
 
   try {
     const db = getFirestoreInstance();
     if (db._isMock) {
       results.connection = 'MOCK_SANDBOX_ACTIVE';
-      results.message = 'The server is currently running in local sandbox mode because production credentials were not detected.';
+      results.message = 'The server is currently running in local sandbox mode because production credentials were not detected or Firestore initialization failed.';
     } else {
-      // Real test: attempt to list collections or get a dummy doc
-      // Note: listCollections is more definitive for checking existence
-      const testCol = await db.collection('test_connection_probe').limit(1).get();
-      results.connection = 'SUCCESS';
-      results.message = 'Successfully connected to the database and performed a read.';
+      results.connection = 'PRODUCTION_ACTIVE';
+      console.log(`[DIAG] Attempting to list collections for project: ${projectId}, DB: ${databaseId}`);
+      
+      const collections = await db.listCollections();
+      results.collections = collections.map((c: any) => c.id);
+      results.count = collections.length;
+      
+      // Check for specific expected collections
+      const expected = ['users', 'products', 'categories', 'orders', 'settings', 'promotions', 'announcements'];
+      results.missing = expected.filter(e => !results.collections.includes(e));
+      
+      if (collections.length > 0) {
+        results.message = `Successfully connected. Found ${collections.length} collections.`;
+        if (results.missing.length > 0) {
+          results.message += ` Warning: Missing expected collections: ${results.missing.join(', ')}`;
+        }
+      } else {
+        results.message = 'Successfully connected, but the database is empty (no collections found).';
+      }
     }
   } catch (err: any) {
     results.connection = 'FAILED';
     results.error = err.message;
     results.code = err.code;
+    results.stack = err.stack;
     
     if (err.message.includes('NOT_FOUND') || err.code === 5) {
       results.diagnosis = `The Firestore database "${databaseId}" DOES NOT EXIST in project "${projectId}".`;
-      results.action = 'ACTION REQUIRED: Go to Firebase Console -> Build -> Firestore Database and click "Create database". Use "(default)" as the ID.';
+      results.action = 'ACTION REQUIRED: Go to Firebase Console -> Build -> Firestore Database and click "Create database". Use "(default)" as the ID. If you already created it, ensure the ID matches.';
     } else if (err.message.includes('permission') || err.code === 7) {
       results.diagnosis = 'The database exists but access is denied by security rules or IAM permissions.';
     }
@@ -774,8 +823,10 @@ async function logEvent(level: string, message: string, stack?: string, userId?:
   } catch (err: any) {
     if (err.code === 7 || err.message?.includes('PERMISSION_DENIED')) {
       console.error('[FIREBASE] Permission Denied encountered during event logging.');
+    } else if (err.code === 5 || err.message?.includes('NOT_FOUND')) {
+      console.error('[FIREBASE] Database Not Found during event logging (5 NOT_FOUND). Switching to silent fail for logs.');
     }
-    console.error('Failed to log event:', err);
+    console.error('Failed to log event:', err.message);
   }
 };
 
@@ -2806,31 +2857,39 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/categories', async (req, res) => {
     try {
       if (admin.apps.length > 0) {
-        const snapshot = await getFirestoreInstance().collection('categories').get();
-        
-        if (snapshot.empty && !useLocalDatabaseFallback) {
-          // One-time bootstrap for production categories
-          console.log('[BOOTSTRAP] Categories collection is empty. Seeding standard categories...');
-          const initialCats = [
-            { id: "cat_1", name: "Grains & Flours", created_at: new Date().toISOString() },
-            { id: "cat_2", name: "Spices", created_at: new Date().toISOString() },
-            { id: "cat_3", name: "Oils & Ghee", created_at: new Date().toISOString() }
-          ];
-          const batch = getFirestoreInstance().batch();
-          initialCats.forEach(c => {
-             const ref = getFirestoreInstance().collection('categories').doc(c.id);
-             batch.set(ref, c);
-          });
-          await batch.commit();
-          return res.json(initialCats);
-        }
+        try {
+          const snapshot = await getFirestoreInstance().collection('categories').get();
+          
+          if (snapshot.empty && !useLocalDatabaseFallback) {
+            // One-time bootstrap for production categories
+            console.log('[BOOTSTRAP] Categories collection is empty. Seeding standard categories...');
+            const initialCats = [
+              { id: "cat_1", name: "Grains & Flours", created_at: new Date().toISOString() },
+              { id: "cat_2", name: "Spices", created_at: new Date().toISOString() },
+              { id: "cat_3", name: "Oils & Ghee", created_at: new Date().toISOString() }
+            ];
+            const batch = getFirestoreInstance().batch();
+            initialCats.forEach(c => {
+               const ref = getFirestoreInstance().collection('categories').doc(c.id);
+               batch.set(ref, c);
+            });
+            await batch.commit();
+            return res.json(initialCats);
+          }
 
-        const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        return res.json(categories);
+          const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          return res.json(categories);
+        } catch (dbErr: any) {
+          console.warn('[CATEGORIES] Database fetch failed, using local mock fallback:', dbErr.message);
+          // Fall through to mock logic if db fails
+        }
       }
-      return res.json([]);
+      
+      // Fallback to local mock data
+      const mockCats = Object.keys(localDbData.categories || {}).map(id => ({ id, ...localDbData.categories[id] }));
+      return res.json(mockCats);
     } catch (e: any) {
-      console.warn('[CATEGORIES] Firestore fetch failed, returning fallback empty list:', e.message);
+      console.warn('[CATEGORIES] Final failure:', e.message);
       res.json([]);
     }
   });
@@ -3826,8 +3885,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (!admin.apps.length) return res.json([]);
     const isAdmin = req.query.admin === 'true';
     try {
-      const snapshot = await getFirestoreInstance().collection('promotions').get();
-      let promotions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      let promotions: any[] = [];
+      try {
+        const snapshot = await getFirestoreInstance().collection('promotions').get();
+        promotions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      } catch (dbErr: any) {
+        console.warn('[PROMOTIONS] Database fetch failed, using defaults:', dbErr.message);
+        promotions = [
+          { id: "p1", title: "Free Delivery", description: "On orders above ₹500", code: "FREESHIP500", discount_type: "free_shipping", active: true, target_role: 'all' },
+          { id: "p2", title: "First Order", description: "10% OFF on your first grocery buy", code: "WELCOME10", discount_type: "percentage", value: 10, active: true, target_role: 'all' }
+        ];
+      }
       
       if (!isAdmin) {
         const userRole = (req.session as any)?.role || 'customer';
@@ -4833,6 +4901,120 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       console.error('Error reporting bug:', e);
       // Return 200 so the UI error reporter doesn't get into an infinite recursion loop reporting its own 500 error
       res.json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/db-seed', requireAdmin, async (req, res) => {
+    try {
+      if (!isFirebaseReady || !admin.apps.length) return res.status(503).json({ success: false, message: 'Database not ready' });
+      
+      const db = getFirestoreInstance();
+      const batch = db.batch();
+      let seedCount = 0;
+
+      // 1. Seed Categories if empty
+      const catSnap = await db.collection('categories').get();
+      if (catSnap.empty) {
+        const initialCats = [
+          { id: "cat_1", name: "Grains & Flours", created_at: new Date().toISOString() },
+          { id: "cat_2", name: "Spices", created_at: new Date().toISOString() },
+          { id: "cat_3", name: "Oils & Ghee", created_at: new Date().toISOString() }
+        ];
+        initialCats.forEach(c => batch.set(db.collection('categories').doc(c.id), c));
+        seedCount += initialCats.length;
+      }
+
+      // 2. Seed Settings if empty
+      const setSnap = await db.collection('settings').get();
+      if (setSnap.empty) {
+        const initialSettings = [
+          { key: 'maintenance_mode', value: 'false', updated_at: new Date().toISOString() },
+          { key: 'auth_mode', value: 'email', updated_at: new Date().toISOString() },
+          { key: 'store_phone', value: '+919999988888', updated_at: new Date().toISOString() },
+          { key: 'whatsapp_number', value: '9999988888', updated_at: new Date().toISOString() }
+        ];
+        initialSettings.forEach(s => batch.set(db.collection('settings').doc(s.key), s));
+        seedCount += initialSettings.length;
+      }
+
+      // 3. Seed some sample products if empty
+      const prodSnap = await db.collection('products').get();
+      if (prodSnap.empty) {
+        const sampleProducts = [
+          { name: 'Premium Atta', price: 450, stock: 100, category: 'Grains & Flours', is_listed: 1, created_at: new Date().toISOString() },
+          { name: 'Haldi Powder', price: 120, stock: 200, category: 'Spices', is_listed: 1, created_at: new Date().toISOString() }
+        ];
+        sampleProducts.forEach(p => batch.set(db.collection('products').doc(), p));
+        seedCount += sampleProducts.length;
+      }
+
+      if (seedCount > 0) {
+        await batch.commit();
+        res.json({ success: true, message: `Successfully seeded ${seedCount} items across multiple collections.` });
+      } else {
+        res.json({ success: true, message: 'Database already has data. No seeding performed.' });
+      }
+    } catch (err: any) {
+      console.error('[SEED] Error seeding database:', err);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/db-info', requireAdmin, async (req, res) => {
+    try {
+      const db = getFirestoreInstance();
+      const collections = await db.listCollections();
+      const stats: any = {};
+      
+      for (const col of collections) {
+        const snap = await col.limit(1).get();
+        stats[col.id] = {
+          exists: true,
+          isEmpty: snap.empty
+        };
+      }
+      
+      res.json({
+        projectId: admin.app().options.projectId,
+        databaseId: (db as any)._databaseId || '(default)',
+        collections: stats,
+        isMock: !!(db as any)._isMock
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/db-initialize', requireAdmin, async (req, res) => {
+    try {
+      if (!admin.apps.length) return res.status(503).json({ success: false, message: 'Firebase not initialized' });
+      
+      const db = getFirestoreInstance();
+      const collections = [
+        'products', 'categories', 'users', 'orders', 'wallet_transactions', 
+        'announcements', 'promotions', 'settings', 'bug_reports', 'error_logs',
+        'system_logs', 'audit_logs', 'security_logs', 'notifications', 'carts'
+      ];
+
+      const batch = db.batch();
+      let created = 0;
+
+      for (const colName of collections) {
+        // Force creation/verification for ALL of them
+        const initDoc = db.collection(colName).doc('_init_');
+        batch.set(initDoc, { 
+          _is_system: true, 
+          description: `Initialized ${colName} collection`,
+          created_at: new Date().toISOString() 
+        });
+        created++;
+      }
+      
+      await batch.commit();
+      res.json({ success: true, message: `Successfully initialized ${created} collections.` });
+    } catch (err: any) {
+      console.error('[DB_INIT] Error:', err);
+      res.status(500).json({ success: false, message: err.message });
     }
   });
 
@@ -7208,9 +7390,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       let validAnnouncements: any[] = [];
       if (admin.apps.length) {
         const now = new Date().toISOString();
-        const snap = await getFirestoreInstance().collection('announcements').get();
-        const announcements = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-        validAnnouncements = announcements.filter(a => (!a.start_at || a.start_at <= now) && (!a.end_at || a.end_at >= now));
+        try {
+          const snap = await getFirestoreInstance().collection('announcements').get();
+          const announcements = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+          validAnnouncements = announcements.filter(a => (!a.start_at || a.start_at <= now) && (!a.end_at || a.end_at >= now));
+        } catch (dbErr: any) {
+          console.warn('[ANNOUNCEMENTS] Database fetch failed, falling back to defaults:', dbErr.message);
+          // Don't throw, let it fall through to defaults below
+        }
       }
       
       if (validAnnouncements.length === 0) {
@@ -7246,7 +7433,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       });
       res.json(validAnnouncements);
     } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+      console.error('[ANNOUNCEMENTS] Final failure:', err.message);
+      res.json([]); // Fail gracefully with empty list
     }
   });
 
