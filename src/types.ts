@@ -26,7 +26,7 @@ export interface User {
   email?: string;
   shop_name?: string;
   pin_code?: string;
-  role: 'customer' | 'admin' | 'retailer' | 'wholesaler';
+  role: 'customer' | 'admin' | 'retailer' | 'wholesaler' | 'runner' | 'delivery';
   permissions?: Permission[]; 
   wallet_balance: number;
   khata_enabled: boolean;
@@ -50,9 +50,9 @@ export interface User {
 }
 
 export interface Product {
-  id: number;
+  id: number | string;
   name: string;
-  description: string;
+  description?: string;
   price: number;
   wholesale_price?: number;
   retail_price?: number;
@@ -64,12 +64,13 @@ export interface Product {
   max_qty?: number;
   weight_kg?: number;
   consumable_days?: number;
-  supplier_id?: number;
+  supplier_id?: number | string;
   lead_time_days?: number;
-  is_listed: boolean;
+  is_listed?: boolean;
   is_deleted?: boolean;
-  unit: string;
+  unit?: string;
   image_url: string;
+  image?: string;
   images?: string[];
   specifications?: { [key: string]: string };
   variants?: ProductVariant[];
@@ -80,8 +81,8 @@ export interface Product {
 }
 
 export interface ProductVariant {
-  id: number;
-  product_id: number;
+  id: number | string;
+  product_id: number | string;
   name: string;
   price: number;
   stock: number;
@@ -89,10 +90,16 @@ export interface ProductVariant {
   is_default: boolean;
 }
 
-export interface CartItem extends Product {
+export interface CartItem extends Partial<Product> {
+  id: number | string;
+  name: string;
+  price: number;
   quantity: number;
-  variantId?: number;
+  variantId?: number | string;
   selectedVariant?: ProductVariant;
+  image_url: string;
+  category?: string;
+  stock?: number;
 }
 
 export interface Order {

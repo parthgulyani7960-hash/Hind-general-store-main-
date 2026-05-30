@@ -419,8 +419,7 @@ async function initializeFirebase() {
         const credential = admin.credential.cert(JSON.parse(serviceAccountKey));
         admin.initializeApp({
           credential,
-          projectId: envProjectId,
-          databaseID: envDatabaseId
+          projectId: envProjectId
         });
         isFirebaseReady = true;
         useLocalDatabaseFallback = false;
@@ -438,7 +437,7 @@ async function initializeFirebase() {
       }
     }
 
-    if (envProjectId && envProjectId !== 'mock-project' && envProjectId !== 'studio-8565200409-a3bd2') {
+    if (envProjectId && envProjectId !== 'mock-project') {
        admin.initializeApp({ projectId: envProjectId });
        isFirebaseReady = true;
        useLocalDatabaseFallback = false;
@@ -581,8 +580,62 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     dbConnected: admin.apps.length > 0,
     dbConnectionStatus,
+    firebaseReady: isFirebaseReady,
     timestamp: new Date().toISOString(),
-    bootPhase: 'module_level'
+    bootPhase: 'module_level',
+    nodeEnv: process.env.NODE_ENV,
+    trustProxy: app.get('trust proxy')
+  });
+});
+
+app.get('/api/db-test', async (req, res) => {
+  const projectId = admin.app()?.options.projectId || 'unknown';
+  const databaseId = config?.firestoreDatabaseId || '(default)';
+  const results: any = {
+    projectId,
+    databaseId,
+    initialized: admin.apps.length > 0,
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    const db = getFirestoreInstance();
+    if (db._isMock) {
+      results.connection = 'MOCK_SANDBOX_ACTIVE';
+      results.message = 'The server is currently running in local sandbox mode because production credentials were not detected.';
+    } else {
+      // Real test: attempt to list collections or get a dummy doc
+      // Note: listCollections is more definitive for checking existence
+      const testCol = await db.collection('test_connection_probe').limit(1).get();
+      results.connection = 'SUCCESS';
+      results.message = 'Successfully connected to the database and performed a read.';
+    }
+  } catch (err: any) {
+    results.connection = 'FAILED';
+    results.error = err.message;
+    results.code = err.code;
+    
+    if (err.message.includes('NOT_FOUND') || err.code === 5) {
+      results.diagnosis = `The Firestore database "${databaseId}" DOES NOT EXIST in project "${projectId}".`;
+      results.action = 'ACTION REQUIRED: Go to Firebase Console -> Build -> Firestore Database and click "Create database". Use "(default)" as the ID.';
+    } else if (err.message.includes('permission') || err.code === 7) {
+      results.diagnosis = 'The database exists but access is denied by security rules or IAM permissions.';
+    }
+  }
+
+  res.json(results);
+});
+
+app.get('/api/diag', (req, res) => {
+  res.json({
+    headers: req.headers,
+    url: req.url,
+    path: req.path,
+    query: req.query,
+    ip: req.ip,
+    protocol: req.protocol,
+    secure: req.secure,
+    isVercel: !!process.env.VERCEL
   });
 });
 
@@ -1781,7 +1834,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/firebase-config', (req, res) => {
-    res.json(getFirebaseWebConfig());
+    try {
+      const config = getFirebaseWebConfig();
+      res.json(config);
+    } catch (err: any) {
+      console.error('[CONFIG_ERROR] Failed to serve firebase-config:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   app.get('/api/settings', async (req, res) => {
@@ -4831,36 +4890,56 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       if (!admin.apps.length) return res.json(stats);
       
-      const ordersSnap = await getFirestoreInstance().collection('orders').get();
-      const orders = ordersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      const db = getFirestoreInstance();
       
-      const usersSnap = await getFirestoreInstance().collection('users').get();
-      const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-      
-      const productsSnap = await getFirestoreInstance().collection('products').get();
-      const products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      // Use efficient aggregation queries for counts if possible, else limit
+      const ordersCountSnap = await db.collection('orders').count().get();
+      const usersCountSnap = await db.collection('users').count().get();
+      const productsCountSnap = await db.collection('products').count().get();
 
-      stats.orders = orders.length;
+      stats.orders = ordersCountSnap.data().count;
+      stats.users = usersCountSnap.data().count;
+
+      // For revenue and chart, fetch only recent orders (e.g. last 90 days)
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      
+      const recentOrdersSnap = await db.collection('orders')
+        .where('created_at', '>=', ninetyDaysAgo.toISOString())
+        .orderBy('created_at', 'desc')
+        .limit(2000)
+        .get();
+      
+      const orders = recentOrdersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      
+      // Sum revenue from these recent orders as an estimate if data is huge, 
+      // but here we try to be as accurate as possible for the dashboard.
       stats.revenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-      stats.users = users.length;
-      stats.lowStock = products.filter(p => Number(p.stock) <= Number(p.reorder_point || 0)).length;
       stats.pendingOrders = orders.filter(o => o.status === 'pending').length;
+
+      // Low stock: fetch only products below reorder point (aggregation would be better but filter is fine if products < 5000)
+      const productsSnap = await db.collection('products').limit(1000).get();
+      const products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      stats.lowStock = products.filter(p => Number(p.stock) <= Number(p.reorder_point || 0)).length;
       
       // Calculate new users today
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
-      stats.newUserCount = users.filter(u => new Date(u.created_at || parseInt(u.id)) >= startOfDay).length;
       
-      // Refunds not implemented in firestore mostly, keep 0
+      const newUsersSnap = await db.collection('users')
+        .where('created_at', '>=', startOfDay.toISOString())
+        .get();
+      stats.newUserCount = newUsersSnap.size;
+      
       stats.netRevenue = stats.revenue - stats.totalRefunds;
 
-      // Revenue by day
+      // Revenue by day (last 7 days)
       const last7Days = new Date();
       last7Days.setDate(last7Days.getDate() - 7);
-      const recentOrders = orders.filter(o => o.created_at && new Date(o.created_at) >= last7Days);
+      const weeklyOrders = orders.filter(o => o.created_at && new Date(o.created_at) >= last7Days);
       
       const dailyMap = new Map();
-      for (const order of recentOrders) {
+      for (const order of weeklyOrders) {
         const d = (order.created_at || '').substring(0, 10);
         if (!d) continue;
         const current = dailyMap.get(d) || { date: d, revenue: 0, orders: 0 };
@@ -4870,10 +4949,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
       stats.revenueByDay = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Top products & categories
+      // Top products & categories (from recent orders only for performance)
       const catMap = new Map();
       const prodMap = new Map();
-      for (const o of orders) {
+      for (const o of orders.slice(0, 500)) { // limit analysis to 500 most recent orders
         if (!o.items || !Array.isArray(o.items)) continue;
         for (const item of o.items) {
           const qty = Number(item.quantity) || 0;

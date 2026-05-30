@@ -5,7 +5,7 @@ import { cn } from '@/types';
 
 interface OverviewTabProps {
     stats: any;
-    setActiveTab: (tab: string) => void;
+    setActiveTab: (tab: any) => void;
     refreshStats: () => Promise<void>;
 }
 

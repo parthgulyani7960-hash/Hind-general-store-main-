@@ -11,8 +11,8 @@ interface StoreContextType {
   setUser: (user: User | null) => void;
   cart: CartItem[];
   addToCart: (product: Product, variant?: any, quantity?: number) => void;
-  removeFromCart: (productId: number, variantId?: number) => void;
-  updateQuantity: (productId: number, delta: number, variantId?: number) => void;
+  removeFromCart: (productId: any, variantId?: any) => void;
+  updateQuantity: (productId: any, delta: number, variantId?: any) => void;
   clearCart: () => void;
   logout: () => void;
   isMaintenance: boolean;
@@ -22,8 +22,8 @@ interface StoreContextType {
   updateProfile: (data: Partial<User>) => Promise<void>;
   refreshUser: () => Promise<void>;
   fetchUser: () => Promise<void>;
-  wishlist: number[];
-  toggleWishlist: (productId: number) => void;
+  wishlist: any[];
+  toggleWishlist: (productId: any) => void;
   config: any[];
   fetchConfig: () => Promise<void>;
   subscribeNewsletter: (email: string) => Promise<void>;
@@ -50,8 +50,8 @@ interface StoreContextType {
   addresses: UserAddress[];
   fetchAddresses: () => Promise<void>;
   saveAddress: (address: Partial<UserAddress>) => Promise<void>;
-  deleteAddress: (id: number) => Promise<void>;
-  setDefaultAddress: (id: number) => Promise<void>;
+  deleteAddress: (id: any) => Promise<void>;
+  setDefaultAddress: (id: any) => Promise<void>;
   isOnline: boolean;
   isProfileComplete: () => boolean;
   isMobile: boolean;
@@ -61,14 +61,15 @@ interface StoreContextType {
   isAuthChecking: boolean;
   currentAlert: any;
   setCurrentAlert: (alert: any) => void;
-  markAlertAsRead: (id: number) => Promise<void>;
+  markAlertAsRead: (id: any) => Promise<void>;
   hasPermission: (permission: Permission) => boolean;
   calculateDiscount: (cart: CartItem[]) => number;
   isSyncCartPending: boolean;
   logActivity: (type: string, description: string) => Promise<void>;
-  fetchCart: (userId: number) => Promise<void>;
+  fetchCart: (userId: any) => Promise<void>;
   lastAddedId: number | null;
   fetchWithHandling: <T>(url: string, options?: RequestInit) => Promise<T>;
+  showImages: boolean;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -116,6 +117,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [currentAlert, setCurrentAlert] = useState<any>(null);
   const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
   const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');
+  const [showImages, setShowImages] = useState(true);
 
   const [user, setUser] = useState<User | null>(() => {
     try {
@@ -257,12 +259,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (items && items.length > 0) {
         setCart(items.map((i: any) => ({
           id: i.product_id,
-          name: i.name,
-          price: i.price,
-          image_url: i.image_url,
+          name: i.name || 'Unknown Product',
+          price: Number(i.price) || 0,
+          image_url: i.image_url || '',
           stock: i.stock,
           category: i.category,
-          quantity: i.quantity
+          quantity: i.quantity,
+          description: i.description || '',
+          unit: i.unit || ''
         })));
         setIsSyncCartPending(false);
       }
@@ -402,8 +406,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isOnline, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
     isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity,
-    lastAddedId, fetchWithHandling
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId]);
+    lastAddedId, fetchWithHandling,
+    showImages
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId, showImages]);
 
   return (
     <StoreContext.Provider value={contextValue}>

@@ -126,8 +126,8 @@ function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { c
   const { user, isAuthChecking } = useStore();
   const location = useLocation();
 
-  const isUserAdmin = user && user.role === 'admin';
-  const isUserRunner = user && (user.role === 'delivery' || isUserAdmin);
+  const isUserAdmin = user && (user.role as any) === 'admin';
+  const isUserRunner = user && ((user.role as any) === 'delivery' || (user.role as any) === 'runner' || isUserAdmin);
 
   const hasShownNotLoggedInToast = useRef(false);
 
@@ -300,7 +300,7 @@ export default function App() {
         type: ErrorType.SYSTEM_ERROR,
         message: event.message || 'Global Runtime Error',
         stack: event.error?.stack,
-        userId: store.user?.id
+        userId: String(store.user?.id || '')
       });
     };
 
@@ -309,7 +309,7 @@ export default function App() {
         type: ErrorType.SYSTEM_ERROR,
         message: event.reason?.message || 'Unhandled Promise Rejection',
         stack: event.reason?.stack || String(event.reason),
-        userId: store.user?.id
+        userId: String(store.user?.id || '')
       });
     };
 

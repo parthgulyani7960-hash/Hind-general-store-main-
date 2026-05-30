@@ -1564,7 +1564,8 @@ export default function AdminDashboard() {
     batch_number: '',
     expiry_date: '',
     unit: 'kg',
-    is_subscribable: false
+    is_subscribable: false,
+    supplier_id: ''
   });
   const [stats, setStats] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -1810,7 +1811,7 @@ export default function AdminDashboard() {
   const [imageModal, setImageModal] = useState({ open: false, productId: null as number | null, images: [] as string[] });
   const [couponModal, setCouponModal] = useState<{ open: boolean; mode: 'add' | 'edit'; editingId?: number | string }>({ open: false, mode: 'add' });
   const [expenseModal, setExpenseModal] = useState({ open: false });
-  const [newCoupon, setNewCoupon] = useState({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1' });
+  const [newCoupon, setNewCoupon] = useState({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1', expiry_date: '' });
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', category: 'Stock', date: new Date().toISOString().split('T')[0] });
   const [walletHistoryModal, setWalletHistoryModal] = useState<{ open: boolean; userId: number | null; history: any[] }>({ open: false, userId: null, history: [] });
   const [bulkUploadLoading, setBulkUploadLoading] = useState(false);
@@ -1876,7 +1877,7 @@ export default function AdminDashboard() {
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
 
-  const [promotionModal, setPromotionModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', id: null as number | null });
+  const [promotionModal, setPromotionModal] = useState<{ open: boolean; mode: 'add' | 'edit'; id?: any }>({ open: false, mode: 'add' });
   const [promotionProductsModal, setPromotionProductsModal] = useState({ open: false, promotionId: null as number | null });
   const [linkedProductIds, setLinkedProductIds] = useState<number[]>([]);
   const [newPromotion, setNewPromotion] = useState({ title: '', description: '', image_url: '', link: '', active: true, target_role: 'all', start_time: '', end_time: '', banner_type: 'standard', is_default: false });
@@ -1887,7 +1888,7 @@ export default function AdminDashboard() {
   const [newDeliveryArea, setNewDeliveryArea] = useState({ name: '', fee: '0', min_order: '0' });
 
   const [productVariants, setProductVariants] = useState<any[]>([]);
-  const [variantModal, setVariantModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', variant: null as any, productId: null as number | null });
+  const [variantModal, setVariantModal] = useState<{ open: boolean; mode: 'add' | 'edit'; variant?: any; productId?: any }>({ open: false, mode: 'add' });
   const [newVariant, setNewVariant] = useState({ name: '', price: '', stock: '', unit_quantity: '1', is_default: false });
 
   const [selectedSegment, setSelectedSegment] = useState('all');
@@ -1950,7 +1951,7 @@ export default function AdminDashboard() {
   }, [customerModal.open, customerModal.user?.id]);
 
   // Enhanced Product Filters
-  const [productStockFilter, setProductStockFilter] = useState<'all' | 'low' | 'out'>('all');
+  const [productStockFilter, setProductStockFilter] = useState<'all' | 'low' | 'out' | 'expiring'>('all');
   const [productDiscountFilter, setProductDiscountFilter] = useState<'all' | 'discounted'>('all');
   const [productCategoryFilter, setProductCategoryFilter] = useState<string>('all');
   const [productListedFilter, setProductListedFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
@@ -1988,7 +1989,7 @@ export default function AdminDashboard() {
   const [isAdminRefreshing, setIsAdminRefreshing] = useState(false);
   const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
-  const [runnerModal, setRunnerModal] = useState({ open: false, mode: 'add' as 'add' | 'edit', runner: null as any });
+  const [runnerModal, setRunnerModal] = useState<{ open: boolean; mode: 'add' | 'edit'; runner?: any }>({ open: false, mode: 'add' });
   const [newRunner, setNewRunner] = useState({ name: '', phone: '' });
 
   const fetchAdmins = async () => {
@@ -3429,7 +3430,7 @@ export default function AdminDashboard() {
       if (data) {
         toast.success('Stock entry recorded successfully');
         setStockEntryModal({ open: false, product: null });
-        setPurchaseForm({ supplier_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
+        setPurchaseForm({ supplier_id: '', product_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
         fetchAllProducts();
         fetchStats();
       }
@@ -4420,7 +4421,7 @@ export default function AdminDashboard() {
                 )) 
               && (
                 <div className="p-8 text-center">
-                  <p className="text-sm text-stone-400">No {searchFilter !== 'all' ? searchFilter : ''} results found for "{globalSearchQuery}"</p>
+                  <p className="text-sm text-stone-400">No {searchFilter} results found for "{globalSearchQuery}"</p>
                 </div>
               )}
             </div>
@@ -8032,8 +8033,8 @@ export default function AdminDashboard() {
               </div>
               <button 
                 onClick={() => {
-                  setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true });
-                  setPromotionModal({ open: true, mode: 'add', id: null });
+                  setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true, target_role: 'all', start_time: '', end_time: '', banner_type: 'standard', is_default: false });
+                  setPromotionModal({ open: true, mode: 'add' });
                 }}
                 className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:bg-stone-800 transition-all active:scale-95 group"
               >
@@ -8306,7 +8307,7 @@ export default function AdminDashboard() {
                       </div>
                       <button 
                         onClick={() => {
-                          setVariantModal({ open: true, productId: product.id });
+                          setVariantModal({ open: true, mode: 'add', productId: product.id });
                           fetchProductVariants(product.id);
                         }}
                         className="text-[10px] font-bold text-stone-400 hover:text-primary uppercase tracking-wider mt-1"
@@ -10511,7 +10512,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="flex bg-stone-50 p-2 rounded-2xl border border-stone-100 items-center space-x-4">
                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-2" />
-                     <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest pr-4">Identity Node: {user?.id?.slice(0, 8)}</span>
+                     <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest pr-4">Identity Node: {String(user?.id || '').slice(0, 8)}</span>
                   </div>
                </div>
                
@@ -11255,7 +11256,7 @@ export default function AdminDashboard() {
       {/* Coupon Modal */}
       <ModalContainer
         isOpen={couponModal.open}
-        onClose={() => setCouponModal({ open: false })}
+        onClose={() => setCouponModal({ open: false, mode: 'add' })}
         title={couponModal.mode === 'edit' ? 'Update Coupon' : 'Create Coupon'}
         size="md"
       >
@@ -11329,7 +11330,7 @@ export default function AdminDashboard() {
             <div className="flex space-x-3 pt-4">
               <button 
                 type="button"
-                onClick={() => setCouponModal({ open: false })}
+                onClick={() => setCouponModal({ open: false, mode: 'add' })}
                 className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
               >
                 Cancel
@@ -12103,7 +12104,7 @@ export default function AdminDashboard() {
                   <select 
                     className="input-field"
                     value={newPromotionRuleData.type}
-                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, type: e.target.value})}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, type: e.target.value as any})}
                   >
                     <option value="percentage">Percentage OFF</option>
                     <option value="fixed">Fixed Amount OFF</option>
@@ -12128,7 +12129,7 @@ export default function AdminDashboard() {
                   <select 
                     className="input-field"
                     value={newPromotionRuleData.target_type}
-                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, target_type: e.target.value})}
+                    onChange={(e) => setNewPromotionRuleData({...newPromotionRuleData, target_type: e.target.value as any})}
                   >
                     <option value="all">Entire Store</option>
                     <option value="category">Specific Category</option>
@@ -13601,7 +13602,7 @@ export default function AdminDashboard() {
       {/* Variant Modal */}
       <ModalContainer
         isOpen={variantModal.open}
-        onClose={() => setVariantModal({ ...variantModal, open: false })}
+        onClose={() => setVariantModal({ open: false, mode: 'add' })}
         title="Manage Variants"
         size="xl"
         showHeader={true}
