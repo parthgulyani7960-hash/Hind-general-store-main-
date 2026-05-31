@@ -13,9 +13,28 @@ export const fetchWithHandling = async <T>(
   options: RequestInit = {},
   retries = 2
 ): Promise<T | null> => {
+  let cleanUrl = url;
+  if (cleanUrl) {
+    if (cleanUrl.includes(' ') || cleanUrl.includes('%20')) {
+      console.warn('[API] Auto-correcting malformed concatenated URL:', cleanUrl);
+      const decoded = decodeURIComponent(cleanUrl);
+      const parts = decoded.split(/\s+/).map(p => p.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        const apiPart = parts.find(p => p.startsWith('/api/') || p.startsWith('api/'));
+        cleanUrl = apiPart || parts[0];
+      }
+    }
+    if (cleanUrl.startsWith('api/')) {
+      cleanUrl = '/' + cleanUrl;
+    }
+    if (cleanUrl.startsWith('/api/') && typeof window !== 'undefined' && window.location) {
+      cleanUrl = `${window.location.origin}${cleanUrl}`;
+    }
+  }
+
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   if (isOffline) {
-    console.warn(`[API] Suppressed fetch to ${url} (Browser Offline)`);
+    console.warn(`[API] Suppressed fetch to ${cleanUrl} (Browser Offline)`);
     return null;
   }
 
@@ -24,7 +43,7 @@ export const fetchWithHandling = async <T>(
 
   try {
     // Global fetch is now wrapped in main.tsx, so it handles token injection and retries
-    const res = await fetch(url, { ...options, signal: controller.signal });
+    const res = await fetch(cleanUrl, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
     
     if (!res.ok) {

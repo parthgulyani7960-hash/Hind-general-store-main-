@@ -131,12 +131,16 @@ async function initializeFirebase() {
     
     console.log('[FIREBASE] Environment Variables Booting:');
     Object.keys(process.env).forEach(key => {
-      if (key.includes('FIREBASE') || key.includes('FIRESTORE')) {
-        console.log(`   ${key}: ${process.env[key]}`);
+      if (key.includes('FIREBASE') || key.includes('FIRESTORE') || key.includes('PROJECT')) {
+        const val = process.env[key];
+        console.log(`   ${key}: ${val ? '[SET, length ' + val.length + ']' : '[EMPTY]'}`);
       }
     });
 
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || process.env.VITE_FIREBASE_CLIENT_EMAIL;
+    const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY || process.env.VITE_FIREBASE_PRIVATE_KEY;
+    
     const envProjectId = process.env.FIREBASE_PROJECT_ID || 
                          config?.projectId ||
                          'studio-8565200409-a3bd2'; 
@@ -151,33 +155,70 @@ async function initializeFirebase() {
       ]);
     };
 
+    let certData: any = null;
+
     if (serviceAccountKey) {
       try {
-        let certData;
-        try {
-          certData = JSON.parse(serviceAccountKey);
-        } catch (parseErr: any) {
-          console.error('[FIREBASE] CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON!');
-          throw new Error(`Invalid Service Account JSON: ${parseErr.message}`);
+        certData = JSON.parse(serviceAccountKey);
+        console.log('[FIREBASE] serviceAccountKey JSON parsed successfully.');
+      } catch (parseErr: any) {
+        console.error('[FIREBASE] CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON! Error:', parseErr.message);
+        let cleanedKey = serviceAccountKey.trim();
+        if ((cleanedKey.startsWith('"') && cleanedKey.endsWith('"')) || (cleanedKey.startsWith("'") && cleanedKey.endsWith("'"))) {
+          cleanedKey = cleanedKey.substring(1, cleanedKey.length - 1);
         }
+        try {
+          certData = JSON.parse(cleanedKey);
+          console.log('[FIREBASE] serviceAccountKey JSON parsed successfully after quote cleanup.');
+        } catch (e2: any) {
+          console.error('[FIREBASE] Parsing serviceAccountKey failed even after cleanup.');
+        }
+      }
+    }
 
-        const credential = admin.credential.cert(certData);
+    if (!certData && clientEmail && privateKeyRaw) {
+      console.log('[FIREBASE] Attempting to construct credential from individual client email & private key.');
+      let privateKey = privateKeyRaw.trim();
+      if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+        privateKey = privateKey.substring(1, privateKey.length - 1);
+      }
+      if (privateKey.includes('\\n')) {
+        console.log('[FIREBASE] Unescaping newlines in private key.');
+        privateKey = privateKey.replace(/\\n/g, '\n');
+      }
+      certData = {
+        projectId: envProjectId,
+        clientEmail: clientEmail.trim(),
+        privateKey: privateKey
+      };
+    }
+
+    if (certData) {
+      try {
+        console.log('[FIREBASE] Attempting certified initialization...');
+        const credential = admin.credential.cert({
+          projectId: certData.project_id || certData.projectId,
+          clientEmail: certData.client_email || certData.clientEmail,
+          privateKey: certData.private_key || certData.privateKey
+        });
+
         admin.initializeApp({
           credential,
-          projectId: envProjectId || certData.project_id
+          projectId: envProjectId || certData.project_id || certData.projectId
         });
         
         const db = getFirestoreInstance();
-        // Probe for database existence
         try {
+          console.log('[FIREBASE] Probing database connection with custom dbId:', envDatabaseId);
           await promiseWithTimeout(
             db.collection('_health_').limit(1).get(),
-            4000,
-            'Firestore connection probe timed out after 4s'
+            5000,
+            `Firestore connection probe to ${envDatabaseId} timed out after 5s`
           );
         } catch (healthErr: any) {
+          console.warn('[FIREBASE] Warning during certified database probe:', healthErr.message);
           if (healthErr.message.includes('NOT_FOUND') || healthErr.code === 5) {
-             throw new Error('Firestore database (default) was not found. Please create it in the Firebase Console.');
+             throw new Error(`Firestore database ${envDatabaseId} was not found. Please create it in the Firebase Console.`);
           }
           throw healthErr;
         }
@@ -190,13 +231,16 @@ async function initializeFirebase() {
         dbConnectionStatus.isFallback = false;
         dbConnectionStatus.details = `Connected to Production Firestore (Project: ${envProjectId})`;
         
-        console.log('[FIREBASE] Production Initialization Successful (Service Account) for project:', envProjectId);
+        console.log('[FIREBASE] Production Initialization Successful (Certified) for project:', envProjectId);
         return;
       } catch (certErr: any) {
         console.error('[FIREBASE] Certificate error:', certErr.message);
         dbConnectionStatus.details = `Certificate Failure: ${certErr.message}`;
-        // Delete app to retry with ADC if desired, but usually we just move on
-        if (admin.apps.length) await admin.app().delete();
+        if (admin.apps.length) {
+          try {
+            await admin.app().delete();
+          } catch (delErr) {}
+        }
       }
     }
 
@@ -209,20 +253,25 @@ async function initializeFirebase() {
       const db = getFirestoreInstance();
       await promiseWithTimeout(
         db.collection('_health_').limit(1).get(),
-        4000,
-        'Firestore connection probe timed out after 4s'
+        5000,
+        `Firestore connection probe to ${envDatabaseId} timed out after 5s`
       );
       
       isFirebaseReady = true;
       useLocalDatabaseFallback = false;
       dbConnectionStatus.mode = 'PRODUCTION';
       dbConnectionStatus.active = true;
+      dbConnectionStatus.isFallback = false;
       dbConnectionStatus.details = `Initialized via Project ID (Project: ${envProjectId})`;
       console.log('[FIREBASE] Initialized via Project ID for project:', envProjectId);
       return;
     } catch (adcErr: any) {
       console.log('[FIREBASE] Project ID / ADC Initialization Failed:', adcErr.message);
-      if (admin.apps.length) await admin.app().delete();
+      if (admin.apps.length) {
+        try {
+          await admin.app().delete();
+        } catch (delErr) {}
+      }
     }
 
     // Throw error if production initialization fails - no fallback.
@@ -257,7 +306,7 @@ app.use((req, res, next) => {
     if (dbConnectionStatus.mode === 'INITIALIZING') {
       const productionTokensExist = !!(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_API_KEY);
       if (productionTokensExist) {
-        return res.status(503).json({ 
+        return res.status(500).json({ 
             success: false, 
             message: 'Database initialization in progress. Please retry momentarily.',
             dbStatus: { ...dbConnectionStatus, lastCheck: new Date().toISOString() }
@@ -334,15 +383,69 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  const adminActive = admin.apps.length > 0;
+  
+  let firestoreStatus = 'NOT_INITIALIZED';
+  let firestoreDetails = '';
+  let databaseId = 'unknown';
+  let projectId = 'unknown';
+  
+  if (adminActive) {
+    try {
+      const activeApp = admin.app();
+      projectId = activeApp.options.projectId || 'unknown';
+      databaseId = config?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || '(default)';
+      
+      const db = getFirestoreInstance();
+      // Fast probe to verify firestore connectivity
+      await Promise.race([
+        db.collection('_health_').limit(1).get(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection probe timed out (1.5s)')), 1500))
+      ]);
+      firestoreStatus = 'CONNECTED';
+      firestoreDetails = `Successfully queried Firestore. DatabaseID: ${databaseId}`;
+    } catch (err: any) {
+      firestoreStatus = 'ERROR';
+      firestoreDetails = `Error: ${err.message}`;
+    }
+  }
+
+  let authStatus = 'NOT_INITIALIZED';
+  if (adminActive) {
+    try {
+      admin.auth();
+      authStatus = 'READY';
+    } catch (err: any) {
+      authStatus = 'ERROR';
+      firestoreDetails += ` | Auth Error: ${err.message}`;
+    }
+  }
+
+  // Check required environment variables
+  const dbVars = [
+    'FIREBASE_PROJECT_ID',
+    'FIREBASE_SERVICE_ACCOUNT_KEY',
+    'FIREBASE_CLIENT_EMAIL',
+    'FIREBASE_PRIVATE_KEY',
+    'SESSION_SECRET'
+  ];
+  const missingVars = dbVars.filter(v => !process.env[v]);
+
   res.json({ 
-    status: 'ok', 
+    status: firestoreStatus === 'CONNECTED' ? 'ok' : 'degraded', 
     uptime: process.uptime(),
-    dbConnected: admin.apps.length > 0,
+    firebaseClientStatus: isFirebaseReady ? 'READY' : 'NOT_READY',
+    firebaseAdminStatus: adminActive ? 'INITIALIZED' : 'NOT_INITIALIZED',
+    firestoreStatus,
+    firestoreDetails,
+    authenticationStatus: authStatus,
     dbConnectionStatus,
-    firebaseReady: isFirebaseReady,
+    projectId,
+    databaseId,
+    missingEnvVars: missingVars,
     timestamp: new Date().toISOString(),
-    bootPhase: 'module_level',
+    bootPhase: 'runtime',
     nodeEnv: process.env.NODE_ENV,
     trustProxy: app.get('trust proxy')
   });
@@ -1186,7 +1289,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             const bypass = req.query.bypass || req.headers['x-maintenance-bypass'];
             const secret = await getSetting('maintenance_secret');
             if (bypass !== secret) {
-                return res.status(503).json({ 
+                return res.status(500).json({ 
                     maintenance: true, 
                     message: 'Store is under maintenance',
                     bypass_key_needed: true 
@@ -1365,7 +1468,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // Global Admin Authorization Middleware
   async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
     if (!isFirebaseReady) {
-      return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
+      return res.status(500).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
     }
 
     try {
@@ -1423,7 +1526,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         
         if (!isFirebaseReady) {
             if (isDeveloper) return next();
-            return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
+            return res.status(500).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
         }
         
         const db = getFirestoreInstance();
@@ -1473,7 +1576,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       return res.status(401).json({ success: false, message: 'Admin authentication required' });
     } catch (err: any) {
       console.error('[ADMIN MIDDLEWARE ERROR]:', err.message);
-      return res.status(503).json({ success: false, message: 'Admin service temporarily unavailable', error: err.message });
+      return res.status(500).json({ success: false, message: 'Admin service temporarily unavailable', error: err.message });
     }
   };
 
@@ -2762,7 +2865,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       if (!isFirebaseReady) {
         console.warn('Firebase Admin not initialized');
-        return res.status(503).json({ success: false, message: 'Currently offline.' });
+        return res.status(500).json({ success: false, message: 'Currently offline.' });
       }
       if (!idToken) {
         console.error('[AUTH] No token provided in request body');
@@ -4905,7 +5008,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/admin/db-seed', requireAdmin, async (req, res) => {
     try {
-      if (!isFirebaseReady || !admin.apps.length) return res.status(503).json({ success: false, message: 'Database not ready' });
+      if (!isFirebaseReady || !admin.apps.length) return res.status(500).json({ success: false, message: 'Database not ready' });
       
       const db = getFirestoreInstance();
       const batch = db.batch();
@@ -4987,7 +5090,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/admin/db-initialize', requireAdmin, async (req, res) => {
     // Redirect to POST handler or just implement here
     try {
-      if (!admin.apps.length) return res.status(503).json({ success: false, message: 'Firebase not initialized' });
+      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not initialized' });
       const db = getFirestoreInstance();
       const collections = [
         'products', 'categories', 'users', 'orders', 'wallet_transactions', 
@@ -5008,7 +5111,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/admin/db-initialize', requireAdmin, async (req, res) => {
     try {
-      if (!admin.apps.length) return res.status(503).json({ success: false, message: 'Firebase not initialized' });
+      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not initialized' });
       
       const db = getFirestoreInstance();
       const collections = [
@@ -7939,7 +8042,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/admin/check-integrities', requireAdmin, async (req, res) => {
     try {
-      if (!isFirebaseReady || !admin.apps.length) return res.status(503).json({ success: false, message: 'Database not ready' });
+      if (!isFirebaseReady || !admin.apps.length) return res.status(500).json({ success: false, message: 'Database not ready' });
       
       const db = getFirestoreInstance();
       const usersSnap = await db.collection('users').get();
@@ -7979,7 +8082,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/admin/diagnose-wallets', requireAdmin, async (req, res) => {
     try {
-      if (!isFirebaseReady || !admin.apps.length) return res.status(503).json({ success: false, message: 'Database not ready' });
+      if (!isFirebaseReady || !admin.apps.length) return res.status(500).json({ success: false, message: 'Database not ready' });
       
       const db = getFirestoreInstance();
       const txsSnap = await db.collection('wallet_transactions')
@@ -8104,7 +8207,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
     try {
       if (!isFirebaseReady || !admin.apps.length) {
-        return res.status(503).json({ success: false, message: 'Database not ready' });
+        return res.status(500).json({ success: false, message: 'Database not ready' });
       }
 
       const db = getFirestoreInstance();
@@ -8203,7 +8306,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
     try {
       if (!isFirebaseReady || !admin.apps.length) {
-        return res.status(503).json({ success: false, message: 'Database not ready' });
+        return res.status(500).json({ success: false, message: 'Database not ready' });
       }
 
       const db = getFirestoreInstance();
@@ -8473,7 +8576,7 @@ export default async function handler(req: express.Request, res: express.Respons
   try {
     const app = await appPromise;
     if (!app) {
-      return res.status(503).json({ error: 'Server initialization failed. Check logs.' });
+      return res.status(500).json({ error: 'Server initialization failed. Check logs.' });
     }
     app(req, res);
   } catch (err: any) {

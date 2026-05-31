@@ -71,6 +71,26 @@ try {
           if (inputUrl === '') inputUrl = '/';
         }
         
+        // 1b. Support spaces / URL-encoded spaces and absolute url transformations
+        if (inputUrl) {
+          if (inputUrl.includes(' ') || inputUrl.includes('%20')) {
+            console.warn('[Fetch Interceptor] Auto-correcting malformed concatenated URL:', inputUrl);
+            const decoded = decodeURIComponent(inputUrl);
+            const parts = decoded.split(/\s+/).map(p => p.trim()).filter(Boolean);
+            if (parts.length > 0) {
+              const apiPart = parts.find(p => p.startsWith('/api/') || p.startsWith('api/'));
+              inputUrl = apiPart || parts[0];
+            }
+          }
+          if (inputUrl.startsWith('api/')) {
+            inputUrl = '/' + inputUrl;
+          }
+          // Prepend absolute window location origin if it is a relative API route
+          if (inputUrl.startsWith('/api/') && typeof window !== 'undefined' && window.location) {
+            inputUrl = `${window.location.origin}${inputUrl}`;
+          }
+        }
+        
         // 2. Identify request type
         const isExternal = inputUrl.startsWith('http') && !inputUrl.includes(window.location.host);
         
