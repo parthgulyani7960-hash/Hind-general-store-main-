@@ -24,7 +24,7 @@ import { google } from 'googleapis';
 import { validateEnvironment } from './src/lib/envCheck';
 
 // Validate environment early
-validateEnvironment();
+// validateEnvironment();
 
 import { logServerError } from './src/lib/serverError';
 
@@ -774,11 +774,17 @@ const createNotification = async (title: string, message: string, type: string =
 // Moved middlewares
 
 async function startServer() {
+  console.log({
+    FIREBASE_SERVICE_ACCOUNT_KEY_PRESENT: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+    FIREBASE_PROJECT_ID_PRESENT: !!process.env.FIREBASE_PROJECT_ID,
+    SESSION_SECRET_PRESENT: !!process.env.SESSION_SECRET
+  });
+  validateEnvironment();
   try {
     // Strict, fail-fast Firebase and database verification
     await initializeFirebase();
   } catch (err: any) {
-    console.error('[BOOT ERROR] Firebase initialization failed:', err.message);
+    console.error('[BOOT ERROR] Firebase initialization failed:', err.message, err.stack);
     // Continue booting so the app is accessible, but in error mode
     dbConnectionStatus.mode = 'ERROR';
     dbConnectionStatus.active = false;
@@ -2088,15 +2094,21 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   const checkDbReady = () => isFirebaseReady && admin.apps.length > 0;
   
   app.get('/api/settings', async (req, res) => {
+    console.log('ROUTE ENTERED: /api/settings');
     try {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
       
+      console.log('FIREBASE INIT START');
       if (!checkDbReady()) {
         console.error('[SETTINGS] Database not ready, missing direct connection');
         return res.status(500).json({ success: false, message: 'Database not initialized or ready.' });
       }
+      console.log('FIREBASE INIT SUCCESS');
 
+      console.log('FIRESTORE QUERY START');
       const snap = await getFirestoreInstance().collection('settings').get();
+      console.log('FIRESTORE QUERY SUCCESS');
+      
       const publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
       
       const maintenance = publicSettings.find(s => s.key === 'maintenance_mode')?.value === 'true';
@@ -2754,9 +2766,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   app.get('/api/auth/me', async (req, res) => {
+    console.log('ROUTE ENTERED: /api/auth/me');
     try {
-      if (!isFirebaseReady) return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
+      console.log('FIREBASE INIT START');
+      if (!isFirebaseReady) {
+        console.log('FIREBASE INIT FAILED: Database not ready');
+        return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
+      }
+      console.log('FIREBASE INIT SUCCESS');
       
+      console.log('AUTH VERIFY START');
       if (!req.session || !req.session.userId) {
         const authHeader = req.headers.authorization;
         if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -2766,10 +2785,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             req.session = req.session || {};
             req.session.userId = 'demo_' + role;
             req.session.role = role;
+            console.log('AUTH VERIFY SUCCESS: Demo Token');
           } else {
             try {
               if (isFirebaseReady && admin.apps.length) {
                 const decodedToken = await safeVerifyIdToken(token);
+                console.log('AUTH VERIFY SUCCESS: Firebase Token');
                 const email = sanitizeEmail(decodedToken.email);
                 
                 if (email) {
@@ -2936,13 +2957,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
 
   app.post('/api/auth/firebase-login', async (req, res) => {
+    console.log('ROUTE ENTERED: /api/auth/firebase-login');
     try {
       const { idToken } = req.body;
 
+      console.log('FIREBASE INIT START');
       if (!isFirebaseReady) {
         console.warn('Firebase Admin not initialized');
         return res.status(500).json({ success: false, message: 'Currently offline.' });
       }
+      console.log('FIREBASE INIT SUCCESS');
+      
+      console.log('AUTH VERIFY START');
       if (!idToken) {
         console.error('[AUTH] No token provided in request body');
         return res.status(400).json({ success: false, message: 'No token provided' });
@@ -7555,13 +7581,21 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   };
 
   app.get('/api/announcements', async (req, res) => {
+    console.log('ROUTE ENTERED: /api/announcements');
     try {
+      console.log('FIREBASE INIT START');
       if (admin.apps.length === 0 || !isFirebaseReady) {
         return res.status(500).json({ error: 'Firebase is not initialized or connected.' });
       }
 
+      console.log('[API] Fetching announcements...');
+      const db = getFirestoreInstance();
+      console.log('[API] Firestore instance acquired.');
+      
+      const snap = await db.collection('announcements').get();
+      console.log(`[API] Found ${snap.docs.length} announcements.`);
+
       const now = new Date().toISOString();
-      const snap = await getFirestoreInstance().collection('announcements').get();
       const announcements = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
       const validAnnouncements = announcements.filter(a => (!a.start_at || a.start_at <= now) && (!a.end_at || a.end_at >= now));
       
@@ -7572,10 +7606,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          if (priorityA !== priorityB) return priorityB - priorityA;
          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       });
-      res.json(validAnnouncements);
-    } catch (err: any) {
-      console.error('[ANNOUNCEMENTS] Fetch failed:', err.message);
-      res.status(500).json({ error: err.message });
+
+      return res.json(validAnnouncements);
+    } catch (e: any) {
+        console.error('[API] Error fetching announcements:', e);
+        return res.status(500).json({ error: 'Internal Server Error', details: e.message });
     }
   });
 
