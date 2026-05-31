@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import SmartLink from './components/SmartLink';
 import { NetworkBanner } from './components/NetworkBanner';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
@@ -230,19 +231,19 @@ function AnimatedRoutes() {
             <div className="space-y-4">
               <h3 className="text-white font-bold text-lg">Quick Links</h3>
               <ul className="space-y-2 text-sm">
-                <li><Link to="/products" className="hover:text-white transition-colors">All Products</Link></li>
-                <li><Link to="/track-order" className="hover:text-white transition-colors">Track Order</Link></li>
-                <li><Link to="/support" className="hover:text-white transition-colors">Help & Support</Link></li>
-                <li><Link to="/login" className="hover:text-white transition-colors">My Account</Link></li>
+                <li><SmartLink to="/products" className="hover:text-white transition-colors">All Products</SmartLink></li>
+                <li><SmartLink to="/track-order" className="hover:text-white transition-colors">Track Order</SmartLink></li>
+                <li><SmartLink to="/support" className="hover:text-white transition-colors">Help & Support</SmartLink></li>
+                <li><SmartLink to="/login" className="hover:text-white transition-colors">My Account</SmartLink></li>
               </ul>
             </div>
             <div className="space-y-4">
               <h3 className="text-white font-bold text-lg">Customer Care</h3>
               <ul className="space-y-2 text-sm">
-                <li><Link to="/about" className="hover:text-white transition-colors">About Us</Link></li>
-                <li><Link to="/contact" className="hover:text-white transition-colors">Contact Us</Link></li>
-                <li><Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
-                <li><Link to="/terms-and-conditions" className="hover:text-white transition-colors">Terms & Conditions</Link></li>
+                <li><SmartLink to="/about" className="hover:text-white transition-colors">About Us</SmartLink></li>
+                <li><SmartLink to="/contact" className="hover:text-white transition-colors">Contact Us</SmartLink></li>
+                <li><SmartLink to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</SmartLink></li>
+                <li><SmartLink to="/terms-and-conditions" className="hover:text-white transition-colors">Terms & Conditions</SmartLink></li>
               </ul>
             </div>
             <div className="space-y-4">

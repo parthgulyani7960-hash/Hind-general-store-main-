@@ -19,14 +19,16 @@ if (fs.existsSync(rootConfigPath)) {
 } else if (!fs.existsSync(configPath)) {
   console.log('[BUILD] firebase-applet-config.json not found, creating placeholder config...');
   fs.writeFileSync(configPath, JSON.stringify({
-    apiKey: "mock-api-key-please-run-firebase-setup",
-    authDomain: "mock-project.firebaseapp.com",
-    projectId: "mock-project",
-    storageBucket: "mock-project.appspot.com",
-    messagingSenderId: "1234567890",
-    appId: "1:1234567890:web:123456789",
-    firestoreDatabaseId: "(default)"
+    apiKey: "AIzaSyDQ6uuOgMOnj6BrJwW2PGv7R7CTN3AWE7w",
+    authDomain: "studio-8565200409-a3bd2.firebaseapp.com",
+    projectId: "studio-8565200409-a3bd2",
+    storageBucket: "studio-8565200409-a3bd2.firebasestorage.app",
+    messagingSenderId: "998402666181",
+    appId: "1:998402666181:web:a2e3847085e9ec08394aac",
+    firestoreDatabaseId: "ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe"
   }, null, 2));
+  fs.copyFileSync(configPath, rootConfigPath);
 } else {
   console.log('[BUILD] firebase-applet-config.json was found. Keeping existing configuration.');
+  fs.copyFileSync(configPath, rootConfigPath);
 }

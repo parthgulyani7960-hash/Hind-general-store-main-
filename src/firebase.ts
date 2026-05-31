@@ -8,9 +8,9 @@ import firebaseConfig from '@config/firebase-applet-config.json';
 
 // Resolve Firebase configuration dynamically from environment, window, or local fallback JSON
 const getResolvedFirebaseConfig = () => {
-  // Helper to validate that a configuration object is a real production configuration (not empty or mock placeholder)
+  // Helper to validate that a configuration object is a real production configuration (not empty)
   const isValidRealConfig = (cfg: any): boolean => {
-    return !!(cfg && cfg.projectId && cfg.projectId !== 'mock-project' && cfg.projectId !== 'mock-api-key-please-run-firebase-setup' && cfg.projectId !== 'mock-api-key');
+    return !!(cfg && cfg.projectId);
   };
 
   // 1. Try secure runtime-injected configuration on window
@@ -30,7 +30,7 @@ const getResolvedFirebaseConfig = () => {
   const envAppId = import.meta.env?.VITE_FIREBASE_APP_ID || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_APP_ID);
   const envFirestoreDatabaseId = import.meta.env?.VITE_FIRESTORE_DATABASE_ID || (typeof process !== 'undefined' && process.env?.VITE_FIRESTORE_DATABASE_ID);
 
-  if (envProjectId && envProjectId !== 'mock-project' && envProjectId !== 'mock-api-key-please-run-firebase-setup') {
+  if (envProjectId) {
     return {
       apiKey: envApiKey || '',
       authDomain: envAuthDomain || '',
@@ -55,51 +55,13 @@ const getResolvedFirebaseConfig = () => {
     }
   }
 
-  // 4. Try fetching from `/api/firebase-config` via synchronous xhr
-  if (typeof window !== 'undefined' && typeof window.XMLHttpRequest !== 'undefined') {
-    try {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', '/api/firebase-config', false); // synchronous call
-      xhr.send(null);
-      if (xhr.status === 200) {
-        const parsed = JSON.parse(xhr.responseText);
-        if (isValidRealConfig(parsed)) {
-          (window as any).FIREBASE_CONFIG = parsed;
-          return parsed;
-        }
-      }
-    } catch (xhrErr) {
-      console.warn('[Firebase] Synchronous config retrieval from /api/firebase-config was skipped or failed:', xhrErr);
-    }
-  }
-
-  // 5. Default to the imported/compiled local JSON configuration gracefully if no dynamic credentials can be resolved
+  // Default to the imported/compiled local JSON configuration
   return firebaseConfig;
 };
 
 const validConfig = getResolvedFirebaseConfig();
 
 console.log('[Firebase] Initialized with Project:', validConfig.projectId, 'AuthDomain:', validConfig.authDomain);
-
-// Support continuous dynamic updates via async load just in case the backend initializes/changes late
-if (typeof window !== 'undefined') {
-  fetch('/api/firebase-config')
-    .then(res => {
-      if (res.status === 200) return res.json();
-      throw new Error(`Non-200 status: ${res.status}`);
-    })
-    .then(lazyConfig => {
-      if (lazyConfig && lazyConfig.projectId) {
-        if ((window as any).FIREBASE_CONFIG?.projectId !== lazyConfig.projectId) {
-          console.log('[Firebase] Dynamic real project configuration updated asynchronously:', lazyConfig.projectId);
-          (window as any).FIREBASE_CONFIG = lazyConfig;
-        }
-      }
-    })
-    .catch(() => {
-      // Gracefully ignore offline or deferred config check
-    });
-}
 
 const app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
 export const auth = getAuth(app);
