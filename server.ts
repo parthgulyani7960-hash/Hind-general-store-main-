@@ -23,6 +23,14 @@ import fs from 'fs';
 import { google } from 'googleapis';
 import { validateEnvironment } from './src/lib/envCheck';
 
+process.on("uncaughtException", err => {
+  console.error("[UNCAUGHT]", err);
+});
+
+process.on("unhandledRejection", err => {
+  console.error("[UNHANDLED]", err);
+});
+
 // Validate environment early
 // validateEnvironment();
 
@@ -774,21 +782,23 @@ const createNotification = async (title: string, message: string, type: string =
 // Moved middlewares
 
 async function startServer() {
+  console.log("[BOOT] Server startup");
   console.log({
     FIREBASE_SERVICE_ACCOUNT_KEY_PRESENT: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
     FIREBASE_PROJECT_ID_PRESENT: !!process.env.FIREBASE_PROJECT_ID,
     SESSION_SECRET_PRESENT: !!process.env.SESSION_SECRET
   });
-  validateEnvironment();
+  
+  validateEnvironment();                
+  
   try {
-    // Strict, fail-fast Firebase and database verification
+    console.log("[BOOT] Firebase init start");
     await initializeFirebase();
+    console.log("[BOOT] Firebase init success");
   } catch (err: any) {
-    console.error('[BOOT ERROR] Firebase initialization failed:', err.message, err.stack);
-    // Continue booting so the app is accessible, but in error mode
-    dbConnectionStatus.mode = 'ERROR';
-    dbConnectionStatus.active = false;
-    dbConnectionStatus.details = `Database initialization failed. ${err.message}`;
+    console.error("[BOOT ERROR]", err);
+    console.error(err?.stack);
+    throw err;
   }
   
   console.log('[BOOT] Creating http server instance and WebSocket server early...');
