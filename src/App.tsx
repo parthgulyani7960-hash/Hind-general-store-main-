@@ -29,6 +29,7 @@ import { cn } from './types';
 import { errorService, ErrorType } from './lib/errorReporting';
 import LoadingFallback from './components/LoadingFallback';
 import ErrorBoundary from './components/ErrorBoundary';
+import { DatabaseConnectionError } from './components/DatabaseConnectionError';
 
 function ToastManager() {
   const { toasts } = useToasterStore();
@@ -291,7 +292,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const store = useStore();
-  const { adminTheme } = store;
+  const { adminTheme, dbError } = store;
 
   useEffect(() => {
     // Global error handler
@@ -320,6 +321,10 @@ export default function App() {
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, []);
+
+  if (dbError) {
+    return <DatabaseConnectionError />;
+  }
 
   return (
     <Router>

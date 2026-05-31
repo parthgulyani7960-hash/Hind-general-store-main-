@@ -139,56 +139,6 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
 };
 
 export const signInWithGoogle = async (emailInput?: string) => {
-  const isMockProject = !validConfig || !validConfig.projectId || validConfig.projectId === 'mock-project' || validConfig.apiKey?.includes('mock-api-key') || validConfig.apiKey?.includes('setup');
-
-  const getSandboxFallback = () => {
-    // Automatically detect the environment for safe, silent admin role mapping
-    const isDevEnvironment = typeof window !== 'undefined' && (
-      window.location.hostname === 'localhost' || 
-      window.location.hostname === '127.0.0.1' || 
-      window.location.hostname.includes('-dev-') ||
-      window.location.hostname.includes('-pre-') ||
-      window.location.hostname.includes('ais-')
-    );
-
-    const targetEmail = emailInput?.trim() || (isDevEnvironment ? 'parthgulyani7960@gmail.com' : 'customer@gmail.com');
-    const computedName = targetEmail === 'parthgulyani7960@gmail.com' 
-      ? 'Parth Gulyani' 
-      : targetEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-
-    const mockPayload = {
-      user_id: 'google_sandbox_user_' + Math.abs(Math.sin(Date.now()) * 100000 | 0),
-      uid: 'google_sandbox_user_' + Math.abs(Math.sin(Date.now()) * 100000 | 0),
-      email: targetEmail,
-      name: computedName,
-      picture: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=120',
-      email_verified: true,
-      auth_time: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600
-    };
-
-    const jsonStr = JSON.stringify(mockPayload);
-    const base64 = typeof btoa !== 'undefined' 
-      ? btoa(unescape(encodeURIComponent(jsonStr))) 
-      : Buffer.from(jsonStr).toString('base64');
-    const token = `eyJhbGciOiJSUzI1NiIsImtpZCI6IjEifQ.${base64}.signature`;
-
-    const mockUser = {
-      uid: mockPayload.uid,
-      email: mockPayload.email,
-      displayName: mockPayload.name,
-      photoURL: mockPayload.picture,
-      getIdToken: async () => token
-    };
-
-    return { user: mockUser as any, token };
-  };
-
-  if (isMockProject) {
-    console.log('[Firebase] Sandbox mode: Bypassing browser popups to circumvent "invalid project" API key errors.');
-    return getSandboxFallback();
-  }
-
   try {
     const result = await signInWithPopup(auth, googleProvider);
     if (!result || !result.user) {
@@ -197,19 +147,6 @@ export const signInWithGoogle = async (emailInput?: string) => {
     const token = await result.user.getIdToken();
     return { user: result.user, token };
   } catch (error: any) {
-    const isDevOrPreview = typeof window !== 'undefined' && (
-      window.location.hostname === 'localhost' || 
-      window.location.hostname === '127.0.0.1' || 
-      window.location.hostname.includes('-dev-') ||
-      window.location.hostname.includes('-pre-') ||
-      window.location.hostname.includes('ais-')
-    );
-
-    if (isDevOrPreview) {
-      console.warn('[Firebase] Standard Google Sign-In failed or was blocked in development/preview. Bypassing to developer sandbox fallback...', error);
-      return getSandboxFallback();
-    }
-
     const errorCode = error?.code || '';
     const friendlyMessage = getFirebaseErrorMessage(errorCode);
     console.error('[Firebase] Standard Google Sign-In failed:', error);
@@ -222,6 +159,7 @@ export const signInWithGoogle = async (emailInput?: string) => {
     throw robustError;
   }
 };
+
 export const signOutUser = async () => {
   return await signOut(auth);
 };

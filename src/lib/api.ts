@@ -30,11 +30,28 @@ export const fetchWithHandling = async <T>(
     if (!res.ok) {
         let errorMessage = `Error: ${res.status}`;
         let detailedError = '';
-        try {
-            const data = await res.json();
+        let isJson = false;
+        let data: any = null;
+        
+        const rawText = await res.text().catch(() => '');
+        if (rawText) {
+          try {
+            data = JSON.parse(rawText);
+            isJson = true;
+          } catch (parseErr: any) {
+            console.error(`[API ERROR] Non-JSON error payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
+            errorService.report({
+              type: ErrorType.API_ERROR,
+              message: `Non-JSON error payload from ${url}`,
+              metadata: { url, status: res.status, rawContent: rawText.slice(0, 1000), parseError: parseErr.message }
+            });
+          }
+        }
+
+        if (isJson && data) {
             errorMessage = data.message || errorMessage;
             detailedError = data.error || '';
-        } catch {}
+        }
         
         if (res.status === 404) {
           console.warn(`[API] Resource not found: ${url}`);
@@ -51,7 +68,7 @@ export const fetchWithHandling = async <T>(
           
           // Token is likely invalid/expired, clear it
           localStorage.removeItem('hgs_token');
-
+ 
           // 401 is handled by main.tsx fetch wrapper (token refresh). 
           // If it still reaches here, it means refresh failed or was not possible.
           const silentEndpoints = [
@@ -69,7 +86,7 @@ export const fetchWithHandling = async <T>(
           const isSilent = silentEndpoints.some(endpoint => url.includes(endpoint));
           
           if (isSilent) return null;
-
+ 
           console.warn(`[API] 401 Unauthorized for ${url}`);
           errorMessage = "Session expired";
           
@@ -91,38 +108,56 @@ export const fetchWithHandling = async <T>(
             await new Promise(r => setTimeout(r, delay));
             return fetchWithHandling(url, options, retries - 1);
           }
-
+ 
           errorMessage = res.status === 429 ? "Too many requests. Please slow down." : "Server error. Please try again later.";
           
           // Centralized Error Boundary Categorization for Firebase backend unreachable
           const isFirebaseUnreachable = 
+            res.status === 503 ||
             (detailedError && /firebase|credential|firestore|database|connect/i.test(detailedError)) || 
             (errorMessage && /firebase|credential|firestore|database|connect/i.test(errorMessage));
-
+ 
           if (isFirebaseUnreachable) {
             console.error(`[API] Centralized Error Boundary categorized unreachable Firebase backend at ${url} (${res.status}): ${errorMessage}`);
             errorMessage = "Database connection unstable. Please try again.";
             
-            // Dispatch event to warn but don't force lock UI
+            // Dispatch event for DB connection error component to react
             window.dispatchEvent(new CustomEvent('database_error', { 
               detail: { url, status: res.status, message: errorMessage } 
             }));
           }
-
+ 
           // Return null for read operations to prevent blank white page crashes under rate limits or server errors
           if (options.method === 'GET' || !options.method) {
             console.warn(`[API] Returning null for failed GET ${url} on status ${res.status}`);
             return null;
           }
         }
-
+ 
         const finalError = new Error(errorMessage);
         (finalError as any).status = res.status;
         (finalError as any).details = detailedError;
         throw finalError;
     }
     
-    return await res.json();
+    const rawText = await res.text().catch(() => '');
+    if (rawText) {
+      try {
+        return JSON.parse(rawText);
+      } catch (parseErr: any) {
+        console.error(`[API ERROR] Non-JSON success payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
+        errorService.report({
+          type: ErrorType.API_ERROR,
+          message: `Non-JSON success payload from ${url}`,
+          metadata: { url, status: res.status, rawContent: rawText.slice(0, 1000), parseError: parseErr.message }
+        });
+        const jsonErr = new Error(`Expected JSON response from ${url} but received non-JSON text.`);
+        (jsonErr as any).status = res.status;
+        (jsonErr as any).details = rawText.slice(0, 200);
+        throw jsonErr;
+      }
+    }
+    return null;
   } catch (err: any) {
     if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
       console.log(`[API] Retrying ${url} due to network error. Retries left: ${retries - 1}`);

@@ -32,6 +32,7 @@ import { logServerError } from './src/lib/serverError';
 let isFirebaseReady = false;
 let config: any = null;
 let cert: any = null;
+let useLocalDatabaseFallback = false;
 
 // Improved Connection Status Tracking
 let dbConnectionStatus = {
@@ -42,285 +43,18 @@ let dbConnectionStatus = {
   lastCheck: new Date().toISOString()
 };
 
-// High-Fidelity Mock Firestore Database Implementation
-let localDbData: any = {};
-let useLocalDatabaseFallback = true;
 
-try {
-  const localDbPath = path.resolve(process.cwd(), 'mock_db_store.json');
-  if (fs.existsSync(localDbPath)) {
-    localDbData = JSON.parse(fs.readFileSync(localDbPath, 'utf8'));
-    
-    // Auto-populate categories if empty
-    if (!localDbData.categories || Object.keys(localDbData.categories).length === 0) {
-      localDbData.categories = {
-        "cat_1": { id: "cat_1", name: "Grains & Flours", created_at: new Date().toISOString() },
-        "cat_2": { id: "cat_2", name: "Spices", created_at: new Date().toISOString() },
-        "cat_3": { id: "cat_3", name: "Oils & Ghee", created_at: new Date().toISOString() }
-      };
-    }
-  } else {
-    localDbData = {
-      products: {},
-      categories: {
-        "cat_1": { id: "cat_1", name: "Grains & Flours", created_at: new Date().toISOString() },
-        "cat_2": { id: "cat_2", name: "Spices", created_at: new Date().toISOString() },
-        "cat_3": { id: "cat_3", name: "Oils & Ghee", created_at: new Date().toISOString() }
-      },
-      orders: {},
-      settings: {},
-      users: {}
-    };
-    fs.writeFileSync(localDbPath, JSON.stringify(localDbData, null, 2), 'utf8');
-  }
-} catch (e: any) {
-  console.error('[MOCK_DB] Failed to load local mock database:', e.message);
-}
 
-function saveLocalDb() {
-  try {
-    const localDbPath = path.resolve(process.cwd(), 'mock_db_store.json');
-    fs.writeFileSync(localDbPath, JSON.stringify(localDbData, null, 2), 'utf8');
-  } catch (e: any) {
-    console.error('[MOCK_DB] Failed to save/persist local database:', e.message);
-  }
-}
-
-class MockDocumentSnapshot {
-  id: string;
-  _data: any;
-  ref: any;
-  constructor(id: string, data: any, ref: any) {
-    this.id = id;
-    this._data = data;
-    this.ref = ref;
-  }
-  get exists() {
-    return this._data !== undefined;
-  }
-  data() {
-    return this._data ? JSON.parse(JSON.stringify(this._data)) : undefined;
-  }
-}
-
-class MockQuerySnapshot {
-  docs: MockDocumentSnapshot[];
-  constructor(docs: MockDocumentSnapshot[]) {
-    this.docs = docs;
-  }
-  get empty() {
-    return this.docs.length === 0;
-  }
-  get size() {
-    return this.docs.length;
-  }
-}
-
-class MockDocumentReference {
-  id: string;
-  collectionName: string;
-  constructor(collectionName: string, id: string) {
-    this.collectionName = collectionName;
-    this.id = id;
-  }
-  get ref() {
-    return this;
-  }
-  async get() {
-    const data = localDbData[this.collectionName]?.[this.id];
-    return new MockDocumentSnapshot(this.id, data, this);
-  }
-  async set(data: any, options?: any) {
-    if (!localDbData[this.collectionName]) {
-      localDbData[this.collectionName] = {};
-    }
-    const current = localDbData[this.collectionName][this.id] || {};
-    const merged = (options?.merge) ? { ...current, ...data } : data;
-    localDbData[this.collectionName][this.id] = merged;
-    saveLocalDb();
-    return { writeTime: new Date() };
-  }
-  async update(data: any) {
-    if (!localDbData[this.collectionName]) {
-      localDbData[this.collectionName] = {};
-    }
-    const current = localDbData[this.collectionName][this.id] || {};
-    localDbData[this.collectionName][this.id] = { ...current, ...data };
-    saveLocalDb();
-    return { writeTime: new Date() };
-  }
-  async delete() {
-    if (localDbData[this.collectionName]?.[this.id]) {
-      delete localDbData[this.collectionName][this.id];
-      saveLocalDb();
-    }
-    return { writeTime: new Date() };
-  }
-}
-
-class MockQuery {
-  collectionName: string;
-  _filters: Array<{ field: string, op: string, value: any }> = [];
-  _orders: Array<{ field: string, dir: string }> = [];
-  _limitVal?: number;
-
-  constructor(collectionName: string) {
-    this.collectionName = collectionName;
-  }
-
-  where(field: string, op: string, value: any) {
-    const q = new MockQuery(this.collectionName);
-    q._filters = [...this._filters, { field, op, value }];
-    q._orders = [...this._orders];
-    q._limitVal = this._limitVal;
-    return q;
-  }
-
-  orderBy(field: string, dir: string = 'asc') {
-    const q = new MockQuery(this.collectionName);
-    q._filters = [...this._filters];
-    q._orders = [...this._orders, { field, dir }];
-    q._limitVal = this._limitVal;
-    return q;
-  }
-
-  limit(val: number) {
-    const q = new MockQuery(this.collectionName);
-    q._filters = [...this._filters];
-    q._orders = [...this._orders];
-    q._limitVal = val;
-    return q;
-  }
-
-  async get() {
-    const coll = localDbData[this.collectionName] || {};
-    let docs = Object.keys(coll).map(id => ({ id, ...coll[id] }));
-
-    // Apply filters
-    for (const filter of this._filters) {
-      const { field, op, value } = filter;
-      docs = docs.filter((doc: any) => {
-        const docVal = doc[field];
-        if (op === '==' || op === '===') return String(docVal) === String(value);
-        if (op === '!=') return String(docVal) !== String(value);
-        if (op === '>=') return docVal >= value;
-        if (op === '<=') return docVal <= value;
-        if (op === '>') return docVal > value;
-        if (op === '<') return docVal < value;
-        if (op === 'array-contains') return Array.isArray(docVal) && docVal.includes(value);
-        if (op === 'in') return Array.isArray(value) && value.includes(docVal);
-        return true;
-      });
-    }
-
-    // Apply orders
-    for (const order of this._orders) {
-      const { field, dir } = order;
-      docs.sort((a: any, b: any) => {
-        let valA = a[field];
-        let valB = b[field];
-        if (typeof valA === 'string') valA = valA.toLowerCase();
-        if (typeof valB === 'string') valB = valB.toLowerCase();
-        if (valA < valB) return dir === 'asc' ? -1 : 1;
-        if (valA > valB) return dir === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-
-    // Apply limit
-    if (this._limitVal !== undefined) {
-      docs = docs.slice(0, this._limitVal);
-    }
-
-    const docSnaps = docs.map((doc: any) => {
-      const id = doc.id;
-      const data = { ...doc };
-      delete data.id;
-      return new MockDocumentSnapshot(id, data, new MockDocumentReference(this.collectionName, id));
-    });
-
-    return new MockQuerySnapshot(docSnaps);
-  }
-}
-
-class MockCollectionReference extends MockQuery {
-  constructor(collectionName: string) {
-    super(collectionName);
-  }
-  doc(id?: string) {
-    const finalId = id || 'mock-' + Math.random().toString(36).substring(2, 8);
-    return new MockDocumentReference(this.collectionName, finalId);
-  }
-  async add(data: any) {
-    const id = 'mock-' + Math.random().toString(36).substring(2, 8);
-    const docRef = this.doc(id);
-    await docRef.set(data);
-    return docRef;
-  }
-}
-
-class MockWriteBatch {
-  _ops: Array<() => Promise<any>> = [];
-  set(docRef: any, data: any, options?: any) {
-    this._ops.push(() => docRef.set(data, options));
-  }
-  update(docRef: any, data: any) {
-    this._ops.push(() => docRef.update(data));
-  }
-  delete(docRef: any) {
-    this._ops.push(() => docRef.delete());
-  }
-  async commit() {
-    for (const op of this._ops) {
-      await op();
-    }
-  }
-}
-
-class MockFirestore {
-  collection(name: string) {
-    return new MockCollectionReference(name);
-  }
-  batch() {
-    return new MockWriteBatch();
-  }
-}
-
+// Standard Firestore accessors
 const getFirestoreInstance = (databaseId?: string): any => {
-  if (useLocalDatabaseFallback) {
-    const mock = new MockFirestore();
-    (mock as any)._isMock = true;
-    return mock;
-  }
-
-  if (!isFirebaseReady || admin.apps.length === 0) {
-    console.warn('[FIREBASE] Admin not initialized, using local high-fidelity database as transient proxy.');
-    const mock = new MockFirestore();
-    (mock as any)._isMock = true;
-    return mock;
-  }
-
   const app = admin.app();
-  // Fixed: Correctly prioritizing environment variables for the database ID, explicitly allowing (default) fallback
-  const envDbId = process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID;
-  const targetDatabaseId = databaseId || (envDbId && envDbId !== 'default' ? envDbId : '(default)') || config?.firestoreDatabaseId || '(default)';
-  
-  const envProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PRESENT_ID;
-  
-  if (global.firebaseDebugLogged !== true) {
-    console.log('[DEBUG] Firestore Connection Info - Project:', envProjectId || app.options.projectId, 'Database:', targetDatabaseId);
-    global.firebaseDebugLogged = true;
+  const dbId = databaseId || process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId;
+  if (dbId && dbId !== '(default)' && dbId !== '') {
+    return getFirestore(app, dbId);
   }
-  
-  try {
-    return getFirestore(app, targetDatabaseId);
-  } catch (err: any) {
-    console.error(`[FIREBASE] FAILED to get Firestore instance. Project: ${app.options.projectId}, DB: ${targetDatabaseId}. Error: ${err.message}`);
-    const mock = new MockFirestore();
-    (mock as any)._isMock = true;
-    return mock;
-  }
+  return getFirestore(app);
 };
+
 
 const getAuthInstance = () => {
   if (!isFirebaseReady || admin.apps.length === 0) {
@@ -330,30 +64,7 @@ const getAuthInstance = () => {
 };
 
 const safeVerifyIdToken = async (token: string): Promise<any> => {
-  try {
-    return await getAuthInstance().verifyIdToken(token);
-  } catch (err: any) {
-    console.log('[AUTH] Token signature verification bypassed. Authenticating user via sandbox payload decode on preview local database.');
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        if (payload) {
-          return {
-            uid: payload.user_id || payload.sub || payload.uid,
-            email: payload.email,
-            email_verified: payload.email_verified !== undefined ? payload.email_verified : true,
-            phone_number: payload.phone_number,
-            name: payload.name,
-            picture: payload.picture
-          };
-        }
-      }
-    } catch (decodeErr: any) {
-      console.log('[AUTH] Sandbox decode fallback unsuccessful');
-    }
-    throw err;
-  }
+  return await getAuthInstance().verifyIdToken(token);
 };
 
 const getFirebaseWebConfig = () => {
@@ -428,10 +139,17 @@ async function initializeFirebase() {
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     const envProjectId = process.env.FIREBASE_PROJECT_ID || 
                          config?.projectId ||
-                         'studio-856520040983bd2'; 
+                         'studio-8565200409-a3bd2'; 
     const envDatabaseId = process.env.FIREBASE_DATABASE_ID || 
                           config?.firestoreDatabaseId || 
                           '(default)';
+
+    const promiseWithTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
+      ]);
+    };
 
     if (serviceAccountKey) {
       try {
@@ -452,7 +170,11 @@ async function initializeFirebase() {
         const db = getFirestoreInstance();
         // Probe for database existence
         try {
-          await db.collection('_health_').limit(1).get();
+          await promiseWithTimeout(
+            db.collection('_health_').limit(1).get(),
+            4000,
+            'Firestore connection probe timed out after 4s'
+          );
         } catch (healthErr: any) {
           if (healthErr.message.includes('NOT_FOUND') || healthErr.code === 5) {
              throw new Error('Firestore database (default) was not found. Please create it in the Firebase Console.');
@@ -485,7 +207,11 @@ async function initializeFirebase() {
         projectId: envProjectId
       });
       const db = getFirestoreInstance();
-      await db.collection('_health_').limit(1).get();
+      await promiseWithTimeout(
+        db.collection('_health_').limit(1).get(),
+        4000,
+        'Firestore connection probe timed out after 4s'
+      );
       
       isFirebaseReady = true;
       useLocalDatabaseFallback = false;
@@ -499,27 +225,13 @@ async function initializeFirebase() {
       if (admin.apps.length) await admin.app().delete();
     }
 
-    // Fallback to local sandbox mode
-    const fallbackProjectId = config?.projectId || 'studio-8565200409-a3bd2';
-    admin.initializeApp({ projectId: fallbackProjectId });
-    isFirebaseReady = true;
-    useLocalDatabaseFallback = true;
-    
-    dbConnectionStatus.mode = 'SANDBOX';
-    dbConnectionStatus.active = true;
-    dbConnectionStatus.isFallback = true;
-    dbConnectionStatus.details = 'Running in High-Fidelity local sandbox mode. (No production credentials detected)';
-    
-    console.log('[FIREBASE] Running in Local High-Fidelity Sandbox Mode (Project ID fallback):', fallbackProjectId);
+    // Throw error if production initialization fails - no fallback.
+    const errMessage = config ? 'Configuration found but Firebase failed to initialize.' : 'Firebase configuration missing.';
+    console.error('[FIREBASE] ' + errMessage);
+    throw new Error(errMessage);
   } catch (e: any) {
-    console.warn('[FIREBASE] Fallback initialization completed with warnings:', e.message);
-    isFirebaseReady = true;
-    useLocalDatabaseFallback = true;
-    
-    dbConnectionStatus.mode = 'ERROR';
-    dbConnectionStatus.active = true;
-    dbConnectionStatus.isFallback = true;
-    dbConnectionStatus.details = `Initialization Error: ${e.message}. Sandbox mode active.`;
+    console.error('[FIREBASE] Initialization failed:', e.message);
+    throw e;
   }
 }
 
@@ -693,17 +405,51 @@ app.get('/api/db-test', async (req, res) => {
   res.json(results);
 });
 
-app.get('/api/diag', (req, res) => {
-  res.json({
-    headers: req.headers,
-    url: req.url,
-    path: req.path,
-    query: req.query,
-    ip: req.ip,
-    protocol: req.protocol,
-    secure: req.secure,
-    isVercel: !!process.env.VERCEL
-  });
+app.get('/api/admin/diagnostic', async (req, res) => {
+  // Only admins should access this
+  if ((req.session as any)?.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  const results: any = {
+    projectId: admin.app()?.options.projectId || 'unknown',
+    initialized: admin.apps.length > 0,
+    timestamp: new Date().toISOString(),
+    connection: 'CHECKING'
+  };
+
+  try {
+    const db = getFirestoreInstance();
+    // Try to list collections as a probe
+    await db.listCollections();
+    results.connection = 'SUCCESS';
+    results.message = 'Firestore connection is active and accessible.';
+    
+    // Log success
+    const logRef = db.collection('system_logs').doc();
+    await logRef.set({
+        level: 'info',
+        message: 'Admin diagnostic scan: Connection successful.',
+        created_at: new Date().toISOString()
+    });
+  } catch (err: any) {
+    results.connection = 'FAILED';
+    results.error = err.message;
+    // Log failure
+    try {
+        const logRef = getFirestoreInstance().collection('system_logs').doc();
+        await logRef.set({
+            level: 'error',
+            message: `Admin diagnostic scan failed: ${err.message}`,
+            stack: err.stack,
+            created_at: new Date().toISOString()
+        });
+    } catch (logErr) {
+        console.error('Diagnostic log failed:', logErr);
+    }
+  }
+
+  res.json(results);
 });
 
 app.get('/ping', (req, res) => {
@@ -930,7 +676,14 @@ const createNotification = async (title: string, message: string, type: string =
 // Moved middlewares
 
 async function startServer() {
-  await initializeFirebase();
+  try {
+    await initializeFirebase();
+  } catch (err: any) {
+    console.error('[BOOT ERROR] initializeFirebase failed, server starting in bypass mode:', err.message);
+    dbConnectionStatus.mode = 'ERROR';
+    dbConnectionStatus.active = false;
+    dbConnectionStatus.details = `Database initialization failed. ${err.message}`;
+  }
   console.log('[BOOT] Creating http server instance and WebSocket server early...');
   if (!httpServer) {
     httpServer = createServer(app);
@@ -1586,40 +1339,79 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     next();
   });
 
+  async function logAuthFailure(req: express.Request, message: string, userId?: string) {
+    try {
+      if (!isFirebaseReady) {
+        console.warn(`[AUDIT LOG BYPASS] ${message} | Path: ${req.path}`);
+        return;
+      }
+      const db = getFirestoreInstance();
+      const logRef = db.collection('audit_logs').doc();
+      await logRef.set({
+        event: 'authentication_failure',
+        userId: userId || null,
+        message,
+        path: req.path,
+        method: req.method,
+        ip: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error('[AUDIT LOG ERROR] Failed to write to audit_logs:', err);
+    }
+  }
+
   // Global Admin Authorization Middleware
   async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (!isFirebaseReady) {
+      return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
+    }
+
     try {
       console.log('[AUTH MIDDLEWARE] Path:', req.path, 'Session userId:', req.session?.userId);
+      
+      // Strict Session Validation: Check if session has userId
       if (req.session?.userId) {
-         if (req.session.role) {
-             console.log('[AUTH MIDDLEWARE] Session valid, Role:', req.session.role);
-             return next();
-         }
-         if (!isFirebaseReady) return res.status(503).json({ success: false, message: 'Database connection is currently offline or unavailable.' });
-         const doc = await getFirestoreInstance().collection('users').doc(String(req.session.userId)).get();
+         const userIdStr = String(req.session.userId);
+         const doc = await getFirestoreInstance().collection('users').doc(userIdStr).get();
+         
          if (doc.exists) {
-            req.session.role = doc.data()?.role || 'customer';
-            console.log('[AUTH MIDDLEWARE] Session valid after DB lookup, Role:', req.session.role);
-            return next();
+            const userData = doc.data();
+            const role = userData?.role;
+            if (role) {
+              req.session.role = role;
+              console.log('[AUTH MIDDLEWARE] Strict verification success, Role:', role);
+              return next();
+            } else {
+              // Missing role on user document
+              await logAuthFailure(req, `User document ${userIdStr} missing role attribute`, userIdStr);
+              req.session = null;
+              return res.status(401).json({ success: false, message: 'Unauthorized: Session missing valid role' });
+            }
+         } else {
+            // Document doesn't exist anymore or is invalid
+            await logAuthFailure(req, `Active session user ID ${userIdStr} does not exist in users collection`, userIdStr);
+            req.session = null;
+            return res.status(401).json({ success: false, message: 'Unauthorized: Invalid user session ID' });
          }
-         req.session = null;
-         console.log('[AUTH MIDDLEWARE] User doc missing, clearing session');
       }
       
       const user = await verifyFirebaseUser(req);
-      if (user) {
+      if (user && user.id && user.role) {
         req.session = req.session || {};
         req.session.userId = user.id;
         req.session.role = user.role;
-        console.log('[AUTH MIDDLEWARE] User verified via Firebase, userId:', req.session.userId, 'Role:', req.session.role);
+        console.log('[AUTH MIDDLEWARE] User verified via Firebase Bearer token:', user.id, 'Role:', user.role);
         return next();
       }
 
-      console.log('[AUTH MIDDLEWARE] Authentication failed, no user found');
+      await logAuthFailure(req, 'Missing or invalid authentication credentials');
       return res.status(401).json({ success: false, message: 'Authentication required' });
     } catch (err: any) {
       console.error('[AUTH MIDDLEWARE ERROR]:', err.message);
-      return res.status(503).json({ success: false, message: 'Authentication service temporarily unavailable', error: err.message });
+      await logAuthFailure(req, `Internal Auth Error: ${err.message}`);
+      return res.status(401).json({ success: false, message: 'Unauthorized: Authentication failed', error: err.message });
     }
   };
 
@@ -1685,7 +1477,113 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   };
 
-  app.use('/api/admin', requireAdmin);
+  async function auditRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const methodsToAudit = ['POST', 'PUT', 'DELETE'];
+    if (methodsToAudit.includes(req.method)) {
+      try {
+        if (!isFirebaseReady) {
+          console.warn(`[AUDIT BYPASS] Firestore not ready for audit: ${req.method} ${req.path}`);
+          return next();
+        }
+
+        const db = getFirestoreInstance();
+        const auditRef = db.collection('audit_logs').doc();
+        
+        // Sanitize body (don't log sensitive info)
+        const sanitizedBody = { ...req.body };
+        const sensitiveKeys = ['password', 'token', 'apiKey', 'secret', 'cvv', 'card_number'];
+        sensitiveKeys.forEach(key => {
+          if (sanitizedBody && typeof sanitizedBody === 'object' && sanitizedBody[key]) {
+            sanitizedBody[key] = '[REDACTED]';
+          }
+        });
+
+        await auditRef.set({
+          event: 'admin_action',
+          userId: req.session?.userId || 'anonymous',
+          userRole: req.session?.role || 'none',
+          method: req.method,
+          path: req.path,
+          payload: sanitizedBody,
+          ip: req.ip || null,
+          userAgent: req.headers['user-agent'] || null,
+          timestamp: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('[AUDIT ERROR] Failed to log admin action:', err);
+      }
+    }
+    next();
+  }
+
+  app.use('/api/admin', requireAdmin, auditRequest);
+
+  app.get('/api/admin/diagnose-firestore', requireAdmin, async (req, res) => {
+    const results: any = {
+      projectId: admin.app()?.options.projectId || 'none',
+      isFirebaseReady,
+      INITIALIZATION_MODE: dbConnectionStatus.mode,
+      CREDENTIALS: {
+        HAS_SERVICE_ACCOUNT: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+        HAS_ENV_PROJECT_ID: !!process.env.FIREBASE_PROJECT_ID,
+        CONFIG_FILE_EXISTS: fs.existsSync(path.join(process.cwd(), 'src/config', 'firebase-applet-config.json'))
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      if (!isFirebaseReady) {
+        throw new Error(`Firebase not initialized. Mode: ${dbConnectionStatus.mode}. Details: ${dbConnectionStatus.details}`);
+      }
+
+      const db = getFirestoreInstance();
+      // Try to list collections as a probe
+      const collections = await db.listCollections();
+      results.connection = 'SUCCESS';
+      results.message = 'Firestore connection is active and accessible.';
+      results.collections = collections.map((c: any) => c.id);
+      
+      // Log success
+      const logRef = db.collection('system_logs').doc();
+      await logRef.set({
+          level: 'info',
+          source: 'diagnose-firestore',
+          message: 'Admin diagnostic scan: Connection successful.',
+          details: results,
+          created_at: new Date().toISOString()
+      });
+
+      return res.json(results);
+    } catch (err: any) {
+      results.connection = 'FAILED';
+      results.error = err.message;
+      results.stack = err.stack;
+      
+      // Log failure
+      try {
+          if (isFirebaseReady) {
+            const logRef = getFirestoreInstance().collection('system_logs').doc();
+            await logRef.set({
+                level: 'error',
+                source: 'diagnose-firestore',
+                message: `Admin diagnostic scan failed: ${err.message}`,
+                details: results,
+                created_at: new Date().toISOString()
+            });
+          } else {
+            console.error('[DIAGNOSTIC BACKUP LOG] Firestore not ready, diagnostic failed:', err.message);
+          }
+      } catch (logErr) {
+          console.error('Diagnostic log write failed:', logErr);
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: 'Firestore connection probe failed',
+        ...results
+      });
+    }
+  });
 
   app.post('/api/profile/apply-khata', requireAuth, async (req, res) => {
     try {
@@ -2606,7 +2504,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/cart', requireAuth, async (req, res) => {
     const userId = req.query.userId;
     if (!userId) return res.status(400).json({ message: 'User ID required' });
-    if (String(userId) !== String(req.session.userId) && String(userId) !== 'mock-id' && String(req.session.userId) !== 'mock-id') { return res.status(403).json({ message: 'Unauthorized' }); }
+    if (String(userId) !== String(req.session.userId)) { return res.status(403).json({ message: 'Unauthorized' }); }
     try {
       if (!admin.apps.length) return res.status(500).json([]);
       const snap = await getFirestoreInstance().collection('cart_items').where('user_id', '==', String(userId)).get();
@@ -2955,6 +2853,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/categories', async (req, res) => {
     try {
+      const initialCats = [
+        { id: "cat_1", name: "Grains & Flours" },
+        { id: "cat_2", name: "Spices" },
+        { id: "cat_3", name: "Oils & Ghee" }
+      ];
+
       if (admin.apps.length > 0) {
         try {
           const snapshot = await getFirestoreInstance().collection('categories').get();
@@ -2962,15 +2866,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           if (snapshot.empty && !useLocalDatabaseFallback) {
             // One-time bootstrap for production categories
             console.log('[BOOTSTRAP] Categories collection is empty. Seeding standard categories...');
-            const initialCats = [
-              { id: "cat_1", name: "Grains & Flours", created_at: new Date().toISOString() },
-              { id: "cat_2", name: "Spices", created_at: new Date().toISOString() },
-              { id: "cat_3", name: "Oils & Ghee", created_at: new Date().toISOString() }
-            ];
             const batch = getFirestoreInstance().batch();
             initialCats.forEach(c => {
                const ref = getFirestoreInstance().collection('categories').doc(c.id);
-               batch.set(ref, c);
+               batch.set(ref, { ...c, created_at: new Date().toISOString() });
             });
             await batch.commit();
             return res.json(initialCats);
@@ -2979,16 +2878,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           return res.json(categories);
         } catch (dbErr: any) {
-          console.warn('[CATEGORIES] Database fetch failed, using local mock fallback:', dbErr.message);
-          // Fall through to mock logic if db fails
+          console.warn('[CATEGORIES] Database fetch failed, using fallback categories list:', dbErr.message);
+          return res.json(initialCats);
         }
       }
-      
-      // Fallback to local mock data
-      const mockCats = Object.keys(localDbData.categories || {}).map(id => ({ id, ...localDbData.categories[id] }));
-      return res.json(mockCats);
+      return res.json(initialCats);
     } catch (e: any) {
-      res.json([]);
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -3223,7 +3119,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // Delivery Areas
   app.get('/api/user/insights/:userId', requireAuth, async (req, res) => {
     const { userId } = req.params;
-    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin' && String(userId) !== 'mock-id') {
+    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -3301,7 +3197,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/user/khata/history/:userId', requireAuth, async (req, res) => {
     const { userId } = req.params;
-    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin' && String(userId) !== 'mock-id') {
+    if (String(userId) !== String(req.session.userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -4231,7 +4127,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/wallet-history/:userId', async (req, res) => {
     const { userId } = req.params;
-    if (String(req.session.userId) !== String(userId) && req.session.role !== 'admin' && String(userId) !== 'mock-id') {
+    if (String(req.session.userId) !== String(userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
     if (!admin.apps.length) return res.json([]);
@@ -6613,7 +6509,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/orders/user/:userId', async (req, res) => {
     const { userId } = req.params;
-    if (String(req.session.userId) !== String(userId) && req.session.role !== 'admin' && String(userId) !== 'mock-id') {
+    if (String(req.session.userId) !== String(userId) && req.session.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
     if (!admin.apps.length) return res.json([]);

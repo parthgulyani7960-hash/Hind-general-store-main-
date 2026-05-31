@@ -1902,6 +1902,7 @@ export default function AdminDashboard() {
     expires_at: ''
   });
   const [selectedProducts, setSelectedProducts] = useState<number[]>([]);
+  const [bulkStockValue, setBulkStockValue] = useState<string>('');
   const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -3862,8 +3863,16 @@ export default function AdminDashboard() {
 
   const bulkUpdateStock = async () => {
     if (selectedProducts.length === 0) return;
-    const newStock = prompt('Enter new stock value for selected products:');
-    if (newStock === null || isNaN(Number(newStock))) return;
+    
+    let newStock = bulkStockValue;
+    if (!newStock) {
+      newStock = prompt('Enter new stock value for selected products:');
+    }
+    
+    if (newStock === null || newStock === '' || isNaN(Number(newStock))) {
+      toast.error('Please enter a valid numeric stock value');
+      return;
+    }
     
     if (!confirm(`Are you sure you want to update stock to ${newStock} for ${selectedProducts.length} products?`)) {
       return;
@@ -3878,6 +3887,7 @@ export default function AdminDashboard() {
       if (data) {
         toast.success(`Updated stock for ${selectedProducts.length} products`);
         setSelectedProducts([]);
+        setBulkStockValue('');
         fetchAllProducts();
       }
     } catch (err) {
@@ -7361,13 +7371,23 @@ export default function AdminDashboard() {
                          <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><X size={16} className="text-amber-400" /></div>
                         <span className="font-bold text-sm">Make Inactive</span>
                       </button>
-                      <button 
-                        onClick={bulkUpdateStock}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
-                      >
-                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><RefreshCw size={16} className="text-blue-400" /></div>
-                        <span className="font-bold text-sm">Update Stock</span>
-                      </button>
+                      <div className="flex items-center bg-stone-800 rounded-xl px-2 h-10 border border-stone-700/50 focus-within:border-primary/50 transition-colors">
+                        <input 
+                          type="number" 
+                          placeholder="Stock"
+                          className="bg-transparent border-none outline-none text-xs font-bold w-16 px-2 placeholder:text-stone-600"
+                          value={bulkStockValue}
+                          onChange={(e) => setBulkStockValue(e.target.value)}
+                        />
+                        <button 
+                          onClick={bulkUpdateStock}
+                          className="flex items-center space-x-2 px-3 py-1 hover:bg-stone-700 rounded-lg transition-colors whitespace-nowrap group"
+                          title="Apply stock level to all selected"
+                        >
+                          <RefreshCw size={14} className="text-blue-400 group-hover:rotate-180 transition-transform duration-500" />
+                          <span className="font-bold text-[10px] uppercase tracking-wider">Set Stock</span>
+                        </button>
+                      </div>
                       <button 
                         onClick={bulkUpdateCategory}
                         className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
@@ -13265,12 +13285,12 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="bg-stone-50 p-6 rounded-2xl">
-                  <h4 className="font-bold text-stone-900 mb-4">Shipment Tracking</h4>
+                  <h4 className="font-bold text-stone-900 mb-4">Delivery Partner Tracking ID</h4>
                   <div className="flex space-x-2">
                     <input
                       type="text"
                       className="flex-1 p-4 bg-white border border-stone-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-sm"
-                      placeholder="Enter Tracking ID..."
+                      placeholder="Enter Delivery Partner Tracking ID..."
                       defaultValue={orderModal.order.tracking_id}
                       id={`tracking-id-${orderModal.order.id}`}
                     />
@@ -13280,11 +13300,21 @@ export default function AdminDashboard() {
                         try {
                           const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/tracking`, {
                             method: 'POST',
-                            headers: getAuthHeaders(),
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                             body: JSON.stringify({ tracking_id })
                           });
                           if (data) {
                             toast.success('Tracking ID saved');
+                            // Notify user
+                            fetch('/api/admin/notifications', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                              body: JSON.stringify({
+                                user_id: orderModal.order.user_id,
+                                message: `Your order #${orderModal.order.order_id || orderModal.order.id} has been updated with delivery tracking ID: ${tracking_id}`,
+                                type: 'order_update'
+                              })
+                            }).catch(console.error);
                             setOrderModal({ 
                               ...orderModal, 
                               order: { ...orderModal.order, tracking_id } 

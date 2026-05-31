@@ -2,13 +2,32 @@
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { normalizeEnvironment } from './src/lib/envCheck';
+import fs from 'fs';
+import path from 'path';
 
 async function checkConnectivity() {
   console.log('--- Firebase Connectivity Diagnostic ---');
   normalizeEnvironment();
   
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const dbId = process.env.FIREBASE_DATABASE_ID || '(default)';
+  let projectId = process.env.FIREBASE_PROJECT_ID;
+  let dbId = process.env.FIREBASE_DATABASE_ID;
+  
+  let configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (!fs.existsSync(configPath)) {
+    configPath = path.join(process.cwd(), 'src/config', 'firebase-applet-config.json');
+  }
+  
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (!projectId) projectId = config.projectId;
+      if (!dbId) dbId = config.firestoreDatabaseId;
+    } catch (e: any) {
+      console.warn('Could not parse config file:', e.message);
+    }
+  }
+
+  if (!dbId) dbId = '(default)';
   const saKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
   console.log(`Resolved Project: ${projectId}`);
@@ -50,12 +69,23 @@ async function checkConnectivity() {
       }
     }
 
-    const db = getFirestore(admin.app(), dbId);
-    console.log('Attempting to list collections...');
-    
-    const collections = await db.listCollections();
-    console.log(`✅ Success! Found ${collections.length} collections.`);
-    collections.forEach(c => console.log(` - ${c.id}`));
+  const db = getFirestore(admin.app(), dbId);
+  console.log(`Attempting to query custom database (${dbId}) categories collection...`);
+  try {
+    const snapshot = await db.collection('categories').limit(1).get();
+    console.log('✅ Custom DB Query Success!');
+  } catch (err: any) {
+    console.error(`❌ Custom DB Query Failed: ${err.message}`);
+  }
+
+  console.log('Attempting to query (default) database categories collection...');
+  try {
+    const defaultDb = getFirestore(admin.app());
+    const snapshotDefault = await defaultDb.collection('categories').limit(1).get();
+    console.log('✅ (default) DB Query Success!');
+  } catch (err: any) {
+    console.error(`❌ (default) DB Query Failed: ${err.message}`);
+  }
 
   } catch (err: any) {
     console.error('❌ Connection Failed');

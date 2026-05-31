@@ -89,9 +89,8 @@ export function validateEnvironment() {
     console.error('\x1b[31m%s\x1b[0m', 'CRITICAL ERROR: Missing Required Environment Variables:');
     missing.forEach(v => console.error(` - ${v}`));
     
-    // In production, we typically want to fail fast, but in this sandbox environment
-    // we prefer limited mock functionality over a crashing container.
-    console.warn('\x1b[33m%s\x1b[0m', 'Information: Missing Required Environment Variables. Falling back to limited/mock mode.');
+    // In production environments, missing variables are considered fatal blockers.
+    console.error('\x1b[31m%s\x1b[0m', 'FATAL: The application cannot start without valid Firebase production credentials.');
   }
 
   const missingOptional = OPTIONAL_VARS.filter(v => !process.env[v]);

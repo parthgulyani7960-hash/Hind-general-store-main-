@@ -8,35 +8,6 @@ initializeApp();
 const db = getFirestore();
 
 /**
- * Cloud Function triggered every Sunday at midnight to back up Firestore.
- * Requires an environment variable 'BACKUP_BUCKET_NAME' to be set in the function config.
- */
-export const weeklyFirestoreBackup = onSchedule("0 0 * * 0", async (event) => {
-  const bucketName = process.env.BACKUP_BUCKET_NAME;
-  if (!bucketName) {
-    logger.error("BACKUP_BUCKET_NAME environment variable not set.");
-    return;
-  }
-
-  const projectId = process.env.GCP_PROJECT;
-  const client = new admin.firestore.v1.FirestoreAdminClient();
-  const databaseName = client.databasePath(projectId!, "(default)");
-
-  try {
-    logger.log("Starting weekly Firestore backup...");
-    const [operation] = await client.exportDocuments({
-      name: databaseName,
-      outputUriPrefix: `gs://${bucketName}/${new Date().toISOString()}`,
-    });
-
-    await operation.promise();
-    logger.log(`Backup completed successfully to gs://${bucketName}`);
-  } catch (error) {
-    logger.error("Failed to perform Firestore backup:", error);
-  }
-});
-
-/**
  * Deletes documents in a query in a batch.
  * Max batch size handled is 500.
  */

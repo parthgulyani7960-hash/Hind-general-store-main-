@@ -83,12 +83,12 @@ export const NetworkBanner = () => {
               
               <div className="flex-grow min-w-0 pr-6">
                 <h4 className="text-sm font-black uppercase tracking-wider text-stone-200">
-                  {!isOnline ? 'Connection Offline' : 'Mock Database Active'}
+                  {!isOnline ? 'Connection Offline' : 'Database Connection Lost'}
                 </h4>
                 <p className="text-xs text-stone-400 mt-1 leading-relaxed">
                   {!isOnline 
                     ? 'Your internet connection was interrupted. Please check your cellular network or Wi-Fi.'
-                    : 'The application is running in mock data mode because Firebase access is disabled or unavailable.'}
+                    : 'The connection to the secure database was lost. Please verify your internet and refresh.'}
                 </p>
                 {firebaseError && (
                   <p className="text-[10px] text-stone-500 mt-2 font-mono break-words">
@@ -101,17 +101,10 @@ export const NetworkBanner = () => {
             <div className="flex flex-col sm:flex-row items-center gap-2.5 mt-2 pt-4 border-t border-stone-800/60">
               <button
                 onClick={handleRetry}
-                className="w-full sm:w-auto px-5 py-2.5 bg-white text-stone-900 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-stone-100 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
+                className="w-full px-5 py-2.5 bg-white text-stone-900 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-stone-100 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
               >
                 <RefreshCw size={12} className="animate-spin" style={{ animationDuration: '6s' }} />
-                <span>Retry Connection</span>
-              </button>
-
-              <button
-                onClick={handleDismiss}
-                className="w-full sm:w-auto px-5 py-2.5 text-stone-500 hover:text-stone-300 font-bold text-xs uppercase tracking-widest transition-colors"
-              >
-                Continue using Mock Data
+                <span>Reconnect Now</span>
               </button>
             </div>
           </div>

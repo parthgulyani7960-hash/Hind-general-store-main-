@@ -70,6 +70,8 @@ interface StoreContextType {
   lastAddedId: number | null;
   fetchWithHandling: <T>(url: string, options?: RequestInit) => Promise<T>;
   showImages: boolean;
+  dbError: boolean;
+  setDbError: (val: boolean) => void;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -77,6 +79,7 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [dbError, setDbError] = useState(false);
   const initialCheckDone = useRef(false);
   const authRunningRef = useRef(false);
 
@@ -204,36 +207,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                return;
             }
 
-            const isDevOrPreview = typeof window !== 'undefined' && (
-              window.location.hostname === 'localhost' || 
-              window.location.hostname === '127.0.0.1' || 
-              window.location.hostname.includes('-dev-') ||
-              window.location.hostname.includes('-pre-') ||
-              window.location.hostname.includes('ais-')
-            );
-            const isSandboxToken = !!(savedToken && (
-              savedToken.includes('google_sandbox_user_') ||
-              (() => {
-                try {
-                  const parts = savedToken.split('.');
-                  if (parts.length === 3) {
-                    const decoded = atob(parts[1]);
-                    const payload = JSON.parse(decoded);
-                    return payload && (payload.uid?.includes('google_sandbox_user_') || payload.user_id?.includes('google_sandbox_user_'));
-                  }
-                } catch(e) {}
-                return false;
-              })()
-            ));
-
-            if (isSandboxToken || (isDevOrPreview && savedToken)) {
-              console.log('[StoreContext] Dev/sandbox session retained on idTokenChange');
-              return;
-            }
-
-            setUser(null);
             localStorage.removeItem('hgs_token');
             localStorage.removeItem('hgs_user');
+            setUser(null);
           }
         } catch (e) {
           console.error('Auth change handling error', e);
@@ -244,11 +220,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     initialize();
     
     const listener = () => setUser(null);
+    const dbErrListener = (e: any) => {
+      console.warn('[StoreContext] Database connection error event caught:', e.detail);
+      setDbError(true);
+    };
+    
     window.addEventListener('auth_error', listener);
+    window.addEventListener('database_error', dbErrListener);
     
     return () => {
       if (unsubscribe) unsubscribe();
       window.removeEventListener('auth_error', listener);
+      window.removeEventListener('database_error', dbErrListener);
     };
   }, []); // Empty dependencies as functions inside are stable
 
@@ -407,8 +390,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity,
     lastAddedId, fetchWithHandling,
-    showImages
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId, showImages]);
+    showImages,
+    dbError, setDbError
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError]);
 
   return (
     <StoreContext.Provider value={contextValue}>
