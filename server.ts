@@ -798,7 +798,7 @@ async function startServer() {
   } catch (err: any) {
     console.error("[BOOT ERROR]", err);
     console.error(err?.stack);
-    throw err;
+    // DO NOT THROW, allow server to boot in error mode
   }
   
   console.log('[BOOT] Creating http server instance and WebSocket server early...');
