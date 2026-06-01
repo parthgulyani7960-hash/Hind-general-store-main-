@@ -87,6 +87,7 @@ export function validateEnvironment() {
   
   if (missing.length > 0) {
     console.error('\x1b[31m%s\x1b[0m', 'CRITICAL ERROR: Missing Required Environment Variables:');
+    console.error('Available keys:', Object.keys(process.env).join(', '));
     missing.forEach(v => console.error(` - ${v}`));
     
     // In production environments, missing variables are considered fatal blockers.

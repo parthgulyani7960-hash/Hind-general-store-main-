@@ -295,6 +295,7 @@ const handleAppError = (err: any, message: string, context: string) => {
 const app = express();
 
 app.use((req, res, next) => {
+  console.log(`[DEBUG] Request received: ${req.method} ${req.path}`);
   const isApi = req.path.startsWith('/api');
   
   // Inject Database Status for frontend visibility
@@ -384,6 +385,26 @@ app.use((req, res, next) => {
   };
 
   next();
+});
+
+app.get('/api/health-debug', async (req, res) => {
+  res.json({
+      "nodeVersion": process.version,
+      "environment": process.env.NODE_ENV,
+
+      "FIREBASE_SERVICE_ACCOUNT_KEY_PRESENT": !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+      "FIREBASE_PROJECT_ID_PRESENT": !!process.env.FIREBASE_PROJECT_ID,
+      "SESSION_SECRET_PRESENT": !!process.env.SESSION_SECRET,
+
+      "firebaseAdminInitialized": admin.apps.length > 0,
+      "firestoreConnected": isFirebaseReady,
+
+      "projectId": admin.apps.length > 0 ? admin.app().options.projectId : 'unknown',
+      "databaseId": config?.firestoreDatabaseId || '(default)',
+
+      "startupStatus": dbConnectionStatus.mode,
+      "lastError": dbConnectionStatus.details
+  });
 });
 
 app.get('/api/health', async (req, res) => {
@@ -5046,6 +5067,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   // BUGS ENDPOINTS
   app.post('/api/bugs/report', async (req, res) => {
+    console.log("[ROUTE ENTERED] /api/bugs/report");
     try {
       const { 
         user_id, reporter_name, message, why, path, action_log,
@@ -5081,7 +5103,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
       return res.json({ success: true, message: 'Bug reported logged (or skipped gracefully)' });
     } catch (e: any) {
-      console.error('Error reporting bug:', e);
+      console.error("[BUGS REPORT ERROR]");
+      console.error(e);
+      console.error(e?.stack);
       // Return 200 so the UI error reporter doesn't get into an infinite recursion loop reporting its own 500 error
       res.json({ success: false, message: e.message });
     }

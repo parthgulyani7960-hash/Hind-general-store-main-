@@ -8,7 +8,7 @@ import MobileBottomNav from './components/MobileBottomNav';
 import FloatingCart from './components/FloatingCart';
 import BackToTop from './components/BackToTop';
 import FullScreenAlert from './components/FullScreenAlert';
-import AuthErrorReloader from './components/AuthErrorReloader';
+import AuthGuard from './components/AuthGuard';
 import ReviewPromptNotification from './components/ReviewPromptNotification';
 
 // Shared Vibration Helper for Flash Messages
@@ -124,48 +124,7 @@ const MaintenancePage = lazyWithRetry(() => import('./pages/MaintenancePage'));
 const TrackOrder = lazyWithRetry(() => import('./pages/TrackOrder'));
 const UserActivity = lazyWithRetry(() => import('./pages/UserActivityV2'));
 
-function ProtectedRoute({ children, adminOnly = false, runnerOnly = false }: { children: React.ReactNode; adminOnly?: boolean; runnerOnly?: boolean }) {
-  const { user, isAuthChecking } = useStore();
-  const location = useLocation();
 
-  const isUserAdmin = user && (user.role as any) === 'admin';
-  const isUserRunner = user && ((user.role as any) === 'delivery' || (user.role as any) === 'runner' || isUserAdmin);
-
-  const hasShownNotLoggedInToast = useRef(false);
-
-  useEffect(() => {
-    if (!isAuthChecking) {
-      if (!user && window.location.pathname !== '/login') {
-        if (!hasShownNotLoggedInToast.current) {
-          toast.error('Please log in to use these services');
-          hasShownNotLoggedInToast.current = true;
-        }
-      } else if (adminOnly && !isUserAdmin) {
-        toast.error('Access denied. Admin privileges required.');
-      } else if (runnerOnly && !isUserRunner) {
-        toast.error('Access denied. Delivery runner privileges required.');
-      }
-    }
-  }, [user, adminOnly, runnerOnly, isAuthChecking, isUserAdmin, isUserRunner]);
-
-  if (isAuthChecking) {
-    return <LoadingFallback />;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  if (adminOnly && !isUserAdmin) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (runnerOnly && !isUserRunner) {
-    return <Navigate to="/" replace />;
-  }
-
-  return <>{children}</>;
-}
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -203,22 +162,16 @@ function AnimatedRoutes() {
           <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
           <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
           <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
-          <Route path="/checkout" element={<ProtectedRoute><PageWrapper><Checkout /></PageWrapper></ProtectedRoute>} />
-          <Route path="/invoice/:id" element={<ProtectedRoute><PageWrapper><Invoice /></PageWrapper></ProtectedRoute>} />
-          <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
-          <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
-          <Route path="/wishlist" element={<ProtectedRoute><PageWrapper><Wishlist /></PageWrapper></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><PageWrapper><Profile /></PageWrapper></ProtectedRoute>} />
-          <Route path="/privacy-policy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
-          <Route path="/add-money" element={<ProtectedRoute><PageWrapper><AddMoney /></PageWrapper></ProtectedRoute>} />
-          <Route path="/admin/activity-logs" element={<ProtectedRoute adminOnly><PageWrapper><ActivityLogs /></PageWrapper></ProtectedRoute>} />
-          <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
-          <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
-          <Route path="/admin" element={<ProtectedRoute adminOnly><PageWrapper><AdminDashboard /></PageWrapper></ProtectedRoute>} />
-          <Route path="/admin/payments" element={<ProtectedRoute adminOnly><PageWrapper><AdminPayments /></PageWrapper></ProtectedRoute>} />
-          <Route path="/runner" element={<ProtectedRoute runnerOnly><PageWrapper><DeliveryDashboard /></PageWrapper></ProtectedRoute>} />
-          <Route path="/track-order" element={<PageWrapper><TrackOrder /></PageWrapper>} />
-          <Route path="/history" element={<ProtectedRoute><PageWrapper><UserActivity /></PageWrapper></ProtectedRoute>} />
+          <Route path="/checkout" element={<AuthGuard><PageWrapper><Checkout /></PageWrapper></AuthGuard>} />
+          <Route path="/invoice/:id" element={<AuthGuard><PageWrapper><Invoice /></PageWrapper></AuthGuard>} />
+          <Route path="/wishlist" element={<AuthGuard><PageWrapper><Wishlist /></PageWrapper></AuthGuard>} />
+          <Route path="/profile" element={<AuthGuard><PageWrapper><Profile /></PageWrapper></AuthGuard>} />
+          <Route path="/add-money" element={<AuthGuard><PageWrapper><AddMoney /></PageWrapper></AuthGuard>} />
+          <Route path="/admin/activity-logs" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><ActivityLogs /></PageWrapper></AuthGuard>} />
+          <Route path="/admin" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminDashboard /></PageWrapper></AuthGuard>} />
+          <Route path="/admin/payments" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminPayments /></PageWrapper></AuthGuard>} />
+          <Route path="/runner" element={<AuthGuard allowedRoles={['delivery', 'runner', 'admin']}><PageWrapper><DeliveryDashboard /></PageWrapper></AuthGuard>} />
+          <Route path="/history" element={<AuthGuard><PageWrapper><UserActivity /></PageWrapper></AuthGuard>} />
         </Routes>
       </AnimatePresence>
       {showFooter && (
