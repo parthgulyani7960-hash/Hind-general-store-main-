@@ -166,6 +166,11 @@ async function initializeFirebase() {
         console.log('[FIREBASE] Validating custom Database ID; fell back to static baseline custom Firestore Database ID:', STATIC_BASELINE_CONFIG.firestoreDatabaseId);
         config.firestoreDatabaseId = STATIC_BASELINE_CONFIG.firestoreDatabaseId;
       }
+
+      console.log('[FIREBASE] Using Firestore Database ID:', config.firestoreDatabaseId);
+      if (config.firestoreDatabaseId !== '(default)') {
+        console.warn('[FIREBASE] WARNING: Using non-default Firestore Database ID. If this is causing connection errors, ensure it matches the actual database ID in your Firebase project console. Standard ID is "(default)".');
+      }
       console.log('[FIREBASE] Config baseline loaded and sanitized from file:', configPath);
     } catch (err: any) {
       console.error('[FIREBASE] Error reading runtime config file, using static baseline:', err.message);

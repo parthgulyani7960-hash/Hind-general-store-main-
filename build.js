@@ -70,4 +70,17 @@ try {
   process.exit(1);
 }
 
+// 4. API entry point compilation
+console.log('[BUILD] Compiling API entry point...');
+const apiSrc = path.resolve(rootDir, 'api/index.ts');
+const apiOut = path.resolve(rootDir, 'api/index.js');
+
+try {
+  execSync(`npx esbuild "${apiSrc}" --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile="${apiOut}"`, { stdio: 'inherit', cwd: rootDir });
+  console.log('[BUILD] API entry point build complete.', apiOut);
+} catch (err: any) {
+  console.error('[BUILD] esbuild compiler for API failed:', err.message || err);
+  process.exit(1);
+}
+
 console.log('[BUILD] Build process successfully completed with no resolution errors!');
