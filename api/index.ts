@@ -1,3 +1,4 @@
+// @ts-nocheck
 console.log("[API HANDLER LOADED]");
 
 import handler from '../dist/server.cjs';

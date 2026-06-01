@@ -18,7 +18,7 @@ try {
             const currentToken = localStorage.getItem('hgs_token');
 
             // Set a timeout to prevent infinite hang
-            const readyPromise = auth.authStateReady();
+            const readyPromise = typeof auth.authStateReady === 'function' ? auth.authStateReady() : Promise.resolve();
             const timeoutPromise = new Promise((_, reject) => 
                 setTimeout(() => reject(new Error('Refresh auth timeout')), 3000)
             );

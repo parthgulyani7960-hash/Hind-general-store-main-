@@ -10,7 +10,7 @@ import firebaseConfig from '@config/firebase-applet-config.json';
 const getResolvedFirebaseConfig = () => {
   // Helper to validate that a configuration object is a real production configuration (not empty)
   const isValidRealConfig = (cfg: any): boolean => {
-    return !!(cfg && cfg.projectId);
+    return !!(cfg && cfg.projectId && cfg.apiKey && cfg.projectId !== 'undefined' && cfg.apiKey !== 'undefined');
   };
 
   // 1. Try secure runtime-injected configuration on window
@@ -30,9 +30,9 @@ const getResolvedFirebaseConfig = () => {
   const envAppId = import.meta.env?.VITE_FIREBASE_APP_ID || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_APP_ID);
   const envFirestoreDatabaseId = import.meta.env?.VITE_FIRESTORE_DATABASE_ID || (typeof process !== 'undefined' && process.env?.VITE_FIRESTORE_DATABASE_ID);
 
-  if (envProjectId) {
+  if (envProjectId && envProjectId !== 'undefined' && envApiKey && envApiKey !== 'undefined') {
     return {
-      apiKey: envApiKey || '',
+      apiKey: envApiKey,
       authDomain: envAuthDomain || '',
       projectId: envProjectId,
       storageBucket: envStorageBucket || '',
@@ -112,7 +112,20 @@ try {
 }
 
 if (auth && typeof auth.authStateReady !== 'function') {
-  auth.authStateReady = () => Promise.resolve();
+  try {
+    Object.defineProperty(auth, 'authStateReady', {
+      value: () => Promise.resolve(),
+      writable: true,
+      configurable: true
+    });
+  } catch (e: any) {
+    console.warn('[Firebase] Could not define authStateReady on auth instance safely:', e.message);
+    try {
+      (auth as any).authStateReady = () => Promise.resolve();
+    } catch (innerErr: any) {
+      console.warn('[Firebase] Direct assignment to authStateReady also failed:', innerErr.message);
+    }
+  }
 }
 
 try {

@@ -408,7 +408,7 @@ const handleAppError = (err: any, message: string, context: string) => {
 const app = express();
 
 app.use((req, res, next) => {
-  console.log(`[DEBUG] Request received: ${req.method} ${req.path}`);
+  // console.log(`[DEBUG] Request received: ${req.method} ${req.path}`);
   const isApi = req.path.startsWith('/api');
   
   // Inject Database Status for frontend visibility
@@ -8693,7 +8693,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       });
       app.use('*', async (req: any, res: any, next: any) => {
         const reqPath = req.path || '';
-        if (req.method !== 'GET' || reqPath.startsWith('/api') || reqPath.match(/\.(js|ts|css|png|jpg|svg|json)$/)) return next();
+        if (req.method !== 'GET' || reqPath.startsWith('/api') || reqPath.startsWith('/src/') || reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map)$/)) return next();
         try {
           let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
           template = await vite.transformIndexHtml(req.originalUrl, template);
@@ -8711,13 +8711,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       console.error('Failed to initialize Vite server:', err);
     }
   } else {
+    app.use('/src', express.static(path.join(process.cwd(), 'src')));
     app.use((req, res, next) => {
       if (req.path.startsWith('/api')) return next();
       express.static(path.join(process.cwd(), 'dist'))(req, res, next);
     });
     app.get('*', (req, res, next) => {
       const reqPath = req.path || '';
-      if (reqPath.startsWith('/api')) return next();
+      if (reqPath.startsWith('/api') || reqPath.startsWith('/src/') || reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map)$/)) return next();
       try {
         let template = fs.readFileSync(path.join(process.cwd(), 'dist', 'index.html'), 'utf-8');
         const fbConfig = getFirebaseWebConfig();

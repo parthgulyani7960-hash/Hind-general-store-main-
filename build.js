@@ -70,17 +70,7 @@ try {
   process.exit(1);
 }
 
-// 4. API entry point compilation
-console.log('[BUILD] Compiling API entry point...');
-const apiSrc = path.resolve(rootDir, 'api/index.ts');
-const apiOut = path.resolve(rootDir, 'api/index.js');
-
-try {
-  execSync(`npx esbuild "${apiSrc}" --bundle --platform=node --format=esm --packages=external --sourcemap --outfile="${apiOut}"`, { stdio: 'inherit', cwd: rootDir });
-  console.log('[BUILD] API entry point build complete.', apiOut);
-} catch (err) {
-  console.error('[BUILD] esbuild compiler for API failed:', err.message || err);
-  process.exit(1);
-}
+// 4. API entry point compilation is skipped to prevent duplicate compiled file vs source file conflict on Vercel
+console.log('[BUILD] Skipping API entry point compilation (Vercel builds typescript entry point natively)...');
 
 console.log('[BUILD] Build process successfully completed with no resolution errors!');

@@ -169,8 +169,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     
     const initialize = async () => {
       try {
-        await auth.authStateReady();
-        const firebaseUser = auth.currentUser;
+        if (auth && typeof auth.authStateReady === 'function') {
+          await auth.authStateReady();
+        }
+        const firebaseUser = auth?.currentUser;
         
         if (firebaseUser) {
           const token = await firebaseUser.getIdToken();
