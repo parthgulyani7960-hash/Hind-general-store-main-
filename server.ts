@@ -4375,6 +4375,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
        walletOnly.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
        res.json(walletOnly);
     } catch(e) { res.status(500).json([]); }
+  });
     app.get('/api/products', async (req, res) => {
     try {
       if (admin.apps.length === 0 || !isFirebaseReady) {
@@ -4453,7 +4454,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         error: err.message
       });
     }
-  });
   });
 
   app.get('/api/products/:id', async (req, res) => {
