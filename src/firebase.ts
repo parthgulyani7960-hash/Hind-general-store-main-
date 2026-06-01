@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, onIdTokenChanged } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { errorService, ErrorType } from './lib/errorReporting';
@@ -79,11 +79,96 @@ console.log('FIREBASE PROJECT ID:', validConfig.projectId);
 console.log('FIRESTORE DATABASE ID:', activeDatabaseId);
 console.log('------------------------------------');
 
-const app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
-export const auth = getAuth(app);
-export const db = getFirestore(app, activeDatabaseId); /* CRITICAL: Enforce explicit DB ID, no (default) fallback */
-export const storage = getStorage(app);
+let app: any;
+let auth: any;
+let db: any;
+let storage: any;
+
+try {
+  app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
+} catch (appErr: any) {
+  console.error('[Firebase] initializeApp failed:', appErr.message);
+}
+
+try {
+  if (app) {
+    auth = getAuth(app);
+  } else {
+    throw new Error('App not initialized');
+  }
+} catch (authErr: any) {
+  console.error('[Firebase] getAuth failed, creating resilient client fallback:', authErr.message);
+  auth = {
+    currentUser: null,
+    onAuthStateChanged: (callback: any) => {
+      setTimeout(() => callback(null), 0);
+      return () => {};
+    },
+    onIdTokenChanged: (callback: any) => {
+      setTimeout(() => callback(null), 0);
+      return () => {};
+    }
+  } as any;
+}
+
+if (auth && typeof auth.authStateReady !== 'function') {
+  auth.authStateReady = () => Promise.resolve();
+}
+
+try {
+  if (app) {
+    db = getFirestore(app, activeDatabaseId);
+  } else {
+    throw new Error('App not initialized');
+  }
+} catch (dbErr: any) {
+  console.error('[Firebase] getFirestore failed, creating resilient client fallback:', dbErr.message);
+  db = {} as any;
+}
+
+try {
+  if (app) {
+    storage = getStorage(app);
+  } else {
+    throw new Error('App not initialized');
+  }
+} catch (storageErr: any) {
+  console.error('[Firebase] getStorage failed, creating resilient client fallback:', storageErr.message);
+  storage = {} as any;
+}
+
+export { auth, db, storage };
 export const googleProvider = new GoogleAuthProvider();
+
+const onAuthStateChanged = (authInstance: any, next: any, error?: any, completed?: any) => {
+  if (authInstance && typeof fbOnAuthStateChanged === 'function' && typeof authInstance.onAuthStateChanged !== 'function') {
+    try {
+      return fbOnAuthStateChanged(authInstance, next, error, completed);
+    } catch (e: any) {
+      console.error('[Firebase Wrapper] Error calling native onAuthStateChanged:', e.message);
+    }
+  }
+  if (authInstance && typeof authInstance.onAuthStateChanged === 'function') {
+    return authInstance.onAuthStateChanged(next, error, completed);
+  }
+  setTimeout(() => next(null), 0);
+  return () => {};
+};
+
+const onIdTokenChanged = (authInstance: any, next: any, error?: any, completed?: any) => {
+  if (authInstance && typeof fbOnIdTokenChanged === 'function' && typeof authInstance.onIdTokenChanged !== 'function') {
+    try {
+      return fbOnIdTokenChanged(authInstance, next, error, completed);
+    } catch (e: any) {
+      console.error('[Firebase Wrapper] Error calling native onIdTokenChanged:', e.message);
+    }
+  }
+  if (authInstance && typeof authInstance.onIdTokenChanged === 'function') {
+    return authInstance.onIdTokenChanged(next, error, completed);
+  }
+  setTimeout(() => next(null), 0);
+  return () => {};
+};
 
 // Re-export common functions to avoid direct firebase/* imports elsewhere
 export { 

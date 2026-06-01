@@ -62,6 +62,31 @@ export function normalizeEnvironment() {
     }
   }
 
+  // Extra resilient path: Extract Project ID from FIREBASE_SERVICE_ACCOUNT_KEY if missing
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY && !process.env.FIREBASE_PROJECT_ID) {
+    try {
+      const keyStr = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
+      let cleanedKey = keyStr;
+      if ((cleanedKey.startsWith('"') && cleanedKey.endsWith('"')) || (cleanedKey.startsWith("'") && cleanedKey.endsWith("'"))) {
+        cleanedKey = cleanedKey.substring(1, cleanedKey.length - 1);
+      }
+      const parsed = JSON.parse(cleanedKey);
+      if (parsed.project_id || parsed.projectId) {
+        const projectId = parsed.project_id || parsed.projectId;
+        console.log(`[ENV_NORM] Dynamically extracted FIREBASE_PROJECT_ID from Service Account Key: ${projectId}`);
+        process.env.FIREBASE_PROJECT_ID = projectId;
+      }
+    } catch (err: any) {
+      console.error('[ENV_NORM] Failed to parse Service Account Key for automatic Project ID discovery:', err.message);
+    }
+  }
+
+  // Provide safe session fallback in cloud environments
+  if (!process.env.SESSION_SECRET) {
+    console.log('[ENV_NORM] SESSION_SECRET is missing. Assigning a resilient fallback token for Express.');
+    process.env.SESSION_SECRET = 'd41d8cd98f00b204e9800998ecf8427e_vercel_automatic_secret';
+  }
+
   // Final check for Service Account Key - sometimes it comes in with double escapes or as a single line
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
      let key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();

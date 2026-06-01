@@ -3,20 +3,23 @@ import http from 'http';
 const ENDPOINTS = [
   '/api/announcements',
   '/api/settings',
+  '/api/categories',
+  '/api/products',
   '/api/auth/me',
-  '/api/auth/firebase-login'
+  '/api/bugs/report'
 ];
 
 async function diagnose() {
   console.log('--- Starting Diagnostic Requests ---');
   for (const endpoint of ENDPOINTS) {
-    console.log(`\nTesting: ${endpoint === '/api/auth/firebase-login' ? 'POST' : 'GET'} ${endpoint}`);
+    const isPost = endpoint === '/api/bugs/report';
+    console.log(`\nTesting: ${isPost ? 'POST' : 'GET'} ${endpoint}`);
     try {
       const options = {
         hostname: 'localhost',
         port: 3000,
         path: endpoint,
-        method: endpoint === '/api/auth/firebase-login' ? 'POST' : 'GET',
+        method: isPost ? 'POST' : 'GET',
         headers: { 'Content-Type': 'application/json' }
       };
 
@@ -35,7 +38,13 @@ async function diagnose() {
           console.error(`Error requesting ${endpoint}: ${e.message}`);
           resolve();
         });
-        if (options.method === 'POST') req.write(JSON.stringify({}));
+        if (options.method === 'POST') {
+          req.write(JSON.stringify({
+            message: "Unit Test Diagnostic Bug",
+            steps_to_reproduce: "Start backend and verify",
+            severity: "low"
+          }));
+        }
         req.end();
       });
     } catch (e: any) {
