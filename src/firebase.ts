@@ -38,7 +38,7 @@ const getResolvedFirebaseConfig = () => {
       storageBucket: envStorageBucket || '',
       messagingSenderId: envMessagingSenderId || '',
       appId: envAppId || '',
-      firestoreDatabaseId: envFirestoreDatabaseId || '(default)'
+      firestoreDatabaseId: envFirestoreDatabaseId && envFirestoreDatabaseId !== '(default)' ? envFirestoreDatabaseId : 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe'
     };
   }
 
@@ -48,11 +48,19 @@ const getResolvedFirebaseConfig = () => {
     try {
       const parsed = JSON.parse(rawJson);
       if (isValidRealConfig(parsed)) {
+        if (!parsed.firestoreDatabaseId || parsed.firestoreDatabaseId === '(default)') {
+          parsed.firestoreDatabaseId = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+        }
         return parsed;
       }
     } catch (e) {
       console.warn('[Firebase] Failed to parse VITE_FIREBASE_CONFIG JSON:', e);
     }
+  }
+
+  // Enforce correct firestoreDatabaseId in the fallback config
+  if (!firebaseConfig.firestoreDatabaseId || firebaseConfig.firestoreDatabaseId === '(default)') {
+    firebaseConfig.firestoreDatabaseId = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
   }
 
   // Default to the imported/compiled local JSON configuration
@@ -61,11 +69,19 @@ const getResolvedFirebaseConfig = () => {
 
 const validConfig = getResolvedFirebaseConfig();
 
-console.log('[Firebase] Initialized with Project:', validConfig.projectId, 'AuthDomain:', validConfig.authDomain);
+const activeDatabaseId = validConfig.firestoreDatabaseId && validConfig.firestoreDatabaseId !== '(default)' 
+  ? validConfig.firestoreDatabaseId 
+  : 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+
+console.log('--- FRONTEND FIREBASE DIAGNOSTICS ---');
+console.log('FRONTEND DATABASE ID:', activeDatabaseId);
+console.log('FIREBASE PROJECT ID:', validConfig.projectId);
+console.log('FIRESTORE DATABASE ID:', activeDatabaseId);
+console.log('------------------------------------');
 
 const app = getApps().length === 0 ? initializeApp(validConfig) : getApp();
 export const auth = getAuth(app);
-export const db = getFirestore(app, validConfig.firestoreDatabaseId || '(default)'); /* CRITICAL: The app will break without this line */
+export const db = getFirestore(app, activeDatabaseId); /* CRITICAL: Enforce explicit DB ID, no (default) fallback */
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 

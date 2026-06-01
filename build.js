@@ -76,7 +76,7 @@ const apiSrc = path.resolve(rootDir, 'api/index.ts');
 const apiOut = path.resolve(rootDir, 'api/index.js');
 
 try {
-  execSync(`npx esbuild "${apiSrc}" --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile="${apiOut}"`, { stdio: 'inherit', cwd: rootDir });
+  execSync(`npx esbuild "${apiSrc}" --bundle --platform=node --format=esm --packages=external --sourcemap --outfile="${apiOut}"`, { stdio: 'inherit', cwd: rootDir });
   console.log('[BUILD] API entry point build complete.', apiOut);
 } catch (err) {
   console.error('[BUILD] esbuild compiler for API failed:', err.message || err);

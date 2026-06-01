@@ -70,16 +70,13 @@ const getFirestoreInstance = (databaseId?: string): any => {
     throw new Error('Firebase Admin SDK is not initialized. Please configure your Firebase environment variables or configuration file.');
   }
   const app = admin.app();
-  let dbId = databaseId || process.env.FIREBASE_DATABASE_ID;
+  let dbId = databaseId || process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId;
   
   if (!dbId || dbId === '(default)' || dbId === '') {
-    dbId = config?.firestoreDatabaseId;
+    dbId = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
   }
   
-  if (dbId && dbId !== '(default)' && dbId !== '') {
-    return getFirestore(app, dbId);
-  }
-  return getFirestore(app);
+  return getFirestore(app, dbId);
 };
 
 
@@ -101,7 +98,7 @@ const getFirebaseWebConfig = () => {
       const parsed = JSON.parse(rawEnvConfig);
       if (parsed && parsed.projectId) {
         if (!parsed.firestoreDatabaseId || parsed.firestoreDatabaseId === '(default)') {
-          parsed.firestoreDatabaseId = config?.firestoreDatabaseId || '(default)';
+          parsed.firestoreDatabaseId = config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
         }
         return parsed;
       }
@@ -130,7 +127,7 @@ const getFirebaseWebConfig = () => {
       storageBucket: envStorageBucket || config?.storageBucket || '',
       messagingSenderId: envMessagingSenderId || config?.messagingSenderId || '',
       appId: envAppId || config?.appId || '',
-      firestoreDatabaseId: envFirestoreDatabaseId || config?.firestoreDatabaseId || '(default)'
+      firestoreDatabaseId: envFirestoreDatabaseId || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe'
     };
   }
 
@@ -182,7 +179,7 @@ async function initializeFirebase() {
   // 2. Extract final configurations and enforce strict checks
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   const envProjectId = process.env.FIREBASE_PROJECT_ID || config?.projectId;
-  const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || '(default)';
+  const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
 
   let serviceAccountProjectId = 'None (Service Account Key is missing)';
   let certData: any = null;
@@ -411,7 +408,7 @@ app.get('/api/health-debug', async (req, res) => {
       "firestoreConnected": isFirebaseReady,
 
       "projectId": admin.apps.length > 0 ? admin.app().options.projectId : 'unknown',
-      "databaseId": config?.firestoreDatabaseId || '(default)',
+      "databaseId": config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe',
 
       "startupStatus": dbConnectionStatus.mode,
       "lastError": dbConnectionStatus.details
@@ -430,7 +427,7 @@ app.get('/api/health', async (req, res) => {
     try {
       const activeApp = admin.app();
       projectId = activeApp.options.projectId || 'unknown';
-      databaseId = config?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || '(default)';
+      databaseId = config?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
       
       const db = getFirestoreInstance();
       // Fast probe to verify firestore connectivity
@@ -489,7 +486,7 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/db-test', async (req, res) => {
   const projectId = admin.app()?.options.projectId || 'unknown';
   const envDbId = process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID;
-  const databaseId = config?.firestoreDatabaseId || envDbId || '(default)';
+  const databaseId = config?.firestoreDatabaseId || envDbId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
   const results: any = {
     projectId,
     databaseId,
