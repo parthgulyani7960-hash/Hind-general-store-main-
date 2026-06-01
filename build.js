@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 const rootDir = __dirname;
 
-console.log('[BUILD] Initializing platform-independent robust build runner...');
+console.log('[BUILD] Starting build script... [V2]');
 console.log('[BUILD] Workspace Root Directory:', rootDir);
 
 // 0. Diagnostic: Log environment variables
@@ -78,7 +78,7 @@ const apiOut = path.resolve(rootDir, 'api/index.js');
 try {
   execSync(`npx esbuild "${apiSrc}" --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile="${apiOut}"`, { stdio: 'inherit', cwd: rootDir });
   console.log('[BUILD] API entry point build complete.', apiOut);
-} catch (err: any) {
+} catch (err) {
   console.error('[BUILD] esbuild compiler for API failed:', err.message || err);
   process.exit(1);
 }
