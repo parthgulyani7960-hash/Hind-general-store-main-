@@ -59,10 +59,14 @@ export default function AdminDashboardLayout({
   }, []);
   
   useEffect(() => {
+    if (!loading && !user) {
+      navigate('/login');
+      return;
+    }
     if (user && user.role !== 'admin') {
       navigate('/');
     }
-  }, [user, navigate]);
+  }, [user, navigate, loading]);
   
   // ... health check effect ...
   useEffect(() => {

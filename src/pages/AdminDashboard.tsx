@@ -9239,23 +9239,23 @@ export default function AdminDashboard() {
                         animate={{ opacity: 1, y: 0 }}
                         className={cn(
                           "flex items-start space-x-4 max-w-[85%]",
-                          msg.user_id === user.id ? "ml-auto flex-row-reverse space-x-reverse" : ""
+                          msg.user_id === user?.id ? "ml-auto flex-row-reverse space-x-reverse" : ""
                         )}
                       >
                         <div className={cn(
                           "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-1 shadow-sm",
-                          msg.user_id === user.id ? "bg-stone-900 text-white" : "bg-white border border-stone-100 text-stone-400"
+                          msg.user_id === user?.id ? "bg-stone-900 text-white" : "bg-white border border-stone-100 text-stone-400"
                         )}>
-                          {msg.user_id === user.id ? <ShieldCheck size={18} /> : <Users size={18} />}
+                          {msg.user_id === user?.id ? <ShieldCheck size={18} /> : <Users size={18} />}
                         </div>
                         <div className={cn(
                           "p-6 rounded-[2rem] shadow-sm border transition-all",
-                          msg.user_id === user.id 
+                          msg.user_id === user?.id 
                             ? "bg-primary text-white border-primary rounded-tr-none shadow-xl shadow-primary/10" 
                             : "bg-white text-stone-700 border-stone-100 rounded-tl-none"
                         )}>
-                          <p className={cn("text-[10px] font-black mb-3 uppercase tracking-widest border-b pb-2", msg.user_id === user.id ? "text-white/40 border-white/10" : "text-stone-300 border-stone-50")}>
-                            {msg.user_id === user.id ? 'System Administrator' : selectedTicket.user_name} • {new Date(msg.created_at).toLocaleString()}
+                          <p className={cn("text-[10px] font-black mb-3 uppercase tracking-widest border-b pb-2", msg.user_id === user?.id ? "text-white/40 border-white/10" : "text-stone-300 border-stone-50")}>
+                            {msg.user_id === user?.id ? 'System Administrator' : selectedTicket.user_name} • {new Date(msg.created_at).toLocaleString()}
                           </p>
                           <p className="text-sm font-medium leading-relaxed">{msg.message}</p>
                         </div>
@@ -12974,7 +12974,7 @@ export default function AdminDashboard() {
         )}
       </ModalContainer>
 
-      {/* Order Detail Modal */}
+      {/* Responder Detail Modal */}
       <ModalContainer
         isOpen={reviewResponseModal.open && reviewResponseModal.review !== null}
         onClose={() => setReviewResponseModal({ open: false, review: null })}
@@ -12982,7 +12982,9 @@ export default function AdminDashboard() {
         size="md"
         showHeader={true}
       >
-        <div className="p-6 space-y-4">
+        {reviewResponseModal.review && (
+          <>
+            <div className="p-6 space-y-4">
               <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
                 <div className="flex justify-between items-start mb-2">
                   <p className="font-bold text-sm">{reviewResponseModal.review.user_name}</p>
@@ -13020,7 +13022,9 @@ export default function AdminDashboard() {
                 Submit Response
               </button>
             </div>
-        </ModalContainer>
+          </>
+        )}
+      </ModalContainer>
 
       <ModalContainer
         isOpen={orderModal.open && orderModal.order !== null}

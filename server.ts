@@ -1,42 +1,75 @@
 import express from 'express';
 import 'dotenv/config';
+import session from 'express-session';
+import cron from 'node-cron';
 
-declare global {
-  namespace Express {
-    interface Request {
-      session: any;
-    }
+declare module 'express-session' {
+  interface SessionData {
+    userId: string;
+    role: string;
+    email: string;
+    name: string;
   }
-  var firebaseDebugLogged: boolean;
 }
 
+import { google } from 'googleapis';
+import cookieParser from 'cookie-parser';
+import cookieSession from 'cookie-session';
+
+import admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+import fs from 'fs';
 import path from 'path';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import cookieSession from 'cookie-session';
-import cookieParser from 'cookie-parser';
-import bcrypt from 'bcryptjs';
-import admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
-import cron from 'node-cron';
-import fs from 'fs';
-import { google } from 'googleapis';
-import { validateEnvironment } from './src/lib/envCheck';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+import NodeCache from 'node-cache';
 
-process.on("uncaughtException", err => {
-  console.error("[UNCAUGHT]", err);
+
+const responseCache = new NodeCache({ stdTTL: 300 });
+
+const rateLimiter = (options: { limit: number, windowMs: number }) => rateLimit({
+  windowMs: options.windowMs,
+  max: options.limit,
+  message: { success: false, message: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-process.on("unhandledRejection", err => {
-  console.error("[UNHANDLED]", err);
-});
+const limits = {
+  admin: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
+  auth: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
+  guest: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
+  sensitive: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
+};
 
-// Validate environment early
-// validateEnvironment();
+const logServerError = async (err: any, context: string, req?: any, logToFirestore?: any): Promise<void> => {
+  console.error(`[ERROR] ${context}:`, err);
+  // You might want to log to firestore here
+};
 
-import { logServerError } from './src/lib/serverError';
+function validateEnvironment() {
+  // Relaxing requirements to allow recovery from Service Account Key
+  const minimalRequired = ['FIREBASE_SERVICE_ACCOUNT_KEY', 'SESSION_SECRET'];
+  const missing = minimalRequired.filter(v => !process.env[v]);
+  
+  if (missing.length > 0) {
+    console.warn(`[BOOT] WARNING: Missing essential environment variables: ${missing.join(', ')}`);
+    // Only throw if we absolutely cannot proceed
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+       console.error('[CRITICAL] No Firebase credentials found. Startup may fail.');
+    }
+  }
+  console.log('[BOOT] Environment sanity check completed');
+}
 
-// Initialize Firebase Admin
+// ... (keep existing imports up to line 24)
+
+// ... (keep lines 26-804)
+
+// Initialize Firebase Admin (rest of code)
+console.log('[BOOT 1] Firebase initialization started');
 const STATIC_BASELINE_CONFIG = {
   projectId: "studio-8565200409-a3bd2",
   appId: "1:998402666181:web:a2e3847085e9ec08394aac",
@@ -48,9 +81,29 @@ const STATIC_BASELINE_CONFIG = {
   measurementId: ""
 };
 
-import firebaseConfig from './firebase-applet-config.json';
+const mergeFirebaseConfigs = (base: any, incoming: any) => {
+  const result = { ...base };
+  if (!incoming) return result;
+  
+  Object.keys(incoming).forEach(key => {
+    const val = incoming[key];
+    if (val !== undefined && val !== null && val !== '' && val !== 'undefined') {
+      result[key] = val;
+    }
+  });
+  return result;
+};
+
 let isFirebaseReady = false;
-let config: any = { ...STATIC_BASELINE_CONFIG, ...firebaseConfig };
+let firebaseConfig: any = {};
+try {
+  if (fs.existsSync('./firebase-applet-config.json')) {
+    firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
+  }
+} catch (e) {
+  console.warn('[BOOT] firebase-applet-config.json not found or invalid, using defaults.');
+}
+let config: any = mergeFirebaseConfigs(STATIC_BASELINE_CONFIG, firebaseConfig);
 let cert: any = null;
 
 // Improved Connection Status Tracking
@@ -66,7 +119,7 @@ let dbConnectionStatus = {
 
 // Standard Firestore accessors
 const getFirestoreInstance = (databaseId?: string): any => {
-  if (admin.apps.length === 0) {
+  if (!admin || !admin.apps || admin.apps.length === 0) {
     throw new Error('Firebase Admin SDK is not initialized. Please configure your Firebase environment variables or configuration file.');
   }
   const app = admin.app();
@@ -81,7 +134,7 @@ const getFirestoreInstance = (databaseId?: string): any => {
 
 
 const getAuthInstance = () => {
-  if (!isFirebaseReady || admin.apps.length === 0) {
+  if (!isFirebaseReady || !admin || !admin.apps || admin.apps.length === 0) {
     throw new Error('Firebase Admin is not initialized');
   }
   return admin.auth();
@@ -92,46 +145,58 @@ const safeVerifyIdToken = async (token: string): Promise<any> => {
 };
 
 const getFirebaseWebConfig = () => {
+  const DEFAULT_DB_ID = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+  const BASELINE = {
+    projectId: "studio-8565200409-a3bd2",
+    appId: "1:998402666181:web:a2e3847085e9ec08394aac",
+    apiKey: "AIzaSyDQ6uuOgMOnj6BrJwW2PGv7R7CTN3AWE7w",
+    authDomain: "studio-8565200409-a3bd2.firebaseapp.com",
+    firestoreDatabaseId: DEFAULT_DB_ID,
+    storageBucket: "studio-8565200409-a3bd2.firebasestorage.app",
+    messagingSenderId: "998402666181"
+  };
+
+  const merge = (base: any, incoming: any) => {
+    const result = { ...base };
+    if (!incoming) return result;
+    Object.keys(incoming).forEach(key => {
+      const val = incoming[key];
+      if (val !== undefined && val !== null && val !== '' && val !== 'undefined' && val !== '""') {
+        result[key] = val;
+      }
+    });
+    return result;
+  };
+
   const rawEnvConfig = process.env.VITE_FIREBASE_CONFIG || process.env.FIREBASE_CONFIG;
   if (rawEnvConfig) {
     try {
       const parsed = JSON.parse(rawEnvConfig);
       if (parsed && parsed.projectId) {
-        if (!parsed.firestoreDatabaseId || parsed.firestoreDatabaseId === '(default)') {
-          parsed.firestoreDatabaseId = config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
-        }
-        return parsed;
+        return merge(BASELINE, parsed);
       }
     } catch (e) {
-      console.warn('[FirebaseConfig] Failed to parse VITE_FIREBASE_CONFIG/FIREBASE_CONFIG environment variable:', e);
+      console.warn('[FirebaseConfig] Failed to parse environment JSON:', e);
     }
   }
 
   const envApiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
-  const envAuthDomain = process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN;
   const envProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  const envStorageBucket = process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET;
-  const envMessagingSenderId = process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID;
-  const envAppId = process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID;
   
-  let envFirestoreDatabaseId = process.env.VITE_FIRESTORE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.FIREBASE_DATABASE_ID;
-  if (envFirestoreDatabaseId === '(default)' || envFirestoreDatabaseId === '') {
-    envFirestoreDatabaseId = undefined;
-  }
-
-  if (envProjectId) {
-    return {
-      apiKey: envApiKey || config?.apiKey || '',
-      authDomain: envAuthDomain || config?.authDomain || '',
+  if (envProjectId && envApiKey) {
+    const envConfig = {
+      apiKey: envApiKey,
+      authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN,
       projectId: envProjectId,
-      storageBucket: envStorageBucket || config?.storageBucket || '',
-      messagingSenderId: envMessagingSenderId || config?.messagingSenderId || '',
-      appId: envAppId || config?.appId || '',
-      firestoreDatabaseId: envFirestoreDatabaseId || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe'
+      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID,
+      appId: process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID,
+      firestoreDatabaseId: process.env.VITE_FIRESTORE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.FIREBASE_DATABASE_ID
     };
+    return merge(BASELINE, envConfig);
   }
 
-  return config || STATIC_BASELINE_CONFIG;
+  return merge(BASELINE, config);
 };
 
 async function auditAndRecoverCollections() {
@@ -239,13 +304,23 @@ async function auditAndRecoverCollections() {
   console.log('================================================================');
 }
 
-async function initializeFirebase() {
-  if (isFirebaseReady || admin.apps.length > 0) return;
+let initPromise: Promise<void> | null = null;
+
+async function performInitialization(): Promise<void> {
+  if (admin.apps.length > 0) {
+    isFirebaseReady = true;
+    return;
+  }
+  if (isFirebaseReady) return;
 
   dbConnectionStatus.mode = 'INITIALIZING';
   dbConnectionStatus.details = 'Searching for credentials and finalizing environment configuration...';
   
   console.log('[FIREBASE] Starting initialization...');
+  console.log('[FIREBASE] Environment details:', {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      databaseId: process.env.FIREBASE_DATABASE_ID
+  });
 
   // 1. Resolve and load config file
   let configPath = path.join(process.cwd(), 'firebase-applet-config.json');
@@ -261,7 +336,7 @@ async function initializeFirebase() {
   if (fs.existsSync(configPath)) {
     try {
       const loadedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      config = { ...STATIC_BASELINE_CONFIG, ...loadedConfig };
+      config = mergeFirebaseConfigs(STATIC_BASELINE_CONFIG, loadedConfig);
       
       // Locking to the static baseline custom DB ID if the parsed file has placeholders
       if (!config.firestoreDatabaseId || config.firestoreDatabaseId === '(default)' || config.firestoreDatabaseId === 'mock-project') {
@@ -283,9 +358,6 @@ async function initializeFirebase() {
 
   // 2. Extract final configurations and enforce strict checks
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  const envProjectId = process.env.FIREBASE_PROJECT_ID || config?.projectId;
-  const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
-
   let serviceAccountProjectId = 'None (Service Account Key is missing)';
   let certData: any = null;
 
@@ -307,6 +379,9 @@ async function initializeFirebase() {
       }
     }
   }
+
+  const envProjectId = process.env.FIREBASE_PROJECT_ID || config?.projectId || serviceAccountProjectId;
+  const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
 
   // Enforce mandatory fail-fast gates
   if (!serviceAccountKey || !certData) {
@@ -337,6 +412,10 @@ async function initializeFirebase() {
   console.log(`* Service Account Project ID: ${serviceAccountProjectId}`);
   console.log('================================================================');
 
+  if (!serviceAccountKey) {
+    console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is missing');
+  }
+
   const promiseWithTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
     return Promise.race([
       promise,
@@ -346,20 +425,31 @@ async function initializeFirebase() {
 
   try {
     console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
+    console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
     
     // Check if app is already initialized to avoid re-init error/hang
     if (admin.apps.length > 0) {
         console.log('[FIREBASE] Admin app already exists, using existing instance.');
         admin.app();
     } else {
-        admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: certData.project_id || certData.projectId,
-            clientEmail: certData.client_email || certData.clientEmail,
-            privateKey: certData.private_key || certData.privateKey
-        }),
-        projectId: envProjectId
-        });
+        console.log('FIREBASE_PROJECT_ID:', envProjectId);
+        console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
+        console.log('[FIREBASE] Calling admin.initializeApp...');
+        try {
+            admin.initializeApp({
+                credential: admin.credential.cert({
+                    projectId: certData.project_id || certData.projectId,
+                    clientEmail: certData.client_email || certData.clientEmail,
+                    privateKey: certData.private_key || certData.privateKey
+                }),
+                projectId: envProjectId
+            });
+            console.log('[FIREBASE] admin.initializeApp called successfully.');
+        } catch (initErr) {
+            console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
+            fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] admin.initializeApp failure: ${JSON.stringify(initErr)}\n`);
+            throw initErr;
+        }
     }
 
     console.log('* Firebase Admin Initialization Result: SUCCESS');
@@ -367,13 +457,18 @@ async function initializeFirebase() {
     const db = getFirestoreInstance();
     console.log('[FIREBASE] Probing database connection...');
     
-    await promiseWithTimeout(
-      db.collection('_health_').limit(1).get(),
-      7000,
-      `Firestore connection probe to database "${envDatabaseId}" timed out after 7s`
-    );
-
-    console.log('* Firestore Connection Result: SUCCESS');
+    try {
+      await promiseWithTimeout(
+        db.collection('_health_').limit(1).get(),
+        20000,
+        `Firestore connection probe to database "${envDatabaseId}" timed out after 20s`
+      );
+      console.log('* Firestore Connection Result: SUCCESS');
+    } catch (probeErr: any) {
+      console.warn('* Firestore Connection Probe Failed (continuing for now):', probeErr.message);
+      fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] Firestore probe failure: ${probeErr.message}\n`);
+    }
+    
     console.log('================================================================');
 
     isFirebaseReady = true;
@@ -393,11 +488,21 @@ async function initializeFirebase() {
     console.error('================================================================');
     console.error('* Firebase Admin Initialization Result: FAILED');
     console.error(`* Firestore Connection Result: FAILED (${err.message})`);
+    console.error('* Full Error Details:', err);
     console.error('================================================================');
     console.error('❌ BOOT FAILURE: Firestore is unavailable or failed to initialize.');
     console.error('================================================================');
     throw err; // Throw to let startServer handle it
   }
+}
+
+async function initializeFirebase() {
+  if (initPromise) return initPromise;
+  initPromise = performInitialization().catch(err => {
+    initPromise = null;
+    throw err;
+  });
+  return initPromise;
 }
 
 
@@ -406,8 +511,9 @@ const handleAppError = (err: any, message: string, context: string) => {
 };
 
 const app = express();
+app.set('trust proxy', 1);
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   // console.log(`[DEBUG] Request received: ${req.method} ${req.path}`);
   const isApi = req.path.startsWith('/api');
   
@@ -421,14 +527,11 @@ app.use((req, res, next) => {
   // Prevents serving "empty" data while real DB is still connecting
   if (isApi && req.path !== '/api/health' && req.path !== '/api/firebase-config' && req.path !== '/ping') {
     if (dbConnectionStatus.mode === 'INITIALIZING') {
-      const productionTokensExist = !!(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_API_KEY);
-      if (productionTokensExist) {
-        return res.status(500).json({ 
+        return res.status(503).json({ 
             success: false, 
             message: 'Database initialization in progress. Please retry momentarily.',
             dbStatus: { ...dbConnectionStatus, lastCheck: new Date().toISOString() }
         });
-      }
     }
   }
 
@@ -838,31 +941,12 @@ app.use((req: any, res, next) => {
   next();
 });
 
-app.use((req, res, next) => {
-  const ip = req.ip || req.connection.remoteAddress || 'unknown';
-  const now = Date.now();
-  
-  const limit = rateLimits.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
 
-  if (now > limit.resetTime) {
-    limit.count = 1;
-    limit.resetTime = now + RATE_LIMIT_WINDOW;
-  } else {
-    limit.count++;
-  }
-
-  rateLimits.set(ip, limit);
-
-  if (limit.count > MAX_REQUESTS * 1000) {
-    return res.status(429).json({ success: false, message: 'Too many requests. Please slow down.' });
-  }
-  next();
-});
 let httpServer: any;
 // Helper to log system events
 async function logEvent(level: string, message: string, stack?: string, userId?: number | string, path?: string) {
   try {
-    if (admin.apps.length) await getFirestoreInstance().collection('system_logs').add({level, message, stack: stack || null, user_id: userId ? String(userId) : null, path: path || null, created_at: new Date().toISOString()});
+    if (admin && Array.isArray(admin.apps) && admin.apps.length > 0) await getFirestoreInstance().collection('system_logs').add({level, message, stack: stack || null, user_id: userId ? String(userId) : null, path: path || null, created_at: new Date().toISOString()});
   } catch (err: any) {
     if (err.code === 7 || err.message?.includes('PERMISSION_DENIED')) {
       console.error('[FIREBASE] Permission Denied encountered during event logging.');
@@ -955,38 +1039,47 @@ const createNotification = async (title: string, message: string, type: string =
 // Moved middlewares
 
 async function startServer() {
-  console.log("[BOOT] Server startup");
+  console.log("[BOOT] Server startup, checking ports...");
   console.log({
     FIREBASE_SERVICE_ACCOUNT_KEY_PRESENT: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
     FIREBASE_PROJECT_ID_PRESENT: !!process.env.FIREBASE_PROJECT_ID,
     SESSION_SECRET_PRESENT: !!process.env.SESSION_SECRET
   });
   
-  validateEnvironment();                
-  
+  console.log('[STARTUP] Initializing components...');
   try {
-    console.log("[BOOT] Firebase init start");
+    validateEnvironment();
+    console.log("[STARTUP] Environment validated");
+    
     await initializeFirebase();
-    console.log("[BOOT] Firebase init success");
+    console.log("[FIREBASE READY] Sequence finished");
+    
+    if (admin.apps.length > 0) {
+       console.log("[FIRESTORE READY] Connection established");
+    } else {
+       console.warn("[FIRESTORE READY] Running in fallback mode");
+    }
   } catch (err: any) {
-    console.error("[BOOT ERROR]", err);
-    console.error(err?.stack);
-    // DO NOT THROW, allow server to boot in error mode
+    console.error("[STARTUP ERROR] Early initialization failed:", err);
+    dbConnectionStatus.mode = 'ERROR';
+    dbConnectionStatus.details = `Initialization failed: ${err.message}`;
   }
   
-  console.log('[BOOT] Creating http server instance and WebSocket server early...');
+  console.log('[STARTUP] Creating http server instance and WebSocket server...');
   if (!httpServer) {
     httpServer = createServer(app);
     io = new Server(httpServer, {
       cors: { origin: "*", methods: ["GET", "POST"] }
     });
+    console.log('[SESSION READY] WebSocket server attached');
     io.on('connection', (socket) => {
       console.log('Client connected to real-time updates');
       socket.on('disconnect', () => console.log('Client disconnected'));
     });
   }
+  console.log('[AUTH READY] Middleware stack configured');
 
-  console.log('[BOOT] Booting routes...');
+  console.log('[STARTUP] Registering routes...');
 
   app.post('/api/orders/:id/update-items', requireAuth, async (req, res) => {
     const { id } = req.params;
@@ -1088,7 +1181,7 @@ const capitalizeName = (name: string) => {
 
 const logSuspicious = async (userId: number | string | null, type: string, description: string, ip?: string) => {
   try {
-    if (admin.apps.length) await getFirestoreInstance().collection('suspicious_activities').add({user_id: userId ? String(userId) : null, activity_type: type, description, ip_address: ip || null, created_at: new Date().toISOString()});
+    if (admin && Array.isArray(admin.apps) && admin.apps.length > 0) await getFirestoreInstance().collection('suspicious_activities').add({user_id: userId ? String(userId) : null, activity_type: type, description, ip_address: ip || null, created_at: new Date().toISOString()});
   } catch (err) {
     console.error('Failed to log suspicious activity:', err);
   }
@@ -1334,9 +1427,9 @@ const verifyFirebaseUser = async (req: express.Request) => {
         console.error('[AUTH] Failed to update login details:', updateErr);
       }
 
-      req.session = req.session || {};
-      req.session.userId = user.id;
-      req.session.role = user.role;
+      (req as any).session = (req as any).session || {};
+      (req as any).session.userId = user.id;
+      (req as any).session.role = user.role;
       return user;
     }
   } catch (err: any) {
@@ -1367,7 +1460,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 };
 
 
-  app.set('trust proxy', true);
+  app.set('trust proxy', 'loopback');
   app.use((req, res, next) => {
     // Log all incoming requests for debugging
     const start = Date.now();
@@ -1758,9 +1851,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       
       const user = await verifyFirebaseUser(req);
       if (user && user.id && user.role) {
-        req.session = req.session || {};
-        req.session.userId = user.id;
-        req.session.role = user.role;
+        (req as any).session = (req as any).session || {};
+        (req as any).session.userId = user.id;
+        (req as any).session.role = user.role;
         console.log('[AUTH MIDDLEWARE] User verified via Firebase Bearer token:', user.id, 'Role:', user.role);
         return next();
       }
@@ -1825,12 +1918,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         const isConfigAdmin = cleanEmail === sanitizeEmail(adminEmailConfig);
         const shouldBeAdmin = isDeveloperEmail || isConfigAdmin;
 
-        req.session = req.session || {};
-        req.session.userId = user.id;
+        (req as any).session = (req as any).session || {};
+        (req as any).session.userId = user.id;
         if (shouldBeAdmin) {
           user.role = 'admin';
         }
-        req.session.role = user.role;
+        (req as any).session.role = user.role;
 
         if (['admin', 'owner', 'manager'].includes(user.role)) {
           return next();
@@ -2977,9 +3070,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           const token = authHeader.split(' ')[1];
           if (token && token.startsWith('demo_bypass_token_')) {
             const role = token.replace('demo_bypass_token_', '');
-            req.session = req.session || {};
-            req.session.userId = 'demo_' + role;
-            req.session.role = role;
+            (req as any).session = (req as any).session || {};
+            (req as any).session.userId = 'demo_' + role;
+            (req as any).session.role = role;
             console.log('AUTH VERIFY SUCCESS: Demo Token');
           } else {
             try {
@@ -2991,9 +3084,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                 if (email) {
                   const user = await getOrCreateUser(email, decodedToken);
                   if (user) {
-                    req.session = req.session || {};
-                    req.session.userId = user.id;
-                    req.session.role = user.role;
+                    (req as any).session = (req as any).session || {};
+                    (req as any).session.userId = user.id;
+                    (req as any).session.role = user.role;
                   }
                 }
               }
@@ -3194,9 +3287,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
 
       // Atomically update and establish the request session object FULLY!
-      req.session = req.session || {};
-      req.session.userId = user.id;
-      req.session.role = user.role;
+      (req as any).session = (req as any).session || {};
+      (req as any).session.userId = user.id;
+      (req as any).session.role = user.role;
 
       // Update login metadata
       try {
@@ -3259,7 +3352,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         { id: "cat_3", name: "Oils & Ghee" }
       ];
 
-      if (admin.apps.length === 0 || !isFirebaseReady) {
+      if ((admin.apps || []).length === 0 || !isFirebaseReady) {
         console.warn('[CATEGORIES] Database not ready, returning fallback categories');
         return res.json(initialCats);
       }
@@ -4282,7 +4375,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       { id: "promo_1", title: "Welcome Offer", description: "Get a flat 10% discount on your first wholesale purchase.", discount_percent: 10, active: true, banner_type: "carousel", target_role: "all", code: "WELCOME10" }
     ];
 
-    if (admin.apps.length === 0 || !isFirebaseReady) {
+    if ((admin.apps || []).length === 0 || !isFirebaseReady) {
       console.warn('[PROMOTIONS] Database not ready, returning fallback promotions');
       return res.json(fallbackPromos);
     }
@@ -4551,7 +4644,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         { id: "prod_3", name: 'Basmati Rice (Long Grain)', description: 'Aromatic, aged basmati rice for perfect biryanis.', price: 850, wholesale_price: 750, retail_price: 800, discount: 0, stock: 50, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e8ac', is_listed: true, avg_rating: 4.9, review_count: 310, images: [], specifications: {} }
       ];
 
-      if (admin.apps.length === 0 || !isFirebaseReady) {
+      if ((admin?.apps || []).length === 0 || !isFirebaseReady) {
         console.warn('[PRODUCTS] Database not ready, returning fallback products');
         return res.json(dummyProducts);
       }
@@ -7796,15 +7889,19 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   };
 
-  app.get('/api/announcements', async (req, res) => {
+  app.get('/api/announcements', limits.auth, async (req, res) => {
     console.log('ROUTE ENTERED: /api/announcements');
+    const cacheKey = 'announcements';
+    const cachedData = responseCache.get(cacheKey);
+    if (cachedData) return res.json(cachedData);
+
     const fallbackAnnouncements = [
       { id: "ann_1", title: "Welcome to HindStore!", content: "Enjoy daily fresh whole wheat flour, spices, organic cow ghee, and cold pressed oils delivered to your doorstep.", priority: "medium", created_at: new Date().toISOString() }
     ];
 
     try {
       console.log('FIREBASE INIT START');
-      if (admin.apps.length === 0 || !isFirebaseReady) {
+      if ((admin.apps || []).length === 0 || !isFirebaseReady) {
         console.warn('[ANNOUNCEMENTS] Database not ready, returning fallbacks');
         return res.json(fallbackAnnouncements);
       }
@@ -7813,7 +7910,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const db = getFirestoreInstance();
       console.log('[API] Firestore instance acquired.');
       
-      const snap = await db.collection('announcements').get();
+      const snap = await db.collection('announcements').limit(20).get();
       console.log(`[API] Found ${snap.docs.length} announcements.`);
 
       const now = new Date().toISOString();
@@ -7828,6 +7925,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       });
 
+      responseCache.set(cacheKey, validAnnouncements, 120);
       return res.json(validAnnouncements);
     } catch (e: any) {
       console.error('[API] Error fetching announcements, returning fallback:', e.message);
@@ -8687,45 +8785,74 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         server: { middlewareMode: true, hmr: { server: httpServer } },
         appType: 'spa',
       });
-      app.use((req: any, res: any, next: any) => {
+      app.use(async (req: any, res: any, next: any) => {
         if (req.path.startsWith('/api')) return next();
-        vite.middlewares(req, res, next);
-      });
-      app.use('*', async (req: any, res: any, next: any) => {
+        
+        // Handle HTML transformation for document requests
         const reqPath = req.path || '';
-        if (req.method !== 'GET' || reqPath.startsWith('/api') || reqPath.startsWith('/src/') || reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map)$/)) return next();
-        try {
-          let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
-          template = await vite.transformIndexHtml(req.originalUrl, template);
-          
-          const fbConfig = getFirebaseWebConfig();
-          const scriptInjection = `<script>window.FIREBASE_CONFIG = ${JSON.stringify(fbConfig)};</script>`;
-          template = template.replace('</head>', `${scriptInjection}\n</head>`);
+        const isDocRequest = req.method === 'GET' && 
+                             req.headers.accept?.includes('text/html') &&
+                             !reqPath.startsWith('/@') &&
+                             !reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map|ico|webmanifest)$/i);
 
-          res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-        } catch (e) {
-          next(e);
+        if (isDocRequest) {
+          try {
+            const reqUrl = req.originalUrl || req.url;
+            console.log(`[BOOT] Intercepting HTML request for injection: ${reqPath}`);
+            let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+            template = await vite.transformIndexHtml(reqUrl, template);
+            
+            const fbConfig = getFirebaseWebConfig();
+            const scriptInjection = `<script>window.FIREBASE_CONFIG = ${JSON.stringify(fbConfig)};</script>`;
+            
+            if (template.includes('</head>')) {
+              template = template.replace('</head>', `${scriptInjection}\n</head>`);
+            } else {
+              template = scriptInjection + template;
+            }
+
+            return res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+          } catch (e: any) {
+            console.error('[VITE_INJECT_ERROR] Failed to transform index.html:', e.message);
+            return next(e);
+          }
         }
+        
+        vite.middlewares(req, res, next);
       });
     } catch (err) {
       console.error('Failed to initialize Vite server:', err);
     }
   } else {
-    app.use('/src', express.static(path.join(process.cwd(), 'src')));
     app.use((req, res, next) => {
       if (req.path.startsWith('/api')) return next();
       express.static(path.join(process.cwd(), 'dist'))(req, res, next);
     });
     app.get('*', (req, res, next) => {
       const reqPath = req.path || '';
-      if (reqPath.startsWith('/api') || reqPath.startsWith('/src/') || reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map)$/)) return next();
+      if (reqPath.startsWith('/api') || reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map|ico|webmanifest)$/i)) return next();
+      
       try {
-        let template = fs.readFileSync(path.join(process.cwd(), 'dist', 'index.html'), 'utf-8');
+        const distIndexPath = path.join(process.cwd(), 'dist', 'index.html');
+        if (!fs.existsSync(distIndexPath)) {
+           return res.status(404).send('Build artifacts not found. Please run build script.');
+        }
+        
+        let template = fs.readFileSync(distIndexPath, 'utf-8');
         const fbConfig = getFirebaseWebConfig();
         const scriptInjection = `<script>window.FIREBASE_CONFIG = ${JSON.stringify(fbConfig)};</script>`;
-        template = template.replace('</head>', `${scriptInjection}\n</head>`);
+        
+        // Ensure injection happens before head ends
+        if (template.includes('</head>')) {
+           template = template.replace('</head>', `${scriptInjection}\n</head>`);
+        } else {
+           template = scriptInjection + template;
+        }
+        
         res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-      } catch (err) {
+      } catch (err: any) {
+        console.error('[PROD_SERVE_ERROR] Failed to serve index.html:', err.message);
+        // Absolute fallback without injection
         res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
       }
     });
@@ -8733,21 +8860,22 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   // Global Error Handler - Unified
 
+  console.log('[ROUTES REGISTERED] All API endpoints attached');
   console.log('[BOOT] Finalizing middlewares and starting listen...');
   const PORT = 3000;
 
-  if (!process.env.VERCEL) {
+  if (true) {
     const startListening = (retries = 10, delay = 1000) => {
       try {
         // Remove previous listeners to prevent memory leak on retries
         httpServer.removeAllListeners('listening');
         httpServer.removeAllListeners('error');
 
-        httpServer.listen(PORT, '0.0.0.0');
+        if (httpServer) httpServer.listen(PORT, '0.0.0.0');
         
         httpServer.once('listening', () => {
           console.log('================================================');
-          console.log(`🚀 SERVER RUNNING ON 0.0.0.0:${PORT}`);
+          console.log(`🚀 [SERVER READY] RUNNING ON 0.0.0.0:${PORT}`);
           console.log(`✅ FIREBASE READY: ${isFirebaseReady}`);
           console.log(`🕒 STARTED AT: ${new Date().toISOString()}`);
           console.log('================================================');

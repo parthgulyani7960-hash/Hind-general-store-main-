@@ -219,7 +219,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
                         </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-black text-stone-900 truncate tracking-tight">{user.name}</p>
+                        <p className="text-sm font-black text-stone-900 truncate tracking-tight">{user?.name || 'Admin'}</p>
                         <div className="flex items-center space-x-1">
                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           <p className="text-xs text-stone-400 font-bold uppercase tracking-wider">Store Manager</p>

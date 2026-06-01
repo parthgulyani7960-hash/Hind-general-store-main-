@@ -8,63 +8,86 @@ import firebaseConfig from '@config/firebase-applet-config.json';
 
 // Resolve Firebase configuration dynamically from environment, window, or local fallback JSON
 const getResolvedFirebaseConfig = () => {
+  const DEFAULT_DB_ID = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+  
+  // Baseline configuration for this applet
+  const BASELINE = {
+    projectId: "studio-8565200409-a3bd2",
+    appId: "1:998402666181:web:a2e3847085e9ec08394aac",
+    apiKey: "AIzaSyDQ6uuOgMOnj6BrJwW2PGv7R7CTN3AWE7w",
+    authDomain: "studio-8565200409-a3bd2.firebaseapp.com",
+    firestoreDatabaseId: DEFAULT_DB_ID,
+    storageBucket: "studio-8565200409-a3bd2.firebasestorage.app",
+    messagingSenderId: "998402666181"
+  };
+
   // Helper to validate that a configuration object is a real production configuration (not empty)
   const isValidRealConfig = (cfg: any): boolean => {
-    return !!(cfg && cfg.projectId && cfg.apiKey && cfg.projectId !== 'undefined' && cfg.apiKey !== 'undefined');
+    return !!(cfg && cfg.projectId && cfg.apiKey && 
+              cfg.projectId !== 'undefined' && cfg.apiKey !== 'undefined' &&
+              cfg.projectId.length > 5);
+  };
+
+  const merge = (base: any, incoming: any) => {
+    const result = { ...base };
+    if (!incoming) return result;
+    Object.keys(incoming).forEach(key => {
+      const val = incoming[key];
+      if (val !== undefined && val !== null && val !== '' && val !== 'undefined' && val !== '""') {
+        result[key] = val;
+      }
+    });
+    return result;
   };
 
   // 1. Try secure runtime-injected configuration on window
   if (typeof window !== 'undefined' && (window as any).FIREBASE_CONFIG) {
     const wConfig = (window as any).FIREBASE_CONFIG;
     if (isValidRealConfig(wConfig)) {
-      return wConfig;
+      console.log('[Firebase] Using window.FIREBASE_CONFIG');
+      return merge(BASELINE, wConfig);
     }
   }
 
-  // 2. Try parsing individual environment variables from Vite or process.env (Vite define replacements)
-  const envApiKey = import.meta.env?.VITE_FIREBASE_API_KEY || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_API_KEY);
-  const envAuthDomain = import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_AUTH_DOMAIN);
-  const envProjectId = import.meta.env?.VITE_FIREBASE_PROJECT_ID || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_PROJECT_ID);
-  const envStorageBucket = import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_STORAGE_BUCKET);
-  const envMessagingSenderId = import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_MESSAGING_SENDER_ID);
-  const envAppId = import.meta.env?.VITE_FIREBASE_APP_ID || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_APP_ID);
-  const envFirestoreDatabaseId = import.meta.env?.VITE_FIRESTORE_DATABASE_ID || (typeof process !== 'undefined' && process.env?.VITE_FIRESTORE_DATABASE_ID);
+  // 2. Try individual environment variables
+  const getEnv = (key: string) => {
+    const val = import.meta.env?.[key] || (typeof process !== 'undefined' && process.env?.[key]);
+    return val && val !== 'undefined' && val !== '""' ? val : null;
+  };
 
-  if (envProjectId && envProjectId !== 'undefined' && envApiKey && envApiKey !== 'undefined') {
-    return {
-      apiKey: envApiKey,
-      authDomain: envAuthDomain || '',
-      projectId: envProjectId,
-      storageBucket: envStorageBucket || '',
-      messagingSenderId: envMessagingSenderId || '',
-      appId: envAppId || '',
-      firestoreDatabaseId: envFirestoreDatabaseId && envFirestoreDatabaseId !== '(default)' ? envFirestoreDatabaseId : 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe'
-    };
-  }
+  const envConfig: any = {};
+  const mapping: Record<string, string> = {
+    VITE_FIREBASE_API_KEY: 'apiKey',
+    VITE_FIREBASE_AUTH_DOMAIN: 'authDomain',
+    VITE_FIREBASE_PROJECT_ID: 'projectId',
+    VITE_FIREBASE_STORAGE_BUCKET: 'storageBucket',
+    VITE_FIREBASE_MESSAGING_SENDER_ID: 'messagingSenderId',
+    VITE_FIREBASE_APP_ID: 'appId',
+    VITE_FIRESTORE_DATABASE_ID: 'firestoreDatabaseId'
+  };
 
-  // 3. Try parsing a single environment JSON string if set
-  const rawJson = import.meta.env?.VITE_FIREBASE_CONFIG || (typeof process !== 'undefined' && process.env?.VITE_FIREBASE_CONFIG);
-  if (rawJson) {
-    try {
-      const parsed = JSON.parse(rawJson);
-      if (isValidRealConfig(parsed)) {
-        if (!parsed.firestoreDatabaseId || parsed.firestoreDatabaseId === '(default)') {
-          parsed.firestoreDatabaseId = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
-        }
-        return parsed;
-      }
-    } catch (e) {
-      console.warn('[Firebase] Failed to parse VITE_FIREBASE_CONFIG JSON:', e);
+  let hasEnv = false;
+  Object.entries(mapping).forEach(([envKey, configKey]) => {
+    const val = getEnv(envKey);
+    if (val) {
+      envConfig[configKey] = val;
+      hasEnv = true;
     }
+  });
+
+  if (hasEnv && envConfig.projectId && envConfig.apiKey) {
+    console.log('[Firebase] Using environment specific variables');
+    return merge(BASELINE, envConfig);
   }
 
-  // Enforce correct firestoreDatabaseId in the fallback config
-  if (!firebaseConfig.firestoreDatabaseId || firebaseConfig.firestoreDatabaseId === '(default)') {
-    firebaseConfig.firestoreDatabaseId = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+  // 3. Try local JSON if valid
+  if (isValidRealConfig(firebaseConfig)) {
+    console.log('[Firebase] Using local firebase-applet-config.json');
+    return merge(BASELINE, firebaseConfig);
   }
 
-  // Default to the imported/compiled local JSON configuration
-  return firebaseConfig;
+  console.log('[Firebase] Using hardcoded baseline');
+  return BASELINE;
 };
 
 const validConfig = getResolvedFirebaseConfig();

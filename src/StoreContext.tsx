@@ -170,7 +170,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const initialize = async () => {
       try {
         if (auth && typeof auth.authStateReady === 'function') {
-          await auth.authStateReady();
+          // Set a fallback timeout for safety
+          const readyPromise = auth.authStateReady();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Auth synchronization timeout')), 3500)
+          );
+          try {
+            await Promise.race([readyPromise, timeoutPromise]);
+          } catch (e) {
+            console.warn('[BOOT] authStateReady timed out or failed, proceeding with fallback flow');
+          }
         }
         const firebaseUser = auth?.currentUser;
         

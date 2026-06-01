@@ -122,8 +122,9 @@ export const fetchWithHandling = async <T>(
           errorMessage = "You do not have permission to perform this action";
         } else if (res.status === 429 || res.status >= 500) {
           if (retries > 0) {
-            const delay = res.status === 429 ? 3000 : 1000;
-            console.log(`[API] Retrying ${url} due to ${res.status} error. Retries left: ${retries - 1}`);
+            const attemptNumber = 3 - retries;
+            const delay = res.status === 429 ? 3000 : (1000 * Math.pow(2, attemptNumber - 1));
+            console.log(`[API] Retrying ${url} due to ${res.status} error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
             await new Promise(r => setTimeout(r, delay));
             return fetchWithHandling(url, options, retries - 1);
           }
@@ -179,8 +180,10 @@ export const fetchWithHandling = async <T>(
     return null;
   } catch (err: any) {
     if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
-      console.log(`[API] Retrying ${url} due to network error. Retries left: ${retries - 1}`);
-      await new Promise(r => setTimeout(r, 1000));
+      const attemptNumber = 3 - retries;
+      const delay = 1000 * Math.pow(2, attemptNumber - 1);
+      console.log(`[API] Retrying ${url} due to network error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
+      await new Promise(r => setTimeout(r, delay));
       return fetchWithHandling(url, options, retries - 1);
     }
     console.error(`API Error [${url}]:`, err);
