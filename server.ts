@@ -342,6 +342,9 @@ app.use((req, res, next) => {
         ? body 
         : new Error((body && (body.message || body.error)) ? String(body.message || body.error) : 'Internal Server Error (Captured via Interceptor)');
       
+      console.error(`[500_INTERCEPTOR] Path: ${req.path}`);
+      console.error(`[500_INTERCEPTOR] Headers:`, JSON.stringify(req.headers));
+      console.error(`[500_INTERCEPTOR] Body:`, JSON.stringify(req.body || {}));
       logServerError(e, req.path || 'API_ROUTE_ERROR', req, logToFirestoreError).catch(() => {});
 
       let enrichedBody = body;
@@ -369,6 +372,9 @@ app.use((req, res, next) => {
   res.send = function(body: any) {
     if ((res as any)._is500) {
       const e = new Error(typeof body === 'string' ? body : 'Internal Server Error (Captured via Interceptor)');
+      console.error(`[500_INTERCEPTOR_2] Path: ${req.path}`);
+      console.error(`[500_INTERCEPTOR_2] Headers:`, JSON.stringify(req.headers));
+      console.error(`[500_INTERCEPTOR_2] Body:`, JSON.stringify(req.body || {}));
       logServerError(e, req.path || 'API_ROUTE_ERROR', req, logToFirestoreError).catch(() => {});
 
       if (!body || body === 'No Data Available' || body === '[]' || body === '{}') {

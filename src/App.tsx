@@ -283,7 +283,6 @@ export default function App() {
   return (
     <Router>
       <ScrollToTopOnNavigate />
-      <AuthErrorReloader />
       <ReviewPromptNotification />
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
