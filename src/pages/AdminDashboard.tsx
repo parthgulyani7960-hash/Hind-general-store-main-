@@ -1,6 +1,6 @@
 // AdminDashboard.tsx - Main entry for admin panel
 import { adminService } from '@/services/adminService';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import { withErrorReporting } from '@/lib/uiUtils';
@@ -64,6 +64,18 @@ L.Icon.Default.mergeOptions({
 });
 
 type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Roles' | 'Support Tickets' | 'Newsletter' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
+
+// Lazy loaded admin tabs
+const OrdersTab = lazy(() => import('@/components/admin/tabs/OrdersTab'));
+const ProductsTab = lazy(() => import('@/components/admin/tabs/ProductsTab'));
+const CustomersTab = lazy(() => import('@/components/admin/tabs/CustomersTab'));
+const AnalyticsTab = lazy(() => import('@/components/admin/tabs/AnalyticsTab'));
+const NewsletterTab = lazy(() => import('@/components/admin/tabs/NewsletterTab'));
+const SystemLogsTab = lazy(() => import('@/components/admin/tabs/SystemLogsTab'));
+const UPIWebhookLogsTab = lazy(() => import('@/components/admin/tabs/UPIWebhookLogsTab'));
+const DataExportsTab = lazy(() => import('@/components/admin/tabs/DataExportsTab'));
+const AnnouncementsTab = lazy(() => import('@/components/admin/tabs/AnnouncementsTab'));
+const PromotionsTab = lazy(() => import('@/components/admin/tabs/PromotionsTab'));
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -1726,12 +1738,129 @@ export default function AdminDashboard() {
   };
 
   const TabContent = () => {
-    switch (activeTab) {
-      case 'Overview': return <OverviewTab stats={stats} setActiveTab={setActiveTab} refreshStats={fetchStats} />;
-      case 'Purchase Orders': return <PurchaseOrdersTab />;
-      case 'Order Batching': return <OrderBatchingTab />;
-      default: return <div className="p-8 text-stone-500">Feature not yet fully redesigned.</div>;
-    }
+    return (
+      <Suspense fallback={
+        <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+          <Activity size={40} className="text-stone-300 animate-spin" />
+          <p className="text-stone-400 font-bold uppercase tracking-widest text-xs">Loading Intelligence Tab...</p>
+        </div>
+      }>
+        {(() => {
+          switch (activeTab) {
+            case 'Overview': 
+              return <OverviewTab stats={stats} setActiveTab={setActiveTab} refreshStats={fetchStats} />;
+            case 'Orders':
+              return (
+                <OrdersTab 
+                  orders={orders}
+                  loading={loading}
+                  fetchOrders={fetchOrders}
+                  updateOrderStatus={updateOrderStatus}
+                  fetchOrderDetailsModal={fetchOrderDetailsModal}
+                  handleBulkOrderAction={handleBulkOrderAction}
+                  asyncExportData={asyncExportData}
+                  config={config}
+                />
+              );
+            case 'Product Catalog':
+              return (
+                <ProductsTab 
+                  allProducts={allProducts}
+                  categories={categories}
+                  loading={loading}
+                  setProductModal={setProductModal}
+                  setNewProduct={setNewProduct}
+                  setEditingProduct={setEditingProduct}
+                  deleteProduct={deleteProduct}
+                  handleBulkUpload={handleBulkUpload}
+                  downloadTemplate={downloadTemplate}
+                  generatePurchaseOrder={generatePurchaseOrder}
+                  bulkUpdateStock={bulkUpdateStock}
+                  bulkUpdateCategory={bulkUpdateCategory}
+                  bulkUnlist={bulkUnlist}
+                  bulkDelete={bulkDelete}
+                  bulkStockValue={bulkStockValue}
+                  setBulkStockValue={setBulkStockValue}
+                />
+              );
+            case 'Purchase Orders': 
+              return <PurchaseOrdersTab />;
+            case 'Order Batching': 
+              return <OrderBatchingTab />;
+            case 'Newsletter':
+              return <NewsletterTab />;
+            case 'UPI Webhook Logs':
+              return <UPIWebhookLogsTab />;
+            case 'System Logs':
+              return <SystemLogsTab />;
+            case 'Data Exports':
+              return <DataExportsTab />;
+            case 'Analytics':
+              return (
+                <AnalyticsTab 
+                  stats={stats}
+                  analyticsData={analyticsData}
+                  salesAnalytics={salesAnalytics}
+                  lowStockProducts={lowStockProducts}
+                  expiringSoon={expiringSoon}
+                  isFetchingAnalytics={isFetchingAnalytics}
+                  analyticsStartDate={analyticsStartDate}
+                  setAnalyticsStartDate={setAnalyticsStartDate}
+                  analyticsEndDate={analyticsEndDate}
+                  setAnalyticsEndDate={setAnalyticsEndDate}
+                  analyticsCategory={analyticsCategory}
+                  setAnalyticsCategory={setAnalyticsCategory}
+                  categories={categories}
+                  setActiveTab={setActiveTab}
+                  setProductSearchTerm={setProductSearchTerm}
+                />
+              );
+            case 'Customers':
+              return (
+                <CustomersTab 
+                  users={users}
+                  loading={loading}
+                  setWalletModal={setWalletModal}
+                  setCustomerModal={setCustomerModal}
+                  fetchCustomerOrders={fetchCustomerOrders}
+                  fetchWalletHistory={fetchWalletHistory}
+                  setUsers={setUsers}
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
+                />
+              );
+            case 'Announcements':
+              return (
+                <AnnouncementsTab 
+                  notifications={notifications}
+                  fetchNotifications={fetchNotifications}
+                  handleDeleteNotification={handleDeleteNotification}
+                  setNotificationModal={setNotificationModal}
+                  setNewNotification={setNewNotification}
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
+                />
+              );
+            case 'Promotions':
+              return (
+                <PromotionsTab 
+                  promotions={promotions}
+                  setNewPromotion={setNewPromotion}
+                  setPromotionModal={setPromotionModal}
+                  togglePromotionStatus={togglePromotionStatus}
+                  handleDeletePromotion={handleDeletePromotion}
+                  setNewPromotionRuleData={setNewPromotionRuleData}
+                  setPromotionRuleFormModal={setPromotionRuleFormModal}
+                />
+              );
+            default: 
+              return <div className="p-8 text-stone-500">Feature {activeTab} not yet fully redesigned.</div>;
+          }
+        })()}
+      </Suspense>
+    );
   };
 
   // Verify auth and role
@@ -1783,15 +1912,6 @@ export default function AdminDashboard() {
   };
 
   const fetchOrders = () => {
-    // Proactive HTTP load to protect against direct Firestore subscription permission failure
-    fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
-      .then(data => {
-        if (data) setOrders(data);
-      })
-      .catch(err => {
-        console.warn('REST Orders fetch warning:', err);
-      });
-
     let q = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1820,18 +1940,6 @@ export default function AdminDashboard() {
   };
 
   const fetchProducts = () => {
-    // Proactive HTTP load
-    fetchWithHandling<any[]>('/api/products')
-      .then(data => {
-        if (data) {
-          setAllProducts(data);
-          setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-        }
-      })
-      .catch(err => {
-        console.warn('REST Products fetch warning:', err);
-      });
-
     const q = query(collection(db, 'products'));
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1857,18 +1965,15 @@ export default function AdminDashboard() {
     let unsubscribeProducts: () => void;
     
     if (user?.role === 'admin') {
-      if (activeTab === 'Overview' || activeTab === 'Product Catalog') {
-        unsubscribeProducts = fetchProducts();
-      }
-      if (activeTab === 'Overview' || activeTab === 'Orders') {
-        unsubscribeOrders = fetchOrders();
-      }
+      // Subscribe once on mount
+      unsubscribeProducts = fetchProducts();
+      unsubscribeOrders = fetchOrders();
     }
     return () => {
       if (unsubscribeOrders) unsubscribeOrders();
       if (unsubscribeProducts) unsubscribeProducts();
     };
-  }, [activeTab, user]);
+  }, [user]);
 
   const [newBatchCategory, setNewBatchCategory] = useState('');
   const [imageModal, setImageModal] = useState({ open: false, productId: null as number | null, images: [] as string[] });
@@ -4549,7 +4654,8 @@ export default function AdminDashboard() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           >
-        {activeTab === 'Overview' && (
+        <TabContent />
+        {false && activeTab === 'Overview' && (
           <motion.div 
             initial="hidden"
             animate="show"
@@ -4850,7 +4956,7 @@ export default function AdminDashboard() {
         )}
 
 
-        {activeTab === 'Announcements' && (
+        {false && activeTab === 'Announcements' && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
              <div className="bg-white p-10 rounded-[3rem] shadow-xl shadow-stone-200/40 border border-stone-100 flex flex-col lg:flex-row justify-between items-center gap-8 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32" />
@@ -5004,7 +5110,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {activeTab === 'Analytics' && analyticsData && (
+        {false && activeTab === 'Analytics' && analyticsData && (
           <div className="space-y-8">
             {/* Intel Dashboard Header */}
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
@@ -6321,7 +6427,7 @@ export default function AdminDashboard() {
           <OrderBatchingTab />
         )}
 
-        {activeTab === 'Orders' && (
+        {false && activeTab === 'Orders' && (
           <div className="space-y-6">
             {/* Orders Header - Soft & Flat */}
             <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
@@ -6928,7 +7034,7 @@ export default function AdminDashboard() {
               </AnimatePresence>
             </div>
         )}
-        {activeTab === 'Product Catalog' && (
+        {false && activeTab === 'Product Catalog' && (
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -7766,7 +7872,7 @@ export default function AdminDashboard() {
             </div>
           </motion.div>
         )}
-        {activeTab === 'Customers' && (
+        {false && activeTab === 'Customers' && (
           <div className="space-y-10">
             {/* Intelligence Header */}
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -8106,7 +8212,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {activeTab === 'Promotions' && (
+        {false && activeTab === 'Promotions' && (
           <div className="space-y-10">
             {/* Campaign Header */}
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -10975,7 +11081,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {activeTab === 'System Status' && (
+        {false && activeTab === 'System Status' && (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
              <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>

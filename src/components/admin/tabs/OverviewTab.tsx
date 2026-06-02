@@ -1,7 +1,11 @@
 import React from 'react';
-import { IndianRupee, ShoppingBag, Activity, Users, ArrowUpRight } from 'lucide-react';
+import { IndianRupee, ShoppingBag, Activity, Users, ArrowUpRight, TrendingUp } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '@/types';
+import { 
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
+    ResponsiveContainer
+} from 'recharts';
 
 interface OverviewTabProps {
     stats: any;
@@ -11,6 +15,11 @@ interface OverviewTabProps {
 
 export default function OverviewTab({ stats, setActiveTab, refreshStats }: OverviewTabProps) {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  
+  const revenueData = React.useMemo(() => {
+    return stats?.revenueByDay || [];
+  }, [stats]);
+
   const metrics = [
     { label: 'Total Revenue', value: `₹${stats?.netRevenue || 0}`, icon: <IndianRupee size={24} />, trend: '+12.5%', color: 'emerald', key: 'revenue' },
     { label: 'Pending Orders', value: stats?.pendingOrders || 0, icon: <ShoppingBag size={24} />, trend: '-2.4%', color: 'amber', key: 'orders' },
@@ -31,7 +40,7 @@ export default function OverviewTab({ stats, setActiveTab, refreshStats }: Overv
         transition={{ duration: 0.5 }}
         className="space-y-10"
     >
-        <header className="mb-4 flex items-center justify-between">
+        <header className="mb-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
             <div>
                 <h1 className="text-4xl font-black text-stone-900 tracking-tighter">Dashboard Overview</h1>
                 <p className="text-stone-500 font-medium mt-1">Here is a quick look at how your store is performing today.</p>
@@ -81,6 +90,46 @@ export default function OverviewTab({ stats, setActiveTab, refreshStats }: Overv
                     <h3 className="text-3xl font-black text-stone-950 tracking-tighter">{stat.value}</h3>
                 </motion.div>
             ))}
+        </div>
+
+        {/* Quick Insights Chart */}
+        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-stone-100 space-y-8">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Insights</h3>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1">30-day performance snapshot</p>
+                </div>
+                <div className="flex items-center space-x-2 text-stone-400 uppercase font-black text-[10px] tracking-widest">
+                    <TrendingUp size={14} className="text-emerald-500" />
+                    <span>Real-time Sync</span>
+                </div>
+            </div>
+            <div className="h-72 w-full min-h-[18rem]" style={{ minWidth: "1px", minHeight: "1px" }}>
+                <ResponsiveContainer width="99%" height="100%" minWidth={0}>
+                  <AreaChart data={revenueData}>
+                    <defs>
+                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1c1917" stopOpacity={0.05}/>
+                        <stop offset="95%" stopColor="#1c1917" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#f5f5f4" />
+                    <XAxis 
+                      dataKey="date" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} 
+                      tickFormatter={(v) => (typeof v === 'string' && v.length >= 5) ? v.slice(5) : v}
+                    />
+                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '1rem' }}
+                      itemStyle={{ fontWeight: 900, color: '#1c1917' }}
+                    />
+                    <Area type="monotone" dataKey="revenue" stroke="#1c1917" strokeWidth={4} fillOpacity={1} fill="url(#revenueGradient)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+            </div>
         </div>
     </motion.div>
   );

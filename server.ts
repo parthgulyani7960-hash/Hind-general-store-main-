@@ -76,6 +76,15 @@ function validateEnvironment() {
   
   if (missing.length > 0) {
     console.warn(`[BOOT] WARNING: Missing essential environment variables: ${missing.join(', ')}`);
+    // Diagnostic presence check
+    console.log('[BOOT] Environment Presence Check:', {
+      FIREBASE_SERVICE_ACCOUNT_KEY: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+      FIREBASE_PROJECT_ID: !!process.env.FIREBASE_PROJECT_ID,
+      SESSION_SECRET: !!process.env.SESSION_SECRET,
+      GMAIL_CLIENT_ID: !!process.env.GMAIL_CLIENT_ID,
+      GMAIL_REFRESH_TOKEN: !!process.env.GMAIL_REFRESH_TOKEN,
+      NODE_ENV: process.env.NODE_ENV
+    });
     // Only throw if we absolutely cannot proceed
     if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
        console.error('[CRITICAL] No Firebase credentials found. Startup may fail.');
@@ -113,6 +122,8 @@ const mergeFirebaseConfigs = (base: any, incoming: any) => {
 
 console.log('[BOOT STEP 2.3] Firebase config merging');
 let isFirebaseReady = false;
+let routesRegistered = false;
+let initializationError: string | null = null;
 let firebaseConfig: any = {};
 try {
   if (fs.existsSync('./firebase-applet-config.json')) {
@@ -332,6 +343,7 @@ console.log('[BOOT STEP 2.4] performInitialization defined');
 console.log('[BOOT STEP 2.4] performInitialization starting');
 async function performInitialization(): Promise<void> {
   console.log('[BOOT STEP 3] performInitialization started');
+  try {
   console.log('[BOOT] Checking Firebase Admin initialization status...');
   if (admin.apps.length > 0) {
     isFirebaseReady = true;
@@ -454,9 +466,8 @@ async function performInitialization(): Promise<void> {
 
   console.log('[BOOT] Initializing Firebase Admin SDK...');
   console.log('[BOOT STEP 4] Initializing Firebase Admin...');
-  try {
-    console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
-    console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
+  console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
+  console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
     
 
         console.log('[BOOT STEP 3.3] admin.app() check');
@@ -470,9 +481,11 @@ async function performInitialization(): Promise<void> {
         console.log('[FIREBASE] Project ID present:', !!envProjectId);
         console.log('[FIREBASE] clientEmail present:', !!(certData.client_email || certData.clientEmail));
         console.log('[FIREBASE] privateKey present:', !!(certData.private_key || certData.privateKey));
-        console.log('[FIREBASE] Calling admin.initializeApp...');
-        console.log('[BOOT STEP 3] Calling admin.initializeApp...');
+        console.log('[BOOT] FIREBASE_SERVICE_ACCOUNT_KEY present:', !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+        console.log('[BOOT] FIREBASE_PROJECT_ID present:', !!process.env.FIREBASE_PROJECT_ID);
+        console.log('[BOOT] SESSION_SECRET present:', !!process.env.SESSION_SECRET);
 
+        console.log('[BOOT] BEFORE ADMIN INIT');
         try {
             console.log('[BOOT STEP 4] Calling admin.initializeApp synchronously');
             admin.initializeApp({
@@ -484,9 +497,11 @@ async function performInitialization(): Promise<void> {
                 projectId: envProjectId
             });
 
+            console.log('[BOOT] AFTER ADMIN INIT');
             console.log('[BOOT STEP 5] admin.initializeApp returned successfully');
             console.log('[BOOT] Firebase Admin Initialization Result: SUCCESS');
         } catch (initErr) {
+            console.error('[BOOT] ADMIN INIT FAILED');
             console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
             fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] admin.initializeApp failure: ${JSON.stringify(initErr)}\n`);
             throw initErr;
@@ -495,7 +510,16 @@ async function performInitialization(): Promise<void> {
 
     console.log('[BOOT STEP 5] Firebase Admin Initialization Result: SUCCESS');
 
-    console.log('[BOOT] Firestore instance acquired.');
+    console.log('[BOOT] BEFORE FIRESTORE');
+    try {
+        const db = getFirestore();
+        console.log('[BOOT] AFTER FIRESTORE');
+        console.log('[BOOT] Firestore instance acquired successfully');
+    } catch (fsErr: any) {
+        console.error('[BOOT ERROR] Failed to acquire Firestore instance:', fsErr.message);
+        console.error(fsErr.stack);
+        throw fsErr;
+    }
     isFirebaseReady = true;
     dbConnectionStatus.mode = 'PRODUCTION';
     dbConnectionStatus.active = true;
@@ -505,6 +529,7 @@ async function performInitialization(): Promise<void> {
     console.log('[BOOT] Skipping heavy audit and probe for faster startup.');
     return;
   } catch (err: any) {
+    initializationError = err.message;
     console.error('================================================================');
     console.error('* Firebase Admin Initialization Result: FAILED');
     console.error(`* Firestore Connection Result: FAILED (${err.message})`);
@@ -536,14 +561,17 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.get('/ping', (req, res) => {
-  res.send('pong');
+  res.json({ success: true, message: "server alive" });
 });
 
 app.get('/api/boot-status', (req, res) => {
   res.json({
-    bootPhase: 'diag',
-    isFirebaseReady,
-    adminApps: admin.apps.length,
+    success: true,
+    bootPhase: 'diagnostic',
+    firebaseReady: isFirebaseReady,
+    firestoreReady: admin.apps.length > 0,
+    routesRegistered: routesRegistered,
+    initializationError: initializationError,
     vercel: !!process.env.VERCEL,
     timestamp: new Date().toISOString()
   });
@@ -1124,6 +1152,7 @@ async function startServer() {
 
   console.log('[STARTUP] Registering routes...');
 
+  routesRegistered = true;
   console.log('[BOOT] Starting Route Registration...');
   
   console.log('[BOOT] Starting Route Registration...');
