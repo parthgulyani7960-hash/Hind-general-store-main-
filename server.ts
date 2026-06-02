@@ -342,14 +342,39 @@ console.log('[BOOT STEP 2.4] performInitialization defined');
 
 console.log('[BOOT STEP 2.4] performInitialization starting');
 async function performInitialization(): Promise<void> {
+  console.log('[INIT START]');
   console.log('[BOOT STEP 3] performInitialization started');
+  
   try {
-  console.log('[BOOT] Checking Firebase Admin initialization status...');
-  if (admin.apps.length > 0) {
-    isFirebaseReady = true;
-    return;
-  }
-  if (isFirebaseReady) return;
+    // 0. Enforce Singleton / Ready State
+    if (admin.apps.length === 1) {
+      console.log('[INIT COMPLETE] Firebase Admin already initialized. Apps length:', admin.apps.length);
+      isFirebaseReady = true;
+      return;
+    } else if (admin.apps.length > 1) {
+       console.error('[INIT ERROR] Multiple apps found:', admin.apps.length);
+       throw new Error('Multiple Firebase apps initialized.');
+    }
+
+    dbConnectionStatus.mode = 'INITIALIZING';
+    dbConnectionStatus.details = 'Searching for credentials and finalizing environment configuration...';
+    
+    console.log('[FIREBASE] Starting initialization...');
+    // To:
+    /*
+    347:  try {
+    348:  console.log('[BOOT] Checking Firebase Admin initialization status...');
+    349:  if (admin.apps.length === 1) {
+    350:    console.log('[INIT COMPLETE] Firebase already initialized.');
+    351:    isFirebaseReady = true;
+    352:    return;
+    353:  }
+    354:  if (admin.apps.length > 1) {
+    355:    throw new Error('Multiple Firebase applications initialized.');
+    356:  }
+    */
+    
+    // (And keep the rest of the existing code loading)
 
   dbConnectionStatus.mode = 'INITIALIZING';
   dbConnectionStatus.details = 'Searching for credentials and finalizing environment configuration...';
@@ -448,6 +473,7 @@ async function performInitialization(): Promise<void> {
   // 3. Log Startup Diagnostics BEFORE initializing
   console.log('================================================================');
   console.log('🔥 FIREBASE STARTUP DIAGNOSTICS');
+  console.log(`* admin.apps.length before init: ${admin.apps.length}`);
   console.log(`* Firebase Project ID: ${envProjectId}`);
   console.log(`* Firestore Database ID: ${envDatabaseId}`);
   console.log(`* Service Account Project ID: ${serviceAccountProjectId}`);
@@ -479,7 +505,10 @@ async function performInitialization(): Promise<void> {
         console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
         
         try {
-            console.log('[BOOT STEP 4] Calling admin.initializeApp');
+            console.log('[ADMIN INIT ENTER]');
+            process.env.FIREBASE_PROJECT_ID && console.log(`[FIREBASE_PROJECT_ID] present: ${process.env.FIREBASE_PROJECT_ID.substring(0, 5)}...`);
+            console.log(`[ADMIN INIT] admin.apps.length=${admin.apps.length}`);
+            
             admin.initializeApp({
                 credential: admin.credential.cert({
                     projectId: certData.project_id || certData.projectId,
@@ -489,13 +518,16 @@ async function performInitialization(): Promise<void> {
                 projectId: envProjectId
             });
 
-            const newApp = admin.app();
-            console.log('[BOOT] Firebase Admin Initialization Result: SUCCESS');
-            console.log('[BOOT] New App Project ID:', newApp.options.projectId);
-            console.log('[BOOT] Firestore Database ID from config:', envDatabaseId);
-        } catch (initErr) {
-            console.error('[BOOT] ADMIN INIT FAILED');
-            console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
+            console.log('[ADMIN INIT SUCCESS]');
+            console.log(`[INIT COMPLETE] admin.apps.length: ${admin.apps.length}`);
+            
+            if (admin.apps.length !== 1) {
+                throw new Error('Initialization failed: apps length is not 1 after initializeApp');
+            }
+        } catch (initErr: any) {
+            console.error('[ADMIN INIT FAILURE]');
+            console.error(`[ADMIN INIT ERROR] message: ${initErr.message}`);
+            console.error(`[ADMIN INIT ERROR] stack: ${initErr.stack}`);
             throw initErr;
         }
     }
@@ -543,6 +575,8 @@ async function initializeFirebase() {
   return initPromise;
 }
 
+const appReady = initializeFirebase();
+
 
 const handleAppError = (err: any, message: string, context: string) => {
   console.error(`[AppError][${context}]:`, err);
@@ -550,11 +584,22 @@ const handleAppError = (err: any, message: string, context: string) => {
 
 console.log('[BOOT] Creating Express instance');
 const app = express();
-app.set('trust proxy', 1);
+
+const ensureFirebaseReady = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try {
+    await appReady;
+    next();
+  } catch (err: any) {
+    console.error('[CRITICAL] Firebase initialization failed, blocking API request:', err.message);
+    res.status(503).json({ success: false, message: 'Database initialization failed' });
+  }
+};
+app.use('/api', ensureFirebaseReady);
 
 app.get('/ping', (req, res) => {
-  res.json({ success: true, message: "server alive" });
+  res.json({ success: true, message: 'server alive', timestamp: new Date().toISOString() });
 });
+app.set('trust proxy', 1);
 
 app.get('/api/boot-status', (req, res) => {
   res.json({
@@ -734,6 +779,14 @@ app.get('/api/health', async (req, res) => {
   ];
   const missingVars = dbVars.filter(v => !process.env[v]);
 
+  const sesVars = [
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_REGION'
+  ];
+  const sesStatus = sesVars.every(v => !!process.env[v]) ? 'CONFIGURED' : 'NOT_CONFIGURED';
+  const missingSesVars = sesVars.filter(v => !process.env[v]);
+
   res.json({ 
     status: firestoreStatus === 'CONNECTED' ? 'ok' : 'degraded', 
     uptime: process.uptime(),
@@ -742,6 +795,8 @@ app.get('/api/health', async (req, res) => {
     firestoreStatus,
     firestoreDetails,
     authenticationStatus: authStatus,
+    sesStatus,
+    missingSesVars,
     dbConnectionStatus,
     projectId,
     databaseId,
@@ -3138,7 +3193,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
 
       console.log('[STEP 2] Verifying authentication flow...');
-      if (!req.session || !req.session.userId) {
+      if (!req.session) {
+        return res.status(401).json({ success: false, message: 'SESSION_NOT_FOUND' });
+      }
+      if (!req.session.userId) {
         const authHeader = req.headers.authorization;
         if (authHeader && authHeader.startsWith('Bearer ')) {
           const token = authHeader.split(' ')[1];
@@ -3636,6 +3694,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.get('/api/admin/newsletter/campaigns', requireAdmin, async (req, res) => {
     try {
+    console.log(`[ADMIN STATE] admin.apps.length=${admin.apps.length}`);
       if (!admin.apps.length) return res.json([]);
       const snap = await getFirestoreInstance().collection('newsletter_campaigns').orderBy('created_at', 'desc').get();
       res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
@@ -5479,7 +5538,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         stack: e.stack,
         requestId: (req as any).id
       });
-      // Try to return a friendly 200 first if it was a db error we captured, but the prompt says return detailed error
       res.status(500).json({
         success: false,
         route: '/api/bugs/report',

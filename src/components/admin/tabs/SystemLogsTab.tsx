@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bug, RefreshCw, Search, Eye, X, Server } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { fetchWithHandling } from '@/lib/api';
+import { adminService } from '@/services/adminService';
 import { getAuthHeaders } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
@@ -18,7 +18,7 @@ const SystemLogsTab: React.FC = () => {
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const data = await fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() });
+            const data = await adminService.getSystemLogs(getAuthHeaders());
             if (data) {
                 setLogs(data);
                 setLastRefreshed(new Date());

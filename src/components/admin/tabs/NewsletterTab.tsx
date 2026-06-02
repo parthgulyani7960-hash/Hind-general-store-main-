@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, RefreshCw, Users, Trash2, Send } from 'lucide-react';
+import { adminService } from '@/services/adminService';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -21,7 +22,7 @@ const NewsletterTab: React.FC = () => {
 
     const fetchSubs = async () => {
       try {
-        const data = await fetchWithHandling<any[]>('/api/admin/newsletter', { headers: getAuthHeaders() });
+        const data = await adminService.getNewsletterSubs(getAuthHeaders());
         if (data) {
           setSubs(data);
           // Auto select all by default
@@ -34,7 +35,7 @@ const NewsletterTab: React.FC = () => {
 
     const fetchCampaigns = async () => {
       try {
-        const data = await fetchWithHandling<any[]>('/api/admin/newsletter/campaigns', { headers: getAuthHeaders() });
+        const data = await adminService.getNewsletterCampaigns(getAuthHeaders());
         if (data) {
           setCampaigns(data);
         }

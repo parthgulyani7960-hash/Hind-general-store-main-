@@ -13,7 +13,8 @@ process.on('unhandledRejection', (reason, promise) => {
 
 export default async function apiEntryPoint(req: any, res: any) {
   const reqId = Math.random().toString(36).substring(7);
-  console.log(`[REQ ${reqId}] ${new Date().toISOString()} ${req.method} ${req.url}`);
+  console.log(`[BOOT][REQ ${reqId}] ${new Date().toISOString()} ${req.method} ${req.url}`);
+  console.log(`[BOOT][ENV] NODE_ENV: ${process.env.NODE_ENV}, VERCEL: ${process.env.VERCEL}`);
   
   // Minimal diagnostic route before any module loading
   if (req.url === '/ping') {
