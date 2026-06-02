@@ -345,8 +345,7 @@ export default function AdminDashboard() {
                    <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center italic font-black">X</div>
                       <h3 className="text-3xl font-black text-stone-900 tracking-tight">Export Central</h3>
-                   </div>
-                   <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] ml-1">Archive & Intel Dispatch Protocol</p>
+                                <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] ml-1">Archive & Intel Dispatch Protocol</p>
                 </div>
                 <button 
                   onClick={() => setExportModal({ ...exportModal, open: false })}
