@@ -467,6 +467,9 @@ async function performInitialization(): Promise<void> {
     } else {
         console.log('FIREBASE_PROJECT_ID:', envProjectId);
         console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
+        console.log('[FIREBASE] Project ID present:', !!envProjectId);
+        console.log('[FIREBASE] clientEmail present:', !!(certData.client_email || certData.clientEmail));
+        console.log('[FIREBASE] privateKey present:', !!(certData.private_key || certData.privateKey));
         console.log('[FIREBASE] Calling admin.initializeApp...');
         console.log('[BOOT STEP 3] Calling admin.initializeApp...');
 
