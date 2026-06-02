@@ -1,4 +1,5 @@
 import express from 'express';
+console.log('[BOOT STEP 1] Imports loaded, entry point reached');
 import 'dotenv/config';
 import session from 'express-session';
 import cron from 'node-cron';
@@ -37,6 +38,7 @@ const rateLimiter = (options: { limit: number, windowMs: number }) => rateLimit(
   legacyHeaders: false,
 });
 
+console.log('[BOOT] Initializing Rate Limiters...');
 const limits = {
   admin: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
   auth: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
@@ -307,6 +309,7 @@ async function auditAndRecoverCollections() {
 let initPromise: Promise<void> | null = null;
 
 async function performInitialization(): Promise<void> {
+  console.log('[BOOT STEP 2] performInitialization started');
   if (admin.apps.length > 0) {
     isFirebaseReady = true;
     return;
@@ -423,6 +426,7 @@ async function performInitialization(): Promise<void> {
     ]);
   };
 
+  console.log('[BOOT] Initializing Firebase Admin SDK...');
   try {
     console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
     console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
@@ -435,6 +439,7 @@ async function performInitialization(): Promise<void> {
         console.log('FIREBASE_PROJECT_ID:', envProjectId);
         console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
         console.log('[FIREBASE] Calling admin.initializeApp...');
+        console.log('[BOOT STEP 3] Calling admin.initializeApp...');
         try {
             admin.initializeApp({
                 credential: admin.credential.cert({
@@ -444,7 +449,7 @@ async function performInitialization(): Promise<void> {
                 }),
                 projectId: envProjectId
             });
-            console.log('[FIREBASE] admin.initializeApp called successfully.');
+            console.log('[BOOT STEP 4] admin.initializeApp called successfully.');
         } catch (initErr) {
             console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
             fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] admin.initializeApp failure: ${JSON.stringify(initErr)}\n`);
@@ -454,6 +459,7 @@ async function performInitialization(): Promise<void> {
 
     console.log('* Firebase Admin Initialization Result: SUCCESS');
 
+    console.log('[BOOT] Initializing Firestore instance...');
     const db = getFirestoreInstance();
     console.log('[FIREBASE] Probing database connection...');
     
@@ -463,7 +469,7 @@ async function performInitialization(): Promise<void> {
         20000,
         `Firestore connection probe to database "${envDatabaseId}" timed out after 20s`
       );
-      console.log('* Firestore Connection Result: SUCCESS');
+      console.log('[BOOT STEP 5] Firestore Connection Result: SUCCESS');
     } catch (probeErr: any) {
       console.warn('* Firestore Connection Probe Failed (continuing for now):', probeErr.message);
       fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] Firestore probe failure: ${probeErr.message}\n`);
@@ -510,6 +516,7 @@ const handleAppError = (err: any, message: string, context: string) => {
   console.error(`[AppError][${context}]:`, err);
 };
 
+console.log('[BOOT] Creating Express instance');
 const app = express();
 app.set('trust proxy', 1);
 
@@ -1081,6 +1088,7 @@ async function startServer() {
 
   console.log('[STARTUP] Registering routes...');
 
+  console.log('[BOOT] Starting Route Registration...');
   app.post('/api/orders/:id/update-items', requireAuth, async (req, res) => {
     const { id } = req.params;
     const { items, total } = req.body;
@@ -1482,6 +1490,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.use(express.json());
   app.use(cookieParser());
   
+  console.log('[BOOT] Configuring Session middleware...');
   app.use(cookieSession({
     name: 'session',
     keys: [process.env.SESSION_SECRET || 'hind-store-secret-2024'],
@@ -2744,16 +2753,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     // Note: Firestore doesn't support full-text search directly well without Algolia, so this will return empty or partial.
     // To not break the UI, return empty arrays.
     res.json({ products: [], orders: [], users: [], suspicious: [] });
-  });
-
-  app.get('/api/admin/system-logs', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('system_logs').orderBy('created_at', 'desc').limit(100).get();
-      res.json(snap.docs.map(d => ({id: d.id, ...d.data(), type: d.data().level})));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
   });
 
   app.post('/api/user/data-request', requireAuth, async (req, res) => {
@@ -8864,7 +8863,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   console.log('[BOOT] Finalizing middlewares and starting listen...');
   const PORT = 3000;
 
-  if (true) {
+  const isServerless = process.env.VERCEL || process.env.NOW_REGION || process.env.FUNCTIONS_EMULATOR;
+  if (!isServerless) {
     const startListening = (retries = 10, delay = 1000) => {
       try {
         // Remove previous listeners to prevent memory leak on retries
@@ -8969,6 +8969,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Vercel Entry Point - Optimized for cold starts
+console.log('[BOOT] Exporting Vercel handler');
 const appPromise = startServer().catch(err => {
   console.error('[BOOT ERROR] startServer failed:', err);
   return null;

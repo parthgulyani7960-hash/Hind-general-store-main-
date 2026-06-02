@@ -4666,7 +4666,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <div className="h-72 w-full min-h-72">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <AreaChart data={stats?.revenueByDay || []}>
                       <defs>
                         <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
@@ -4680,7 +4680,7 @@ export default function AdminDashboard() {
                         axisLine={false} 
                         tickLine={false} 
                         tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} 
-                        tickFormatter={(v) => v.slice(5)}
+                        tickFormatter={(v) => (typeof v === 'string' && v.length >= 5) ? v.slice(5) : v}
                       />
                       <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} />
                       <Tooltip 
@@ -5262,7 +5262,7 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     )}
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                       <AreaChart 
                         data={showWeeklyComparison ? getWeeklyComparisonData() : salesAnalytics.dailySales} 
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
@@ -5394,7 +5394,7 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="h-80 min-h-[320px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                       <BarChart data={salesAnalytics.topProducts} layout="vertical" margin={{ top: 0, right: 30, left: 40, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                         <XAxis type="number" hide />
@@ -5480,7 +5480,7 @@ export default function AdminDashboard() {
                 </div>
                 
                 <div className="md:col-span-2 h-[300px] min-h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={[
                       { name: 'Cost Value', value: analyticsData.inventoryData?.total_cost || 0, fill: '#EF4444' },
                       { name: 'Potential Revenue', value: analyticsData.inventoryData?.potential_revenue || 0, fill: '#10B981' },
@@ -5508,7 +5508,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-stone-400 mt-1">Behavioral classification (RFM Matrix)</p>
                 </div>
                 <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <PieChart>
                       <Pie
                         data={analyticsData.rfmSegmentData}
@@ -5613,7 +5613,7 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                   )}
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <AreaChart data={[
                       ...getGroupedSalesData(),
                       // Enhanced 7-day forecast based on linear trend of last 14 days
@@ -5691,7 +5691,7 @@ export default function AdminDashboard() {
               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                 <h3 className="text-xl font-black mb-8 text-stone-900">Category Dominance</h3>
                 <div className="h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <PieChart>
                       <Pie
                         data={analyticsData.salesByCategory}
@@ -5757,7 +5757,7 @@ export default function AdminDashboard() {
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="h-[300px]">
                   <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Segment Distribution</p>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <PieChart>
                       <Pie
                         data={analyticsData.rfmSegmentData || []}
@@ -5842,7 +5842,7 @@ export default function AdminDashboard() {
               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                 <h3 className="text-xl font-black mb-8 text-stone-900">Acquisition Funnel</h3>
                 <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart 
                       layout="vertical"
                       data={analyticsData.conversionFunnel}
@@ -5875,7 +5875,7 @@ export default function AdminDashboard() {
               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                 <h3 className="text-xl font-black mb-8 text-stone-900">Traffic Attribution</h3>
                 <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <PieChart>
                       <Pie
                         data={analyticsData.acquisitionSources}
@@ -9224,7 +9224,13 @@ export default function AdminDashboard() {
                                 src={selectedTicket.image_url} 
                                 alt="Support Evidence" 
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-zoom-in"
-                                onClick={() => window.open(selectedTicket.image_url, '_blank')}
+                                onClick={() => {
+                                  try {
+                                    window.open(selectedTicket.image_url, '_blank');
+                                  } catch (e) {
+                                    toast.error('Unable to open image in new tab');
+                                  }
+                                }}
                               />
                             </div>
                           </div>
