@@ -21,6 +21,7 @@ interface AdminDashboardLayoutProps {
   stats: any;
   extraHeader?: React.ReactNode;
   loading?: boolean;
+  healthStatus?: 'healthy' | 'warning' | 'critical' | 'offline';
 }
 
 /**
@@ -39,14 +40,15 @@ interface AdminDashboardLayoutProps {
  * @param stats - Object containing store statistics (e.g., low stock).
  * @param extraHeader - Optional content for the header area.
  * @param loading - Whether the page content is currently loading.
+ * @param healthStatus - Current system health status.
  */
 export default function AdminDashboardLayout({ 
   children, activeTab, setActiveTab, user, logout, adminTheme, 
-  sidebarOpen, setSidebarOpen, getDisplayLabel, stats, extraHeader, loading
+  sidebarOpen, setSidebarOpen, getDisplayLabel, stats, extraHeader, loading,
+  healthStatus = 'offline'
 }: AdminDashboardLayoutProps) {
 
   const navigate = useNavigate();
-  const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'offline'>('offline');
   const [isMinimized, setIsMinimized] = useState(false);
   
   useEffect(() => {
@@ -68,31 +70,13 @@ export default function AdminDashboardLayout({
     }
   }, [user, navigate, loading]);
   
-  // ... health check effect ...
-  useEffect(() => {
-    let mounted = true;
-    const checkHealth = async () => {
-      try {
-        const data = await fetchWithHandling<any>('/api/admin/health-indicator', { headers: getAuthHeaders() });
-        if (mounted && data) {
-          setHealthStatus(data.status || 'offline');
-        }
-      } catch (err) {
-        if (mounted) setHealthStatus('offline');
-      }
-    };
-    checkHealth();
-    const interval = setInterval(checkHealth, 30000); // Check every 30s
-    return () => { mounted = false; clearInterval(interval); };
-  }, []);
-
   const healthColors = {
     healthy: 'bg-emerald-50 border-emerald-100 text-emerald-700 marker:bg-emerald-500',
     warning: 'bg-amber-50 border-amber-100 text-amber-700 marker:bg-amber-500',
     critical: 'bg-red-50 border-red-100 text-red-700 marker:bg-red-500',
     offline: 'bg-stone-50 border-stone-100 text-stone-500 marker:bg-stone-500',
   };
-  const healthColorStr = healthColors[healthStatus];
+  const healthColorStr = healthColors[healthStatus || 'offline'];
 
   return (
     <div className={cn("h-screen bg-stone-50 flex overflow-hidden", adminTheme)}>

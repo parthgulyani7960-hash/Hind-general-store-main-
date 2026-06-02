@@ -464,30 +464,22 @@ async function performInitialization(): Promise<void> {
     ]);
   };
 
-  console.log('[BOOT] Initializing Firebase Admin SDK...');
-  console.log('[BOOT STEP 4] Initializing Firebase Admin...');
-  console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
-  console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
+    console.log('[BOOT] Initializing Firebase Admin SDK...');
+    console.log('[BOOT STEP 4] Initializing Firebase Admin...');
+    console.log('[FIREBASE] admin.apps.length before init:', admin.apps.length);
+    console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
     
-
-        console.log('[BOOT STEP 3.3] admin.app() check');
-        // Check if app is already initialized to avoid re-init error/hang
-        if (admin.apps.length > 0) {
-        console.log('[FIREBASE] Admin app already exists, using existing instance.');
-        admin.app();
+    if (admin.apps.length > 0) {
+      console.log('[FIREBASE] Admin app already exists, using existing instance.');
+      const existingApp = admin.app();
+      console.log('[FIREBASE] Existing App Project ID:', existingApp.options.projectId);
     } else {
+        console.log('[FIREBASE] No apps found. Initializing new app.');
         console.log('FIREBASE_PROJECT_ID:', envProjectId);
         console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
-        console.log('[FIREBASE] Project ID present:', !!envProjectId);
-        console.log('[FIREBASE] clientEmail present:', !!(certData.client_email || certData.clientEmail));
-        console.log('[FIREBASE] privateKey present:', !!(certData.private_key || certData.privateKey));
-        console.log('[BOOT] FIREBASE_SERVICE_ACCOUNT_KEY present:', !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-        console.log('[BOOT] FIREBASE_PROJECT_ID present:', !!process.env.FIREBASE_PROJECT_ID);
-        console.log('[BOOT] SESSION_SECRET present:', !!process.env.SESSION_SECRET);
-
-        console.log('[BOOT] BEFORE ADMIN INIT');
+        
         try {
-            console.log('[BOOT STEP 4] Calling admin.initializeApp synchronously');
+            console.log('[BOOT STEP 4] Calling admin.initializeApp');
             admin.initializeApp({
                 credential: admin.credential.cert({
                     projectId: certData.project_id || certData.projectId,
@@ -497,13 +489,13 @@ async function performInitialization(): Promise<void> {
                 projectId: envProjectId
             });
 
-            console.log('[BOOT] AFTER ADMIN INIT');
-            console.log('[BOOT STEP 5] admin.initializeApp returned successfully');
+            const newApp = admin.app();
             console.log('[BOOT] Firebase Admin Initialization Result: SUCCESS');
+            console.log('[BOOT] New App Project ID:', newApp.options.projectId);
+            console.log('[BOOT] Firestore Database ID from config:', envDatabaseId);
         } catch (initErr) {
             console.error('[BOOT] ADMIN INIT FAILED');
             console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
-            fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] admin.initializeApp failure: ${JSON.stringify(initErr)}\n`);
             throw initErr;
         }
     }
@@ -1558,18 +1550,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.use(cookieParser());
   
   console.log('[BOOT] Configuring Session middleware...');
+  const sessionSecret = process.env.SESSION_SECRET;
+  console.log('[BOOT] SESSION_SECRET exists:', !!sessionSecret);
   
-console.log('[BOOT] Configuring Session middleware...');
-  app.use(cookieSession({
+  const cookieConfig = {
     name: 'session',
-    keys: [process.env.SESSION_SECRET || 'hind-store-secret-2024'],
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    // Critical: AI Studio preview runs in an iframe. Secure: true and SameSite: 'none' are REQUIRED for cookies to persist.
+    keys: [sessionSecret || 'hind-store-secret-2024'],
+    maxAge: 24 * 60 * 60 * 1000, 
     secure: true, 
-    sameSite: 'none',
+    sameSite: 'none' as const,
     path: '/',
     httpOnly: true
-}));
+  };
+  
+  console.log('[BOOT] Cookie Configuration:', {
+    name: cookieConfig.name,
+    secure: cookieConfig.secure,
+    sameSite: cookieConfig.sameSite,
+    httpOnly: cookieConfig.httpOnly,
+    maxAge: cookieConfig.maxAge
+  });
+
+  app.use(cookieSession(cookieConfig));
+  console.log('[BOOT] Session middleware initialized successfully');
 
   // Token-based fallback for iframe / cross-site environments
   app.use(async (req, res, next) => {
@@ -2448,13 +2451,13 @@ console.log('[BOOT] Configuring Session middleware...');
   const checkDbReady = () => isFirebaseReady && admin.apps.length > 0;
   
   app.get('/api/settings', async (req, res) => {
-    console.log('ROUTE ENTERED: /api/settings');
+    console.log('[ROUTE START] /api/settings', { requestId: (req as any).id });
     try {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
       
-      console.log('FIREBASE INIT START');
+      console.log('[STEP 1] Checking Firebase status...');
       if (!checkDbReady()) {
-        console.warn('[SETTINGS] Database not ready, returning safe defaults');
+        console.warn('[SETTINGS] Database not ready');
         return res.json({ 
           maintenance: false, 
           authMode: 'email',
@@ -2465,19 +2468,22 @@ console.log('[BOOT] Configuring Session middleware...');
           warning: 'Fallback mode active (Database offline)'
         });
       }
-      console.log('FIREBASE INIT SUCCESS');
 
-      console.log('FIRESTORE QUERY START');
-      const snap = await getFirestoreInstance().collection('settings').get();
-      console.log('FIRESTORE QUERY SUCCESS');
+      console.log('[STEP 2] Acquiring Firestore instance for settings');
+      const db = getFirestoreInstance();
       
-      const publicSettings = snap.docs.map(d => ({ key: d.id, ...d.data() })).filter(s => !sensitiveKeys.includes(s.key));
+      console.log('[STEP 3] Querying Firestore: settings collection');
+      const snap = await db.collection('settings').get();
+      console.log('[STEP 4] Query Success: Document count:', snap.size);
       
-      const maintenance = publicSettings.find(s => s.key === 'maintenance_mode')?.value === 'true';
-      const authMode = publicSettings.find(s => s.key === 'auth_mode')?.value || 'email';
-      const storePhone = publicSettings.find(s => s.key === 'store_phone')?.value || '';
-      const whatsappNumber = publicSettings.find(s => s.key === 'whatsapp_number')?.value || '';
+      const publicSettings = snap.docs.map((d: any) => ({ key: d.id, ...d.data() })).filter((s: any) => !sensitiveKeys.includes(s.key));
       
+      const maintenance = publicSettings.find((s: any) => s.key === 'maintenance_mode')?.value === 'true';
+      const authMode = publicSettings.find((s: any) => s.key === 'auth_mode')?.value || 'email';
+      const storePhone = publicSettings.find((s: any) => s.key === 'store_phone')?.value || '';
+      const whatsappNumber = publicSettings.find((s: any) => s.key === 'whatsapp_number')?.value || '';
+      
+      console.log('[ROUTE SUCCESS] /api/settings');
       res.json({ 
         maintenance, 
         authMode,
@@ -2487,15 +2493,16 @@ console.log('[BOOT] Configuring Session middleware...');
         dbConnected: true
       });
     } catch (err: any) {
-      console.error('[SETTINGS] Critical fetch error, returning safe defaults:', err.message);
-      res.json({ 
-        maintenance: false, 
-        authMode: 'email',
-        storePhone: '+919999999999',
-        whatsappNumber: '+919999999999',
-        config: [],
-        dbConnected: false,
-        warning: 'Fallback mode active (Database query failed: ' + err.message + ')'
+      console.error('[ROUTE FAILURE] /api/settings', {
+        message: err.message,
+        stack: err.stack,
+        requestId: (req as any).id
+      });
+      res.status(500).json({
+        success: false,
+        route: '/api/settings',
+        error: err.message,
+        stack: err.stack
       });
     }
   });
@@ -3122,16 +3129,15 @@ console.log('[BOOT] Configuring Session middleware...');
   });
 
   app.get('/api/auth/me', async (req, res) => {
-    console.log('ROUTE ENTERED: /api/auth/me');
+    console.log('[ROUTE START] /api/auth/me', { requestId: (req as any).id });
     try {
-      console.log('FIREBASE INIT START');
+      console.log('[STEP 1] Checking Firebase status...');
       if (!isFirebaseReady) {
-        console.log('FIREBASE INIT FAILED: Database not ready');
+        console.log('[STEP 1.1] Database not ready, returning partial status');
         return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
       }
-      console.log('FIREBASE INIT SUCCESS');
-      
-      console.log('AUTH VERIFY START');
+
+      console.log('[STEP 2] Verifying authentication flow...');
       if (!req.session || !req.session.userId) {
         const authHeader = req.headers.authorization;
         if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -3247,10 +3253,20 @@ console.log('[BOOT] Configuring Session middleware...');
       const tokenPayload = { userId: sessionUser.id, role: sessionUser.role, timestamp: Date.now() };
       const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
       
+      console.log('[ROUTE SUCCESS] /api/auth/me - User found:', sessionUser.email);
       res.json({ success: true, user: sessionUser, token });
     } catch (err: any) {
-      console.warn('[AUTH/ME] Session verification failed:', err.message);
-      res.status(401).json({ success: false, message: 'Failed to verify session', error: err.message });
+      console.error('[ROUTE FAILURE] /api/auth/me', {
+        message: err.message,
+        stack: err.stack,
+        requestId: (req as any).id
+      });
+      res.status(500).json({
+        success: false,
+        route: '/api/auth/me',
+        error: err.message,
+        stack: err.stack
+      });
     }
   });
 
@@ -3313,26 +3329,26 @@ console.log('[BOOT] Configuring Session middleware...');
 
 
   app.post('/api/auth/firebase-login', async (req, res) => {
-    console.log('ROUTE ENTERED: /api/auth/firebase-login');
+    console.log('[ROUTE START] /api/auth/firebase-login', { requestId: (req as any).id });
     try {
       const { idToken } = req.body;
+      console.log('[STEP 1] Received idToken length:', idToken?.length);
 
-      console.log('FIREBASE INIT START');
+      console.log('[STEP 2] Checking Firebase status...');
       if (!isFirebaseReady) {
-        console.warn('Firebase Admin not initialized');
+        console.warn('[STEP 2.1] Firebase Admin not initialized');
         return res.status(500).json({ success: false, message: 'Currently offline.' });
       }
-      console.log('FIREBASE INIT SUCCESS');
-      
-      console.log('AUTH VERIFY START');
+
+      console.log('[STEP 3] Verifying idToken...');
       if (!idToken) {
-        console.error('[AUTH] No token provided in request body');
+        console.error('[STEP 3.1] No token provided in request body');
         return res.status(400).json({ success: false, message: 'No token provided' });
       }
       
-      console.log('[AUTH] Verifying idToken for login...');
+      console.log('[STEP 4] Calling safeVerifyIdToken...');
       const decodedToken = await safeVerifyIdToken(idToken);
-      console.log('[AUTH/DEBUG] Decoded Token:', JSON.stringify(decodedToken, null, 2));
+      console.log('[STEP 5] Token verified. UID:', decodedToken.uid);
       const email = sanitizeEmail(decodedToken.email);
       
       if (!email) {
@@ -3375,15 +3391,20 @@ console.log('[BOOT] Configuring Session middleware...');
       
       console.log('[AUTH/DEBUG] User object before returning to client:', JSON.stringify(user, null, 2));
       
+      console.log('[ROUTE SUCCESS] /api/auth/firebase-login - User:', user.email);
       res.json({ success: true, user, isNewUser });
     } catch (e: any) {
-      console.error('Firebase login error details:', {
+      console.error('[ROUTE FAILURE] /api/auth/firebase-login', {
         message: e.message,
         stack: e.stack,
-        code: e.code
+        requestId: (req as any).id
       });
-      logSuspicious(null, 'FAILED_LOGIN', `Firebase login failed: ${e.message}`, req.ip);
-      res.status(401).json({ success: false, message: 'Authentication failed: ' + e.message });
+      res.status(500).json({
+        success: false,
+        route: '/api/auth/firebase-login',
+        error: e.message,
+        stack: e.stack
+      });
     }
   });
 
@@ -5410,7 +5431,7 @@ console.log('[BOOT] Configuring Session middleware...');
 
   // BUGS ENDPOINTS
   app.post('/api/bugs/report', async (req, res) => {
-    console.log("[ROUTE ENTERED] /api/bugs/report");
+    console.log('[ROUTE START] /api/bugs/report', { requestId: (req as any).id });
     try {
       const { 
         user_id, reporter_name, message, why, path, action_log,
@@ -5418,8 +5439,10 @@ console.log('[BOOT] Configuring Session middleware...');
         network_status, request_payload, metadata 
       } = req.body;
       
+      console.log('[STEP 1] Checking Firebase status...');
       if (admin.apps.length) {
          try {
+           console.log('[STEP 2] Adding bug report to Firestore: bug_reports collection');
            await getFirestoreInstance().collection('bug_reports').add({
              user_id: user_id || null, 
              reporter_name: reporter_name || 'System Auto', 
@@ -5438,19 +5461,31 @@ console.log('[BOOT] Configuring Session middleware...');
              status: 'open',
              created_at: new Date().toISOString()
            });
+           console.log('[STEP 3] Bug report saved successfully');
          } catch (dbErr: any) {
-           console.error('[BUGS] Failed to write bug to Firestore. Logging locally to prevent loop:', dbErr.message);
+           console.error('[ROUTE FAILURE/STEP 2] Failed to write bug to Firestore:', dbErr.message);
+           throw dbErr; // Let the outer catch handle it
          }
       } else {
-         console.warn('[BUGS] Skipped saving bug report. Firebase not initialized.');
+         console.warn('[STEP 1.1] Firebase not initialized');
+         throw new Error('Firebase Admin not initialized');
       }
-      return res.json({ success: true, message: 'Bug reported logged (or skipped gracefully)' });
+      
+      console.log('[ROUTE SUCCESS] /api/bugs/report');
+      return res.json({ success: true, message: 'Bug reported logged' });
     } catch (e: any) {
-      console.error("[BUGS REPORT ERROR]");
-      console.error(e);
-      console.error(e?.stack);
-      // Return 200 so the UI error reporter doesn't get into an infinite recursion loop reporting its own 500 error
-      res.json({ success: false, message: e.message });
+      console.error('[ROUTE FAILURE] /api/bugs/report', {
+        message: e.message,
+        stack: e.stack,
+        requestId: (req as any).id
+      });
+      // Try to return a friendly 200 first if it was a db error we captured, but the prompt says return detailed error
+      res.status(500).json({
+        success: false,
+        route: '/api/bugs/report',
+        error: e.message,
+        stack: e.stack
+      });
     }
   });
 
@@ -7960,28 +7995,31 @@ console.log('[BOOT] Configuring Session middleware...');
   };
 
   app.get('/api/announcements', limits.auth, async (req, res) => {
-    console.log('ROUTE ENTERED: /api/announcements');
+    console.log('[ROUTE START] /api/announcements', { requestId: (req as any).id });
     const cacheKey = 'announcements';
     const cachedData = responseCache.get(cacheKey);
-    if (cachedData) return res.json(cachedData);
+    if (cachedData) {
+      console.log('[STEP 1] Returning cached announcements');
+      return res.json(cachedData);
+    }
 
     const fallbackAnnouncements = [
       { id: "ann_1", title: "Welcome to HindStore!", content: "Enjoy daily fresh whole wheat flour, spices, organic cow ghee, and cold pressed oils delivered to your doorstep.", priority: "medium", created_at: new Date().toISOString() }
     ];
 
     try {
-      console.log('FIREBASE INIT START');
+      console.log('[STEP 2] Checking Firebase status...');
       if ((admin.apps || []).length === 0 || !isFirebaseReady) {
-        console.warn('[ANNOUNCEMENTS] Database not ready, returning fallbacks');
+        console.warn('[STEP 2.1] Database not ready, returning fallbacks');
         return res.json(fallbackAnnouncements);
       }
 
-      console.log('[API] Fetching announcements...');
+      console.log('[STEP 3] Acquiring Firestore instance for announcements');
       const db = getFirestoreInstance();
-      console.log('[API] Firestore instance acquired.');
       
+      console.log('[STEP 4] Querying Firestore: announcements collection');
       const snap = await db.collection('announcements').limit(20).get();
-      console.log(`[API] Found ${snap.docs.length} announcements.`);
+      console.log('[STEP 5] Query Success: Document count:', snap.size);
 
       const now = new Date().toISOString();
       const announcements = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
@@ -7995,11 +8033,21 @@ console.log('[BOOT] Configuring Session middleware...');
          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       });
 
+      console.log('[ROUTE SUCCESS] /api/announcements');
       responseCache.set(cacheKey, validAnnouncements, 120);
       return res.json(validAnnouncements);
-    } catch (e: any) {
-      console.error('[API] Error fetching announcements, returning fallback:', e.message);
-      return res.json(fallbackAnnouncements);
+    } catch (err: any) {
+      console.error('[ROUTE FAILURE] /api/announcements', {
+        message: err.message,
+        stack: err.stack,
+        requestId: (req as any).id
+      });
+      res.status(500).json({
+        success: false,
+        route: '/api/announcements',
+        error: err.message,
+        stack: err.stack
+      });
     }
   });
 

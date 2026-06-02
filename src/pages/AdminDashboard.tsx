@@ -1681,29 +1681,50 @@ export default function AdminDashboard() {
   const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
   const [newUserCount, setNewUserCount] = useState(0);
 
-  // Polling for real-time stats
+  // Centralized background polling for real-time dashboard health and metrics
   useEffect(() => {
-    // Sequentially load data to avoid hitting rate limits
+    if (!user || user.role !== 'admin') return;
+
+    let mounted = true;
+
+    // Initial load
     const initData = async () => {
       try {
         await Promise.all([
-            // Add a small delay between requests if necessary, or use a throttled fetcher
-            fetchStats(),
-            // add other critical initial data fetches here
+          fetchStats(true),
+          checkHealth()
         ]);
       } catch (err) {
-        console.error('Initial data load error:', err);
+        console.error('Initial background data load error:', err);
       }
     };
-    
     initData();
-    const pollStats = setInterval(fetchStats, 60000); // Poll every 60s
-    return () => clearInterval(pollStats);
-  }, []);
+
+    // Centralized interval (every 30s)
+    let statsCounter = 0;
+    const pollingInterval = setInterval(() => {
+      if (!mounted) return;
+      
+      // Health check runs every 30s
+      checkHealth();
+
+      // Stats fetch runs every 60s (every 2nd tick)
+      statsCounter++;
+      if (statsCounter >= 2) {
+        fetchStats(true); 
+        statsCounter = 0;
+      }
+    }, 30000);
+
+    return () => {
+      mounted = false;
+      clearInterval(pollingInterval);
+    };
+  }, [user]); // Only dependent on user. LastPollTime removed from deps to prevent churn.
 
   useEffect(() => {
     setLoading(true);
-    const timer = setTimeout(() => setLoading(false), 500); // 500ms delay to force wait then hide
+    const timer = setTimeout(() => setLoading(false), 500); 
     return () => clearTimeout(timer);
   }, [activeTab]);
 
@@ -1888,15 +1909,28 @@ export default function AdminDashboard() {
   }
 
 
-  const fetchStats = async () => {
-    setLoading(true);
+  const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'offline'>('offline');
+
+  const fetchStats = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const data = await adminService.getStats();
       if (data) setStats(data);
     } catch (err: any) {
       console.error('Stats fetch error:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const checkHealth = async () => {
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/health-indicator', { headers: getAuthHeaders() });
+      if (data) {
+        setHealthStatus(data.status || 'offline');
+      }
+    } catch (err) {
+      setHealthStatus('offline');
     }
   };
 
@@ -3337,29 +3371,21 @@ export default function AdminDashboard() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [statsData, ordersData, configData, usersData, productsData, categoriesData, expiringData, notifData] = await Promise.all([
-          fetchWithHandling<any>('/api/admin/stats', { headers: getAuthHeaders() }),
-          fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() }),
+        // Optimized to only fetch non-live/non-polled data
+        const [configData, usersData, expiringData, notifData] = await Promise.all([
           fetchWithHandling<any[]>('/api/admin/config', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() }),
-          fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() }),
-          fetchWithHandling<any[]>('/api/categories', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/admin/inventory/expiring', { headers: getAuthHeaders() }),
           fetchWithHandling<any[]>('/api/notifications', { headers: getAuthHeaders() })
         ]);
 
-        if (statsData) setStats(statsData);
-        if (ordersData) setOrders(ordersData);
         if (configData) setConfig(configData);
         if (usersData) setUsers(usersData);
-        if (productsData) {
-          setAllProducts(productsData);
-          setLowStockProducts(productsData.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-        }
-        if (categoriesData) setCategories(categoriesData);
         if (expiringData) setExpiringSoon(expiringData);
         if (notifData) setNotifications(notifData);
 
+        // categories are better handled by their dedicated fetcher
+        fetchCategories();
       } catch (err) {
         console.error('Failed to load initial admin data', err);
       } finally {
@@ -4644,6 +4670,7 @@ export default function AdminDashboard() {
       stats={stats}
       extraHeader={SearchUI}
       loading={loading}
+      healthStatus={healthStatus}
     >
       <div className="space-y-4 md:space-y-8 pb-12">
         <AnimatePresence mode="wait">
