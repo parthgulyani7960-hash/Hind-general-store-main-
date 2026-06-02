@@ -1,9 +1,9 @@
 console.log('[BOOT STEP 1] Starting server.ts execution');
+process.on('warning', (warning) => console.warn('[NODE_WARNING]', warning));
 import express from 'express';
 console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
 console.log('[BOOT] Dotenv loaded');
-import session from 'express-session';
 import cron from 'node-cron';
 
 declare module 'express-session' {
@@ -15,7 +15,17 @@ declare module 'express-session' {
   }
 }
 
-import { google } from 'googleapis';
+
+// Lazy load googleapis
+let google: any = null;
+async function getGoogle() {
+  if (!google) {
+    const { google: g } = await import('googleapis');
+    google = g;
+  }
+  return google;
+}
+
 import cookieParser from 'cookie-parser';
 import cookieSession from 'cookie-session';
 
@@ -28,6 +38,8 @@ import { Server } from 'socket.io';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import NodeCache from 'node-cache';
+
+console.log('[BOOT STEP 1.1] All imports completed successfully');
 
 
 const responseCache = new NodeCache({ stdTTL: 300 });
@@ -42,6 +54,7 @@ const rateLimiter = (options: { limit: number, windowMs: number }) => rateLimit(
 
 console.log('[BOOT] Initializing Rate Limiters...');
 console.log('[BOOT STEP 2] Configuring Express instances and middleware...');
+console.log('[BOOT STEP 2.1] Constants and Rate Limiters initialized');
 const limits = {
   admin: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
   auth: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
@@ -54,6 +67,8 @@ const logServerError = async (err: any, context: string, req?: any, logToFiresto
   // You might want to log to firestore here
 };
 
+
+console.log('[BOOT STEP 2.2] Environment validation starting');
 function validateEnvironment() {
   // Relaxing requirements to allow recovery from Service Account Key
   const minimalRequired = ['FIREBASE_SERVICE_ACCOUNT_KEY', 'SESSION_SECRET'];
@@ -95,6 +110,8 @@ const mergeFirebaseConfigs = (base: any, incoming: any) => {
   return result;
 };
 
+
+console.log('[BOOT STEP 2.3] Firebase config merging');
 let isFirebaseReady = false;
 let firebaseConfig: any = {};
 try {
@@ -200,6 +217,8 @@ const getFirebaseWebConfig = () => {
   return merge(BASELINE, config);
 };
 
+
+console.log('[BOOT STEP 2.5] auditAndRecoverCollections defined');
 async function auditAndRecoverCollections() {
   console.log('================================================================');
   console.log('🔍 FIRESTORE CORES AUDIT & BACKEND RECOVERY STARTING...');
@@ -307,6 +326,10 @@ async function auditAndRecoverCollections() {
 
 let initPromise: Promise<void> | null = null;
 
+
+console.log('[BOOT STEP 2.4] performInitialization defined');
+
+console.log('[BOOT STEP 2.4] performInitialization starting');
 async function performInitialization(): Promise<void> {
   console.log('[BOOT STEP 3] performInitialization started');
   console.log('[BOOT] Checking Firebase Admin initialization status...');
@@ -383,7 +406,10 @@ async function performInitialization(): Promise<void> {
     }
   }
 
+
+  console.log('[BOOT STEP 3.1] Checking Firebase Project ID');
   const envProjectId = process.env.FIREBASE_PROJECT_ID || config?.projectId || serviceAccountProjectId;
+  console.log('[BOOT STEP 3.2] Checking Firebase Database ID');
   const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
 
   // Enforce mandatory fail-fast gates
@@ -432,8 +458,10 @@ async function performInitialization(): Promise<void> {
     console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
     console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
     
-    // Check if app is already initialized to avoid re-init error/hang
-    if (admin.apps.length > 0) {
+
+        console.log('[BOOT STEP 3.3] admin.app() check');
+        // Check if app is already initialized to avoid re-init error/hang
+        if (admin.apps.length > 0) {
         console.log('[FIREBASE] Admin app already exists, using existing instance.');
         admin.app();
     } else {
@@ -441,7 +469,9 @@ async function performInitialization(): Promise<void> {
         console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
         console.log('[FIREBASE] Calling admin.initializeApp...');
         console.log('[BOOT STEP 3] Calling admin.initializeApp...');
+
         try {
+            console.log('[BOOT STEP 4] Calling admin.initializeApp synchronously');
             admin.initializeApp({
                 credential: admin.credential.cert({
                     projectId: certData.project_id || certData.projectId,
@@ -450,7 +480,8 @@ async function performInitialization(): Promise<void> {
                 }),
                 projectId: envProjectId
             });
-            console.log('[BOOT STEP 5] admin.initializeApp called successfully.');
+
+            console.log('[BOOT STEP 5] admin.initializeApp returned successfully');
             console.log('[BOOT] Firebase Admin Initialization Result: SUCCESS');
         } catch (initErr) {
             console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
@@ -500,6 +531,20 @@ const handleAppError = (err: any, message: string, context: string) => {
 console.log('[BOOT] Creating Express instance');
 const app = express();
 app.set('trust proxy', 1);
+
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
+
+app.get('/api/boot-status', (req, res) => {
+  res.json({
+    bootPhase: 'diag',
+    isFirebaseReady,
+    adminApps: admin.apps.length,
+    vercel: !!process.env.VERCEL,
+    timestamp: new Date().toISOString()
+  });
+});
 
 app.use(async (req, res, next) => {
   // console.log(`[DEBUG] Request received: ${req.method} ${req.path}`);
@@ -898,6 +943,8 @@ const generateRequestId = () => Math.random().toString(36).substring(2, 11);
 
 
 
+
+console.log('[BOOT] Setting up global error handlers');
 // --- GLOBAL PROCESS ERROR HANDLERS ---
 process.on('uncaughtException', (err) => {
   console.error('FATAL: Uncaught Exception:', err);
@@ -1029,6 +1076,8 @@ const createNotification = async (title: string, message: string, type: string =
 
 // Moved middlewares
 
+
+console.log('[BOOT STEP 2.6] startServer defined');
 async function startServer() {
   console.log("[BOOT] Server startup, checking ports...");
   console.log({
@@ -1040,10 +1089,10 @@ async function startServer() {
   console.log('[STARTUP] Initializing components...');
   try {
     validateEnvironment();
-    console.log("[STARTUP] Environment validated");
+    console.log("[BOOT STEP 2.7] Environment validated");
     
     await initializeFirebase();
-    console.log("[FIREBASE READY] Sequence finished");
+    console.log("[BOOT STEP 2.8] Firebase initialization finished");
     
     if (admin.apps.length > 0) {
        console.log("[FIRESTORE READY] Connection established");
@@ -1072,6 +1121,8 @@ async function startServer() {
 
   console.log('[STARTUP] Registering routes...');
 
+  console.log('[BOOT] Starting Route Registration...');
+  
   console.log('[BOOT] Starting Route Registration...');
   app.post('/api/orders/:id/update-items', requireAuth, async (req, res) => {
     const { id } = req.params;
@@ -1475,6 +1526,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.use(cookieParser());
   
   console.log('[BOOT] Configuring Session middleware...');
+  
+console.log('[BOOT] Configuring Session middleware...');
   app.use(cookieSession({
     name: 'session',
     keys: [process.env.SESSION_SECRET || 'hind-store-secret-2024'],
@@ -7434,20 +7487,22 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
+
   // --- Automated UPI Verification (Gmail API) ---
   
-  const gmail = google.gmail('v1');
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GMAIL_CLIENT_ID,
-    process.env.GMAIL_CLIENT_SECRET
-  );
-
-  oauth2Client.setCredentials({
-    refresh_token: process.env.GMAIL_REFRESH_TOKEN
-  });
-
   const pollGmailForPayments = async () => {
     try {
+      const g = await getGoogle();
+      const gmail = g.gmail('v1');
+      const oauth2Client = new g.auth.OAuth2(
+        process.env.GMAIL_CLIENT_ID,
+        process.env.GMAIL_CLIENT_SECRET
+      );
+
+      oauth2Client.setCredentials({
+        refresh_token: process.env.GMAIL_REFRESH_TOKEN
+      });
+
       if (!admin.apps.length) return;
       console.log('[GMAIL] Polling for new transaction emails...');
       const res = await gmail.users.messages.list({
@@ -8952,13 +9007,16 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+
 // Vercel Entry Point - Optimized for cold starts
-console.log('[BOOT] Exporting Vercel handler');
+console.log('[BOOT] Creating appPromise - startServer call');
 const appPromise = startServer().catch(err => {
   console.error('[BOOT ERROR] startServer failed:', err);
   return null;
 });
 
+
+console.log('[BOOT] Finalizing Vercel export handler');
 export default async function handler(req: express.Request, res: express.Response) {
   try {
     const app = await appPromise;
