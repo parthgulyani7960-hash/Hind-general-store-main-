@@ -1,6 +1,8 @@
+console.log('[BOOT STEP 1] Starting server.ts execution');
 import express from 'express';
-console.log('[BOOT STEP 1] Imports loaded, entry point reached');
+console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
+console.log('[BOOT] Dotenv loaded');
 import session from 'express-session';
 import cron from 'node-cron';
 
@@ -39,6 +41,7 @@ const rateLimiter = (options: { limit: number, windowMs: number }) => rateLimit(
 });
 
 console.log('[BOOT] Initializing Rate Limiters...');
+console.log('[BOOT STEP 2] Configuring Express instances and middleware...');
 const limits = {
   admin: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
   auth: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
@@ -65,10 +68,6 @@ function validateEnvironment() {
   }
   console.log('[BOOT] Environment sanity check completed');
 }
-
-// ... (keep existing imports up to line 24)
-
-// ... (keep lines 26-804)
 
 // Initialize Firebase Admin (rest of code)
 console.log('[BOOT 1] Firebase initialization started');
@@ -309,7 +308,8 @@ async function auditAndRecoverCollections() {
 let initPromise: Promise<void> | null = null;
 
 async function performInitialization(): Promise<void> {
-  console.log('[BOOT STEP 2] performInitialization started');
+  console.log('[BOOT STEP 3] performInitialization started');
+  console.log('[BOOT] Checking Firebase Admin initialization status...');
   if (admin.apps.length > 0) {
     isFirebaseReady = true;
     return;
@@ -427,6 +427,7 @@ async function performInitialization(): Promise<void> {
   };
 
   console.log('[BOOT] Initializing Firebase Admin SDK...');
+  console.log('[BOOT STEP 4] Initializing Firebase Admin...');
   try {
     console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
     console.log('[FIREBASE] Before admin.apps check. Length:', admin.apps.length);
@@ -449,7 +450,8 @@ async function performInitialization(): Promise<void> {
                 }),
                 projectId: envProjectId
             });
-            console.log('[BOOT STEP 4] admin.initializeApp called successfully.');
+            console.log('[BOOT STEP 5] admin.initializeApp called successfully.');
+            console.log('[BOOT] Firebase Admin Initialization Result: SUCCESS');
         } catch (initErr) {
             console.error('[FIREBASE] admin.initializeApp CRITICAL FAILURE:', initErr);
             fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] admin.initializeApp failure: ${JSON.stringify(initErr)}\n`);
@@ -457,38 +459,16 @@ async function performInitialization(): Promise<void> {
         }
     }
 
-    console.log('* Firebase Admin Initialization Result: SUCCESS');
+    console.log('[BOOT STEP 5] Firebase Admin Initialization Result: SUCCESS');
 
-    console.log('[BOOT] Initializing Firestore instance...');
-    const db = getFirestoreInstance();
-    console.log('[FIREBASE] Probing database connection...');
-    
-    try {
-      await promiseWithTimeout(
-        db.collection('_health_').limit(1).get(),
-        20000,
-        `Firestore connection probe to database "${envDatabaseId}" timed out after 20s`
-      );
-      console.log('[BOOT STEP 5] Firestore Connection Result: SUCCESS');
-    } catch (probeErr: any) {
-      console.warn('* Firestore Connection Probe Failed (continuing for now):', probeErr.message);
-      fs.appendFileSync('/tmp/init-error.log', `[${new Date().toISOString()}] Firestore probe failure: ${probeErr.message}\n`);
-    }
-    
-    console.log('================================================================');
-
+    console.log('[BOOT] Firestore instance acquired.');
     isFirebaseReady = true;
     dbConnectionStatus.mode = 'PRODUCTION';
     dbConnectionStatus.active = true;
     dbConnectionStatus.isFallback = false;
     dbConnectionStatus.details = `Connected to Production Firestore (Project: ${envProjectId}, DB: ${envDatabaseId})`;
     
-    try {
-      await auditAndRecoverCollections();
-    } catch (auditErr: any) {
-      console.error('[BOOT ERROR] auditAndRecoverCollections failed:', auditErr.message);
-    }
-    
+    console.log('[BOOT] Skipping heavy audit and probe for faster startup.');
     return;
   } catch (err: any) {
     console.error('================================================================');
@@ -503,6 +483,7 @@ async function performInitialization(): Promise<void> {
 }
 
 async function initializeFirebase() {
+  console.log('[BOOT STEP 3] Starting Firebase initialization sequence...');
   if (initPromise) return initPromise;
   initPromise = performInitialization().catch(err => {
     initPromise = null;
@@ -980,35 +961,38 @@ const socketBatches: Map<string, any[]> = new Map();
 const socketBatchBuffers: Map<string, NodeJS.Timeout> = new Map();
 const socketBatchingWindow = 1000;
 
-// Firestore export job - runs daily at midnight
-cron.schedule('0 0 * * *', async () => {
+// Promotional rules cleanup job - runs daily at midnight
+if (process.env.NODE_ENV !== 'production' || (!process.env.VERCEL && !process.env.NOW_REGION)) {
+  cron.schedule('0 0 * * *', async () => {
     console.log('[BACKUP] Scheduled task triggered: Firestore snapshot export');
     console.log('[BACKUP] NOTE: Firestore export requires Cloud Scheduler + IAM permissions.');
-});
+  });
 
-// Promotional rules cleanup job - runs daily at midnight
-cron.schedule('0 0 * * *', async () => {
-    try {
-        const today = new Date().toISOString().split('T')[0];
-        const rules = await getFirestoreInstance().collection('promotional_rules').where('active', '==', true).get();
-        const batch = getFirestoreInstance().batch();
-        let count = 0;
-        rules.docs.forEach(doc => {
-            const rule = doc.data();
-            if (rule.end_date && rule.end_date < today) {
-                batch.update(doc.ref, { active: false });
-                count++;
-            }
-        });
-        if (count > 0) {
-            await batch.commit();
-            console.log(`[PROMO_CLEANUP] Disabled ${count} expired promotional rules.`);
-        }
-    } catch (e) {
-        await logToFirestoreError(e, 'promoCleanup');
-        console.error('[PROMO_CLEANUP] Error:', e);
-    }
-});
+  cron.schedule('0 0 * * *', async () => {
+      try {
+          const today = new Date().toISOString().split('T')[0];
+          const rules = await getFirestoreInstance().collection('promotional_rules').where('active', '==', true).get();
+          const batch = getFirestoreInstance().batch();
+          let count = 0;
+          rules.docs.forEach(doc => {
+              const rule = doc.data();
+              if (rule.end_date && rule.end_date < today) {
+                  batch.update(doc.ref, { active: false });
+                  count++;
+              }
+          });
+          if (count > 0) {
+              await batch.commit();
+              console.log(`[PROMO_CLEANUP] Disabled ${count} expired promotional rules.`);
+          }
+      } catch (e) {
+          await logToFirestoreError(e, 'promoCleanup');
+          console.error('[PROMO_CLEANUP] Error:', e);
+      }
+  });
+} else {
+  console.log('[BOOT] Skipping cron schedules in serverless environment.');
+}
 
 const broadcast = (data: any) => {
   if (io) {
