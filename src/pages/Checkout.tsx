@@ -9,7 +9,7 @@ import {
 import { useStore } from '@/StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { cn, calculateBulkDiscount } from '@/lib/utils';
+import { cn, calculateBulkDiscount, formatPhoneNumber } from '@/lib/utils';
 import { handleAppError } from '@/lib/errorUtils';
 import { QRCodeCanvas } from 'qrcode.react';
 import InfoButton from '@/components/InfoButton';
@@ -120,6 +120,12 @@ export default function Checkout() {
     delivery_area: ''
   });
 
+  const handlePhoneChange = (val: string) => {
+    // Only allow numbers and limit to 10 digits
+    const cleaned = val.replace(/\D/g, '').slice(0, 10);
+    setAddressData({ ...addressData, phone: cleaned });
+  };
+
   useEffect(() => {
     if (addresses && addresses.length > 0) {
       const defaultAddr = addresses.find(a => a.is_default) || addresses[0];
@@ -165,9 +171,15 @@ export default function Checkout() {
   const selectedArea = deliveryAreas.find(a => a.name === addressData.delivery_area);
 
     const handleNextStep = async () => {
-    if (!validateAddress()) {
-      toast.error('Please fill all address fields, select a delivery zone, and confirm accuracy.');
-      return;
+    if (deliveryMethod === 'delivery') {
+      if (!validateAddress()) {
+        toast.error('Please fill all address fields, select a delivery zone, and confirm accuracy.');
+        return;
+      }
+      if (addressData.phone.length !== 10) {
+        toast.error('Please enter a valid 10-digit mobile number.');
+        return;
+      }
     }
     
     if (selectedArea && subtotal < selectedArea.min_order) {
@@ -260,7 +272,7 @@ export default function Checkout() {
   const placeOrder = async (method: 'cod' | 'wallet' | 'upi' | 'khata') => {
     if (!isLoggedIn && method !== 'cod') {
       toast.error('Please login to use this payment method');
-      navigate('/login');
+      navigate('/login', { state: { from: { pathname: '/checkout' } } });
       return;
     }
 
@@ -555,7 +567,7 @@ export default function Checkout() {
                                         <p className="font-bold text-stone-800 text-lg">{addr.name}</p>
                                         {addr.is_default && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold uppercase">Default</span>}
                                      </div>
-                                     <p className="text-sm text-stone-600 font-medium">{addr.phone}</p>
+                                     <p className="text-sm text-stone-600 font-medium">{formatPhoneNumber(addr.phone)}</p>
                                      <p className="text-sm text-stone-500 max-w-[80%] leading-relaxed">{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}</p>
                                      <p className="text-[10px] text-primary mt-2 font-bold uppercase tracking-wider bg-white border border-primary/20 px-3 py-1 rounded-full w-min whitespace-nowrap">Zone: {addr.delivery_area}</p>
                                   </div>
@@ -629,12 +641,27 @@ export default function Checkout() {
                             </div>
                             <div className="space-y-1">
                               <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
-                              <input 
-                                type="text" 
-                                className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
-                                value={addressData.phone}
-                                onChange={(e) => setAddressData({...addressData, phone: e.target.value})}
-                              />
+                              <div className="relative">
+                                <input 
+                                  type="tel" 
+                                  placeholder="10-digit mobile number"
+                                  className={cn(
+                                    "w-full px-4 py-3 bg-stone-50 border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700",
+                                    addressData.phone && addressData.phone.length !== 10 ? "border-amber-300 shadow-[0_0_0_1px_rgba(252,211,77,0.5)]" : "border-stone-200"
+                                  )}
+                                  value={addressData.phone}
+                                  onChange={(e) => handlePhoneChange(e.target.value)}
+                                  maxLength={10}
+                                />
+                                {addressData.phone && addressData.phone.length === 10 && (
+                                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500">
+                                    <CheckCircle2 size={16} />
+                                  </div>
+                                )}
+                              </div>
+                              {addressData.phone && addressData.phone.length > 0 && addressData.phone.length < 10 && (
+                                <p className="text-[9px] text-amber-600 font-bold uppercase mt-1 pl-1 italic">Requires 10 digits ({addressData.phone.length}/10)</p>
+                              )}
                             </div>
                             
                             {!isCurrentLocationMode && (

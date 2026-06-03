@@ -71,9 +71,9 @@ export default function WalletRequestsTab({
                     <td className="px-6 py-6 font-black text-stone-900">₹{request.amount}</td>
                     <td className="px-6 py-6 font-mono text-xs text-stone-400">{request.id.slice(0, 8)}...</td>
                     <td className="px-6 py-6">
-                      {request.evidence_url ? (
+                      {(request.evidence_url || request.screenshot) ? (
                         <button 
-                          onClick={() => handleViewEvidence(request.evidence_url)}
+                          onClick={() => handleViewEvidence(request.evidence_url || request.screenshot)}
                           className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
                         >
                           Review Asset

@@ -9,7 +9,7 @@ import { handleAppError } from '@/lib/errorUtils';
 import { useStore } from '@/StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { fetchWithHandling } from '@/lib/api';
-import { getAuthHeaders } from '@/lib/utils';
+import { getAuthHeaders, formatPhoneNumber } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/Skeleton';
 import L from 'leaflet';
 import { io } from 'socket.io-client';
@@ -22,6 +22,10 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
+
+import { OrderTrackingService } from '@/services/orderTrackingService';
+import { db } from '@/firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export default function TrackOrder() {
   const { t, user } = useStore();
@@ -39,6 +43,20 @@ export default function TrackOrder() {
   const [returnQuantity, setReturnQuantity] = useState(1);
   const [returnReason, setReturnReason] = useState('');
   const [isReturning, setIsReturning] = useState(false);
+
+  // Real-time Firestore subscription for order updates
+  useEffect(() => {
+    if (!order?.id) return;
+
+    const unsubscribe = OrderTrackingService.subscribeToOrder(String(order.id), (updatedData) => {
+      setOrder(prev => ({ ...prev, ...updatedData }));
+      if (updatedData.status && prev?.status !== updatedData.status) {
+        toast.success(`Order status updated to ${updatedData.status.toUpperCase()}`);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [order?.id]);
 
   useEffect(() => {
     // If user is logged in, use their phone number automatically if not already set
@@ -295,7 +313,8 @@ export default function TrackOrder() {
                   type="tel" 
                   placeholder="e.g. 9876543210"
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  maxLength={10}
+                  onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   className="w-full pl-12 pr-4 py-4 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700"
                 />
               </div>
@@ -407,7 +426,7 @@ export default function TrackOrder() {
                     </Marker>
                   </MapContainer>
                 </div>
-                <p className="mt-4 text-sm font-bold text-stone-700">Runner: {runnerLocation.runner.name} - {runnerLocation.runner.phone}</p>
+                <p className="mt-4 text-sm font-bold text-stone-700">Runner: {runnerLocation.runner.name} - {formatPhoneNumber(runnerLocation.runner.phone)}</p>
               </div>
             )}
 

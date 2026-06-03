@@ -5,6 +5,7 @@ console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
 console.log('[BOOT] Dotenv loaded');
 import cron from 'node-cron';
+import 'express-session';
 
 declare module 'express-session' {
   interface SessionData {
@@ -602,16 +603,20 @@ app.get('/ping', (req, res) => {
 app.set('trust proxy', 1);
 
 app.get('/api/boot-status', (req, res) => {
-  res.json({
-    success: true,
-    bootPhase: 'diagnostic',
-    firebaseReady: isFirebaseReady,
-    firestoreReady: admin.apps.length > 0,
-    routesRegistered: routesRegistered,
-    initializationError: initializationError,
-    vercel: !!process.env.VERCEL,
-    timestamp: new Date().toISOString()
-  });
+  try {
+    res.json({
+      success: true,
+      bootPhase: 'diagnostic',
+      firebaseReady: isFirebaseReady,
+      firestoreReady: admin.apps.length > 0,
+      routesRegistered: routesRegistered,
+      initializationError: initializationError,
+      vercel: !!process.env.VERCEL,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.use(async (req, res, next) => {
@@ -711,23 +716,27 @@ app.use(async (req, res, next) => {
 });
 
 app.get('/api/health-debug', async (req, res) => {
-  res.json({
-      "nodeVersion": process.version,
-      "environment": process.env.NODE_ENV,
+  try {
+    res.json({
+        "nodeVersion": process.version,
+        "environment": process.env.NODE_ENV,
 
-      "FIREBASE_SERVICE_ACCOUNT_KEY_PRESENT": !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
-      "FIREBASE_PROJECT_ID_PRESENT": !!process.env.FIREBASE_PROJECT_ID,
-      "SESSION_SECRET_PRESENT": !!process.env.SESSION_SECRET,
+        "FIREBASE_SERVICE_ACCOUNT_KEY_PRESENT": !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+        "FIREBASE_PROJECT_ID_PRESENT": !!process.env.FIREBASE_PROJECT_ID,
+        "SESSION_SECRET_PRESENT": !!process.env.SESSION_SECRET,
 
-      "firebaseAdminInitialized": admin.apps.length > 0,
-      "firestoreConnected": isFirebaseReady,
+        "firebaseAdminInitialized": admin.apps.length > 0,
+        "firestoreConnected": isFirebaseReady,
 
-      "projectId": admin.apps.length > 0 ? admin.app().options.projectId : 'unknown',
-      "databaseId": config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe',
+        "projectId": admin.apps.length > 0 ? admin.app().options.projectId : 'unknown',
+        "databaseId": config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe',
 
-      "startupStatus": dbConnectionStatus.mode,
-      "lastError": dbConnectionStatus.details
-  });
+        "startupStatus": dbConnectionStatus.mode,
+        "lastError": dbConnectionStatus.details
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('/api/health', async (req, res) => {
@@ -2763,10 +2772,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Address Management
-  app.get('/api/user/addresses', requireAuth, async (req, res) => {
+  app.get('/api/addresses', requireAuth, async (req, res) => {
     try {
       if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', String(req.session.userId)).get();
+      const userId = String(req.session.userId || (req as any).user?.uid);
+      const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).get();
       const addresses = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
       res.json(addresses);
     } catch (e: any) {
@@ -2775,9 +2785,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/user/addresses', requireAuth, async (req, res) => {
-    const { id, name, phone, address, city, state, zip_code, pin_code, delivery_area, is_default } = req.body;
-    const userId = String(req.session.userId);
+  app.post('/api/addresses', requireAuth, async (req, res) => {
+    const { name, phone, address, city, state, zip_code, pin_code, delivery_area, is_default } = req.body;
+    const userId = String(req.session.userId || (req as any).user?.uid);
 
     try {
       if (!admin.apps.length) return res.status(500).json({});
@@ -2788,23 +2798,70 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         snap.docs.forEach(d => batch.update(d.ref, { is_default: 0 }));
       }
 
-      const addressData = { user_id: userId, name, phone, address, city, state, zip_code: zip_code || pin_code, pin_code: pin_code || zip_code, delivery_area, is_default: is_default ? 1 : 0, updated_at: new Date().toISOString() };
+      const addressData = { 
+        user_id: userId, 
+        name, 
+        phone, 
+        address, 
+        city, 
+        state, 
+        zip_code: zip_code || pin_code, 
+        pin_code: pin_code || zip_code, 
+        delivery_area, 
+        is_default: is_default ? 1 : 0, 
+        updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      };
       
-      if (id) {
-        batch.update(getFirestoreInstance().collection('user_addresses').doc(id), addressData);
-      } else {
-        batch.set(getFirestoreInstance().collection('user_addresses').doc(), { ...addressData, created_at: new Date().toISOString() });
-      }
+      const newDocRef = getFirestoreInstance().collection('user_addresses').doc();
+      batch.set(newDocRef, addressData);
 
       await batch.commit();
-      res.json({ success: true, message: 'Address saved successfully' });
+      res.json({ id: newDocRef.id, ...addressData });
     } catch (err: any) {
       await logServerError(err, 'saveUserAddress', req, logToFirestoreError);
       res.status(500).json({ success: false, message: 'Failed to save address' });
     }
   });
 
-  app.delete('/api/user/addresses/:id', requireAuth, async (req, res) => {
+  app.put('/api/addresses/:id', requireAuth, async (req, res) => {
+    const { name, phone, address, city, state, zip_code, pin_code, delivery_area, is_default } = req.body;
+    const userId = String(req.session.userId || (req as any).user?.uid);
+    const { id } = req.params;
+
+    try {
+      if (!admin.apps.length) return res.status(500).json({});
+      const batch = getFirestoreInstance().batch();
+      
+      if (is_default) {
+        const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).where('is_default', '==', 1).get();
+        snap.docs.forEach(d => batch.update(d.ref, { is_default: 0 }));
+      }
+
+      const addressData = { 
+        name, 
+        phone, 
+        address, 
+        city, 
+        state, 
+        zip_code: zip_code || pin_code, 
+        pin_code: pin_code || zip_code, 
+        delivery_area, 
+        is_default: is_default ? 1 : 0, 
+        updated_at: new Date().toISOString() 
+      };
+      
+      batch.update(getFirestoreInstance().collection('user_addresses').doc(id), addressData);
+
+      await batch.commit();
+      res.json({ id, ...addressData });
+    } catch (err: any) {
+      await logServerError(err, 'updateUserAddress', req, logToFirestoreError);
+      res.status(500).json({ success: false, message: 'Failed to update address' });
+    }
+  });
+
+  app.delete('/api/addresses/:id', requireAuth, async (req, res) => {
     try {
       if (admin.apps.length) await getFirestoreInstance().collection('user_addresses').doc(req.params.id).delete();
       res.json({ success: true, message: 'Address deleted' });
@@ -2814,11 +2871,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/user/addresses/:id/default', requireAuth, async (req, res) => {
+  app.patch('/api/addresses/:id/default', requireAuth, async (req, res) => {
     try {
       if (!admin.apps.length) return res.status(500).json({});
+      const userId = String(req.session.userId || (req as any).user?.uid);
       const batch = getFirestoreInstance().batch();
-      const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', String(req.session.userId)).get();
+      const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).get();
       snap.docs.forEach(d => {
         batch.update(d.ref, { is_default: d.id === req.params.id ? 1 : 0 });
       });

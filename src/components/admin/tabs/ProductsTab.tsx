@@ -27,6 +27,7 @@ interface ProductsTabProps {
     bulkDelete: () => void;
     bulkStockValue: string;
     setBulkStockValue: (val: string) => void;
+    refreshProducts?: () => void;
 }
 
 const ProductsTab: React.FC<ProductsTabProps> = ({
@@ -45,9 +46,30 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
     bulkUnlist,
     bulkDelete,
     bulkStockValue,
-    setBulkStockValue
+    setBulkStockValue,
+    refreshProducts
 }) => {
     const [productSearchTerm, setProductSearchTerm] = useState('');
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+    React.useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    const handleManualRefresh = () => {
+        if (!isOnline) return;
+        setIsRefreshing(true);
+        if (refreshProducts) refreshProducts();
+        setTimeout(() => setIsRefreshing(false), 2000);
+    };
     const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
     const [productStockFilter, setProductStockFilter] = useState<'all' | 'low' | 'out' | 'expiring'>('all');
     const [productCategoryFilter, setProductCategoryFilter] = useState('all');
@@ -127,9 +149,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
                 <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Total SKU</span>
                 <span className="text-xl font-black text-primary">{allProducts.length}</span>
             </div>
-            <div className="hidden lg:flex items-center space-x-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-emerald-100">
-              <Activity size={14} className="animate-pulse" />
-              <span>Live Sync Active</span>
+            <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-emerald-100">
+              <Activity size={14} className={cn(isOnline ? "animate-pulse" : "text-stone-400")} />
+              <span>{isOnline ? 'Live Sync Active' : 'Offline Mode'}</span>
             </div>
             <div className="relative z-50">
               <button 
@@ -236,11 +258,17 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
             
             <div className="h-10 w-px bg-stone-200 mx-2" />
             
-            <button 
-              className="p-4 bg-white border border-stone-100 rounded-2xl text-stone-400 hover:text-primary hover:shadow-md transition-all active:scale-95"
+            <motion.button 
+              whileTap={{ scale: 0.9 }}
+              onClick={handleManualRefresh}
+              disabled={!isOnline || isRefreshing}
+              className={cn(
+                "p-4 bg-white border border-stone-100 rounded-2xl text-stone-400 transition-all active:scale-95",
+                !isOnline ? "opacity-50 cursor-not-allowed" : "hover:text-primary hover:shadow-md"
+              )}
             >
-              <RefreshCw size={20} />
-            </button>
+              <RefreshCw size={20} className={cn(isRefreshing && "animate-spin")} />
+            </motion.button>
           </div>
         </div>
 

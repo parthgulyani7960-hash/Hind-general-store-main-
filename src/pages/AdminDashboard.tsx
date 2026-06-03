@@ -1,4 +1,4 @@
-// AdminDashboard.tsx - Main entry for admin panel
+// AdminDashboard.tsx - Main entry for admin panel - V2
 import { adminService } from '@/services/adminService';
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { io } from 'socket.io-client';
@@ -29,7 +29,7 @@ import { Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { storage, ref, uploadBytesResumable, getDownloadURL } from '@/firebase';
 import { useStore } from '@/StoreContext';
 import { cn, Order, PromotionRule } from '@/types';
-import { getAuthHeaders } from '@/lib/utils';
+import { getAuthHeaders, formatPhoneNumber } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import { StatSkeleton, TableRowSkeleton, OrderSkeleton } from '@/components/ui/Skeleton';
 import ReactQuill from 'react-quill-new';
@@ -42,6 +42,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AdminDashboardLayout from '@/components/admin/AdminDashboardLayout';
+import { ErrorDetailModal } from '@/components/admin/modals/ErrorDetailModal';
 import { ExportProgressModal } from '@/components/admin/modals/ExportProgressModal';
 import AdminStatCard from '@/components/admin/AdminStatCard';
 import { generateSystemHealthReportPDF } from '@/services/pdfService';
@@ -54,6 +55,28 @@ import OverviewTab from '@/components/admin/tabs/OverviewTab';
 import PurchaseOrdersTab from '@/components/admin/tabs/PurchaseOrdersTab';
 import OrderBatchingTab from '@/components/admin/tabs/OrderBatchingTab';
 import ModalContainer from '@/components/ui/ModalContainer';
+import { DashboardModals } from '@/components/admin/DashboardModals';
+
+import LogisticsTab from '@/components/admin/tabs/LogisticsTab';
+import AuditLogsTab from '@/components/admin/tabs/AuditLogsTab';
+import RolesTab from '@/components/admin/tabs/RolesTab';
+import CategoriesTab from '@/components/admin/tabs/CategoriesTab';
+import PaymentSettingsTab from '@/components/admin/tabs/PaymentSettingsTab';
+import StoreSettingsTab from '@/components/admin/tabs/StoreSettingsTab';
+import SupportTicketsTab from '@/components/admin/tabs/SupportTicketsTab';
+import DiagnosticTab from '@/components/admin/tabs/DiagnosticTab';
+import ExpensesTab from '@/components/admin/tabs/ExpensesTab';
+import CouponsTab from '@/components/admin/tabs/CouponsTab';
+import BulkDiscountsTab from '@/components/admin/tabs/BulkDiscountsTab';
+import ReturnsTab from '@/components/admin/tabs/ReturnsTab';
+import SuppliersTab from '@/components/admin/tabs/SuppliersTab';
+import ReviewsTab from '@/components/admin/tabs/ReviewsTab';
+import SuspiciousActivitiesTab from '@/components/admin/tabs/SuspiciousActivitiesTab';
+import AdminManagementTab from '@/components/admin/tabs/AdminManagementTab';
+import PromotionalRulesTab from '@/components/admin/tabs/PromotionalRulesTab';
+import SecurityDataTab from '@/components/admin/tabs/SecurityDataTab';
+import AutomaticReportsTab from '@/components/admin/tabs/AutomaticReportsTab';
+import SystemStatusTab from '@/components/admin/tabs/SystemStatusTab';
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -63,10 +86,11 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Diagnostics';
 
 // Lazy loaded admin tabs
 const OrdersTab = lazy(() => import('@/components/admin/tabs/OrdersTab'));
+const PaymentsTab = lazy(() => import('@/components/admin/tabs/PaymentsTab'));
 const ProductsTab = lazy(() => import('@/components/admin/tabs/ProductsTab'));
 const CustomersTab = lazy(() => import('@/components/admin/tabs/CustomersTab'));
 const AnalyticsTab = lazy(() => import('@/components/admin/tabs/AnalyticsTab'));
@@ -84,6 +108,35 @@ export default function AdminDashboard() {
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSyncStatus(isOnline ? 'synced' : 'offline');
+  }, [isOnline]);
+
+  const checkOffline = () => {
+    if (!isOnline) {
+      toast.error('You are currently offline. Please check your network connection.', {
+        id: 'offline-toast',
+      });
+      return true;
+    }
+    return false;
+  };
 
   React.useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -98,7 +151,7 @@ export default function AdminDashboard() {
         'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
         'Automatic Reports', 'Admin Management', 'Data Exports', 
         'Security & Data', 'Promotional Rules', 'Purchase Orders', 
-        'Order Batching', 'UPI Webhook Logs'
+        'Order Batching', 'UPI Webhook Logs', 'Diagnostics'
       ];
       const foundMatch = validTabs.find(t => t.toLowerCase() === tabParam.toLowerCase());
       if (foundMatch) {
@@ -122,11 +175,8 @@ export default function AdminDashboard() {
     }
   }, [activeTab]);
 
-  const maskPhoneNumber = (phone: string | null | undefined) => {
-    if (!phone) return 'N/A';
-    const clean = phone.trim();
-    if (clean.length < 4) return '********';
-    return clean.slice(0, 3) + '****' + clean.slice(-3);
+  const displayPhoneNumber = (phone: string | null | undefined) => {
+    return formatPhoneNumber(phone);
   };
   const [exportProgress, setExportProgress] = useState<{ open: boolean; progress: number; label: string }>({ open: false, progress: 0, label: '' });
   const [dbDiag, setDbDiag] = useState<any>(null);
@@ -329,88 +379,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const ExportActionModal = () => (
-    <AnimatePresence>
-      {exportModal.open && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-900/40 backdrop-blur-md p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="bg-white max-w-lg w-full rounded-[3rem] shadow-2xl border-4 border-stone-100 overflow-hidden"
-          >
-            <div className="p-10 space-y-10">
-              <div className="flex justify-between items-start">
-                <div className="space-y-2">
-                   <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center italic font-black">X</div>
-                      <h3 className="text-3xl font-black text-stone-900 tracking-tight">Export Central</h3>
-                                <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] ml-1">Archive & Intel Dispatch Protocol</p>
-                </div>
-                <button 
-                  onClick={() => setExportModal({ ...exportModal, open: false })}
-                  className="p-3 bg-stone-50 border border-stone-100 rounded-2xl text-stone-400 hover:text-stone-900 transition-all active:scale-95"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-6">
-                <div>
-                  <label className="text-xs font-black text-stone-400 uppercase tracking-widest block mb-4 border-l-2 border-stone-200 pl-4">Resource Target</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    {['orders', 'products', 'users', 'audit', 'expenses', 'analytics'].map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setExportModal({ ...exportModal, type: t as any })}
-                        className={cn(
-                          "px-6 py-5 rounded-2xl border-2 transition-all text-xs font-black uppercase tracking-widest text-left relative group",
-                          exportModal.type === t ? "bg-stone-900 text-white border-stone-900 shadow-xl shadow-stone-200" : "bg-stone-50 border-stone-100 text-stone-400 hover:border-stone-200"
-                        )}
-                      >
-                        {t}
-                        {exportModal.type === t && <div className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full animate-pulse" />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                   <label className="text-xs font-black text-stone-400 uppercase tracking-widest block mb-4 border-l-2 border-stone-200 pl-4">Manifest Cipher (Format)</label>
-                   <div className="flex flex-wrap gap-4">
-                      {['pdf', 'csv', 'xlsx', 'json'].map((f) => (
-                        <button
-                          key={f}
-                          onClick={() => setExportFormat(f as any)}
-                          className={cn(
-                            "px-8 py-5 rounded-2xl border-2 transition-all text-xs font-black uppercase tracking-widest relative overflow-hidden",
-                            exportFormat === f ? "bg-white border-primary text-primary shadow-lg shadow-primary/5" : "bg-stone-50 border-stone-100 text-stone-400 hover:border-stone-200"
-                          )}
-                        >
-                          {f}
-                        </button>
-                      ))}
-                   </div>
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-stone-100 flex items-center justify-between gap-6">
-                 <p className="text-[10px] text-stone-400 font-bold max-w-[200px] leading-relaxed italic">Warning: Confidential operational data will be serialized. Ensure secure transport.</p>
-                 <button
-                  onClick={() => handleGlobalExport(exportModal.type, exportFormat)}
-                  className="flex-1 bg-stone-900 text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-stone-900/20 hover:bg-black transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center space-x-3"
-                 >
-                   <Download size={18} />
-                   <span>Initiate Dispatch</span>
-                 </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
-  );
-
   const ExportTriggerButton = ({ type }: { type: 'orders' | 'products' | 'users' | 'audit' | 'expenses' | 'analytics' }) => (
     <button
       onClick={() => setExportModal({ open: true, type })}
@@ -422,7 +390,7 @@ export default function AdminDashboard() {
   );
   
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 500);
+    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 1000);
     return () => clearTimeout(timer);
   }, [globalSearchQuery]);
   
@@ -459,7 +427,7 @@ export default function AdminDashboard() {
   const [debouncedOrderSearchTerm, setDebouncedOrderSearchTerm] = useState('');
   
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedOrderSearchTerm(orderSearchTerm), 500);
+    const timer = setTimeout(() => setDebouncedOrderSearchTerm(orderSearchTerm), 1000);
     return () => clearTimeout(timer);
   }, [orderSearchTerm]);
   const [ordersViewMode, setOrdersViewMode] = useState<'table' | 'kanban'>('table');
@@ -480,6 +448,9 @@ export default function AdminDashboard() {
   const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
   const [newUserCount, setNewUserCount] = useState(0);
 
+  const isFetchingStats = useRef(false);
+  const isCheckingHealth = useRef(false);
+
   // Centralized background polling for real-time dashboard health and metrics
   useEffect(() => {
     if (!user || user.role !== 'admin') return;
@@ -488,6 +459,7 @@ export default function AdminDashboard() {
 
     // Initial load
     const initData = async () => {
+      if (!navigator.onLine) return;
       try {
         await Promise.all([
           fetchStats(true),
@@ -499,27 +471,27 @@ export default function AdminDashboard() {
     };
     initData();
 
-    // Centralized interval (every 30s)
-    let statsCounter = 0;
+    // Centralized interval (Reduced frequency: every 60s for health, 2m for stats)
+    // Only happens if the document is visible to save battery and network
     const pollingInterval = setInterval(() => {
-      if (!mounted) return;
+      if (!mounted || !navigator.onLine || document.hidden) return;
       
-      // Health check runs every 30s
+      // Health check runs every 60s
       checkHealth();
 
-      // Stats fetch runs every 60s (every 2nd tick)
-      statsCounter++;
-      if (statsCounter >= 2) {
+      // Stats fetch runs every 2 minutes (every 2nd tick)
+      // but only if on Overview tab or Analytics tab to avoid useless background calls
+      const needsStats = activeTab === 'Overview' || activeTab === 'Analytics';
+      if (needsStats) {
         fetchStats(true); 
-        statsCounter = 0;
       }
-    }, 30000);
+    }, 60000);
 
     return () => {
       mounted = false;
       clearInterval(pollingInterval);
     };
-  }, [user]); // Only dependent on user. LastPollTime removed from deps to prevent churn.
+  }, [user, activeTab]); // Include activeTab to react to tab changes if needed
 
   useEffect(() => {
     setLoading(true);
@@ -541,6 +513,7 @@ export default function AdminDashboard() {
       'Purchase Orders': 'Purchase Orders',
       'Order Batching': 'Order Batching',
       'Wallet Requests': 'Wallet Top-ups',
+      'Payments': 'Payment Sync',
       'Coupons': 'Coupons',
       'Bulk Discounts': 'Bulk Pricing',
       'Expenses': 'Expenses',
@@ -552,7 +525,8 @@ export default function AdminDashboard() {
       'System Status': 'System Health',
       'Suspicious Activities': 'Security',
       'Audit Logs': 'Activity Logs',
-      'Automatic Reports': 'Anomalies'
+      'Automatic Reports': 'Anomalies',
+      'Diagnostics': 'System Diagnostics'
     };
     return mapping[tab] || tab;
   };
@@ -579,16 +553,23 @@ export default function AdminDashboard() {
                   setNotificationModal={setNotificationModal}
                 />
               );
+            case 'Diagnostics':
+              return <DiagnosticTab />;
             case 'Orders':
               return (
                 <OrdersTab 
-                  orders={orders}
+                  orders={orders} 
                   loading={loading}
-                  fetchOrders={fetchOrders}
+                  fetchOrders={() => {
+                    if (checkOffline()) return;
+                    adminService.getOrders(getAuthHeaders()).then(data => {
+                      if (data) setOrders(data);
+                    });
+                  }}
                   updateOrderStatus={updateOrderStatus}
                   fetchOrderDetailsModal={fetchOrderDetailsModal}
                   handleBulkOrderAction={handleBulkOrderAction}
-                  asyncExportData={asyncExportData}
+                  asyncExportData={async (type) => { await handleGlobalExport(type, 'xlsx'); }}
                   config={config}
                 />
               );
@@ -611,6 +592,12 @@ export default function AdminDashboard() {
                   bulkDelete={bulkDelete}
                   bulkStockValue={bulkStockValue}
                   setBulkStockValue={setBulkStockValue}
+                  refreshProducts={() => {
+                    if (checkOffline()) return;
+                    adminService.getProducts(getAuthHeaders()).then(data => {
+                      if (data) setAllProducts(data);
+                    });
+                  }}
                 />
               );
             case 'Purchase Orders': 
@@ -624,7 +611,7 @@ export default function AdminDashboard() {
             case 'System Logs':
               return <SystemLogsTab />;
             case 'Data Exports':
-              return <DataExportsTab />;
+              return <DataExportsTab setExportProgress={setExportProgress} />;
             case 'Analytics':
               return (
                 <AnalyticsTab 
@@ -641,7 +628,7 @@ export default function AdminDashboard() {
                   analyticsCategory={analyticsCategory}
                   setAnalyticsCategory={setAnalyticsCategory}
                   categories={categories}
-                  setActiveTab={setActiveTab}
+                  setActiveTab={(val) => setActiveTab(val as Tab)}
                   setProductSearchTerm={setProductSearchTerm}
                 />
               );
@@ -665,7 +652,7 @@ export default function AdminDashboard() {
                 <AnnouncementsTab 
                   notifications={notifications}
                   fetchNotifications={fetchNotifications}
-                  handleDeleteNotification={handleDeleteNotification}
+                  handleDeleteNotification={(id) => handleDeleteNotification(Number(id))}
                   setNotificationModal={setNotificationModal}
                   setNewNotification={setNewNotification}
                   fetchWithHandling={fetchWithHandling}
@@ -679,8 +666,8 @@ export default function AdminDashboard() {
                   promotions={promotions}
                   setNewPromotion={setNewPromotion}
                   setPromotionModal={setPromotionModal}
-                  togglePromotionStatus={togglePromotionStatus}
-                  handleDeletePromotion={handleDeletePromotion}
+                  togglePromotionStatus={(id) => togglePromotionStatus(Number(id))}
+                  handleDeletePromotion={(id) => handleDeletePromotion(Number(id))}
                   setNewPromotionRuleData={setNewPromotionRuleData}
                   setPromotionRuleFormModal={setPromotionRuleFormModal}
                 />
@@ -690,8 +677,227 @@ export default function AdminDashboard() {
                 <WalletRequestsTab 
                   walletRequests={walletRequests}
                   fetchWalletRequests={fetchWalletRequests}
-                  handleWalletRequest={handleWalletRequest}
-                  handleViewEvidence={handleViewEvidence}
+                  handleWalletRequest={async (requestId, action) => {
+                    if (action === 'approve') {
+                      await handleApproveWalletRequest(Number(requestId));
+                    } else {
+                      await handleRejectWalletRequest(Number(requestId));
+                    }
+                  }}
+                  handleViewEvidence={(url) => {
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                />
+              );
+            case 'Payments':
+              return (
+                <PaymentsTab 
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
+                />
+              );
+            case 'Logistics':
+              return (
+                <LogisticsTab
+                  orders={orders}
+                  runners={runners}
+                  setRunnerModal={setRunnerModal}
+                  handleAssignRunner={handleAssignRunner}
+                />
+              );
+            case 'Audit Logs':
+              return (
+                <AuditLogsTab
+                  auditLogType={auditLogType}
+                  setAuditLogType={setAuditLogType}
+                  fetchAuditLogs={fetchAuditLogs}
+                  isFetchingAudit={isFetchingAudit}
+                  auditLogLimit={auditLogLimit}
+                  auditLogs={auditLogs}
+                  handleRevertAction={handleRevertAction}
+                />
+              );
+            case 'Roles':
+              return (
+                <RolesTab
+                  roles={roles}
+                  setRoleModal={setRoleModal}
+                  setNewRole={setNewRole}
+                  setRoles={setRoles}
+                  getAuthHeaders={getAuthHeaders}
+                  fetchWithHandling={fetchWithHandling}
+                  toast={toast}
+                />
+              );
+            case 'Categories':
+              return (
+                <CategoriesTab
+                  categories={categories}
+                  allProducts={allProducts}
+                  setCategoryModal={setCategoryModal}
+                  setEditingCategory={setEditingCategory}
+                  setNewCategory={setNewCategory}
+                />
+              );
+            case 'Payment Settings':
+              return (
+                <PaymentSettingsTab
+                  config={config}
+                  updateSetting={updateSetting}
+                />
+              );
+            case 'Store Settings':
+              return (
+                <StoreSettingsTab
+                  toast={toast}
+                  getAuthHeaders={getAuthHeaders}
+                  fetchWithHandling={fetchWithHandling}
+                  config={config}
+                  getSetting={getSetting}
+                  updateSetting={updateSetting}
+                />
+              );
+            case 'Support Tickets':
+              return (
+                <SupportTicketsTab
+                  tickets={tickets}
+                  selectedTicket={selectedTicket}
+                  setSelectedTicket={setSelectedTicket}
+                  fetchTickets={fetchTickets}
+                  ticketMessages={ticketMessages}
+                  setTicketMessages={setTicketMessages}
+                  replyMessage={replyMessage}
+                  setReplyMessage={setReplyMessage}
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
+                  user={user}
+                />
+              );
+            case 'Expenses':
+              return (
+                <ExpensesTab
+                  expenses={expenses}
+                  setExpenseModal={setExpenseModal}
+                  deleteExpense={deleteExpense}
+                />
+              );
+            case 'Coupons':
+              return (
+                <CouponsTab
+                  coupons={coupons}
+                  setCouponModal={setCouponModal}
+                  setNewCoupon={setNewCoupon}
+                  toggleCouponStatus={toggleCouponStatus}
+                  deleteCoupon={deleteCoupon}
+                />
+              );
+            case 'Bulk Discounts':
+              return (
+                <BulkDiscountsTab
+                  bulkDiscounts={bulkDiscounts}
+                  setBulkDiscountModal={setBulkDiscountModal}
+                  setNewBulkDiscount={setNewBulkDiscount}
+                  handleToggleBulkDiscount={handleToggleBulkDiscount}
+                  handleDeleteBulkDiscount={handleDeleteBulkDiscount}
+                />
+              );
+            case 'Returns':
+              return (
+                <ReturnsTab
+                  returns={returns}
+                  selectedReturnReason={selectedReturnReason}
+                  setSelectedReturnReason={setSelectedReturnReason}
+                  handleApproveReturn={handleApproveReturn}
+                  handleRejectReturn={handleRejectReturn}
+                />
+              );
+            case 'Feature Toggles':
+              return <FeatureToggles config={config} onUpdate={fetchConfig} />;
+            case 'Suppliers':
+              return (
+                <SuppliersTab
+                  suppliers={suppliers}
+                  setSupplierModal={setSupplierModal}
+                  setNewSupplier={setNewSupplier}
+                  handleDeleteSupplier={handleDeleteSupplier}
+                />
+              );
+            case 'Reviews':
+              return (
+                <ReviewsTab
+                  reviews={reviews}
+                  setReviewResponseModal={setReviewResponseModal}
+                  setReviewResponse={setReviewResponse}
+                  updateReviewStatus={updateReviewStatus}
+                  deleteReview={deleteReview}
+                />
+              );
+            case 'Suspicious Activities':
+              return (
+                <SuspiciousActivitiesTab
+                  suspiciousActivities={suspiciousActivities}
+                  fetchSuspiciousActivities={fetchSuspiciousActivities}
+                  handleResolveSuspicious={handleResolveSuspicious}
+                />
+              );
+            case 'Admin Management':
+              return (
+                <AdminManagementTab
+                  admins={admins}
+                  isAdminRefreshing={isAdminRefreshing}
+                  fetchAdmins={fetchAdmins}
+                  auditLogs={auditLogs}
+                  deletionRequests={deletionRequests}
+                  approveDeletion={approveDeletion}
+                  rejectDeletion={rejectDeletion}
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
+                />
+              );
+            case 'Promotional Rules':
+              return (
+                <PromotionalRulesTab
+                  promotionRules={promotionRules}
+                  setNewPromotionRuleData={setNewPromotionRuleData}
+                  setPromotionRuleFormModal={setPromotionRuleFormModal}
+                  handleDeleteRule={handleDeleteRule}
+                />
+              );
+            case 'Security & Data':
+              return (
+                <SecurityDataTab
+                  user={user}
+                  runWalletDiagnostics={runWalletDiagnostics}
+                  loadingDiagnostics={loadingDiagnostics}
+                  diagnosticResults={diagnosticResults}
+                  fixingWalletUserId={fixingWalletUserId}
+                  fixWalletDiscrepancy={fixWalletDiscrepancy}
+                />
+              );
+            case 'Automatic Reports':
+              return (
+                <AutomaticReportsTab
+                  bugReports={bugReports}
+                  setBugReports={setBugReports}
+                  setReportDetailModal={setReportDetailModal}
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
+                />
+              );
+            case 'System Status':
+              return (
+                <SystemStatusTab
+                  systemHealth={systemHealth}
+                  dbDiag={dbDiag}
+                  errorLogs={errorLogs}
+                  systemLogs={systemLogs}
+                  isRefreshingLogs={isRefreshingLogs}
+                  fetchSystemLogs={fetchSystemLogs}
+                  generateSystemHealthReportPDF={generateSystemHealthReportPDF}
                 />
               );
             default: 
@@ -730,18 +936,28 @@ export default function AdminDashboard() {
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'offline'>('offline');
 
   const fetchStats = async (silent = false) => {
+    if (!navigator.onLine) return;
+    if (isFetchingStats.current) return;
+    
     if (!silent) setLoading(true);
+    isFetchingStats.current = true;
+    
     try {
       const data = await adminService.getStats(getAuthHeaders());
       if (data) setStats(data);
     } catch (err: any) {
       console.error('Stats fetch error:', err);
     } finally {
+      isFetchingStats.current = false;
       if (!silent) setLoading(false);
     }
   };
 
   const checkHealth = async () => {
+    if (!navigator.onLine) return;
+    if (isCheckingHealth.current) return;
+    
+    isCheckingHealth.current = true;
     try {
       const data = await fetchWithHandling<any>('/api/admin/health-indicator', { headers: getAuthHeaders() });
       if (data) {
@@ -749,6 +965,8 @@ export default function AdminDashboard() {
       }
     } catch (err) {
       setHealthStatus('offline');
+    } finally {
+      isCheckingHealth.current = false;
     }
   };
 
@@ -764,19 +982,16 @@ export default function AdminDashboard() {
   };
 
   const fetchOrders = () => {
+    if (!navigator.onLine) return () => {};
     let q = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(data);
     }, (err) => {
       console.warn('Firestore Orders subscription fell back safely to REST API due to:', err.message);
-      fetchWithHandling<any[]>('/api/admin/orders', { headers: getAuthHeaders() })
-        .then(data => {
-          if (data) setOrders(data);
-        })
-        .catch(fetchErr => {
-          console.error('REST backup orders fetch failed:', fetchErr);
-        });
+      adminService.getOrders(getAuthHeaders())
+        .then(data => { if (data) setOrders(data); })
+        .catch(fetchErr => console.error('REST backup orders fetch failed:', fetchErr));
     });
   };
 
@@ -792,6 +1007,7 @@ export default function AdminDashboard() {
   };
 
   const fetchProducts = () => {
+    if (!navigator.onLine) return () => {};
     const q = query(collection(db, 'products'));
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -799,7 +1015,7 @@ export default function AdminDashboard() {
       setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
     }, (err) => {
       console.warn('Firestore Products subscription fell back safely to REST API due to:', err.message);
-      fetchWithHandling<any[]>('/api/products')
+      adminService.getProducts(getAuthHeaders())
         .then(data => {
           if (data) {
             setAllProducts(data);
@@ -890,9 +1106,16 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
+    let unsubscribe: () => void;
     if (activeTab === 'Expenses') fetchExpenses();
-    if (activeTab === 'Support Tickets') fetchTickets();
+    if (activeTab === 'Support Tickets') {
+      unsubscribe = fetchTickets();
+    }
     if (activeTab === 'Suspicious Activities') fetchSuspiciousActivities();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [activeTab]);
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
@@ -1110,6 +1333,7 @@ export default function AdminDashboard() {
   };
 
   const handleAssignRunner = async (orderId: number, runnerId: number) => {
+    if (checkOffline()) return;
     try {
       const data = await fetchWithHandling<any>(`/api/admin/orders/${orderId}/assign-runner`, {
         method: 'POST',
@@ -1202,6 +1426,27 @@ export default function AdminDashboard() {
       console.error('Reject wallet request error:', err);
     }
   };
+  const handleApproveOrderPayment = async (orderId: number) => {
+    const notes = prompt('Enter payment verification notes (e.g. UTR matches):', 'Payment verified manually by admin.');
+    if (notes === null) return;
+    try {
+      const data = await fetchWithHandling<any>(`/api/admin/orders/${orderId}/manual-approve`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ notes })
+      });
+      if (data) {
+        toast.success(`Order ${orderId} marked as PAID`);
+        fetchOrders();
+        if (orderModal.order && (orderModal.order.id === orderId || orderId.toString().includes(orderModal.order.order_id))) {
+           setOrderModal({ ...orderModal, order: { ...orderModal.order, payment_status: 'paid' } });
+        }
+      }
+    } catch (err) {
+      console.error('Payment approval error:', err);
+    }
+  };
+
   const [poData, setPoData] = useState<any[] | null>(null);
   const [showPOPrint, setShowPOPrint] = useState(false);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -1746,22 +1991,17 @@ export default function AdminDashboard() {
 
 
   const fetchUsers = () => {
-    // Proactive HTTP load to protect against direct Firestore subscription permission failure
-    fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() })
-      .then(data => {
-        if (data) setUsers(data);
-      })
-      .catch(err => {
-        console.warn('REST Users fetch warning:', err);
-      });
-
+    if (!navigator.onLine) return () => {};
+    // Only use REST if explicitly requested or if onSnapshot is unavailable/unstable
+    // Removed proactive load to stop multiple API calls
+    
     const q = query(collection(db, 'users'), orderBy('created_at', 'desc'));
     return onSnapshot(q, (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setUsers(usersData);
     }, (err) => {
       console.warn('Firestore Users subscription fell back safely to REST API due to:', err.message);
-      fetchWithHandling<any[]>('/api/admin/users', { headers: getAuthHeaders() })
+      adminService.getUsers(getAuthHeaders())
         .then(data => {
           if (data) setUsers(data);
         })
@@ -1804,15 +2044,30 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchTickets = async () => {
-    try {
-      const data = await fetchWithHandling<any[]>('/api/admin/support/tickets', { headers: getAuthHeaders() });
-      if (data) {
-        setTickets(data);
-      }
-    } catch (err) {
-      console.error('Tickets fetch error:', err);
-    }
+  const fetchTickets = () => {
+    // Proactive HTTP load to protect against direct Firestore subscription permission failure
+    fetchWithHandling<any[]>('/api/admin/support/tickets', { headers: getAuthHeaders() })
+      .then(data => {
+        if (data) setTickets(data);
+      })
+      .catch(err => {
+        console.warn('REST Tickets fetch warning:', err);
+      });
+
+    const q = query(collection(db, 'tickets'), orderBy('created_at', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const ticketsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTickets(ticketsData);
+    }, (err) => {
+      console.warn('Firestore Tickets subscription fell back safely to REST API due to:', err.message);
+      fetchWithHandling<any[]>('/api/admin/support/tickets', { headers: getAuthHeaders() })
+        .then(data => {
+          if (data) setTickets(data);
+        })
+        .catch(fetchErr => {
+          console.error('REST backup tickets fetch failed:', fetchErr);
+        });
+    });
   };
 
   const fetchNotifications = async () => {
@@ -3160,6 +3415,7 @@ export default function AdminDashboard() {
         { name: 'Support Tickets' as Tab, icon: MessageSquare },
         { name: 'Expenses' as Tab, icon: Receipt },
         { name: 'Audit Logs' as Tab, icon: History },
+        { name: 'Diagnostics' as Tab, icon: Activity },
       ]
     },
     {
@@ -3208,7 +3464,7 @@ export default function AdminDashboard() {
     'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Newsletter', 'Roles', 'Support Tickets', 
     'Purchase Orders', 'Order Batching', 'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'System Logs', 
     'Suspicious Activities', 'Promotions', 'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
-    'Automatic Reports', 'Data Exports', 'Promotional Rules', 'UPI Webhook Logs'
+    'Automatic Reports', 'Data Exports', 'Promotional Rules', 'UPI Webhook Logs', 'Diagnostics'
   ];
 
   if (showPOPrint && poData) {
@@ -3230,7 +3486,7 @@ export default function AdminDashboard() {
                   <div className="text-right">
                     <h2 className="text-lg font-bold text-stone-800">General Store Karyana Shop</h2>
                     <p className="text-stone-500 text-sm">123 Market Road, Ludhiana</p>
-                    <p className="text-stone-500 text-sm">Phone: {config.find(c => c.key === 'admin_phone')?.value || '7888422429'}</p>
+                    <p className="text-stone-500 text-sm">Phone: {formatPhoneNumber(config.find(c => c.key === 'admin_phone')?.value || '7888422429')}</p>
                   </div>
                 </div>
 
@@ -3243,7 +3499,7 @@ export default function AdminDashboard() {
                     </div>
                     <div>
                         <p className="text-stone-600 text-sm">Contact: {po.supplier.contact_person || 'N/A'}</p>
-                        <p className="text-stone-600 text-sm">Phone: {po.supplier.phone || 'N/A'}</p>
+                        <p className="text-stone-600 text-sm">Phone: {po.supplier.phone ? formatPhoneNumber(po.supplier.phone) : 'N/A'}</p>
                         <p className="text-stone-600 text-sm">Email: {po.supplier.email || 'N/A'}</p>
                     </div>
                   </div>
@@ -3381,7 +3637,7 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                           <p className="text-xs font-bold">{u.name}</p>
-                          <p className="text-[10px] text-stone-400">{u.phone}</p>
+                          <p className="text-[10px] text-stone-400">{formatPhoneNumber(u.phone)}</p>
                         </div>
                       </button>
                     ))}
@@ -3427,6 +3683,7 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+      </div>
       
       <div className="flex items-center space-x-2 hidden md:flex">
         <button 
@@ -3466,6 +3723,7 @@ export default function AdminDashboard() {
       extraHeader={SearchUI}
       loading={loading}
       healthStatus={healthStatus}
+      syncStatus={syncStatus}
     >
       <div className="space-y-4 md:space-y-8 pb-12">
         <AnimatePresence mode="wait">
@@ -3476,6172 +3734,11 @@ export default function AdminDashboard() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           >
-        <TabContent />
-      </motion.div>
-    </AnimatePresence>
-  </div>
-
-
-        {false && activeTab === 'Analytics' && analyticsData && (
-          <div className="space-y-8">
-            {/* Intel Dashboard Header */}
-            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
-                    <PieChartIcon size={24} />
-                  </div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Sales Reports</h2>
-                </div>
-                <p className="text-stone-500 font-medium text-lg ml-1">View detailed reports of your store's sales.</p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center bg-white p-1.5 rounded-2xl shadow-sm border border-stone-100">
-                  <div className="flex items-center px-4 space-x-2 border-r border-stone-100">
-                    <Calendar size={14} className="text-stone-400" />
-                    <input 
-                      type="date" 
-                      value={analyticsStartDate}
-                      onChange={(e) => setAnalyticsStartDate(e.target.value)}
-                      className="bg-transparent border-none p-0 text-[10px] font-black uppercase tracking-widest focus:ring-0 w-24"
-                    />
-                    <span className="text-stone-300 text-[10px]">→</span>
-                    <input 
-                      type="date" 
-                      value={analyticsEndDate}
-                      onChange={(e) => setAnalyticsEndDate(e.target.value)}
-                      className="bg-transparent border-none p-0 text-[10px] font-black uppercase tracking-widest focus:ring-0 w-24"
-                    />
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setAnalyticsStartDate('');
-                      setAnalyticsEndDate('');
-                    }}
-                    className="p-2 text-stone-300 hover:text-primary transition-colors"
-                  >
-                    <RefreshCw size={14} className={isFetchingAnalytics ? "animate-spin" : ""} />
-                  </button>
-                </div>
-
-                <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-stone-100">
-                   <select 
-                    value={analyticsCategory}
-                    onChange={(e) => setAnalyticsCategory(e.target.value)}
-                    className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest focus:ring-0 pr-8"
-                  >
-                    <option value="all">Global</option>
-                    {categories.map(cat => (
-                      <option key={cat.id} value={cat.name}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <ExportTriggerButton type="analytics" />
-
-                <button 
-                  className="bg-stone-900 text-white px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center space-x-3 shadow-xl shadow-stone-900/20 hover:bg-black transition-all active:scale-95"
-                  onClick={() => window.print()}
-                >
-                  <Printer size={18} />
-                  <span>Generate Report</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Top Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <AdminStatCard 
-                label="Gross Revenue"
-                value={`₹${(analyticsData.totalSales || 0).toLocaleString()}`}
-                icon={<IndianRupee size={20} />}
-                trend={{ value: '+12.4%', isUp: true }}
-                color="emerald"
-                progress={Math.min(100, (analyticsData.totalSales / (stats?.revenue || 1)) * 100)}
-              />
-              <AdminStatCard 
-                label="Fulfilled Orders"
-                value={analyticsData.totalOrders}
-                icon={<ShoppingBag size={20} />}
-                trend={{ value: 'Active', isUp: true, color: 'text-primary' }}
-                color="primary"
-                progress={55}
-              />
-              <AdminStatCard 
-                label="Conversion Velocity"
-                value={`${analyticsData.conversionData?.length > 0 && analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) > 0
-                  ? (analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.orders, 0) / 
-                     analyticsData.conversionData.reduce((acc: any, curr: any) => acc + curr.visitors, 0) * 100).toFixed(1) 
-                  : '4.2'}%`}
-                icon={<Zap size={20} />}
-                trend={{ value: 'High', isUp: true, color: 'text-blue-500' }}
-                color="blue"
-                progress={40}
-              />
-              <AdminStatCard 
-                label="Stock Portfolio Val."
-                value={`₹${(analyticsData.inventoryData?.total_cost || 0).toLocaleString()}`}
-                icon={<Wallet size={20} />}
-                trend={{ value: 'Focus', isUp: false, color: 'text-amber-500' }}
-                color="amber"
-                progress={85}
-              />
-            </div>
-
-            {/* AI Actionable Insights */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <motion.div 
-                whileHover={{ y: -5 }}
-                className="bg-stone-900 p-8 rounded-[2.5rem] text-white overflow-hidden relative group"
-              >
-                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-                   <Sparkles size={120} />
-                </div>
-                <div className="relative z-10 space-y-6">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-primary">
-                      <TrendingUp size={20} />
-                    </div>
-                    <span className="font-black text-xs uppercase tracking-[0.2em] select-text">Growth Projection</span>
-                  </div>
-                  <p className="text-stone-400 font-medium leading-relaxed">
-                    Based on current velocity, revenue is projected to exceed <span className="text-white font-black">₹{(analyticsData.totalSales * 1.15).toLocaleString()}</span> by month-end.
-                  </p>
-                  <div className="flex items-center text-[10px] font-black uppercase tracking-widest text-emerald-400">
-                    <CheckCircle2 size={12} className="mr-2" />
-                    <span>Strategy Verified</span>
-                  </div>
-                </div>
-              </motion.div>
-
-              <motion.div 
-                whileHover={{ y: -5 }}
-                className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden relative group"
-              >
-                <div className="space-y-6">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500">
-                      <AlertTriangle size={20} />
-                    </div>
-                    <span className="font-black text-xs uppercase tracking-[0.2em] text-stone-400">Stock At Risk</span>
-                  </div>
-                  <p className="text-stone-500 font-medium leading-relaxed">
-                    <span className="text-stone-900 font-black">{lowStockProducts.length} items</span> are critical. Restock now to capture <span className="text-stone-900 font-black">₹42k</span> in pending demand.
-                  </p>
-                   <button 
-                    onClick={() => setActiveTab('Product Catalog')}
-                    className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
-                   >
-                    Review Catalog <ArrowRight size={12} className="ml-2" />
-                  </button>
-                </div>
-              </motion.div>
-
-              <motion.div 
-                whileHover={{ y: -5 }}
-                className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden relative group"
-              >
-                <div className="space-y-6">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-500">
-                      <Clock size={20} />
-                    </div>
-                    <span className="font-black text-xs uppercase tracking-[0.2em] text-stone-400">Near Expiry</span>
-                  </div>
-                  <p className="text-stone-500 font-medium leading-relaxed">
-                    <span className="text-stone-900 font-black">{expiringSoon.length} entries</span> approach terminal dates. Strategy: Flash liquidation recommended.
-                  </p>
-                   <button 
-                    onClick={() => setActiveTab('Product Catalog')}
-                    className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
-                   >
-                    Clearance Flow <ArrowRight size={12} className="ml-2" />
-                  </button>
-                </div>
-              </motion.div>
-
-              <motion.div 
-                whileHover={{ y: -5 }}
-                className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm overflow-hidden relative group"
-              >
-                <div className="space-y-6">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500">
-                      <Users size={20} />
-                    </div>
-                    <span className="font-black text-xs uppercase tracking-[0.2em] text-stone-400">Loyalty Matrix</span>
-                  </div>
-                  <p className="text-stone-500 font-medium leading-relaxed">
-                    Your <span className="text-stone-900 font-black">Champions</span> segment grew by <span className="text-stone-900 font-black">8.4%</span>. Deploy VIP coupons to lock in value.
-                  </p>
-                   <button 
-                    onClick={() => setActiveTab('Promotions')}
-                    className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center hover:translate-x-2 transition-transform"
-                   >
-                    Create Campaign <ArrowRight size={12} className="ml-2" />
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-
-            {/* Daily Trends & Product Analytics */}
-            {salesAnalytics && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all hover:shadow-xl hover:shadow-stone-200/20">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-                    <div>
-                      <h3 className="text-xl font-black text-stone-900 tracking-tight">Revenue Velocity</h3>
-                      <p className="text-xs text-stone-400 mt-1">
-                        {showWeeklyComparison ? "Last week vs This week performance comparison" : "30-day transactional throughput"}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      {/* Weekly Comparison Toggle Switch */}
-                      <div className="flex bg-stone-100 p-1 rounded-xl">
-                        <button
-                          onClick={() => setShowWeeklyComparison(false)}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-200 ${
-                            !showWeeklyComparison 
-                              ? 'bg-white text-stone-900 shadow-sm' 
-                              : 'text-stone-400 hover:text-stone-600'
-                          }`}
-                        >
-                          30 Days
-                        </button>
-                        <button
-                          onClick={() => setShowWeeklyComparison(true)}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-200 ${
-                            showWeeklyComparison 
-                              ? 'bg-white text-stone-900 shadow-sm' 
-                              : 'text-stone-400 hover:text-stone-600'
-                          }`}
-                        >
-                          Weekly Comp
-                        </button>
-                      </div>
-
-                      <div className="flex items-center space-x-2 text-emerald-500 bg-emerald-50 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest">
-                        <TrendingUp size={12} />
-                        <span>Live Feed</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="h-80 min-h-[320px] w-full">
-                    {showWeeklyComparison && (
-                      <div className="flex items-center justify-end space-x-6 mb-4 text-[10px] font-black uppercase tracking-wider">
-                        <div className="flex items-center">
-                          <span className="w-3 h-1.5 rounded bg-emerald-500 mr-2" />
-                          <span className="text-stone-600">This Week</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="w-3 h-1.5 border-t-2 border-stone-400 border-dashed mr-2" />
-                          <span className="text-stone-400">Last Week</span>
-                        </div>
-                      </div>
-                    )}
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                      <AreaChart 
-                        data={showWeeklyComparison ? getWeeklyComparisonData() : salesAnalytics.dailySales} 
-                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                      >
-                        <defs>
-                          <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="colorThisWeek" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.11}/>
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="colorLastWeek" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.05}/>
-                            <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey={showWeeklyComparison ? "day" : "date"} 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                          dy={10}
-                        />
-                        <YAxis 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                        />
-                        <Tooltip 
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              if (showWeeklyComparison) {
-                                return (
-                                  <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10 space-y-2 select-text">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">
-                                      Day: {data.day}
-                                    </p>
-                                    <div className="flex items-center justify-between space-x-6">
-                                      <span className="text-xs text-emerald-400 font-bold flex items-center">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400 mr-1.5" />
-                                        This Week ({data.thisWeekDate || 'Date N/A'}):
-                                      </span>
-                                      <span className="text-xs font-black">₹{(data.thisWeek || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between space-x-6">
-                                      <span className="text-xs text-stone-400 font-bold flex items-center">
-                                        <span className="w-2 h-2 rounded-full bg-stone-400 mr-1.5" />
-                                        Last Week ({data.lastWeekDate || 'Date N/A'}):
-                                      </span>
-                                      <span className="text-xs font-black text-stone-300">₹{(data.lastWeek || 0).toLocaleString()}</span>
-                                    </div>
-                                    {data.lastWeek > 0 && (
-                                      <div className="pt-1.5 border-t border-white/5 text-[10px] font-bold">
-                                        {data.thisWeek >= data.lastWeek ? (
-                                          <span className="text-emerald-400">
-                                            ▲ +{(((data.thisWeek - data.lastWeek) / data.lastWeek) * 100).toFixed(1)}% vs last week
-                                          </span>
-                                        ) : (
-                                          <span className="text-rose-400">
-                                            ▼ -{(((data.lastWeek - data.thisWeek) / data.lastWeek) * 100).toFixed(1)}% vs last week
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              } else {
-                                return (
-                                  <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">{payload[0].payload.date}</p>
-                                    <p className="text-lg font-black">₹{payload[0].value?.toLocaleString()}</p>
-                                  </div>
-                                );
-                              }
-                            }
-                            return null;
-                          }}
-                        />
-                        {showWeeklyComparison ? (
-                          <>
-                            <Area 
-                              type="monotone" 
-                              dataKey="thisWeek" 
-                              name="This Week"
-                              stroke="#10b981" 
-                              strokeWidth={4}
-                              fillOpacity={1} 
-                              fill="url(#colorThisWeek)" 
-                            />
-                            <Area 
-                              type="monotone" 
-                              dataKey="lastWeek" 
-                              name="Last Week"
-                              stroke="#94a3b8" 
-                              strokeWidth={3}
-                              strokeDasharray="5 5"
-                              fillOpacity={1}
-                              fill="url(#colorLastWeek)"
-                            />
-                          </>
-                        ) : (
-                          <Area 
-                            type="monotone" 
-                            dataKey="total" 
-                            stroke="#3b82f6" 
-                            strokeWidth={4}
-                            fillOpacity={1} 
-                            fill="url(#colorTotal)" 
-                          />
-                        )}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all hover:shadow-xl hover:shadow-stone-200/20">
-                  <div className="flex items-center justify-between mb-8">
-                    <div>
-                      <h3 className="text-xl font-black text-stone-900 tracking-tight">Elite Performance</h3>
-                      <p className="text-xs text-stone-400 mt-1">Top grossing assets by volume</p>
-                    </div>
-                    <div className="flex items-center space-x-2 text-primary bg-primary/5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest">
-                      <Sparkles size={12} />
-                      <span>Elite Tier</span>
-                    </div>
-                  </div>
-                  <div className="h-80 min-h-[320px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                      <BarChart data={salesAnalytics.topProducts} layout="vertical" margin={{ top: 0, right: 30, left: 40, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                        <XAxis type="number" hide />
-                        <YAxis 
-                          dataKey="name" 
-                          type="category" 
-                          axisLine={false} 
-                          tickLine={false}
-                          tick={{ fill: '#1e293b', fontSize: 10, fontWeight: 900 }}
-                          width={100}
-                        />
-                        <Tooltip 
-                          cursor={{ fill: '#f8fafc' }}
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              return (
-                                <div className="bg-white p-4 rounded-2xl shadow-2xl border border-stone-100">
-                                  <p className="text-sm font-black text-stone-900">{payload[0].payload.name}</p>
-                                  <div className="mt-2 space-y-1">
-                                    <div className="flex justify-between items-center gap-4">
-                                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Units Sold</span>
-                                      <span className="text-sm font-black text-emerald-600">{payload[0].value}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center gap-4">
-                                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Efficiency</span>
-                                      <span className="text-sm font-black text-stone-900">88%</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
-                        <Bar 
-                          dataKey="sold" 
-                          fill="#3b82f6" 
-                          radius={[0, 10, 10, 0]}
-                          barSize={24}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Existing Analytics */}
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-xl font-black text-stone-900 tracking-tight">Inventory Valuation Audit</h3>
-                  <p className="text-xs text-stone-400 mt-1">Real-time asset exposure and markup efficiency</p>
-                </div>
-                <div className="bg-stone-50 px-4 py-2 rounded-2xl border border-stone-100">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-stone-400">Total Items</span>
-                  <p className="text-lg font-black">{analyticsData.inventoryData?.total_items || 0}</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="space-y-6">
-                  <div>
-                    <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-2">Total Stock Quantity</p>
-                    <h4 className="text-2xl font-black">{(analyticsData.inventoryData?.total_stock || 0).toLocaleString()} units</h4>
-                  </div>
-                  <div>
-                    <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-2">Total Inventory Cost</p>
-                    <h4 className="text-2xl font-black text-red-600">₹{(analyticsData.inventoryData?.total_cost || 0).toLocaleString()}</h4>
-                  </div>
-                  <div>
-                    <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-2">Potential Revenue</p>
-                    <h4 className="text-2xl font-black text-emerald-600">₹{(analyticsData.inventoryData?.potential_revenue || 0).toLocaleString()}</h4>
-                  </div>
-                  <div className="pt-4 border-t border-stone-100">
-                    <p className="text-stone-400 text-[10px] font-black uppercase tracking-widest mb-2">Potential Profit Margin</p>
-                    <h4 className="text-2xl font-black text-primary">
-                      {analyticsData.inventoryData?.potential_revenue > 0 
-                        ? (((analyticsData.inventoryData.potential_revenue - analyticsData.inventoryData.total_cost) / analyticsData.inventoryData.potential_revenue) * 100).toFixed(1)
-                        : '0.0'}%
-                    </h4>
-                  </div>
-                </div>
-                
-                <div className="md:col-span-2 h-[300px] min-h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <BarChart data={[
-                      { name: 'Cost Value', value: analyticsData.inventoryData?.total_cost || 0, fill: '#EF4444' },
-                      { name: 'Potential Revenue', value: analyticsData.inventoryData?.potential_revenue || 0, fill: '#10B981' },
-                      { name: 'Potential Profit', value: (analyticsData.inventoryData?.potential_revenue || 0) - (analyticsData.inventoryData?.total_cost || 0), fill: '#F27D26' }
-                    ]}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#A8A29E', fontWeight: 700}} />
-                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#A8A29E', fontWeight: 700}} tickFormatter={(val) => `₹${val/1000}k`} />
-                      <Tooltip 
-                        formatter={(val: any) => `₹${(val || 0).toLocaleString()}`}
-                        contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
-                      />
-                      <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={60} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            {/* Customer Segmentation & RFM Analysis */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                <div className="mb-8">
-                  <h3 className="text-xl font-black text-stone-900">Identity-Based Segments</h3>
-                  <p className="text-xs text-stone-400 mt-1">Behavioral classification (RFM Matrix)</p>
-                </div>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <PieChart>
-                      <Pie
-                        data={analyticsData.rfmSegmentData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={80}
-                        outerRadius={110}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        { (analyticsData.rfmSegmentData || []).map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={[
-                            '#F27D26', // Primary
-                            '#10B981', // Emerald
-                            '#3B82F6', // Blue
-                            '#8B5CF6', // Violet
-                            '#F59E0B'  // Amber
-                          ][index % 5]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                      />
-                      <Legend verticalAlign="bottom" height={36}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                <div className="mb-8">
-                  <h3 className="text-xl font-black text-stone-900">Profit Center Attribution</h3>
-                  <p className="text-xs text-stone-400 mt-1">Segment-specific revenue contribution</p>
-                </div>
-                <div className="space-y-6">
-                  { (analyticsData.rfmSegmentData || []).sort((a: any, b: any) => b.revenue - a.revenue).map((segment: any, idx: number) => (
-                    <div key={idx} className="space-y-2">
-                       <div className="flex justify-between text-xs font-bold uppercase tracking-widest">
-                          <span className="text-stone-900">{segment.name}</span>
-                          <span className="text-stone-400">₹{(segment.revenue || 0).toLocaleString()}</span>
-                       </div>
-                       <div className="h-2 w-full bg-stone-100 rounded-full overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(segment.revenue / analyticsData.totalSales * 100) || 0}%` }}
-                            className="h-full bg-primary rounded-full"
-                          />
-                       </div>
-                    </div>
-                  ))}
-                  {(!analyticsData.rfmSegmentData || analyticsData.rfmSegmentData.length === 0) && (
-                    <p className="text-center text-stone-400 italic py-12">Waiting for more customer data...</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Existing Sales Trend ... */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-                <div className="flex justify-between items-center mb-8">
-                  <div>
-                    <h3 className="text-xl font-black">Sales Performance & Forecast</h3>
-                    <p className="text-xs text-stone-400 mt-1">Historical data with 7-day predictive trend</p>
-                  </div>
-                  <div className="flex bg-stone-100 p-1 rounded-xl">
-                    <button 
-                      onClick={() => setAnalyticsTimeframe('daily')}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                        analyticsTimeframe === 'daily' ? "bg-white shadow-sm text-primary" : "text-stone-400 hover:text-stone-600"
-                      )}
-                    >
-                      Daily
-                    </button>
-                    <button 
-                      onClick={() => setAnalyticsTimeframe('weekly')}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                        analyticsTimeframe === 'weekly' ? "bg-white shadow-sm text-primary" : "text-stone-400 hover:text-stone-600"
-                      )}
-                    >
-                      Weekly
-                    </button>
-                    <button 
-                      onClick={() => setAnalyticsTimeframe('monthly')}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                        analyticsTimeframe === 'monthly' ? "bg-white shadow-sm text-primary" : "text-stone-400 hover:text-stone-600"
-                      )}
-                    >
-                      Monthly
-                    </button>
-                  </div>
-                </div>
-                <div className="h-[350px] relative">
-                  {isFetchingAnalytics && (
-                    <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-2xl">
-                      <div className="flex flex-col items-center">
-                        <RefreshCw size={24} className="text-primary animate-spin mb-2" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Updating Forecast...</p>
-                      </div>
-                    </div>
-                  )}
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <AreaChart data={[
-                      ...getGroupedSalesData(),
-                      // Enhanced 7-day forecast based on linear trend of last 14 days
-                      ...(() => {
-                        const sales = analyticsData.salesOverTime;
-                        if (sales.length < 2) return [];
-                        
-                        const last14 = sales.slice(-14);
-                        const n = last14.length;
-                        const xSum = (n * (n - 1)) / 2;
-                        const ySum = last14.reduce((acc: number, curr: any) => acc + curr.sales, 0);
-                        const xySum = last14.reduce((acc: number, curr: any, i: number) => acc + (i * curr.sales), 0);
-                        const x2Sum = (n * (n - 1) * (2 * n - 1)) / 6;
-                        
-                        const slope = (n * xySum - xSum * ySum) / (n * x2Sum - xSum * xSum);
-                        const intercept = (ySum - slope * xSum) / n;
-                        
-                        const lastDate = new Date(sales[sales.length - 1].date);
-                        return Array.from({ length: 7 }).map((_, i) => {
-                          const forecastDate = new Date(lastDate);
-                          forecastDate.setDate(lastDate.getDate() + i + 1);
-                          const forecastVal = Math.max(0, slope * (n + i) + intercept);
-                          // Add some seasonality/noise
-                          const noise = (Math.random() - 0.5) * (forecastVal * 0.1);
-                          return {
-                            date: forecastDate.toISOString().split('T')[0],
-                            sales: 0,
-                            forecast: Math.round(forecastVal + noise)
-                          };
-                        });
-                      })()
-                    ]}>
-                      <defs>
-                        <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#F27D26" stopOpacity={0.15}/>
-                          <stop offset="95%" stopColor="#F27D26" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorForecast" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#A8A29E" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#A8A29E" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
-                      <XAxis 
-                        dataKey="date" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fontSize: 10, fill: '#A8A29E', fontWeight: 700}} 
-                        tickFormatter={(val) => new Date(val).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fontSize: 10, fill: '#A8A29E', fontWeight: 700}}
-                        tickFormatter={(val) => `₹${val >= 1000 ? (val/1000).toFixed(1) + 'k' : val}`}
-                      />
-                      <Tooltip 
-                        contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '12px'}}
-                        itemStyle={{fontWeight: 900, fontSize: '12px'}}
-                        labelStyle={{fontWeight: 900, fontSize: '10px', color: '#A8A29E', marginBottom: '4px'}}
-                        formatter={(val: any, name: string) => [
-                          `₹${(val || 0).toLocaleString()}`, 
-                          name === 'sales' ? 'Actual Revenue' : 'Forecasted'
-                        ]}
-                      />
-                      <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '20px'}} />
-                      <Area type="monotone" dataKey="sales" name="Actual Revenue" stroke="#F27D26" strokeWidth={4} fillOpacity={1} fill="url(#colorSales)" />
-                      <Area type="monotone" dataKey="forecast" name="Forecasted" stroke="#A8A29E" strokeWidth={2} strokeDasharray="5 5" fillOpacity={1} fill="url(#colorForecast)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Popular Categories */}
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                <h3 className="text-xl font-black mb-8 text-stone-900">Category Dominance</h3>
-                <div className="h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <PieChart>
-                      <Pie
-                        data={analyticsData.salesByCategory}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        { (analyticsData.salesByCategory || []).map((_: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={['#F27D26', '#3B82F6', '#10B981', '#8B5CF6', '#EC4899', '#F59E0B'][index % 6]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
-                      />
-                      <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{fontSize: '10px', fontWeight: 700, textTransform: 'uppercase'}} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="mt-8 space-y-3">
-                  {analyticsData.salesByCategory.slice(0, 3).map((cat: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#F27D26', '#3B82F6', '#10B981'][i] }} />
-                        <span className="text-xs font-bold text-stone-600">{cat.name}</span>
-                      </div>
-                      <span className="text-xs font-black">₹{(cat.value || 0).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Customer Segmentation Analysis */}
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-xl font-black text-stone-900">Customer Groups</h3>
-                  <p className="text-xs text-stone-400 mt-1">Detailed ranking based on purchase history.</p>
-                </div>
-              </div>
-              
-              {/* Live Fleet Map */}
-             <div className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm mb-8">
-               <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest mb-6">Live Logistics Network</h3>
-               <div className="h-[400px] rounded-2xl overflow-hidden">
-                 <MapContainer center={[12.9716, 77.5946]} zoom={11} className="h-full w-full">
-                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                   {runners.filter(r => r.current_lat && r.current_lng).map(runner => (
-                     <Marker key={runner.id} position={[runner.current_lat, runner.current_lng]}>
-                       <Popup>
-                         <div className="font-bold">{runner.name}</div>
-                         <div className="text-xs">{runner.status}</div>
-                       </Popup>
-                     </Marker>
-                   ))}
-                 </MapContainer>
-               </div>
-             </div>
-
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="h-[300px]">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Segment Distribution</p>
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <PieChart>
-                      <Pie
-                        data={analyticsData.rfmSegmentData || []}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {(analyticsData.rfmSegmentData || []).map((_: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={['#10B981', '#F27D26', '#3B82F6', '#F59E0B', '#EF4444', '#A8A29E'][index % 6]} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{borderRadius: '16px', border: 'none'}} />
-                      <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{fontSize: '10px', fontWeight: 700}} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                <div className="lg:col-span-2 responsive-table-container">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">High Value Customers & RFM Scores</p>
-                  <table className="w-full text-left">
-                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
-                      <tr>
-                        <th className="px-4 py-3">Customer</th>
-                        <th className="px-4 py-3">RFM Segment</th>
-                        <th className="px-4 py-3">R-F-M Score</th>
-                        <th className="px-4 py-3">Orders</th>
-                        <th className="px-4 py-3">Total Spent</th>
-                        <th className="px-4 py-3">Last Active</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {analyticsData.customerData
-                        .sort((a: any, b: any) => b.total_spent - a.total_spent)
-                        .slice(0, 5)
-                        .map((cust: any) => (
-                          <tr key={cust.id} className="hover:bg-stone-50/50 transition-colors">
-                            <td className="px-4 py-3 font-bold text-sm">{cust.name}</td>
-                            <td className="px-4 py-3">
-                              <span className={cn(
-                                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider",
-                                cust.rfmSegment === 'Champions' ? "bg-emerald-100 text-emerald-600" : 
-                                cust.rfmSegment === 'Loyal' ? "bg-blue-100 text-blue-600" :
-                                cust.rfmSegment === 'At Risk' ? "bg-amber-100 text-amber-600" :
-                                "bg-stone-100 text-stone-600"
-                              )}>
-                                {cust.rfmSegment}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex space-x-1">
-                                {[...Array(3)].map((_, i) => (
-                                  <div key={i} className={cn("w-2 h-2 rounded-full", i < cust.rScore ? "bg-emerald-500" : "bg-stone-200")} title="Recency" />
-                                ))}
-                                <div className="w-1" />
-                                {[...Array(3)].map((_, i) => (
-                                  <div key={i} className={cn("w-2 h-2 rounded-full", i < cust.fScore ? "bg-blue-500" : "bg-stone-200")} title="Frequency" />
-                                ))}
-                                <div className="w-1" />
-                                {[...Array(3)].map((_, i) => (
-                                  <div key={i} className={cn("w-2 h-2 rounded-full", i < cust.mScore ? "bg-primary" : "bg-stone-200")} title="Monetary" />
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-sm font-black">{cust.order_count}</td>
-                            <td className="px-4 py-3 text-sm font-black text-primary">₹{(cust.total_spent || 0).toLocaleString()}</td>
-                            <td className="px-4 py-3 text-xs text-stone-400">
-                              {cust.last_order ? new Date(cust.last_order).toLocaleDateString() : 'Never'}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Conversion Rate Trend */}
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                <h3 className="text-xl font-black mb-8 text-stone-900">Acquisition Funnel</h3>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <BarChart 
-                      layout="vertical"
-                      data={analyticsData.conversionFunnel}
-                      margin={{ left: 40, right: 40 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f5f5f5" />
-                      <XAxis type="number" hide />
-                      <YAxis 
-                        dataKey="name" 
-                        type="category" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fontSize: 10, fill: '#A8A29E', fontWeight: 700}}
-                      />
-                      <Tooltip 
-                        contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
-                        formatter={(val: any) => [(val || 0).toLocaleString(), 'Users']}
-                      />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={40}>
-                        { (analyticsData.conversionFunnel || []).map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Acquisition Sources */}
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                <h3 className="text-xl font-black mb-8 text-stone-900">Traffic Attribution</h3>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <PieChart>
-                      <Pie
-                        data={analyticsData.acquisitionSources}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      >
-                        { (analyticsData.acquisitionSources || []).map((_: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={['#F27D26', '#3B82F6', '#10B981', '#8B5CF6'][index % 4]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            {/* Popular Products Table */}
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="p-8 border-b border-stone-100">
-                <h3 className="text-xl font-black text-stone-900">Top Performing SKUs</h3>
-                <p className="text-xs text-stone-400 mt-1">Efficiency breakdown of high-velocity inventory</p>
-              </div>
-              <div className="responsive-table-container">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
-                    <tr>
-                      <th className="px-8 py-5">Rank</th>
-                      <th className="px-6 py-5">Product Name</th>
-                      <th className="px-6 py-5">Orders</th>
-                      <th className="px-6 py-5">Quantity Sold</th>
-                      <th className="px-6 py-5">Stock Left</th>
-                      <th className="px-6 py-5">Performance</th>
-                      <th className="px-8 py-5">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {(analyticsData.popularProducts || []).map((p: any, i: number) => (
-                      <tr key={i} className="hover:bg-stone-50/50 transition-colors">
-                        <td className="px-8 py-5">
-                          <span className="w-6 h-6 bg-stone-100 rounded-lg flex items-center justify-center text-[10px] font-black text-stone-400">
-                            {i + 1}
-                          </span>
-                        </td>
-                        <td className="px-6 py-5 font-bold text-sm text-stone-900">{p.name}</td>
-                        <td className="px-6 py-5 text-sm font-black text-stone-600">{p.sales_count}</td>
-                        <td className="px-6 py-5 text-sm font-black text-stone-600">{p.total_qty}</td>
-                        <td className="px-6 py-5">
-                          <span className={cn(
-                            "text-xs font-bold",
-                            p.stock <= 5 ? "text-red-600" : "text-stone-600"
-                          )}>
-                            {p.stock} units
-                          </span>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="flex items-center space-x-3">
-                            <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-primary" 
-                                style={{ width: `${(p.total_qty / analyticsData.popularProducts[0].total_qty) * 100}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-black text-stone-400">
-                              {Math.round((p.total_qty / analyticsData.popularProducts[0].total_qty) * 100)}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-8 py-5">
-                          {p.stock <= 5 && (
-                            <button 
-                              onClick={() => { setActiveTab('Product Catalog'); setProductSearchTerm(p.name); }}
-                              className="text-[10px] font-black uppercase tracking-wider text-primary hover:underline"
-                            >
-                              Restock
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Logistics' && (
-          <div className="space-y-8">
-            <div className="flex justify-between items-center bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
-              <div>
-                <h2 className="text-3xl font-black">Logistics Hub</h2>
-                <p className="text-stone-500 mt-1">Manage delivery runners and track active deliveries.</p>
-              </div>
-              <button 
-                onClick={() => setRunnerModal({ open: true, mode: 'add' })}
-                className="bg-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center space-x-2 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
-              >
-                <Plus size={18} />
-                <span>Add Runner</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 space-y-6">
-                {/* Active Deliveries Map Placeholder */}
-                <div className="bg-stone-900 rounded-3xl aspect-[16/9] relative overflow-hidden group shadow-2xl">
-                  {/* Mock Map UI */}
-                  <div className="absolute inset-0 opacity-40 bg-[url('https://api.mapbox.com/styles/v1/mapbox/dark-v10/static/-122.4241,37.78,14,0/800x450?access_token=pk.xxx')] bg-cover" />
-                  
-                  {/* Map Hotspots (Mock Runners) */}
-                  <div className="absolute top-1/4 left-1/3 animate-bounce">
-                    <div className="bg-primary text-white p-2 rounded-full shadow-lg border-2 border-white">
-                      <Truck size={14} />
-                    </div>
-                  </div>
-                  <div className="absolute bottom-1/3 right-1/4 animate-pulse">
-                    <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white">
-                      <Truck size={14} />
-                    </div>
-                  </div>
-
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                     <p className="text-white/20 font-black text-6xl rotate-[-20deg]">LIVE TRACKING</p>
-                  </div>
-                  
-                  <div className="absolute bottom-6 left-6 right-6 bg-stone-900/80 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                        <Activity size={20} />
-                      </div>
-                      <div>
-                        <p className="text-white text-xs font-bold uppercase tracking-widest">Active Runners</p>
-                        <p className="text-white/60 text-xs">4 of 5 runners on duty</p>
-                      </div>
-                    </div>
-                    <div className="h-8 w-px bg-white/10" />
-                    <div>
-                      <p className="text-white text-xs font-bold uppercase tracking-widest">Live Updates</p>
-                      <p className="text-emerald-400 text-xs font-bold">Enabled</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dispatch Queue */}
-                <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
-                  <div className="p-8 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                    <h3 className="text-lg font-black">Dispatch Queue</h3>
-                    <span className="bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl">
-                      {orders.filter(o => o.status === 'pending').length} Pending Orders
-                    </span>
-                  </div>
-                  <div className="divide-y divide-stone-100">
-                    {orders.filter(o => o.status === 'pending').map(order => (
-                      <div key={order.id} className="p-6 flex items-center justify-between hover:bg-stone-50/30 transition-all group">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-                            <ShoppingBag size={20} />
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-stone-900">#ORD-{order.id} • ₹{order.total}</p>
-                            <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest leading-none mt-1">{order.address}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                           <select 
-                            className="bg-stone-100 border-none rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20"
-                            onChange={(e) => handleAssignRunner(order.id, parseInt(e.target.value))}
-                            defaultValue=""
-                           >
-                            <option value="" disabled>Assign Runner</option>
-                            {runners.filter(r => r.status === 'active' && !r.is_busy).map(r => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
-                           </select>
-                           <button className="p-2 bg-stone-100 text-stone-400 rounded-xl hover:bg-primary hover:text-white transition-all">
-                              <ArrowRight size={16} />
-                           </button>
-                        </div>
-                      </div>
-                    ))}
-                    {orders.filter(o => o.status === 'pending').length === 0 && (
-                      <div className="p-12 text-center">
-                        <div className="w-16 h-16 bg-stone-50 text-stone-300 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <CheckCircle2 size={32} />
-                        </div>
-                        <p className="text-stone-400 font-bold">Queue is empty!</p>
-                        <p className="text-[10px] text-stone-400 uppercase tracking-widest mt-1">Ready for next orders</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {/* Runner Status List */}
-                <div className="bg-white rounded-3xl shadow-sm border border-stone-100 p-8">
-                  <h3 className="text-lg font-black mb-6">Runners Fleet</h3>
-                  <div className="space-y-4">
-                    {runners.map(runner => (
-                      <div key={runner.id} className="p-4 bg-stone-50 rounded-2xl border border-stone-100/50 group relative overflow-hidden">
-                        <div className="flex items-center justify-between mb-3">
-                           <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 bg-primary/10 text-primary rounded-xl flex items-center justify-center">
-                                <Truck size={18} />
-                              </div>
-                              <div>
-                                <p className="text-sm font-black text-stone-900">{runner.name}</p>
-                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{runner.phone}</p>
-                              </div>
-                           </div>
-                           <span className={cn(
-                             "text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg",
-                             runner.is_busy ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                           )}>
-                             {runner.is_busy ? "Busy" : "Ready"}
-                           </span>
-                        </div>
-                        {runner.is_busy && (
-                          <div className="mt-2 text-xs font-bold text-stone-500 flex items-center justify-between">
-                            <span className="flex items-center gap-1"><Clock size={12} /> 22 min left</span>
-                            <span className="text-[10px] text-primary">View Track</span>
-                          </div>
-                        )}
-                        <div className="absolute inset-x-0 bottom-0 h-1 bg-stone-200">
-                           <div className="h-full bg-primary" style={{ width: runner.is_busy ? '65%' : '0%' }} title="Loading progress mock" />
-                        </div>
-                      </div>
-                    ))}
-                    <button 
-                      onClick={() => setRunnerModal({ open: true, mode: 'add' })}
-                      className="w-full py-4 bg-stone-50 border-2 border-dashed border-stone-200 rounded-2xl text-stone-400 font-black uppercase text-xs tracking-widest hover:border-primary hover:bg-stone-100/50 hover:text-primary transition-all"
-                    >
-                      + Register New Runner
-                    </button>
-                  </div>
-                </div>
-
-                {/* Logistics Stats */}
-                <div className="bg-stone-900 text-white p-8 rounded-3xl shadow-xl space-y-6">
-                  <h3 className="font-bold text-lg">Delivery Metrics</h3>
-                  <div className="space-y-6">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs text-white/60 font-bold uppercase tracking-widest">Avg Delivery Time</span>
-                        <span className="text-lg font-black">24m</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-primary w-3/4 rounded-full" />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs text-white/60 font-bold uppercase tracking-widest">Fleet Utilization</span>
-                        <span className="text-lg font-black">80%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500 w-[80%] rounded-full" />
-                      </div>
-                    </div>
-                    <div className="pt-6 border-t border-white/10 grid grid-cols-2 gap-4">
-                      <div className="text-center">
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1">Delivered</p>
-                        <p className="text-2xl font-black">342</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1">Cancelled</p>
-                        <p className="text-2xl font-black text-red-400">12</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Audit Logs' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Security & Audit Cipher</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Detailed forensics of all administrative actions and security events.</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-4 bg-white p-3 rounded-[2rem] shadow-sm border border-stone-100">
-                <select 
-                  className="bg-stone-50 text-stone-900 px-6 py-4 rounded-2xl border-none text-[10px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
-                  value={auditLogType}
-                  onChange={(e) => setAuditLogType(e.target.value)}
-                >
-                  <option value="all">Unfiltered Domain</option>
-                  <option value="product">Product Protocol</option>
-                  <option value="order">Trade Logistics</option>
-                  <option value="user">Human Intelligence</option>
-                  <option value="settings">Core Parameters</option>
-                  <option value="auth">Security Handshake</option>
-                </select>
-                <div className="w-px h-10 bg-stone-100 hidden sm:block" />
-                <button 
-                  onClick={() => fetchAuditLogs(auditLogType, auditLogLimit)}
-                  className="p-4 bg-stone-50 text-stone-400 hover:text-primary rounded-2xl transition-all shadow-sm group"
-                >
-                  <RefreshCw size={20} className={cn("group-active:animate-spin", isFetchingAudit && "animate-spin")} />
-                </button>
-                 <button 
-                  className="flex items-center space-x-3 bg-stone-900 text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-stone-900/10 active:scale-95"
-                >
-                  <Download size={18} />
-                  <span>Export Cipher Log</span>
-                </button>
-              </div>
-            </header>
-
-            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                   <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">Admin Agent</th>
-                      <th className="px-6 py-8">Action Logic</th>
-                      <th className="px-6 py-8">Resource Target</th>
-                      <th className="px-6 py-8">Activity Details</th>
-                      <th className="px-6 py-8">Endpoint IP</th>
-                      <th className="px-6 py-8">Operational Clearing</th>
-                      <th className="px-10 py-8 text-right">Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {auditLogs.map((log, idx) => {
-                      const details = (() => {
-                        try { return JSON.parse(log.details); } catch(e) { return { message: log.details }; }
-                      })();
-                      const isReversible = !!details.oldState;
-                      const isReversion = log.action === 'ACTION_REVERTED';
-
-                      return (
-                        <motion.tr 
-                          key={log.id} 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: idx * 0.02 }}
-                          className="hover:bg-stone-50/50 transition-colors group"
-                        >
-                          <td className="px-10 py-6">
-                            <div className="flex items-center space-x-4">
-                              <div className="w-10 h-10 bg-stone-900 text-white rounded-xl flex items-center justify-center text-[10px] font-black uppercase shadow-sm rotate-3 group-hover:rotate-0 transition-transform">
-                                {log.admin_name?.[0] || 'A'}
-                              </div>
-                              <span className="text-sm font-black text-stone-900">{log.admin_name || 'System Auto'}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-6">
-                            <span className={cn(
-                              "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-lg border",
-                              log.action === 'DELETE' ? 'bg-red-50 text-red-600 border-red-100' :
-                              log.action === 'ACTION_REVERTED' ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                              log.action === 'PUT' || log.action?.includes('UPDATE') ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                            )}>
-                              {log.action}
-                            </span>
-                          </td>
-                          <td className="px-6 py-6">
-                             <span className="text-[10px] font-mono font-black text-stone-400 bg-stone-100 px-3 py-1 rounded-lg uppercase border border-stone-200/50">
-                               {log.resource || log.target_type}
-                             </span>
-                          </td>
-                          <td className="px-6 py-6 max-w-[300px]">
-                             <div className="space-y-1">
-                               <p className="text-[10px] text-stone-600 font-bold leading-relaxed">{details.message || log.details}</p>
-                               {isReversion && (
-                                 <div className="flex items-center space-x-1 text-[9px] text-amber-600 font-black uppercase tracking-widest mt-2">
-                                    <ShieldCheck size={10} />
-                                    <span>Protocol Reverted</span>
-                                 </div>
-                               )}
-                             </div>
-                          </td>
-                          <td className="px-6 py-6 font-mono text-[10px] text-stone-400 font-black">
-                            {log.ip_address || '127.0.0.1'}
-                          </td>
-                          <td className="px-6 py-6">
-                             {isReversible ? (
-                               <button 
-                                 onClick={() => handleRevertAction(log.id)}
-                                 className="flex items-center space-x-2 text-[9px] font-black uppercase tracking-widest text-primary hover:text-white bg-primary/5 hover:bg-primary px-4 py-2 rounded-2xl border border-primary/10 transition-all shadow-sm active:scale-95"
-                               >
-                                 <RefreshCw size={12} />
-                                 <span>Rollback</span>
-                               </button>
-                             ) : isReversion ? (
-                               <button 
-                                 onClick={() => handleRevertAction(log.id)}
-                                 className="flex items-center space-x-2 text-[9px] font-black uppercase tracking-widest text-amber-600 hover:text-white bg-amber-50 hover:bg-amber-600 px-4 py-2 rounded-2xl border border-amber-200 transition-all shadow-sm active:scale-95"
-                               >
-                                 <RefreshCw size={12} />
-                                 <span>Relay Original</span>
-                               </button>
-                             ) : (
-                               <div className="flex items-center space-x-2 text-[10px] text-stone-300 font-black uppercase tracking-widest italic opacity-50">
-                                  <div className="w-3 h-3 bg-stone-300 rounded-full" />
-                                  <span>Immutable</span>
-                               </div>
-                             )}
-                          </td>
-                          <td className="px-10 py-6 text-right">
-                             <p className="text-[10px] font-black text-stone-900 tracking-tighter">
-                               {new Date(log.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                             </p>
-                             <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mt-1">
-                               {new Date(log.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                             </p>
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                    {auditLogs.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-10 py-32 text-center">
-                          <div className="flex flex-col items-center space-y-4">
-                            <div className="p-8 bg-stone-50 rounded-full text-stone-200 animate-pulse">
-                              <Database size={48} />
-                            </div>
-                            <p className="text-stone-400 font-bold italic">Forensic archives are empty. Stable state confirmed.</p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Order Batching' && (
-          <OrderBatchingTab />
-        )}
-
-        {false && activeTab === 'Orders' && (
-          <div className="space-y-6">
-            {/* Orders Header - Soft & Flat */}
-            <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
-              <div>
-                <h2 className="text-3xl font-bold text-stone-900 tracking-tight">Orders Registry</h2>
-                <p className="text-stone-500 text-sm mt-1">Manage, track, and complete physical store orders.</p>
-              </div>
-              <div className="bg-stone-100/80 p-1 rounded-2xl flex space-x-1 border border-stone-200/30">
-                <button 
-                  onClick={() => setOrdersViewMode('table')}
-                  className={cn(
-                    "flex items-center space-x-1.5 px-5 py-2.5 rounded-xl text-xs font-bold transition-all",
-                    ordersViewMode === 'table' ? "bg-white text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600"
-                  )}
-                >
-                  <List size={14} />
-                  <span>Table View</span>
-                </button>
-                <button 
-                  onClick={() => setOrdersViewMode('kanban')}
-                  className={cn(
-                    "flex items-center space-x-1.5 px-5 py-2.5 rounded-xl text-xs font-bold transition-all",
-                    ordersViewMode === 'kanban' ? "bg-white text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600"
-                  )}
-                >
-                  <LayoutDashboard size={14} />
-                  <span>Kanban Board</span>
-                </button>
-              </div>
-             </header>
- 
-             <ExportTriggerButton type="orders" />
-
-             {/* Order Metrics Stats - Soft & Flat Pastels */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {loading ? (
-                [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
-              ) : [
-                { label: 'Pending Orders', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', status: 'pending' },
-                { label: 'Processing Orders', val: orders.filter(o => o.status === 'processing').length, icon: Package, color: 'blue', status: 'processing' },
-                { label: 'Shipped Orders', val: orders.filter(o => o.status === 'shipped').length, icon: Truck, color: 'purple', status: 'shipped' },
-                { label: 'Completed Orders', val: orders.filter(o => o.status === 'delivered').length, icon: CheckCircle2, color: 'emerald', status: 'delivered' }
-              ].map((stat, i) => (
-                <motion.div 
-                  key={stat.label}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  className="bg-stone-50/50 p-5 rounded-2xl border border-stone-200/40 flex items-center space-x-4"
-                >
-                  <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center",
-                    stat.color === 'amber' ? "bg-amber-100/40 text-amber-700" :
-                    stat.color === 'blue' ? "bg-blue-100/40 text-blue-700" :
-                    stat.color === 'purple' ? "bg-purple-100/40 text-purple-700" :
-                    "bg-emerald-100/40 text-emerald-700"
-                  )}>
-                    <stat.icon size={18} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">{stat.label}</p>
-                    <div className="flex items-baseline space-x-2">
-                      <span className="text-2xl font-black text-stone-900 tracking-tight">{stat.val}</span>
-                      <span className={cn("text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider",
-                        stat.color === 'amber' ? "bg-amber-50 text-amber-800" :
-                        stat.color === 'blue' ? "bg-blue-50 text-blue-800" :
-                        stat.color === 'purple' ? "bg-purple-50 text-purple-800" :
-                        "bg-emerald-50 text-emerald-800"
-                      )}>{stat.status}</span>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-
-            {/* Filters Dashboard - Soft, Flat and Spacious */}
-            <section className="bg-stone-50/40 p-6 rounded-3xl border border-stone-200/30 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Search</label>
-                <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={15} />
-                  <input 
-                    type="text" 
-                    placeholder="Search ref ID or client..."
-                    className="w-full bg-white border border-stone-200/60 rounded-xl pl-9.5 pr-4 py-2.5 text-xs text-stone-800 outline-none transition-all placeholder:text-stone-300 font-medium focus:border-stone-400"
-                    value={orderSearchTerm}
-                    onChange={(e) => setOrderSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Status</label>
-                <select 
-                  className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-bold text-stone-700 focus:border-stone-400"
-                  value={orderStatusFilter}
-                  onChange={(e) => setOrderStatusFilter(e.target.value)}
-                >
-                  <option value="All">All Transactions</option>
-                  <option value="pending">Pending Review</option>
-                  <option value="verifying">Payment Verifying</option>
-                  <option value="processing">Processing</option>
-                  <option value="shipped">On Route</option>
-                  <option value="delivered">Delivered</option>
-                  <option value="cancelled">Cancelled</option>
-                  <option value="failed">Failed Transaction</option>
-                  <option value="paid">Settled (Paid)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Order Type</label>
-                <select 
-                  className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-bold text-stone-700 focus:border-stone-400"
-                  value={orderDeliveryFilter}
-                  onChange={(e) => setOrderDeliveryFilter(e.target.value as any)}
-                >
-                  <option value="all">All Types</option>
-                  <option value="delivery">Home Delivery</option>
-                  <option value="pickup">Store Pickup</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Date Range</label>
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="date" 
-                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3 py-2.5 text-xs outline-none transition-all font-bold text-stone-700"
-                    value={orderDateStart}
-                    onChange={(e) => setOrderDateStart(e.target.value)}
-                  />
-                  <span className="text-stone-300">→</span>
-                  <input 
-                    type="date" 
-                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3 py-2.5 text-xs outline-none transition-all font-bold text-stone-700"
-                    value={orderDateEnd}
-                    onChange={(e) => setOrderDateEnd(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-end space-x-2">
-                <div className="flex-1 space-y-1.5">
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Sort By</label>
-                  <select 
-                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-bold text-stone-700 focus:border-stone-400"
-                    value={orderSortBy}
-                    onChange={(e) => setOrderSortBy(e.target.value)}
-                  >
-                    <option value="date font-bold">Order Date</option>
-                    <option value="id font-bold">Reference ID</option>
-                    <option value="customer font-bold">Client Name</option>
-                    <option value="total font-bold">Total Value</option>
-                  </select>
-                </div>
-                <button 
-                  onClick={() => setOrderSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                  className="p-3 bg-white border border-stone-200/60 rounded-xl text-stone-400 hover:text-stone-800 transition-all shadow-sm"
-                >
-                  <TrendingUp size={16} className={cn(orderSortOrder === 'desc' && "rotate-180")} />
-                </button>
-                <button 
-                  onClick={() => {
-                    setOrderStatusFilter('All');
-                    setOrderDateStart('');
-                    setOrderDateEnd('');
-                    setOrderSearchTerm('');
-                    setOrderSortBy('date');
-                    setOrderSortOrder('desc');
-                    setOrderDeliveryFilter('all');
-                  }}
-                  className="p-3 bg-white border border-stone-200/60 rounded-xl text-stone-400 hover:text-red-500 transition-all shadow-sm"
-                >
-                  <RefreshCw size={16} />
-                </button>
-              </div>
-            </section>
-
-            {ordersViewMode === 'table' ? (
-              <div className="bg-white rounded-3xl border border-stone-200/40 overflow-hidden shadow-sm">
-                <div className="responsive-table-container no-scrollbar">
-                  <table className="w-full text-left">
-                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-bold tracking-[0.2em] border-b border-stone-100">
-                      <tr>
-                        <th className="px-8 py-6 w-10">
-                          <input 
-                            type="checkbox" 
-                            className="w-4 h-4 rounded-md border-stone-300 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOrders(orders.map(o => o.id));
-                              } else {
-                                setSelectedOrders([]);
-                              }
-                            }}
-                          />
-                        </th>
-                        <th className="px-6 py-6">Order ID</th>
-                        <th className="px-6 py-6">Customer Info</th>
-                        <th className="px-6 py-6 text-right">Total Price</th>
-                        <th className="px-6 py-6">Status</th>
-                        <th className="px-6 py-6">Date</th>
-                        <th className="px-8 py-6 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100/60">
-                      {loading ? (
-                        [...Array(5)].map((_, i) => (
-                           <tr key={i}>
-                             <td colSpan={7}>
-                               <TableRowSkeleton columns={6} />
-                             </td>
-                           </tr>
-                        ))
-                      ) : orders.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="px-8 py-20 text-center">
-                            <div className="flex flex-col items-center space-y-4">
-                              <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center text-stone-200">
-                                <ShoppingBag size={32} />
-                              </div>
-                              <div className="space-y-1">
-                                <p className="font-bold text-stone-900">Archive Is Null</p>
-                                <p className="text-sm text-stone-400">No transactions recorded matching the current filter scope.</p>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : orders
-                        .filter(order => {
-                          const matchesStatus = orderStatusFilter === 'All' || 
-                            order.status === orderStatusFilter || 
-                            (orderStatusFilter === 'paid' && order.payment_status === 'paid') ||
-                            (orderStatusFilter === 'verifying' && order.payment_status === 'verifying');
-                          const matchesDelivery = orderDeliveryFilter === 'all' || order.delivery_type === orderDeliveryFilter;
-                          const orderDate = new Date(order.created_at).toISOString().split('T')[0];
-                          const matchesStart = !orderDateStart || orderDate >= orderDateStart;
-                          const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
-                          const matchesSearch = !orderSearchTerm || 
-                            order.id.toString().includes((orderSearchTerm || '').replace('#ORD-', '')) ||
-                            order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-                          return matchesStatus && matchesDelivery && matchesStart && matchesEnd && matchesSearch;
-                        })
-                        .map((order, idx) => (
-                        <motion.tr 
-                          key={order.id}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: idx * 0.02 }}
-                          className={cn(
-                            "hover:bg-stone-50/40 transition-all duration-300 group cursor-default",
-                            selectedOrders.includes(order.id) ? "bg-stone-50/60" : "bg-white"
-                          )}
-                        >
-                          <td className="px-8 py-6">
-                            <input 
-                              type="checkbox" 
-                              className="w-4 h-4 rounded-md border-stone-200 text-stone-900 focus:ring-stone-900 transition-all cursor-pointer"
-                              checked={selectedOrders.includes(order.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedOrders([...selectedOrders, order.id]);
-                                } else {
-                                  setSelectedOrders(selectedOrders.filter(id => id !== order.id));
-                                }
-                              }}
-                            />
-                          </td>
-                          <td className="px-6 py-6">
-                            <div className="flex items-center space-x-3">
-                              <div className="flex flex-col">
-                                <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-stone-900 text-white rounded-lg font-mono text-xs font-black tracking-tighter select-text">
-                                  <span>ORD</span>
-                                  <span className="text-stone-400">#</span>
-                                  <span>{order.id}</span>
-                                </span>
-                                {order.delivery_type === 'pickup' && (
-                                  <span className="mt-1 bg-stone-100 text-stone-700 text-[8px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit border border-stone-200/50">Pickup</span>
-                                )}
-                                <div className="flex items-center space-x-2 mt-2">
-                                  <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">{order.payment_method || 'Online'}</span>
-                                  {order.admin_notes && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Internal Persistence" />}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-6">
-                            <button 
-                              onClick={() => {
-                                if (order.user_name) {
-                                  setCustomerSearchTerm(order.user_name);
-                                  setSelectedSegment('all');
-                                  setActiveTab('Customers');
-                                }
-                              }}
-                              className="flex items-center space-x-3.5 text-left group/btn outline-none focus:outline-none"
-                            >
-                              <div className="w-9 h-9 rounded-xl bg-stone-100/60 flex items-center justify-center text-xs font-black text-stone-600 uppercase border border-stone-250/20 overflow-hidden group-hover/btn:border-stone-400 transition-colors">
-                                {order.user_name ? (
-                                  <span className="text-stone-700 font-bold">{order.user_name[0]}</span>
-                                ) : (
-                                  <Users size={15} />
-                                )}
-                              </div>
-                              <div className="max-w-[180px]">
-                                <p className="text-sm font-bold text-stone-850 group-hover/btn:text-stone-950 transition-colors line-clamp-1 tracking-tight" title={order.user_name}>
-                                  {order.user_name || 'Protocol Client'}
-                                </p>
-                                <p className="text-[10px] text-stone-400 font-semibold tracking-wide mt-0.5 whitespace-nowrap">
-                                  {order.items?.length || 0} items • View Customer
-                                </p>
-                              </div>
-                            </button>
-                          </td>
-                          <td className="px-6 py-6 text-right">
-                            <div className="flex flex-col items-end">
-                              <span className="text-base font-bold text-stone-900 tracking-tight select-text">₹{(order.total || 0).toLocaleString()}</span>
-                              <div className="flex items-center space-x-1.5 mt-1">
-                                <div className={cn(
-                                  "w-1.5 h-1.5 rounded-full",
-                                  order.payment_status === 'paid' ? "bg-emerald-500" :
-                                  order.payment_status === 'failed' ? "bg-red-500" : "bg-amber-500"
-                                )} />
-                                <span className={cn(
-                                  "text-[10px] font-bold uppercase tracking-wider",
-                                  order.payment_status === 'paid' ? "text-emerald-600" :
-                                  order.payment_status === 'failed' ? "text-red-700" : "text-amber-700"
-                                )}>
-                                  {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-6">
-                            <OrderStatusBadge status={order.status} />
-                          </td>
-                          <td className="px-6 py-6">
-                            <div className="flex flex-col">
-                              <span className="text-xs font-bold text-stone-800 tracking-tight select-text">{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-                              <span className="text-[10px] font-medium text-stone-400 uppercase tracking-wider mt-0.5 select-text">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                          </td>
-                          <td className="px-8 py-6 text-right">
-                            <div className="flex items-center justify-end space-x-2.5">
-                              <motion.button 
-                                whileHover={{ scale: 1.05, backgroundColor: '#f5f5f4' }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => fetchOrderDetailsModal(order)}
-                                className="p-2.5 bg-stone-50 text-stone-500 hover:text-stone-900 rounded-xl transition-all border border-stone-200/45 shadow-sm"
-                                title="Inspect Protocol"
-                              >
-                                <Eye size={16} strokeWidth={2.2} />
-                              </motion.button>
-                              
-                              {["pending", "processing"].includes(order.status) && (
-                                 <button
-                                   onClick={() => updateOrderStatus(order.id, 'shipped')}
-                                   className={cn(
-                                     "px-3.5 py-2 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-colors shadow-sm whitespace-nowrap",
-                                     order.delivery_type === 'pickup' 
-                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50 hover:bg-emerald-100" 
-                                      : "bg-purple-50 text-purple-700 border border-purple-200/50 hover:bg-purple-100"
-                                   )}
-                                   title={order.delivery_type === 'pickup' ? "Mark Ready for Pickup" : "Ship Order"}
-                                 >
-                                    {order.delivery_type === 'pickup' ? 'Ready' : 'Ship'}
-                                 </button>
-                              )}
-                              
-                              {order.status === "shipped" && (
-                                 <button
-                                   onClick={() => updateOrderStatus(order.id, 'delivered')}
-                                   className="px-3.5 py-2 bg-stone-900 text-white hover:bg-stone-800 font-bold text-[10px] uppercase tracking-wider rounded-xl transition-colors shadow-sm whitespace-nowrap"
-                                   title={order.delivery_type === 'pickup' ? "Complete Pickup" : "Deliver Order"}
-                                 >
-                                    {order.delivery_type === 'pickup' ? 'Picked' : 'Deliver'}
-                                 </button>
-                              )}
-
-                              <div className="relative">
-                                <motion.button 
-                                  whileHover={{ scale: 1.05, backgroundColor: '#f5f5f4' }}
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveActionMenuId(activeActionMenuId === `order_${order.id}` ? null : `order_${order.id}`);
-                                  }}
-                                  className={cn(
-                                    "p-2.5 bg-stone-50 text-stone-500 rounded-xl transition-all border border-stone-200/45 hover:text-stone-800 shadow-sm",
-                                    activeActionMenuId === `order_${order.id}` && "bg-white text-stone-900 shadow-xl border-stone-200"
-                                  )}
-                                >
-                                  <MoreVertical size={16} strokeWidth={2.2} />
-                                </motion.button>
-                                
-                                <AnimatePresence>
-                                  {activeActionMenuId === `order_${order.id}` && (
-                                    <motion.div 
-                                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                      className="absolute right-0 top-full mt-3 w-64 bg-white rounded-2xl shadow-xl border border-stone-100 z-[100] overflow-hidden flex flex-col py-2.5"
-                                      onMouseLeave={() => setActiveActionMenuId(null)}
-                                    >
-                                      <div className="px-6 py-2 text-[9px] font-black uppercase text-stone-400 tracking-[0.2em] mb-1">State Control</div>
-                                      {[ 
-                                        {val: 'pending', label: 'Hold for Review', color: 'bg-amber-400'}, 
-                                        {val: 'processing', label: 'Initiate Processing', color: 'bg-blue-400'}, 
-                                        {val: 'shipped', label: 'Authorize Dispatch', color: 'bg-purple-400'}, 
-                                        {val: 'delivered', label: 'Confirm Closure', color: 'bg-emerald-400'}, 
-                                        {val: 'cancelled', label: 'Void Protocol', color: 'bg-red-400'} 
-                                      ].map(s => (
-                                        <button 
-                                          key={s.val}
-                                          onClick={() => {
-                                            updateOrderStatus(order.id, s.val);
-                                            setActiveActionMenuId(null);
-                                          }}
-                                          className={cn(
-                                            "flex items-center justify-between px-6 py-2.5 hover:bg-stone-50 text-left text-xs font-bold transition-all",
-                                            order.status === s.val ? "text-stone-900 bg-stone-50" : "text-stone-500"
-                                          )}
-                                        >
-                                          <div className="flex items-center space-x-2.5">
-                                            <div className={cn("w-1.5 h-1.5 rounded-full", order.status === s.val ? s.color : "bg-stone-200")} />
-                                            <span>{s.label}</span>
-                                          </div>
-                                          {order.status === s.val && <Check size={14} className="text-stone-800" />}
-                                        </button>
-                                      ))}
-                                      <div className="h-px bg-stone-100 my-2 mx-4" />
-                                      <button 
-                                        onClick={async () => {
-                                          const { generateOrderInvoicePDF } = await import('../services/pdfService');
-                                          setExportProgress({ open: true, progress: 30, label: 'Collating order telemetry...' });
-                                          generateOrderInvoicePDF(order, config);
-                                          setExportProgress({ open: true, progress: 100, label: 'Invoice Generated' });
-                                          setTimeout(() => setExportProgress({ open: false, progress: 0, label: '' }), 1000);
-                                        }}
-                                        className="flex items-center space-x-3 px-6 py-2.5 hover:bg-stone-50 group transition-all"
-                                      >
-                                        <div className="p-2 bg-stone-100 rounded-lg group-hover:bg-stone-200 transition-colors">
-                                          <Receipt size={14} className="text-stone-600" />
-                                        </div>
-                                        <span className="text-xs font-bold text-stone-800">Generate Ledger</span>
-                                      </button>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-                            </div>
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 bg-stone-50/50 rounded-3xl border border-stone-200/20 flex gap-6 overflow-x-auto no-scrollbar min-h-[700px]">
-                  {['pending', 'processing', 'shipped', 'delivered', 'cancelled'].map((statusColumn) => (
-                    <div key={statusColumn} className="w-[320px] shrink-0 flex flex-col">
-                      <div className="flex items-center justify-between mb-5 px-1.5">
-                        <div className="flex items-center space-x-3">
-                          <h4 className="font-bold text-stone-800 uppercase tracking-wider text-xs">{statusColumn}</h4>
-                          <span className="bg-white border border-stone-200/50 text-stone-500 text-[10px] font-bold px-2 py-0.5 rounded-lg shadow-sm">
-                            {orders.filter(o => o.status === statusColumn).length}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="space-y-4 flex-1 overflow-y-auto no-scrollbar pb-10">
-                        {orders.filter(order => {
-                            const matchesStatus = order.status === statusColumn && (orderStatusFilter === 'All' || order.status === orderStatusFilter);
-                            const orderDate = new Date(order.created_at).toISOString().split('T')[0];
-                            const matchesStart = !orderDateStart || orderDate >= orderDateStart;
-                            const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
-                            const matchesSearch = !orderSearchTerm || 
-                              order.id.toString().includes(orderSearchTerm?.replace('#ORD-', '')) ||
-                              order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-                            return matchesStatus && matchesStart && matchesEnd && matchesSearch;
-                          }).map((order) => (
-                          <motion.div
-                            layout
-                            key={order.id}
-                            whileHover={{ y: -2 }}
-                            className="bg-white p-5 rounded-2xl border border-stone-200/40 hover:border-stone-300 shadow-sm transition-all cursor-pointer group relative"
-                            onClick={() => fetchOrderDetailsModal(order)}
-                          >
-                            <div className="flex justify-between items-start mb-3">
-                              <div className="flex flex-col">
-                                <span className="font-mono text-xs font-bold text-stone-800 tracking-tighter">#ORD-{order.id}</span>
-                                {order.delivery_type === 'pickup' && (
-                                  <span className="mt-1 bg-stone-100 text-stone-700 text-[7px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit border border-stone-200/30">Pickup</span>
-                                )}
-                              </div>
-                              <div className="flex flex-col items-end">
-                                <span className="text-xs font-bold text-stone-900 tracking-tight">₹{order.total}</span>
-                                <span className={cn(
-                                  "text-[8px] font-bold uppercase tracking-wider mt-1 px-1.5 py-0.5 rounded-md",
-                                  order.payment_status === 'paid' ? "bg-emerald-50 text-emerald-600 border border-emerald-100/50" :
-                                  order.payment_status === 'failed' ? "bg-red-50 text-red-600 border border-red-100/50" : "bg-amber-50 text-amber-600 border border-amber-100/50"
-                                )}>
-                                  {order.payment_status ? order.payment_status.toUpperCase() : 'PENDING'}
-                                </span>
-                              </div>
-                            </div>
-                            <h5 className="text-sm font-bold text-stone-850 mb-1 truncate">{order.user_name || 'Anonymous Customer'}</h5>
-                            <p className="text-[10px] text-stone-400 font-medium mb-3 line-clamp-1">{order.items?.length || 0} unique SKU items</p>
-                            
-                            <div className="flex items-center justify-between pt-3 border-t border-stone-100/60">
-                              <div className="flex items-center space-x-2 text-stone-400 font-bold uppercase tracking-widest text-[9px]">
-                                <Clock size={11} />
-                                <span>{new Date(order.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
-                              </div>
-                              <span className={cn(
-                                "text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest",
-                                order.payment_method === 'cod' ? "bg-amber-50 text-amber-600 border border-amber-100/40" : "bg-emerald-50 text-emerald-600 border border-emerald-100/45"
-                              )}>
-                                {order.payment_method || 'Online'}
-                              </span>
-                            </div>
-
-                            {/* Dropdown for quick status move */}
-                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <select 
-                                className="text-[8px] font-bold uppercase tracking-wider bg-stone-950 text-white border-0 rounded-lg px-2 py-1 outline-none cursor-pointer"
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                                value=""
-                              >
-                                <option value="" disabled>Move</option>
-                                {statusColumn === 'pending' && <option value="processing">Process</option>}
-                                {statusColumn === 'processing' && (
-                                  <option value="shipped">
-                                    {order.delivery_type === 'pickup' ? 'Mark Ready' : 'Dispatch'}
-                                  </option>
-                                )}
-                                {statusColumn === 'shipped' && (
-                                  <option value="delivered">
-                                    {order.delivery_type === 'pickup' ? 'Complete' : 'Deliver'}
-                                  </option>
-                                )}
-                                <option value="cancelled">Void</option>
-                              </select>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-
-            {/* Bottom Contextual Action Bar for Bulk Management (Orders) */}
-              <AnimatePresence>
-                {selectedOrders.length > 0 && (
-                  <motion.div 
-                    initial={{ y: 150, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: 150, opacity: 0 }}
-                    transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                    className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[80] bg-stone-900 text-white px-8 py-5 rounded-[2.5rem] shadow-2xl flex items-center space-x-8 w-fit max-w-4xl border border-stone-800"
-                  >
-                    <div className="flex flex-col border-r border-stone-700 pr-8">
-                      <span className="text-3xl font-black text-white leading-none">{selectedOrders.length}</span>
-                      <span className="text-[10px] uppercase font-black tracking-[0.2em] text-stone-500 mt-1">Directives</span>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <button 
-                        onClick={() => handleBulkOrderAction('status', 'processing')}
-                        className="px-6 py-3 hover:bg-stone-800 rounded-2xl transition-all text-xs font-black uppercase tracking-widest flex items-center space-x-3 group"
-                      >
-                        <div className="p-2 bg-stone-800 rounded-xl group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors"><Settings size={16} /></div>
-                        <span>Process</span>
-                      </button>
-                      <button 
-                        onClick={() => handleBulkOrderAction('status', 'shipped')}
-                        className="px-6 py-3 hover:bg-stone-800 rounded-2xl transition-all text-xs font-black uppercase tracking-widest flex items-center space-x-3 group"
-                      >
-                        <div className="p-2 bg-stone-800 rounded-xl group-hover:bg-purple-500/20 group-hover:text-purple-400 transition-colors"><Truck size={16} /></div>
-                        <span>Dispatch</span>
-                      </button>
-                      <button 
-                        onClick={() => handleBulkOrderAction('status', 'delivered')}
-                        className="px-6 py-3 hover:bg-stone-800 rounded-2xl transition-all text-xs font-black uppercase tracking-widest flex items-center space-x-3 group"
-                      >
-                        <div className="p-2 bg-stone-800 rounded-xl group-hover:bg-emerald-500/20 group-hover:text-emerald-400 transition-colors"><CheckCircle2 size={16} /></div>
-                        <span>Close</span>
-                      </button>
-                    </div>
-                    
-                    <div className="w-px h-8 bg-stone-800 mx-2" />
-                    
-                    <button 
-                      onClick={() => setSelectedOrders([])}
-                      className="p-3 bg-stone-800 hover:bg-stone-700 rounded-full transition-all text-stone-400 hover:text-white"
-                    >
-                      <X size={20} />
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-        )}
-        {false && activeTab === 'Product Catalog' && (
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="space-y-8"
-      >
-        {/* Inventory Control Center Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="space-y-1">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
-                <Package size={24} />
-              </div>
-              <h2 className="text-4xl font-black text-stone-900 tracking-tight">Inventory Status</h2>
-            </div>
-            <p className="text-stone-500 font-medium text-lg ml-1">Real-time stock control & catalog management.</p>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px] hidden xl:flex">
-              <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Low Stock</span>
-              <span className="text-xl font-black text-red-500">{allProducts.filter(p => p.stock <= (p.reorder_point || 5)).length}</span>
-            </div>
-            <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px] hidden xl:flex">
-                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Total SKU</span>
-                <span className="text-xl font-black text-primary">{allProducts.length}</span>
-            </div>
-            <div className="hidden lg:flex items-center space-x-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-emerald-100">
-              <Activity size={14} className="animate-pulse" />
-              <span>Live Sync Active</span>
-            </div>
-            <div className="relative z-50">
-              <button 
-                onClick={() => {
-                  setProductModal({ open: true, mode: 'add' });
-                  setNewProduct({ 
-                    name: '', description: '', price: '', stock: '', category: 'Grocery', image: '',
-                    retail_price: '', wholesale_price: '', discount: '0', reorder_point: '10', max_qty: '0', is_listed: true,
-                    images: [],
-                    specifications: {},
-                    batch_number: '',
-                    expiry_date: '',
-                    unit: 'kg',
-                    is_subscribable: false
-                  } as any);
-                }}
-                className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 group"
-              >
-                <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
-                <span>Initialize Product</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <ExportTriggerButton type="products" />
-
-        {/* Intelligence Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <AdminStatCard 
-            label="Total SKU Catalog" 
-            value={allProducts.length} 
-            icon={<Package size={22} />} 
-            color="primary"
-            trend={{ value: 'Active', isUp: true }}
-            progress={100}
-          />
-          <AdminStatCard 
-            label="Out of Stock" 
-            value={allProducts.filter(p => Number(p.stock) <= 0).length} 
-            icon={<AlertTriangle size={22} />} 
-            color="red"
-            trend={{ value: 'Action Required', isUp: false }}
-            progress={allProducts.length > 0 ? (allProducts.filter(p => Number(p.stock) <= 0).length / allProducts.length) * 100 : 0}
-          />
-          <AdminStatCard 
-            label="Low Stock Replenish" 
-            value={allProducts.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.reorder_point || 5)).length} 
-            icon={<ShieldAlert size={22} />} 
-            color="amber"
-            trend={{ value: 'Reviewing', isUp: true, color: 'text-amber-500' }}
-            progress={45}
-          />
-          <AdminStatCard 
-            label="Expiring Manifest" 
-            value={allProducts.filter(p => p.expiry_date && new Date(p.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length} 
-            icon={<Clock size={22} />} 
-            color="emerald"
-            trend={{ value: 'Mitigation', isUp: true }}
-            progress={15}
-          />
-        </div>
-
-        {/* Global Catalog Utility Bar */}
-        <div className="flex flex-col lg:flex-row gap-6 items-center">
-          <div className="w-full lg:flex-1 relative group">
-            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={20} />
-            <input 
-              type="text" 
-              placeholder="Search by SKU, Name, Category or Batch Number..."
-              className="w-full bg-white border-stone-200 border rounded-[2rem] pl-16 pr-6 py-4 text-sm focus:ring-8 focus:ring-primary/5 outline-none transition-all placeholder:text-stone-300 font-medium shadow-sm hover:border-stone-300 focus:border-primary"
-              value={productSearchTerm}
-              onChange={(e) => {
-                setProductSearchTerm(e.target.value);
-                fetchSearchSuggestions(e.target.value);
-              }}
-            />
-            {searchSuggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-3xl shadow-2xl shadow-stone-200/50 border border-stone-100 z-50 overflow-hidden py-2 backdrop-blur-xl bg-white/90">
-                {searchSuggestions.map((s, i) => (
-                  <button 
-                    key={i}
-                    onClick={() => {
-                      setProductSearchTerm(s);
-                      setSearchSuggestions([]);
-                    }}
-                    className="w-full text-left px-8 py-3.5 hover:bg-stone-50 text-sm font-bold text-stone-600 transition-colors flex items-center space-x-3"
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-stone-300" />
-                    <span>{s}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-3 w-full lg:w-auto">
-            <div className="flex items-center p-1 bg-white border border-stone-100 rounded-2xl shadow-sm">
-              <button 
-                onClick={downloadTemplate}
-                className="p-3 text-stone-400 hover:text-primary transition-all rounded-xl hover:bg-stone-50"
-                title="Export CSV Template"
-              >
-                <Download size={20} />
-              </button>
-              <label className="p-3 text-stone-400 hover:text-emerald-500 transition-all rounded-xl cursor-pointer hover:bg-stone-50">
-                <Upload size={20} />
-                <input type="file" accept=".csv" className="hidden" onChange={handleBulkUpload} />
-              </label>
-              {(productStockFilter === 'low' || productStockFilter === 'out') && (
-                <button 
-                  onClick={generatePurchaseOrder}
-                  className="p-3 text-stone-400 hover:text-amber-500 transition-all rounded-xl hover:bg-stone-50"
-                  title="Generate PO for Low Stock"
-                >
-                  <Receipt size={20} />
-                </button>
-              )}
-            </div>
-            
-            <div className="h-10 w-px bg-stone-200 mx-2" />
-            
-            <button 
-              onClick={() => {/* refresh logic */}}
-              className="p-4 bg-white border border-stone-100 rounded-2xl text-stone-400 hover:text-primary hover:shadow-md transition-all active:scale-95"
-            >
-              <RefreshCw size={20} />
-            </button>
-          </div>
-        </div>
-
-
-            {/* Enhanced Filters */}
-            <section className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
-              <div className="flex items-center space-x-3 pr-6 border-r border-stone-100">
-                <div className="p-3 bg-primary/10 rounded-2xl text-primary">
-                  <Filter size={20} />
-                </div>
-                <span className="text-xs font-black text-stone-900 uppercase tracking-widest leading-none">Catalog<br/><span className="text-stone-400 font-bold">Filters</span></span>
-              </div>
-              
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Stock</label>
-                <select 
-                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
-                  value={productStockFilter}
-                  onChange={(e) => setProductStockFilter(e.target.value as any)}
-                >
-                  <option value="all">All Inventory</option>
-                  <option value="low">Low Stock Only</option>
-                  <option value="out">Out of Stock</option>
-                  <option value="expiring">Near Expiry</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
-                <select 
-                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer min-w-[140px]"
-                  value={productCategoryFilter}
-                  onChange={(e) => setProductCategoryFilter(e.target.value)}
-                >
-                  <option value="all">All Categories</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Status</label>
-                <select 
-                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
-                  value={productListedFilter}
-                  onChange={(e) => setProductListedFilter(e.target.value as any)}
-                >
-                  <option value="all">All Status</option>
-                  <option value="listed">Currently Listed</option>
-                  <option value="unlisted">Unlisted Items</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Sort By</label>
-                <select 
-                  className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
-                  value={productSortBy}
-                  onChange={(e) => setProductSortBy(e.target.value as any)}
-                >
-                  <option value="name">Name (A-Z)</option>
-                  <option value="price">Price (Value)</option>
-                  <option value="stock">Stock (Count)</option>
-                  <option value="created_at">Submission Date</option>
-                </select>
-              </div>
-
-              <motion.button 
-                whileHover={{ rotate: -90 }}
-                onClick={() => {
-                  setProductStockFilter('all');
-                  setProductDiscountFilter('all');
-                  setProductCategoryFilter('all');
-                  setProductListedFilter('all');
-                  setProductDateFilter('');
-                  setProductSearchTerm('');
-                  setProductSortBy('name');
-                }}
-                className="ml-auto p-3 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white border border-stone-100 rounded-2xl transition-all shadow-sm group"
-                title="Reset Filters"
-              >
-                <RefreshCw size={20} className="group-active:scale-90" />
-              </motion.button>
-            </section>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-xs uppercase font-black tracking-[0.15em]">
-                    <tr>
-                      <th className="px-8 py-6 w-10">
-                        <input 
-                          type="checkbox" 
-                          className="w-5 h-5 rounded-lg border-stone-300 text-primary focus:ring-primary transition-all cursor-pointer"
-                          checked={selectedProducts.length === filteredProducts.length && filteredProducts.length > 0}
-                          onChange={toggleAllProducts}
-                        />
-                      </th>
-                      <th className="px-6 py-6">Inventory Node</th>
-                      <th className="px-6 py-6">Category</th>
-                      <th className="px-6 py-6">Pricing & Margin</th>
-                      <th className="px-6 py-6">Unit Liquidity</th>
-                      <th className="px-6 py-6">Lifecycle Control</th>
-                      <th className="px-6 py-6">Market Visibility</th>
-                      <th className="px-8 py-6 text-right">Operational Directives</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {filteredProducts.map((product, idx) => (
-                      <motion.tr 
-                        key={product.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.03 }}
-                        className={cn(
-                        "hover:bg-stone-50/80 transition-all duration-300 group",
-                        selectedProducts.includes(product.id) && "bg-primary/[0.03]"
-                      )}>
-                        <td className="px-8 py-6">
-                          <input 
-                            type="checkbox" 
-                            className="w-5 h-5 rounded-lg border-stone-300 text-primary focus:ring-primary transition-all cursor-pointer"
-                            checked={selectedProducts.includes(product.id)}
-                            onChange={() => toggleProductSelection(product.id)}
-                          />
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="relative">
-                              <img 
-                                src={product.image_url || product.image} 
-                                alt="" 
-                                loading="lazy"
-                                referrerPolicy="no-referrer"
-                                className="w-14 h-14 rounded-2xl object-cover shadow-sm border border-stone-100 group-hover:scale-110 transition-transform duration-500" 
-                              />
-                              {product.discount > 0 && (
-                                <span className="absolute -top-2 -right-2 bg-accent text-white text-xs font-black px-1.5 py-0.5 rounded-full shadow-lg">-{product.discount}%</span>
-                              )}
-                            </div>
-                            <div className="max-w-[240px]">
-                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors truncate select-text">{product.name}</p>
-                              <p className="text-xs text-stone-400 font-medium line-clamp-1 mt-0.5 select-text">{product.description}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <span className="text-xs font-black uppercase tracking-widest text-stone-500 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200/50 select-text">{product.category}</span>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="space-y-1">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm font-black text-stone-900 select-text">₹{(product.retail_price || product.price).toLocaleString()}</span>
-                              <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">Retail</span>
-                            </div>
-                            {product.wholesale_price && (
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs font-bold text-stone-500 select-text">₹{product.wholesale_price.toLocaleString()}</span>
-                                <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">W/S</span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex flex-col">
-                            <span className={cn(
-                              "text-xs font-black uppercase tracking-widest mb-1 shadow-sm px-2 py-0.5 rounded-md w-fit select-text",
-                              Number(product.stock) <= 0 ? "bg-red-50 text-red-600" : 
-                              Number(product.stock) <= Number(product.reorder_point || 5) ? "bg-amber-50 text-amber-600" : 
-                              "bg-emerald-50 text-emerald-600"
-                            )}>
-                              {Number(product.stock) <= 0 ? 'Depleted' : Number(product.stock) <= Number(product.reorder_point || 5) ? 'Low Stock' : 'Stable'}
-                            </span>
-                            <div className="flex items-center space-x-2">
-                              <div className="h-1.5 w-24 bg-stone-100 rounded-full overflow-hidden flex-shrink-0">
-                                <motion.div 
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${Math.min(100, (Number(product.stock) / 100) * 100)}%` }}
-                                  className={cn(
-                                    "h-full transition-all duration-1000",
-                                    Number(product.stock) <= Number(product.reorder_point || 5) ? "bg-red-500" : "bg-emerald-500"
-                                  )}
-                                />
-                              </div>
-                              <span className="text-sm font-black text-stone-700 select-text">{product.stock} <span className="text-xs text-stone-400 font-bold uppercase tracking-widest">Units</span></span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                           <div className="flex flex-col">
-                              {product.expiry_date ? (
-                                <>
-                                  <span className={cn(
-                                    "text-xs font-black uppercase tracking-widest mb-1",
-                                    new Date(product.expiry_date) < new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) ? "text-red-500" : "text-stone-400"
-                                  )}>
-                                    Expiry Ctrl
-                                  </span>
-                                  <span className="text-sm font-black text-stone-700 select-text">{new Date(product.expiry_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                                </>
-                              ) : (
-                                <span className="text-xs text-stone-300 italic font-bold">No Expiry Tracked</span>
-                              )}
-                           </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <span className={cn(
-                            "inline-flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest border transition-all duration-300",
-                            product.is_listed 
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-100/50" 
-                              : "bg-red-50 text-red-600 border-red-100/50"
-                          )}>
-                            <div className={cn("w-1.5 h-1.5 rounded-full", product.is_listed ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
-                            <span>{product.is_listed ? 'Public' : 'Hidden'}</span>
-                          </span>
-                        </td>
-                        <td className="px-8 py-6 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            <motion.button 
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => { 
-                                setEditingProduct(product); 
-                                setNewProduct({
-                                  ...product,
-                                  images: typeof product.images === 'string' ? JSON.parse(product.images) : (product.images || []),
-                                  image: product.image || (product.images && (typeof product.images === 'string' ? JSON.parse(product.images) : product.images).length > 0 ? (typeof product.images === 'string' ? JSON.parse(product.images) : product.images)[0] : '')
-                                });
-                                setProductModal({ open: true, mode: 'edit' });
-                              }}
-                              className="p-2.5 bg-stone-50 text-stone-500 hover:text-primary hover:bg-white hover:shadow-md border border-transparent hover:border-stone-100 rounded-xl transition-all"
-                              title="Edit Product"
-                            >
-                              <Settings size={18} />
-                            </motion.button>
-                            <motion.button 
-                              whileHover={{ scale: 1.1, color: '#ef4444' }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => deleteProduct(product.id)}
-                              className="p-2.5 bg-stone-50 text-stone-500 hover:bg-white hover:shadow-md border border-transparent hover:border-red-100 rounded-xl transition-all"
-                              title="Delete Product"
-                            >
-                              <Trash2 size={18} />
-                            </motion.button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Bottom Contextual Action Bar for Bulk Management */}
-            <AnimatePresence>
-              {selectedProducts.length > 0 && activeTab === 'Product Catalog' && (
-                <motion.div 
-                  initial={{ y: 150, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 150, opacity: 0 }}
-                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-stone-900 text-white px-6 py-4 rounded-[2rem] shadow-2xl flex items-center space-x-6 w-[90%] max-w-4xl border border-stone-800"
-                >
-                  <div className="flex flex-col border-r border-stone-700 pr-6 mr-2">
-                    <span className="text-2xl font-black text-white">{selectedProducts.length}</span>
-                    <span className="text-xs uppercase font-bold tracking-widest text-stone-400">Selected</span>
-                  </div>
-                  
-                  <div className="flex flex-1 items-center space-x-2 md:space-x-4 overflow-x-auto no-scrollbar">
-                      <button 
-                        onClick={() => bulkUnlist(false)}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
-                      >
-                        <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Check size={16} className="text-emerald-400" /></div>
-                        <span className="font-bold text-sm">Make Active</span>
-                      </button>
-                      <button 
-                        onClick={() => bulkUnlist(true)}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
-                      >
-                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><X size={16} className="text-amber-400" /></div>
-                        <span className="font-bold text-sm">Make Inactive</span>
-                      </button>
-                      <div className="flex items-center bg-stone-800 rounded-xl px-2 h-10 border border-stone-700/50 focus-within:border-primary/50 transition-colors">
-                        <input 
-                          type="number" 
-                          placeholder="Stock"
-                          className="bg-transparent border-none outline-none text-xs font-bold w-16 px-2 placeholder:text-stone-600"
-                          value={bulkStockValue}
-                          onChange={(e) => setBulkStockValue(e.target.value)}
-                        />
-                        <button 
-                          onClick={bulkUpdateStock}
-                          className="flex items-center space-x-2 px-3 py-1 hover:bg-stone-700 rounded-lg transition-colors whitespace-nowrap group"
-                          title="Apply stock level to all selected"
-                        >
-                          <RefreshCw size={14} className="text-blue-400 group-hover:rotate-180 transition-transform duration-500" />
-                          <span className="font-bold text-[10px] uppercase tracking-wider">Set Stock</span>
-                        </button>
-                      </div>
-                      <button 
-                        onClick={bulkUpdateCategory}
-                        className="flex items-center space-x-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors whitespace-nowrap group"
-                      >
-                         <div className="p-2 bg-stone-800 group-hover:bg-stone-700 rounded-lg transition-colors"><Tag size={16} className="text-purple-400" /></div>
-                        <span className="font-bold text-sm">Change Category</span>
-                      </button>
-                  </div>
-                  
-                  <button 
-                    onClick={bulkDelete}
-                    className="p-3 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all"
-                    title="Delete Selected"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                  <button 
-                    onClick={() => setSelectedProducts([])}
-                    className="bg-stone-800 hover:bg-stone-700 p-2 rounded-full transition-all"
-                  >
-                    <X size={16} />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <TabContent />
           </motion.div>
-        )}
-        {activeTab === 'Roles' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold">Admin Management</h2>
-                <p className="text-sm text-stone-500">Grant admin privileges via email</p>
-              </div>
-              <div className="flex gap-2">
-                <input 
-                  type="email"
-                  placeholder="Enter email..."
-                  className="input-field w-64"
-                  id="admin-email-input"
-                />
-                <button 
-                  onClick={async () => {
-                    const emailInput = document.getElementById('admin-email-input') as HTMLInputElement;
-                    const email = emailInput?.value;
-                    if (!email) return;
-                    try {
-                      const data = await fetchWithHandling<any>('/api/admin/make-admin', {
-                        method: 'POST',
-                        headers: getAuthHeaders(),
-                        body: JSON.stringify({ email })
-                      });
-                      if (data) {
-                        toast.success('Admin role granted');
-                        if (emailInput) emailInput.value = '';
-                      }
-                    } catch (e) {
-                      console.error('Make admin error:', e);
-                    }
-                  }}
-                  className="btn-primary py-2 px-6 text-sm"
-                >
-                  Grant Admin
-                </button>
-              </div>
-            </div>
+        </AnimatePresence>
+      </div>
 
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">User Roles & Permissions</h2>
-              <button 
-                onClick={() => {
-                  setRoleModal({ open: true, mode: 'add', role: null });
-                  setNewRole({ name: '', permissions: [] });
-                }}
-                className="btn-primary flex items-center space-x-2"
-              >
-                <Plus size={18} />
-                <span>Create New Role</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {roles.map((role) => (
-                <div key={role.id} className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-lg font-bold">{role.name}</h3>
-                      <div className="flex space-x-2">
-                        <button 
-                          onClick={() => {
-                            setRoleModal({ open: true, mode: 'edit', role });
-                            setNewRole({ name: role.name, permissions: JSON.parse(role.permissions || '[]') });
-                          }}
-                          className="p-2 text-stone-400 hover:text-primary transition-colors"
-                        >
-                          <Settings size={16} />
-                        </button>
-                        <button 
-                          onClick={async () => {
-                            if (!confirm('Delete this role?')) return;
-                            try {
-                              const data = await fetchWithHandling<any>(`/api/admin/roles/${role.id}`, { 
-                                method: 'DELETE',
-                                headers: getAuthHeaders()
-                              });
-                              if (data) {
-                                toast.success('Role deleted');
-                                const rolesData = await fetchWithHandling<any[]>('/api/admin/roles', { headers: getAuthHeaders() });
-                                if (rolesData) setRoles(rolesData);
-                              }
-                            } catch (err) {
-                              console.error('Delete role error:', err);
-                            }
-                          }}
-                          className="p-2 text-stone-400 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {JSON.parse(role.permissions || '[]').map((p: string) => (
-                        <span key={p} className="text-[10px] font-bold bg-stone-100 text-stone-500 px-2 py-1 rounded-full uppercase">
-                          {p}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-4 border-t border-stone-50">
-                    <p className="text-xs text-stone-400">Created on {new Date(role.created_at).toLocaleDateString()}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Categories' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Header */}
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Product Categories</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Manage how your products are grouped and displayed.</p>
-              </div>
-              <button 
-                onClick={() => setCategoryModal({ open: true, mode: 'add' })}
-                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-90 transition-transform duration-500">
-                  <Plus size={20} />
-                </div>
-                <span>Add Category</span>
-              </button>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-              {categories.map((cat, idx) => {
-                const categoryProducts = allProducts.filter(p => p.category_id === (cat as any).id);
-                const totalStock = categoryProducts.reduce((sum, p) => sum + (p.stock || 0), 0);
-                const outOfStockCount = categoryProducts.filter(p => (p.stock || 0) <= 0).length;
-
-                return (
-                  <motion.div 
-                    key={cat.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="group bg-white rounded-[2.5rem] shadow-sm border border-stone-100 hover:border-primary/30 transition-all duration-500 relative overflow-hidden"
-                  >
-                    <div className="p-8">
-                      <div className="flex justify-between items-start mb-8">
-                        <div className="relative">
-                          <div className={cn(
-                            "w-16 h-16 rounded-3xl flex items-center justify-center transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-lg",
-                            cat.is_out_of_stock ? "bg-red-50 text-red-500" : "bg-primary/10 text-primary"
-                          )}>
-                             {cat.icon ? (
-                               <i className={cn("text-2xl", cat.icon)} />
-                             ) : (
-                               <ImageIcon size={32} />
-                             )}
-                          </div>
-                          {outOfStockCount > 0 && (
-                            <div className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-4 border-white shadow-lg">
-                              {outOfStockCount}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => {
-                              setEditingCategory(cat);
-                              setNewCategory({ name: cat.name, icon: cat.icon });
-                              setCategoryModal({ open: true, mode: 'edit' });
-                            }}
-                            className="p-3 bg-stone-50 hover:bg-primary/10 hover:text-primary rounded-2xl transition-all"
-                          >
-                            <Settings size={18} />
-                          </button>
-                          <button className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all">
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="text-xl font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight">{cat.name}</h4>
-                          <span className={cn(
-                            "text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border mt-2 inline-block",
-                            cat.is_out_of_stock ? "bg-red-50 text-red-600 border-red-100" : "bg-emerald-50 text-emerald-600 border-emerald-100"
-                          )}>
-                            {cat.is_out_of_stock ? 'CRITICAL: OUT OF STOCK' : 'Operational'}
-                          </span>
-                        </div>
-
-                        <div className="pt-6 border-t border-stone-50 grid grid-cols-2 gap-4">
-                          <div className="space-y-0.5">
-                            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">SKU Count</p>
-                            <p className="text-xl font-black text-stone-900">{categoryProducts.length}</p>
-                          </div>
-                          <div className="space-y-0.5">
-                            <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">Net Inventory</p>
-                            <p className="text-xl font-black text-stone-900">{totalStock}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="h-2 w-full bg-stone-50 mt-auto">
-                      <div 
-                        className={cn("h-full transition-all duration-1000", cat.is_out_of_stock ? "bg-red-500 w-full" : "bg-primary")} 
-                        style={{ width: `${Math.min(100, (totalStock / 500) * 100)}%` }}
-                      />
-                    </div>
-                  </motion.div>
-                );
-              })}
-              
-              <motion.button
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                onClick={() => setCategoryModal({ open: true, mode: 'add' })}
-                className="group border-4 border-dashed border-stone-100 rounded-[2.5rem] p-8 flex flex-col items-center justify-center space-y-6 hover:border-primary/20 hover:bg-primary/5 transition-all duration-500"
-              >
-                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-stone-200 group-hover:text-primary group-hover:scale-110 group-hover:rotate-90 transition-all duration-500 shadow-sm">
-                  <Plus size={40} />
-                </div>
-                <div className="text-center">
-                  <p className="text-base font-black text-stone-400 group-hover:text-primary tracking-tight transition-colors">Expand Intelligence</p>
-                  <p className="text-[10px] font-bold text-stone-300 uppercase tracking-widest mt-1">Add domain category</p>
-                </div>
-              </motion.button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Wallet Requests' && (
-          <motion.div 
-            initial="hidden"
-            animate="show"
-            variants={{
-              hidden: { opacity: 0 },
-              show: { opacity: 1, transition: { staggerChildren: 0.05 } }
-            }}
-            className="space-y-10"
-          >
-             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-2">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Financial Hub</h2>
-                <p className="text-stone-500 mt-1 text-base font-medium">Verify and crystalize customer ledger top-up protocols.</p>
-              </div>
-              <motion.button 
-                whileHover={{ rotate: 180 }}
-                onClick={fetchWalletRequests}
-                className="p-4 bg-white border border-stone-200 rounded-2xl text-stone-400 hover:text-stone-900 transition-all shadow-sm group"
-              >
-                <RefreshCw size={22} className="group-active:animate-spin" />
-              </motion.button>
-            </header>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">Origin Node</th>
-                      <th className="px-6 py-8">Request Value</th>
-                      <th className="px-6 py-8">Protocol ID</th>
-                      <th className="px-6 py-8">Evidence</th>
-                      <th className="px-6 py-8">Time Slice</th>
-                      <th className="px-10 py-8 text-right">Goverance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {walletRequests.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-10 py-32 text-center">
-                          <div className="flex flex-col items-center space-y-4 opacity-20 grayscale">
-                            <ShieldCheck size={64} strokeWidth={1} />
-                            <p className="text-xs font-black uppercase tracking-[0.3em]">All Transactions Settled</p>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      walletRequests.map((req, idx) => (
-                        <motion.tr 
-                          key={req.id} 
-                          variants={{ hidden: { opacity: 0, x: -10 }, show: { opacity: 1, x: 0 } }}
-                          className="hover:bg-stone-50/80 transition-all group"
-                        >
-                          <td className="px-10 py-7">
-                            <div className="flex items-center space-x-4">
-                              <div className="w-12 h-12 bg-stone-100 rounded-2xl flex items-center justify-center text-stone-400 group-hover:bg-stone-900 group-hover:text-white transition-all duration-300">
-                                <Users size={18} />
-                              </div>
-                              <div>
-                                <p className="text-sm font-black text-stone-900">{req.user_name}</p>
-                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest leading-tight">{req.user_phone}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-7 font-black text-stone-900 text-lg tracking-tighter">₹{req.amount}</td>
-                          <td className="px-6 py-7">
-                            <span className="font-mono text-[10px] font-black text-stone-400 border border-stone-200 px-3 py-1.5 rounded-lg uppercase tracking-wider">
-                              {req.transaction_id || 'X-VOID'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-7">
-                            {req.screenshot ? (
-                              <button 
-                                onClick={() => window.open(req.screenshot, '_blank')}
-                                className="flex items-center space-x-2 text-[10px] text-stone-900 font-bold uppercase tracking-widest hover:underline decoration-stone-900 underline-offset-4"
-                              >
-                                <Eye size={14} />
-                                <span>Inspect Artifact</span>
-                              </button>
-                            ) : (
-                              <span className="text-[9px] text-stone-300 font-black uppercase tracking-widest italic">No Data Artifact</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-7">
-                            <div className="flex flex-col">
-                              <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(req.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                              <span className="text-[9px] font-bold text-stone-400 mt-1 uppercase tracking-widest">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                          </td>
-                          <td className="px-10 py-7 text-right">
-                            <div className="flex justify-end items-center space-x-3">
-                              <motion.button 
-                                whileHover={{ y: -2 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleRejectWalletRequest(req.id)}
-                                className="px-5 py-3 bg-white text-stone-400 hover:text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest border border-stone-100 transition-all hover:bg-stone-50"
-                              >
-                                Decline
-                              </motion.button>
-                              <motion.button 
-                                whileHover={{ y: -2 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleApproveWalletRequest(req.id)}
-                                className="bg-stone-900 text-white px-7 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-xl shadow-stone-900/10 active:scale-95"
-                              >
-                                Approve
-                              </motion.button>
-                            </div>
-                          </td>
-                        </motion.tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </motion.div>
-        )}
-        {false && activeTab === 'Customers' && (
-          <div className="space-y-10">
-            {/* Intelligence Header */}
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Customer Insights</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Segment behavior, wallet states, and lifetime value analytics.</p>
-              </div>
-              <div className="flex flex-wrap gap-4 items-end">
-                <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px]">
-                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Total Humans</span>
-                  <span className="text-xl font-black text-primary">{users.length}</span>
-                </div>
-                <div className="bg-white px-6 py-4 rounded-3xl border border-stone-100 shadow-sm flex flex-col min-w-[140px]">
-                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Active Wallets</span>
-                  <span className="text-xl font-black text-emerald-500">₹{users.reduce((acc, u) => acc + (u.wallet_balance || 0), 0).toLocaleString()}</span>
-                </div>
-                <div className="flex flex-col items-end gap-3">
-                  <ExportTriggerButton type="users" />
-                </div>
-              </div>
-            </header>
-
-            {/* Segment & Search Toolbar */}
-            <section className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
-              <div className="flex items-center space-x-3 pr-8 border-r border-stone-100 h-12">
-                <div className="p-3 bg-stone-900 rounded-2xl text-white">
-                  <Users size={20} />
-                </div>
-                <span className="text-xs font-black text-stone-900 uppercase tracking-widest leading-none">Social<br/><span className="text-stone-400 font-bold">Groups</span></span>
-              </div>
-              
-              <div className="flex flex-1 items-center space-x-2 overflow-x-auto no-scrollbar scroll-smooth gap-1">
-                {['all', 'Khata Requests', 'Champion', 'Loyal', 'Recent', 'At Risk', 'Lost'].map((segment) => (
-                  <button
-                    key={segment}
-                    onClick={() => setSelectedSegment(segment)}
-                    className={cn(
-                      "px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap outline-none",
-                      selectedSegment === segment
-                        ? "bg-stone-900 text-white shadow-xl shadow-stone-200" 
-                        : "text-stone-400 hover:text-stone-900 hover:bg-stone-50"
-                    )}
-                  >
-                    {segment === 'all' ? 'All Intelligence' : segment}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center space-x-4 pl-4 border-l border-stone-100">
-                <div className="relative group">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={18} />
-                  <input 
-                    type="text" 
-                    placeholder="Search humans..."
-                    className="bg-stone-50 border-stone-200 border rounded-2xl pl-12 pr-4 py-3.5 text-sm focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-stone-300 font-medium w-64 uppercase tracking-wider text-[10px]"
-                    value={customerSearchTerm}
-                    onChange={(e) => setCustomerSearchTerm(e.target.value)}
-                  />
-                </div>
-                <motion.button 
-                  whileHover={{ rotate: 180 }}
-                  onClick={() => { setSelectedSegment('all'); setCustomerSearchTerm(''); }}
-                  className="p-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-stone-400 hover:text-primary transition-all shadow-sm"
-                >
-                  <RefreshCw size={20} />
-                </motion.button>
-              </div>
-            </section>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar hidden md:block">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-xs uppercase font-black tracking-[0.15em]">
-                    <tr>
-                      <th className="px-8 py-6">Human Identity</th>
-                      <th className="px-6 py-6">Lifecycle Segment</th>
-                      <th className="px-6 py-6 text-right">Settlement Wallet</th>
-                      <th className="px-6 py-6">Commercial value</th>
-                      <th className="px-6 py-6">Credit Policy</th>
-                      <th className="px-8 py-6 text-right">Governance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {filteredUsers.map((u, idx) => (
-                      <motion.tr 
-                        key={u.id} 
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.03 }}
-                        className="hover:bg-stone-50/80 transition-all duration-300 group"
-                      >
-                        <td className="px-8 py-6">
-                          <div className="flex items-center space-x-4">
-                            <div className="relative">
-                              <div className="w-14 h-14 rounded-[1.25rem] bg-stone-100 flex items-center justify-center overflow-hidden border border-stone-200/50 shadow-sm group-hover:scale-105 transition-transform duration-500">
-                                {u.profile_photo ? (
-                                  <img src={u.profile_photo} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                  <Users size={22} className="text-stone-400" />
-                                )}
-                              </div>
-                              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-4 border-white shadow-sm ring-1 ring-emerald-100" />
-                            </div>
-                            <div>
-                             <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight select-text">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown User')}</p>
-                              <p className="text-xs text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5 select-text">{maskPhoneNumber(u.phone) || u.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex flex-col space-y-2">
-                            <div className="flex items-center space-x-2">
-                               <span className={cn(
-                                 "inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
-                                 u.computed_segment === 'Champion' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                                 u.computed_segment === 'Loyal' ? "bg-blue-50 text-blue-600 border-blue-100" :
-                                 u.computed_segment === 'Recent' ? "bg-amber-50 text-amber-600 border-amber-100" :
-                                 u.computed_segment === 'At Risk' ? "bg-orange-50 text-orange-600 border-orange-100" :
-                                 "bg-stone-50 text-stone-500 border-stone-100"
-                               )}>
-                                 {u.computed_segment || u.segment || 'PROSPECT'}
-                               </span>
-                               {u.rfm_score && <span className="text-xs font-mono font-black text-stone-300 tracking-tighter">RFM:{u.rfm_score}</span>}
-                            </div>
-                            <span className="text-xs font-black text-stone-400 uppercase tracking-[0.2em]">{u.role} Access LVL</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6 text-right">
-                          <div className="flex flex-col items-end">
-                            <span className="text-base font-black text-primary tracking-tighter select-text">₹{(u.wallet_balance || 0).toLocaleString()}</span>
-                            <button 
-                              onClick={() => setWalletModal({ open: true, userId: u.id })}
-                              className="text-[9px] font-black uppercase tracking-widest text-stone-400 hover:text-primary transition-colors mt-1.5 underline decoration-stone-200 underline-offset-4"
-                            >
-                              Ledger Top-up
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6 font-bold text-sm text-stone-500">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-black text-stone-900 tracking-tight select-text">{(u as any).total_orders || 0} Transactions</span>
-                            <span className="text-xs font-black text-emerald-600 uppercase tracking-widest mt-1.5 underline decoration-emerald-100 underline-offset-4 decoration-2">LTV: ₹{((u as any).total_spent || 0).toLocaleString()}</span>
-                            {u.khata_requested && !u.khata_enabled && (
-                               <span className="mt-2 flex items-center gap-1.5 text-[8px] font-black bg-amber-100 text-amber-600 px-2 py-1 rounded-lg uppercase tracking-widest animate-pulse border border-amber-200">
-                                  <Clock size={10} />
-                                  Audit Pending
-                               </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                           <div className="flex flex-col">
-                             <div className="flex items-center space-x-2.5">
-                               <div className={cn("w-2 h-2 rounded-full", u.khata_enabled ? "bg-emerald-500 animate-pulse" : "bg-stone-200")} />
-                               <span className={cn("text-xs font-black uppercase tracking-[0.15em]", u.khata_enabled ? "text-stone-900" : "text-stone-300")}>
-                                 {u.khata_enabled ? 'Line of Credit' : 'NO LINE'}
-                               </span>
-                             </div>
-                             {u.khata_enabled && <span className="text-xs text-primary font-black mt-1.5 pl-4.5 tracking-tighter italic select-text">USED: ₹{(u.khata_balance || 0).toLocaleString()}</span>}
-                           </div>
-                        </td>
-                        <td className="px-8 py-6 text-right relative">
-                          <div className="flex justify-end items-center space-x-2">
-                             <motion.button 
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={() => { setCustomerModal({ open: true, user: u }); }}
-                                className="p-3 bg-stone-50 text-stone-500 hover:text-primary hover:bg-white hover:shadow-xl hover:shadow-stone-200/50 border border-transparent hover:border-stone-100 rounded-2xl transition-all"
-                                title="Intelligence"
-                              >
-                                <Eye size={18} />
-                              </motion.button>
-                              <div className="relative">
-                                <motion.button 
-                                  whileHover={{ scale: 1.1 }}
-                                  whileTap={{ scale: 0.9 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveActionMenuId(activeActionMenuId === `user_${u.id}` ? null : `user_${u.id}`);
-                                  }}
-                                  className={cn(
-                                    "p-3 bg-stone-50 text-stone-500 rounded-2xl transition-all border border-transparent hover:bg-white hover:shadow-xl hover:shadow-stone-200/50 hover:text-primary",
-                                    activeActionMenuId === `user_${u.id}` && "bg-white text-primary shadow-xl shadow-stone-200/50 border-stone-100"
-                                  )}
-                                >
-                                  <MoreVertical size={18} />
-                                </motion.button>
-                                
-                                <AnimatePresence>
-                                  {activeActionMenuId === `user_${u.id}` && (
-                                    <motion.div 
-                                      initial={{ opacity: 0, scale: 0.95, y: 10, x: 10 }}
-                                      animate={{ opacity: 1, scale: 1, y: 0, x: 0 }}
-                                      exit={{ opacity: 0, scale: 0.95, y: 10, x: 10 }}
-                                      className="absolute right-0 top-full mt-4 w-72 bg-white rounded-[2rem] shadow-2xl shadow-stone-300 border border-stone-100 z-[60] overflow-hidden flex flex-col py-4"
-                                      onMouseLeave={() => setActiveActionMenuId(null)}
-                                    >
-                                      <div className="px-8 py-2 text-[10px] font-black uppercase text-stone-300 tracking-[0.25em] mb-2">CRM Directives</div>
-                                      
-                                      {/* Highlight for users who haven't ordered but are active */}
-                                      {((u as any).total_orders === 0) && (
-                                        <div className="mx-6 mb-2 px-4 py-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center gap-3">
-                                          <AlertCircle size={16} className="text-amber-600 animate-pulse" />
-                                          <div className="flex flex-col">
-                                            <span className="text-[9px] font-black text-amber-900 uppercase">Conversion Target</span>
-                                            <span className="text-[8px] font-bold text-amber-700 leading-tight">Zero Transactions Detected. High Potential Prospect.</span>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      <button 
-                                        onClick={() => { fetchCustomerOrders(u.id); setActiveActionMenuId(null); }}
-                                        className="flex items-center space-x-5 px-8 py-4 hover:bg-stone-50 group transition-all"
-                                      >
-                                        <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors"><ShoppingBag size={18} /></div>
-                                        <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Transaction History</span>
-                                      </button>
-                                      
-                                      <button 
-                                        onClick={() => { fetchWalletHistory(u.id); setActiveActionMenuId(null); }}
-                                        className="flex items-center space-x-5 px-8 py-4 hover:bg-stone-50 group transition-all"
-                                      >
-                                        <div className="p-2.5 bg-stone-100 rounded-2xl group-hover:bg-primary/10 group-hover:text-primary transition-colors"><History size={18} /></div>
-                                        <span className="text-xs font-black text-stone-900 group-hover:text-primary uppercase tracking-widest">Wallet Trail</span>
-                                      </button>
-
-                                      {(u.wallet_balance <= 0) && (
-                                        <button 
-                                          onClick={async () => {
-                                            if (confirm(`Authorize ₹100 Loyalty Rescue Drop for ${u.name}?`)) {
-                                              try {
-                                                const data = await fetchWithHandling<any>(`/api/admin/users/${u.id}/wallet`, {
-                                                  method: 'POST',
-                                                  headers: getAuthHeaders(),
-                                                  body: JSON.stringify({ amount: 100, type: 'credit', reason: 'Admin Recovery Reward' })
-                                                });
-                                                if (data) {
-                                                  toast.success('Loyalty drop authorized!');
-                                                  setUsers(prev => prev.map(usr => usr.id === u.id ? { ...usr, wallet_balance: (usr.wallet_balance || 0) + 100 } : usr));
-                                                }
-                                              } catch (err) {}
-                                            }
-                                            setActiveActionMenuId(null);
-                                          }}
-                                          className="flex items-center space-x-5 px-8 py-4 hover:bg-emerald-50 group transition-all"
-                                        >
-                                          <div className="p-2.5 bg-emerald-100 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all"><Plus size={18} /></div>
-                                          <span className="text-xs font-black text-emerald-900 group-hover:text-emerald-600 uppercase tracking-widest">Rescue Drop (₹100)</span>
-                                        </button>
-                                      )}
-
-                                      <a 
-                                        href={`https://wa.me/91${u.phone?.replace(/[^0-9]/g, '').slice(-10)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center space-x-5 px-8 py-4 hover:bg-emerald-50 group transition-all"
-                                      >
-                                        <div className="p-2.5 bg-emerald-100 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all"><MessageCircle size={18} /></div>
-                                        <span className="text-xs font-black text-stone-900 group-hover:text-emerald-600 uppercase tracking-widest">Secure WhatsApp</span>
-                                      </a>
-
-                                      <div className="h-px bg-stone-100 my-4 mx-6" />
-                                      <button className="flex items-center space-x-5 px-8 py-4 hover:bg-amber-50 group transition-all">
-                                        <div className="p-2.5 bg-amber-100 rounded-2xl text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition-all"><Bell size={18} /></div>
-                                        <span className="text-xs font-black text-stone-900 group-hover:text-amber-600 uppercase tracking-widest">Push Alert Node</span>
-                                      </button>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Card Experience */}
-              <div className="md:hidden space-y-6 p-6 bg-stone-50/50">
-                {filteredUsers.map((u) => (
-                  <motion.div 
-                    layout
-                    key={u.id} 
-                    className="bg-white rounded-[2rem] p-6 border border-stone-100 shadow-sm space-y-6 relative overflow-hidden"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-16 h-16 rounded-2xl bg-stone-100 flex items-center justify-center overflow-hidden border border-stone-200">
-                           {u.profile_photo ? <img src={u.profile_photo} alt="" className="w-full h-full object-cover" /> : <Users size={24} className="text-stone-300" />}
-                        </div>
-                         <div>
-                          <p className="text-lg font-black text-stone-900 tracking-tight leading-none">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown')}</p>
-                          <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-2">{maskPhoneNumber(u.phone) || u.email}</p>
-                        </div>
-                      </div>
-                      <span className="text-[8px] font-black px-2 py-1 bg-stone-900 text-white rounded-lg uppercase tracking-widest">{u.role}</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
-                        <span className="text-[9px] font-black text-stone-400 uppercase tracking-widest block mb-1">Settlement</span>
-                        <span className="text-sm font-black text-primary">₹{u.wallet_balance}</span>
-                      </div>
-                      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
-                         <span className="text-[9px] font-black text-stone-400 uppercase tracking-widest block mb-1">Segment</span>
-                         <span className="text-sm font-black text-stone-900">{u.computed_segment || 'N/A'}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2">
-                       <div className="flex items-center space-x-2">
-                         <button onClick={() => setCustomerModal({ open: true, user: u })} className="w-12 h-12 bg-white border border-stone-100 rounded-2xl flex items-center justify-center text-stone-400 shadow-sm"><Eye size={20} /></button>
-                         <button onClick={() => fetchCustomerOrders(u.id)} className="w-12 h-12 bg-white border border-stone-100 rounded-2xl flex items-center justify-center text-stone-400 shadow-sm"><ShoppingBag size={20} /></button>
-                       </div>
-                       <button 
-                        onClick={() => setWalletModal({ open: true, userId: u.id })}
-                        className="flex-1 ml-4 bg-stone-900 text-white h-12 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-stone-200"
-                       >
-                         Top up Ledgers
-                       </button>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              {filteredUsers.length === 0 && (
-                <div className="py-24 text-center">
-                  <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse text-stone-300">
-                    <Users size={40} />
-                  </div>
-                  <h4 className="text-2xl font-black text-stone-900 tracking-tight">No Customers Found</h4>
-                  <p className="text-stone-400 font-medium mt-2">No users matching your search were found.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {false && activeTab === 'Promotions' && (
-          <div className="space-y-10">
-            {/* Campaign Header */}
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Campaign Center</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Coordinate store-wide visual banners and promotional announcements.</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setNewPromotion({ title: '', description: '', image_url: '', link: '', active: true, target_role: 'all', start_time: '', end_time: '', banner_type: 'standard', is_default: false });
-                  setPromotionModal({ open: true, mode: 'add' });
-                }}
-                className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:bg-stone-800 transition-all active:scale-95 group"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-90 transition-transform"><Plus size={18} /></div>
-                <span className="uppercase tracking-widest text-xs">Architect New Banner</span>
-              </button>
-            </header>
-
-            {/* Banner Performance Stats - Simulated for UI richness */}
-            <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-               {[
-                 { label: 'Live Banners', val: promotions.filter(p => p.active).length, icon: Eye, color: 'text-primary' },
-                 { label: 'Avg Click Rate', val: '4.2%', icon: MousePointer2, color: 'text-emerald-500' },
-                 { label: 'Campaign Reach', val: '12.4k', icon: Users, color: 'text-blue-500' },
-                 { label: 'Total Variants', val: promotions.length, icon: Megaphone, color: 'text-purple-500' }
-               ].map((stat, i) => (
-                 <div key={i} className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm flex items-center space-x-4">
-                    <div className={cn("p-3 rounded-2xl bg-stone-50", stat.color)}>
-                      <stat.icon size={20} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">{stat.label}</p>
-                      <p className="text-xl font-black text-stone-900">{stat.val}</p>
-                    </div>
-                 </div>
-               ))}
-            </section>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {promotions.map((promo, idx) => (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  key={promo.id} 
-                  className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-stone-100 group flex flex-col hover:shadow-2xl hover:shadow-stone-200 transition-all duration-500"
-                >
-                  <div className="h-56 relative bg-stone-100 overflow-hidden">
-                    {promo.image_url ? (
-                      <img 
-                        src={promo.image_url} 
-                        alt="" 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-stone-300">
-                        <ImageOff size={40} className="mb-2" />
-                        <span className="text-[10px] uppercase font-black tracking-widest">Missing Creative</span>
-                      </div>
-                    )}
-                    
-                    <div className="absolute top-4 left-4 flex gap-2">
-                      <div className={cn(
-                        "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.15em] shadow-lg border border-white/20 backdrop-blur-md",
-                        promo.active ? "bg-emerald-500/90 text-white" : "bg-stone-500/90 text-white line-through opacity-50"
-                      )}>
-                        {promo.active ? 'Broadcasting' : 'Off-Air'}
-                      </div>
-                      {!!promo.is_default && (
-                        <div className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.15em] shadow-lg border border-white/20 backdrop-blur-md bg-blue-500 text-white">
-                          Global Default
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="absolute inset-0 bg-stone-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-3 backdrop-blur-sm">
-                        <motion.button 
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => togglePromotionStatus(promo.id)}
-                          className="w-12 h-12 bg-white text-stone-900 rounded-2xl flex items-center justify-center hover:bg-primary hover:text-white transition-all shadow-xl"
-                          title={promo.active ? "Cease Campaign" : "Authorize Campaign"}
-                        >
-                          {promo.active ? <X size={20} /> : <Check size={20} />}
-                        </motion.button>
-                        <motion.button 
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => {
-                            setNewPromotion({ 
-                              title: promo.title, 
-                              description: promo.description, 
-                              image_url: promo.image_url, 
-                              link: promo.link,
-                              active: !!promo.active,
-                              target_role: promo.target_role || 'all',
-                              start_time: promo.start_time || '',
-                              end_time: promo.end_time || '',
-                              priority: promo.priority || 0,
-                              is_default: !!promo.is_default
-                            } as any);
-                            setPromotionModal({ open: true, mode: 'edit', id: promo.id });
-                          }}
-                          className="w-12 h-12 bg-white text-stone-900 rounded-2xl flex items-center justify-center hover:bg-stone-900 hover:text-white transition-all shadow-xl"
-                        >
-                          <Settings size={20} />
-                        </motion.button>
-                        <motion.button 
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleDeletePromotion(promo.id)}
-                          className="w-12 h-12 bg-red-500 text-white rounded-2xl flex items-center justify-center shadow-xl"
-                        >
-                          <Trash2 size={20} />
-                        </motion.button>
-                    </div>
-                  </div>
-
-                  <div className="p-8 flex flex-col flex-1">
-                    <div className="flex items-center justify-between mb-2">
-                       <span className="text-[10px] font-black uppercase text-stone-400 tracking-[0.2em]">Target: {promo.target_role || 'All Audience'}</span>
-                       <span className="text-[10px] font-black text-primary uppercase">Priority {promo.priority || 0}</span>
-                    </div>
-                    <h3 className="text-xl font-black text-stone-900 tracking-tight leading-tight mb-2 truncate">{promo.title}</h3>
-                    <p className="text-xs text-stone-500 font-medium line-clamp-2 mb-6 leading-relaxed flex-1">{promo.description}</p>
-                    
-                    <div className="pt-6 border-t border-stone-50 flex items-center justify-between">
-                       <div className="flex flex-col">
-                          <span className="text-[9px] font-black text-stone-300 uppercase tracking-widest">CTA Destination</span>
-                          <span className="text-[10px] font-bold text-stone-500 truncate max-w-[150px]">{promo.link || 'In-App Navigation'}</span>
-                       </div>
-                       <div className="p-3 bg-stone-50 group-hover:bg-primary/10 group-hover:text-primary rounded-xl transition-colors">
-                          <ExternalLink size={16} />
-                       </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-
-              {promotions.length === 0 && (
-                <div className="col-span-full py-32 bg-stone-50/50 rounded-[3rem] border border-stone-100 text-center">
-                  <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse text-stone-200">
-                    <Megaphone size={40} />
-                  </div>
-                  <h4 className="text-2xl font-black text-stone-900 tracking-tight">Eerie Silence</h4>
-                  <p className="text-stone-400 font-medium mt-2">No active campaigns are currently broadcasting to your audience.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-12 space-y-6">
-              <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-stone-100 shadow-sm">
-                <div>
-                  <h2 className="text-2xl font-bold">Discount Rules</h2>
-                  <p className="text-stone-500">Configure BOGO, Percentage, and Fixed discounts</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setNewPromotionRuleData({ title: '', type: 'percentage', target_type: 'all', target_id: '', condition_qty: 1, discount_value: 0, active: true });
-                    setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
-                  }}
-                  className="bg-stone-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center space-x-2"
-                >
-                  <Plus size={16} />
-                  <span>Create Rule</span>
-                </button>
-              </div>
-
-              <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="bg-stone-50 border-b border-stone-100 uppercase text-[10px] font-black text-stone-500 tracking-wider">
-                        <th className="p-4">Status</th>
-                        <th className="p-4">Title</th>
-                        <th className="p-4">Type</th>
-                        <th className="p-4">Target</th>
-                        <th className="p-4">Min Qty</th>
-                        <th className="p-4">Discount Value</th>
-                        <th className="p-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {promotionRules.map((rule) => (
-                        <tr key={rule.id} className="hover:bg-stone-50 transition-colors">
-                          <td className="p-4">
-                            <span className={cn(
-                              "px-2 py-1 flex w-min items-center rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                              rule.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-500"
-                            )}>
-                              {rule.active ? 'Active' : 'Paused'}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold max-w-[200px] truncate">{rule.title}</td>
-                          <td className="p-4 uppercase text-[10px] font-black text-stone-500 tracking-widest">{rule.type}</td>
-                          <td className="p-4">
-                            <span className="bg-stone-100 px-2 py-1 rounded text-xs font-bold text-stone-600">
-                              {rule.target_type === 'all' ? 'Entire Store' : `${rule.target_type}: ${rule.target_id}`}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold">{rule.condition_qty || 0}</td>
-                          <td className="p-4 font-bold text-emerald-600">
-                            {rule.type === 'percentage' && `${rule.discount_value}%`}
-                            {rule.type === 'fixed' && `₹${rule.discount_value}`}
-                            {rule.type === 'bogo' && `By ${rule.condition_qty} Get ${rule.reward_qty}`}
-                          </td>
-                          <td className="p-4 text-right">
-                            <div className="flex items-center justify-end space-x-2">
-                              <button 
-                                onClick={() => togglePromotionRuleStatus(rule.id)}
-                                className={cn(
-                                  "p-2 rounded-xl transition-colors",
-                                  rule.active ? "text-amber-500 bg-amber-50" : "text-emerald-500 bg-emerald-50"
-                                )}
-                                title={rule.active ? "Pause Rule" : "Activate Rule"}
-                              >
-                                {rule.active ? <X size={16} /> : <Check size={16} />}
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setNewPromotionRuleData({
-                                    title: rule.title,
-                                    type: rule.type,
-                                    target_type: rule.target_type,
-                                    target_id: rule.target_id || '',
-                                    condition_qty: rule.condition_qty || 1,
-                                    reward_qty: rule.reward_qty || 1,
-                                    discount_value: rule.discount_value,
-                                    active: rule.active
-                                  });
-                                  setPromotionRuleFormModal({ open: true, mode: 'edit', rule: rule });
-                                }}
-                                className="p-2 text-stone-400 hover:text-primary hover:bg-stone-100 rounded-xl transition-colors"
-                              >
-                                <Settings size={16} />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteRule(rule.id)}
-                                className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {promotionRules.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="p-8 text-center text-stone-400 font-bold">
-                            No discount rules configured yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-12 space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold">Highlighted Discounted Products</h3>
-                <div className="flex items-center space-x-2 text-xs font-bold text-stone-400 uppercase">
-                  <Tag size={14} />
-                  <span>{allProducts.filter(p => p.discount > 0).length} Items on Sale</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {allProducts.filter(p => p.discount > 0).slice(0, 8).map(product => (
-                  <div key={product.id} className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex items-center space-x-4">
-                    <div className="w-16 h-16 bg-stone-50 rounded-xl overflow-hidden flex-shrink-0">
-                      <img src={product.image_url} className="w-full h-full object-cover" alt="" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold truncate">{product.name}</p>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs font-bold text-primary">₹{product.retail_price}</span>
-                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">-{product.discount}%</span>
-                      </div>
-                      <button 
-                        onClick={() => {
-                          setVariantModal({ open: true, mode: 'add', productId: product.id });
-                          fetchProductVariants(product.id);
-                        }}
-                        className="text-[10px] font-bold text-stone-400 hover:text-primary uppercase tracking-wider mt-1"
-                      >
-                        Manage Variants (Cartoon/Piece)
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Payment Settings' && (
-          <div className="max-w-2xl space-y-6">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold">UPI Payment Details</h3>
-                <div className="flex items-center space-x-6">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase">Enable UPI</span>
-                    <button 
-                      onClick={() => updateSetting('upi_enabled', config.find(c => c.key === 'upi_enabled')?.value === 'true' ? 'false' : 'true')}
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-all relative flex items-center px-1",
-                        config.find(c => c.key === 'upi_enabled')?.value === 'true' ? "bg-primary" : "bg-stone-200"
-                      )}
-                    >
-                      <div className={cn(
-                        "w-4 h-4 bg-white rounded-full shadow-sm transition-transform",
-                        config.find(c => c.key === 'upi_enabled')?.value === 'true' ? "translate-x-6" : "translate-x-0"
-                      )} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="bg-primary/5 p-4 rounded-2xl border border-primary/10 mb-4">
-                  <label className="block text-xs font-black text-primary uppercase tracking-widest mb-2">Verification Mode</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button 
-                      onClick={() => updateSetting('upi_verification_mode', 'manual')}
-                      className={cn(
-                        "py-3 rounded-xl text-xs font-bold transition-all border-2",
-                        config.find(c => c.key === 'upi_verification_mode')?.value === 'manual' || !config.find(c => c.key === 'upi_verification_mode')
-                          ? "bg-primary text-white border-primary shadow-lg shadow-primary/20"
-                          : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
-                      )}
-                    >
-                      Manually Verified
-                    </button>
-                    <button 
-                      onClick={() => updateSetting('upi_verification_mode', 'auto')}
-                      className={cn(
-                        "py-3 rounded-xl text-xs font-bold transition-all border-2",
-                        config.find(c => c.key === 'upi_verification_mode')?.value === 'auto'
-                          ? "bg-primary text-white border-primary shadow-lg shadow-primary/20"
-                          : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
-                      )}
-                    >
-                      Auto-Verification
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-stone-500 mt-2 italic">
-                    {config.find(c => c.key === 'upi_verification_mode')?.value === 'auto' 
-                      ? "* System will scan emails/webhooks for matching Order IDs." 
-                      : "* Customers must submit UTR/Screenshot for manual admin approval."}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">UPI ID</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    defaultValue={config.find(c => c.key === 'upi_id')?.value}
-                    onBlur={(e) => updateSetting('upi_id', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-stone-700 mb-1">Receiver Name</label>
-                  <input 
-                    type="text" 
-                    className="input-field"
-                    defaultValue={config.find(c => c.key === 'upi_name')?.value}
-                    onBlur={(e) => updateSetting('upi_name', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-bold text-stone-700 mb-1">QR Code Image</label>
-                  <div className="flex items-center space-x-4">
-                    <div className="w-24 h-24 bg-stone-100 rounded-xl border border-stone-200 overflow-hidden flex items-center justify-center">
-                      {config.find(c => c.key === 'upi_qr')?.value ? (
-                        <img src={config.find(c => c.key === 'upi_qr')?.value} alt="QR" className="w-full h-full object-contain" />
-                      ) : (
-                        <ImageIcon className="text-stone-300" size={32} />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <input 
-                        type="text" 
-                        className="input-field text-xs"
-                        placeholder="Image URL (https://...)"
-                        defaultValue={config.find(c => c.key === 'upi_qr')?.value}
-                        onBlur={(e) => updateSetting('upi_qr', e.target.value)}
-                      />
-                      <div className="relative">
-                        <button className="w-full py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-xs font-bold transition-colors flex items-center justify-center space-x-2">
-                          <Upload size={14} />
-                          <span>Upload from Gallery</span>
-                        </button>
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          className="absolute inset-0 opacity-0 cursor-pointer"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                updateSetting('upi_qr', reader.result as string);
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4 pt-4 border-t border-stone-100">
-                  <h4 className="font-bold text-stone-600">Bank Account Details</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-stone-700 mb-1">Bank Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field"
-                        defaultValue={config.find(c => c.key === 'bank_name')?.value}
-                        onBlur={(e) => updateSetting('bank_name', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-stone-700 mb-1">Account Holder Name</label>
-                      <input 
-                        type="text" 
-                        className="input-field"
-                        defaultValue={config.find(c => c.key === 'account_holder')?.value}
-                        onBlur={(e) => updateSetting('account_holder', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-stone-700 mb-1">Account Number</label>
-                      <input 
-                        type="text" 
-                        className="input-field"
-                        defaultValue={config.find(c => c.key === 'account_number')?.value}
-                        onBlur={(e) => updateSetting('account_number', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-stone-700 mb-1">IFSC Code</label>
-                      <input 
-                        type="text" 
-                        className="input-field"
-                        defaultValue={config.find(c => c.key === 'ifsc_code')?.value}
-                        onBlur={(e) => updateSetting('ifsc_code', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Store Settings' && (
-          <div className="max-w-5xl space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-stone-100 pb-10">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Store Settings</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Manage your store's general information, security, and delivery settings.</p>
-              </div>
-              <div className="bg-white px-6 py-4 rounded-[2rem] shadow-sm border border-stone-100 flex items-center space-x-4">
-                <div className="w-3 h-3 bg-emerald-500 rounded-full" />
-                <span className="text-xs font-black text-stone-900 uppercase tracking-widest">Settings are synced</span>
-              </div>
-            </div>
-
-            {/* Announcement Broadcast */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-br from-red-600 to-red-700 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity" />
-              <div className="relative bg-white border-4 border-red-50 rounded-[3rem] shadow-2xl shadow-red-200/40 p-10 overflow-hidden">
-                <div className="absolute top-0 right-0 w-80 h-80 bg-red-50 rounded-full -mr-40 -mt-40 opacity-50" />
-                
-                <div className="relative z-10 space-y-10">
-                  <div className="flex items-center space-x-6">
-                    <div className="w-20 h-20 bg-red-600 text-white rounded-[2rem] flex items-center justify-center shadow-2xl shadow-red-600/30 rotate-3">
-                      <ShieldAlert size={40} />
-                    </div>
-                    <div>
-                      <h3 className="text-3xl font-black text-stone-900 tracking-tight leading-none mb-2">Send Urgent Alert</h3>
-                      <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em]">Send an alert message to all online customers</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4">
-                    <div className="space-y-4">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Alert Title</label>
-                      <input 
-                        id="broadcast-title"
-                        type="text" 
-                        placeholder="e.g. SHOP CLOSED TODAY"
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 placeholder:text-stone-300 outline-none focus:border-red-500 focus:bg-white transition-all font-black uppercase tracking-widest text-sm"
-                      />
-                    </div>
-                    <div className="space-y-4">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Priority Level</label>
-                      <select 
-                        id="broadcast-type"
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 outline-none focus:border-red-500 focus:bg-white transition-all font-black uppercase tracking-widest text-sm appearance-none cursor-pointer"
-                      >
-                        <option value="critical">Critical (Level 5)</option>
-                        <option value="warning">Warning (Level 3)</option>
-                        <option value="info">Info (Level 1)</option>
-                        <option value="success">Success (Level 0)</option>
-                      </select>
-                    </div>
-                    <div className="lg:col-span-2 space-y-4">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Alert Message</label>
-                      <textarea 
-                        id="broadcast-message"
-                        placeholder="Write your message here..."
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[2rem] px-8 py-6 text-stone-900 placeholder:text-stone-300 outline-none focus:border-red-500 focus:bg-white transition-all font-medium h-40 resize-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-stone-100 bg-stone-50/50 -mx-10 -mb-10 p-10">
-                    <p className="text-xs text-stone-400 font-bold max-w-sm italic">Warning: This will immediately show an alert to every customer currently on the website.</p>
-                    <button 
-                      onClick={async () => {
-                        const title = (document.getElementById('broadcast-title') as HTMLInputElement).value;
-                        const message = (document.getElementById('broadcast-message') as HTMLTextAreaElement).value;
-                        const type = (document.getElementById('broadcast-type') as HTMLSelectElement).value;
-                        
-                        if (!title || !message) {
-                          toast.error('Title and message are required');
-                          return;
-                        }
-                        
-                        if (!window.confirm('SEND ALERT TO ALL USERS?')) return;
-                        
-                        try {
-                          const data = await fetchWithHandling('/api/admin/broadcast-alert', {
-                            method: 'POST',
-                            headers: getAuthHeaders(),
-                            body: JSON.stringify({ 
-                              title, message, type, 
-                              duration: 8000, 
-                              is_unskippable: true 
-                            })
-                          });
-                          if (data) {
-                            toast.success('Alert Sent');
-                            (document.getElementById('broadcast-title') as HTMLInputElement).value = '';
-                            (document.getElementById('broadcast-message') as HTMLTextAreaElement).value = '';
-                          }
-                        } catch (e) {
-                          console.error('Broadcast alert error:', e);
-                        }
-                      }}
-                      className="w-full md:w-auto bg-red-600 text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl shadow-red-600/30 hover:scale-105 active:scale-95"
-                    >
-                      Send Message Now
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* Core Settings */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <section className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-500 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity rounded-[3rem]" />
-                <div className="relative bg-white/80 backdrop-blur-xl p-10 rounded-[3rem] shadow-sm border border-indigo-50 space-y-10 overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 opacity-50" />
-                  
-                  <div className="relative z-10">
-                    <div className="flex items-center space-x-4 mb-10">
-                      <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20 rotate-3">
-                        <Database size={24} />
-                      </div>
-                      <h3 className="text-2xl font-black text-stone-900 tracking-tight">Store Access</h3>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="group flex items-center justify-between p-6 bg-white/50 border border-indigo-100/50 rounded-[2rem] hover:border-indigo-500/30 hover:bg-white transition-all duration-300 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.02)]">
-                    <div className="space-y-1">
-                      <p className="font-black text-stone-900 uppercase tracking-widest text-[10px]">Maintenance Mode</p>
-                      <p className="text-xs text-stone-400 font-bold">Only you can access the store when this is ON.</p>
-                    </div>
-                    <button 
-                      onClick={() => updateSetting('maintenance_mode', getSetting('maintenance_mode') === 'true' ? 'false' : 'true')}
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-all duration-300 relative",
-                        getSetting('maintenance_mode') === 'true' ? "bg-primary" : "bg-stone-200"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-sm ml-1",
-                        getSetting('maintenance_mode') === 'true' ? "translate-x-6" : "translate-x-0"
-                      )} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Admin Email Address</label>
-                    <div className="relative">
-                       <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
-                       <input 
-                        type="email" 
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
-                        placeholder="you@example.com"
-                        defaultValue={config.find(c => c.key === 'admin_email')?.value}
-                        onBlur={(e) => updateSetting('admin_email', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Admin Phone Number</label>
-                    <div className="relative">
-                       <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300" size={18} />
-                       <input 
-                        type="text" 
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
-                        placeholder="+91 Number"
-                        defaultValue={config.find(c => c.key === 'admin_phone')?.value}
-                        onBlur={(e) => updateSetting('admin_phone', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-              <section className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-br from-pink-500 to-rose-500 blur-2xl opacity-10 group-hover:opacity-20 transition-opacity rounded-[3rem]" />
-                <div className="relative bg-white/80 backdrop-blur-xl p-10 rounded-[3rem] shadow-sm border border-pink-50 space-y-10 overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-pink-50 rounded-full -mr-32 -mt-32 opacity-50" />
-                  <div className="relative z-10">
-                    <div className="flex items-center space-x-4 mb-10">
-                      <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-600 text-white rounded-2xl flex items-center justify-center -rotate-3 shadow-lg shadow-pink-500/20">
-                        <Layout size={24} />
-                      </div>
-                      <h3 className="text-2xl font-black text-stone-900 tracking-tight">Contact Information</h3>
-                    </div>
-
-                <div className="space-y-6">
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Store Name</label>
-                    <input 
-                      type="text" 
-                      className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
-                      placeholder="Organization Name"
-                      defaultValue={config.find(c => c.key === 'store_name')?.value}
-                      onBlur={(e) => updateSetting('store_name', e.target.value)}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">Support Phone</label>
-                      <input 
-                        type="text" 
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
-                        defaultValue={config.find(c => c.key === 'store_phone')?.value}
-                        onBlur={(e) => updateSetting('store_phone', e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-2">WhatsApp Business</label>
-                      <input 
-                        type="text" 
-                        className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
-                        defaultValue={config.find(c => c.key === 'whatsapp_number')?.value}
-                        onBlur={(e) => updateSetting('whatsapp_number', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest pl-4">Store Address</label>
-                    <input 
-                      type="text" 
-                      className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
-                      placeholder="Dispatch HQ Address"
-                      defaultValue={config.find(c => c.key === 'store_address')?.value}
-                      onBlur={(e) => updateSetting('store_address', e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-            </section>
-            </div>
-
-            {/* Delivery Logistics */}
-            <section className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center space-x-4">
-                  <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-[2rem] flex items-center justify-center shadow-lg shadow-emerald-100 flex-shrink-0">
-                    <Truck size={32} />
-                  </div>
-                  <div>
-                    <h3 className="text-3xl font-black text-stone-900 tracking-tight">Delivery Fees</h3>
-                    <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Set shipping costs and free delivery rules</p>
-                  </div>
-                </div>
-                
-                <div className="flex flex-wrap items-center gap-4">
-                   <div className="bg-emerald-50 px-6 py-3 rounded-2xl border border-emerald-100 flex flex-col">
-                     <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Standard Fee</span>
-                     <span className="text-lg font-black text-emerald-800">₹{deliveryFee}</span>
-                   </div>
-                   <button 
-                    onClick={async () => {
-                      await updateSetting('delivery_fee', deliveryFee);
-                      await updateSetting('free_delivery_threshold', freeDeliveryThreshold);
-                      toast.success('Logistics protocol synchronized');
-                    }}
-                    className="bg-emerald-600 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20 active:scale-95 text-xs"
-                  >
-                    Save Delivery Rules
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Standard Delivery Charge (₹)</label>
-                    <span className="text-[10px] font-bold text-stone-300">Basic cost for any order</span>
-                  </div>
-                  <input 
-                    type="number" 
-                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-10 py-6 text-2xl font-black text-stone-900 focus:border-emerald-500 focus:bg-white outline-none transition-all tracking-tighter" 
-                    value={deliveryFee}
-                    onChange={(e) => setDeliveryFee(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <label className="text-xs font-black text-stone-400 uppercase tracking-widest">Free Delivery threshold (₹)</label>
-                    <span className="text-[10px] font-bold text-emerald-500">Orders above this get free delivery</span>
-                  </div>
-                  <input 
-                    type="number" 
-                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-10 py-6 text-2xl font-black text-stone-900 focus:border-emerald-500 focus:bg-white outline-none transition-all tracking-tighter" 
-                    value={freeDeliveryThreshold}
-                    onChange={(e) => setFreeDeliveryThreshold(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="bg-stone-50 rounded-[2.5rem] p-4 pt-10 border border-stone-100 overflow-hidden mt-6">
-                <div className="px-6 flex items-center justify-between mb-6">
-                  <div>
-                    <h4 className="text-xl font-black text-stone-900 tracking-tight">Active Delivery Zones</h4>
-                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Geo-fenced area exceptions</p>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setDeliveryAreaModal({ open: true, mode: 'add', area: null });
-                      setNewDeliveryArea({ name: '', fee: '0', min_order: '0' });
-                    }}
-                    className="bg-white text-stone-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100 hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm"
-                  >
-                    + Add Zone
-                  </button>
-                </div>
-                <div className="overflow-x-auto no-scrollbar px-6 pb-6">
-                  <table className="w-full text-left">
-                    <thead className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em]">
-                      <tr className="border-b-2 border-stone-100">
-                        <th className="py-6 pr-6">Zone Name</th>
-                        <th className="py-6 px-6">Delivery Fee</th>
-                        <th className="py-6 px-6">Min Order</th>
-                        <th className="py-6 pl-6 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {deliveryAreas.map((area) => (
-                        <tr key={area.id} className="group hover:bg-white transition-all duration-300">
-                          <td className="py-6 pr-6">
-                             <div className="flex items-center space-x-3">
-                               <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-stone-100 flex items-center justify-center text-stone-300 group-hover:text-emerald-500 transition-colors">
-                                 <MapPin size={18} />
-                               </div>
-                               <span className="font-black text-stone-900 tracking-tight">{area.name}</span>
-                             </div>
-                          </td>
-                          <td className="py-6 px-6 font-black text-stone-700 tracking-tighter text-lg">₹{area.fee}</td>
-                          <td className="py-6 px-6 font-black text-stone-700 tracking-tighter text-lg">₹{area.min_order}</td>
-                          <td className="py-6 pl-6 text-right space-x-2">
-                            <button 
-                              onClick={() => {
-                                setDeliveryAreaModal({ open: true, mode: 'edit', area });
-                                setNewDeliveryArea({ name: area.name, fee: area.fee.toString(), min_order: area.min_order.toString() });
-                              }}
-                              className="p-3 bg-stone-100 hover:bg-primary/10 hover:text-primary rounded-2xl transition-all border border-transparent shadow-sm"
-                            >
-                              <Settings size={18} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteDeliveryArea(area.id)}
-                              className="p-3 bg-stone-100 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all border border-transparent shadow-sm"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {deliveryAreas.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="py-12 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2rem]">No delivery zones added yet.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </section>
-
-            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-               <div className="flex items-center space-x-4">
-                <div className="w-14 h-14 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-12">
-                  <Palette size={28} />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">Store Theme</h3>
-                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Change the look and feel of your store</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
-                {[
-                  { id: 'theme-navy', name: 'Navy', color: '#0f172a' },
-                  { id: 'theme-orange', name: 'Orange', color: '#ea580c' },
-                  { id: 'theme-emerald', name: 'Emerald', color: '#059669' },
-                  { id: 'theme-indigo', name: 'Indigo', color: '#312e81' },
-                  { id: 'theme-slate', name: 'Slate', color: '#334155' },
-                  { id: 'theme-amber', name: 'Amber', color: '#d97706' },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setAdminTheme(t.id)}
-                    className={cn(
-                      "flex flex-col items-center p-6 rounded-[2rem] border-2 transition-all group relative overflow-hidden",
-                      adminTheme === t.id ? "border-primary bg-stone-50 shadow-xl" : "border-stone-100 hover:border-stone-200 bg-white"
-                    )}
-                  >
-                    <div 
-                      className="w-12 h-12 rounded-2xl mb-4 shadow-lg group-hover:scale-110 transition-transform" 
-                      style={{ backgroundColor: t.color }}
-                    />
-                    <span className={cn(
-                      "text-[10px] font-black uppercase tracking-widest leading-none",
-                      adminTheme === t.id ? "text-primary" : "text-stone-400 group-hover:text-stone-900"
-                    )}>
-                      {t.name}
-                    </span>
-                    {adminTheme === t.id && (
-                      <div className="absolute top-2 right-2 text-primary">
-                        <CheckCircle2 size={14} />
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-               <div className="flex items-center space-x-4">
-                <div className="w-14 h-14 bg-red-600 text-white rounded-2xl flex items-center justify-center -rotate-6">
-                  <ShieldAlert size={28} />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">System Safe-Mode</h3>
-                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Maintenance & Global Access Control</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between p-8 bg-stone-50 rounded-[2.5rem] border border-stone-100">
-                <div className="flex items-center space-x-6">
-                   <div className={cn(
-                     "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm",
-                     config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600 text-white" : "bg-white text-stone-300"
-                   )}>
-                     <Zap size={20} />
-                   </div>
-                   <div>
-                    <p className="font-black text-stone-900 tracking-tight text-lg">Maintenance Mode Active</p>
-                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Restrict all frontend traffic to admin nodes only.</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => {
-                    const current = config.find(c => c.key === 'maintenance_mode')?.value === 'true';
-                    updateSetting('maintenance_mode', (!current).toString());
-                  }}
-                  className={cn(
-                    "w-20 h-10 rounded-full transition-all relative p-1 shadow-inner",
-                    config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600" : "bg-stone-200"
-                  )}
-                >
-                  <div className={cn(
-                    "w-8 h-8 bg-white rounded-full shadow-lg transition-all",
-                    config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "ml-10" : "ml-0"
-                  )} />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Expected Restoration Time</label>
-                    <span className="text-[9px] font-bold text-stone-300 italic">User Facing Message</span>
-                  </div>
-                  <input 
-                    type="text" 
-                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-red-500 focus:bg-white outline-none transition-all tracking-tight"
-                    placeholder="e.g., 2 Hours"
-                    defaultValue={config.find(c => c.key === 'maintenance_time')?.value}
-                    onBlur={(e) => updateSetting('maintenance_time', e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Bypass Clearance Secret</label>
-                    <span className="text-[9px] font-bold text-stone-300 italic">Dev Overpass</span>
-                  </div>
-                  <div className="flex space-x-3">
-                    <input 
-                      type="text" 
-                      className="flex-1 bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-mono font-black text-stone-900 focus:border-red-500 focus:bg-white outline-none transition-all tracking-tight"
-                      defaultValue={config.find(c => c.key === 'maintenance_secret')?.value}
-                      onBlur={(e) => updateSetting('maintenance_secret', e.target.value)}
-                    />
-                    <button 
-                      onClick={() => {
-                        const secret = config.find(c => c.key === 'maintenance_secret')?.value;
-                        if (secret) {
-                          navigator.clipboard.writeText(secret);
-                          toast.success('Clearance token copied');
-                        }
-                      }}
-                      className="p-5 bg-stone-100 hover:bg-stone-200 rounded-[1.5rem] transition-all group shadow-sm border border-stone-200"
-                      title="Copy Secret"
-                    >
-                      <Copy size={20} className="text-stone-600 group-hover:scale-110 transition-transform" />
-                    </button>
-                  </div>
-                  <p className="px-4 text-[9px] text-stone-400 font-bold uppercase tracking-widest leading-relaxed">
-                    Append <span className="text-red-500">?bypass=YOUR_SECRET</span> to the URL to bypass maintenance protocol.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-10">
-               <div className="flex items-center space-x-4">
-                <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center rotate-6">
-                  <Server size={28} />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-black text-stone-900 tracking-tight">API Interface Gateway</h3>
-                  <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Third-Party Service Integration Cipher</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="space-y-4">
-                   <div className="flex items-center justify-between px-2">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">SMS Gateway Access Key</label>
-                    <span className="text-[10px] font-black px-2 py-0.5 bg-blue-50 text-blue-600 rounded">EXTERNAL</span>
-                  </div>
-                  <input 
-                    type="password" 
-                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-blue-500 focus:bg-white outline-none transition-all tracking-widest"
-                    placeholder="••••••••••••••••"
-                    onBlur={(e) => updateSetting('sms_api_key', e.target.value)}
-                  />
-                </div>
-                
-                <div className="space-y-4">
-                   <div className="flex items-center justify-between px-2">
-                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Payment Provider Ledger Secret</label>
-                    <span className="text-[10px] font-black px-2 py-0.5 bg-blue-50 text-blue-600 rounded">SECURE</span>
-                  </div>
-                  <input 
-                    type="password" 
-                    className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-blue-500 focus:bg-white outline-none transition-all tracking-widest"
-                    placeholder="••••••••••••••••"
-                    onBlur={(e) => updateSetting('payment_secret', e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Support Tickets' && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <aside className="lg:col-span-1 bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden flex flex-col h-[800px]">
-              <div className="p-8 border-b border-stone-100 flex items-center justify-between">
-                <div>
-                  <h3 className="font-black text-2xl tracking-tight text-stone-900">Comms Log</h3>
-                  <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-1">Inbound Ticket Pool</p>
-                </div>
-                <div className="w-10 h-10 bg-primary/10 text-primary rounded-xl flex items-center justify-center font-black text-xs">
-                  {tickets.length}
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-stone-50">
-                {tickets.map((ticket) => (
-                  <button 
-                    key={ticket.id}
-                    onClick={async () => {
-                      setSelectedTicket(ticket);
-                      try {
-                        const data = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${ticket.id}/messages`, {
-                          headers: getAuthHeaders()
-                        });
-                        if (data) setTicketMessages(data);
-                      } catch (err) {
-                        console.error('Fetch ticket messages error:', err);
-                      }
-                    }}
-                    className={cn(
-                      "w-full p-8 text-left hover:bg-stone-50/80 transition-all duration-300 group relative",
-                      selectedTicket?.id === ticket.id && "bg-stone-50"
-                    )}
-                  >
-                    {selectedTicket?.id === ticket.id && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary animate-in slide-in-from-left duration-300" />
-                    )}
-                    <div className="flex justify-between items-start mb-4">
-                      <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest bg-stone-100 px-2 py-0.5 rounded">#TKT-{ticket.id}</span>
-                      <span className={cn(
-                        "text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-wider",
-                        ticket.status === 'open' ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                      )}>
-                        {ticket.status}
-                      </span>
-                    </div>
-                    <p className="font-black text-stone-900 text-base mb-1 tracking-tight group-hover:text-primary transition-colors">{ticket.subject}</p>
-                    <p className="text-xs text-stone-400 font-medium line-clamp-1">{ticket.user_name} • {ticket.user_phone}</p>
-                  </button>
-                ))}
-                {tickets.length === 0 && (
-                  <div className="p-12 text-center text-stone-400 font-bold italic">No active frequency detected.</div>
-                )}
-              </div>
-            </aside>
-
-            <main className="lg:col-span-3 bg-white rounded-[3rem] shadow-sm border border-stone-100 flex flex-col h-[800px] overflow-hidden relative">
-              {selectedTicket ? (
-                <>
-                  <header className="p-8 border-b border-stone-100 flex justify-between items-center bg-white z-10">
-                    <div className="flex items-center space-x-5">
-                      <div className="w-14 h-14 bg-stone-900 text-white rounded-2xl flex items-center justify-center rotate-3">
-                        <MessageSquare size={28} />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-2xl tracking-tight text-stone-900">{selectedTicket.subject}</h3>
-                        <p className="text-xs font-bold text-stone-400 mt-1 uppercase tracking-widest">Linked To: <span className="text-stone-900">{selectedTicket.user_name}</span></p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                       <select 
-                        className="bg-stone-50 border-stone-100 border-2 rounded-2xl px-6 py-3 text-xs font-black uppercase tracking-widest text-stone-600 focus:border-primary focus:bg-white outline-none transition-all cursor-pointer shadow-sm"
-                        value={selectedTicket.status}
-                        onChange={async (e) => {
-                          const newStatus = e.target.value;
-                          try {
-                            const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/status`, {
-                              method: 'POST',
-                              headers: getAuthHeaders(),
-                              body: JSON.stringify({ status: newStatus })
-                            });
-                            if (data) {
-                              toast.success('Protocol state updated');
-                              fetchTickets();
-                              setSelectedTicket({...selectedTicket, status: newStatus});
-                            }
-                          } catch (err) {
-                            console.error('Update ticket status error:', err);
-                          }
-                        }}
-                      >
-                        <option value="open">Open Portal</option>
-                        <option value="in-progress">Executing</option>
-                        <option value="resolved">Resolved</option>
-                        <option value="closed">Decommissioned</option>
-                      </select>
-                    </div>
-                  </header>
-                  
-                  <div className="flex-1 p-10 overflow-y-auto no-scrollbar space-y-8 bg-stone-50/30">
-                    <div className="flex items-start space-x-4 max-w-[85%] group">
-                      <div className="w-10 h-10 rounded-xl bg-stone-100 flex items-center justify-center shrink-0 text-stone-400 mt-1 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                        <Users size={18} />
-                      </div>
-                      <div className="bg-white p-6 rounded-[2rem] rounded-tl-none shadow-sm border border-stone-100">
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3 border-b border-stone-50 pb-2">{selectedTicket.user_name} • {new Date(selectedTicket.created_at).toLocaleString()}</p>
-                        <p className="text-sm font-medium text-stone-700 leading-relaxed mb-4">{selectedTicket.message}</p>
-                        
-                        {selectedTicket.image_url && (
-                          <div className="mt-4 pt-4 border-t border-stone-50">
-                            <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-3">Attached Evidence Artifact</p>
-                            <div className="relative group/img overflow-hidden rounded-2xl border border-stone-100 aspect-video max-w-sm">
-                              <img 
-                                src={selectedTicket.image_url} 
-                                alt="Support Evidence" 
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-zoom-in"
-                                onClick={() => {
-                                  try {
-                                    window.open(selectedTicket.image_url, '_blank');
-                                  } catch (e) {
-                                    toast.error('Unable to open image in new tab');
-                                  }
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {ticketMessages.map((msg, i) => (
-                      <motion.div 
-                        key={i} 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={cn(
-                          "flex items-start space-x-4 max-w-[85%]",
-                          msg.user_id === user?.id ? "ml-auto flex-row-reverse space-x-reverse" : ""
-                        )}
-                      >
-                        <div className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-1 shadow-sm",
-                          msg.user_id === user?.id ? "bg-stone-900 text-white" : "bg-white border border-stone-100 text-stone-400"
-                        )}>
-                          {msg.user_id === user?.id ? <ShieldCheck size={18} /> : <Users size={18} />}
-                        </div>
-                        <div className={cn(
-                          "p-6 rounded-[2rem] shadow-sm border transition-all",
-                          msg.user_id === user?.id 
-                            ? "bg-primary text-white border-primary rounded-tr-none shadow-xl shadow-primary/10" 
-                            : "bg-white text-stone-700 border-stone-100 rounded-tl-none"
-                        )}>
-                          <p className={cn("text-[10px] font-black mb-3 uppercase tracking-widest border-b pb-2", msg.user_id === user?.id ? "text-white/40 border-white/10" : "text-stone-300 border-stone-50")}>
-                            {msg.user_id === user?.id ? 'System Administrator' : selectedTicket.user_name} • {new Date(msg.created_at).toLocaleString()}
-                          </p>
-                          <p className="text-sm font-medium leading-relaxed">{msg.message}</p>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-
-                  <div className="p-10 border-t border-stone-100 bg-white">
-                    <div className="flex flex-col mb-4">
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {[
-                          "Confirmed, processing your order.",
-                          "Order is ready for dispatch.",
-                          "Delivered successfully. Thank you!",
-                          "Please share coordinates/photo.",
-                          "Out of stock. Wallet refund issued.",
-                          "Support team is investigating.",
-                        ].map((quick) => (
-                          <button
-                            key={quick}
-                            onClick={() => setReplyMessage(quick)}
-                            className="px-4 py-2 bg-stone-100 hover:bg-stone-900 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                          >
-                            {quick}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex space-x-4 bg-stone-50 p-2 rounded-[2.5rem] border border-stone-100 focus-within:bg-white focus-within:border-primary/30 focus-within:shadow-2xl focus-within:shadow-primary/5 transition-all duration-500">
-                        <input 
-                          type="text" 
-                          placeholder="Inscribe dispatch response..."
-                          className="flex-1 bg-transparent border-none rounded-3xl px-8 py-5 text-sm font-black uppercase tracking-wider placeholder:text-stone-300 outline-none"
-                          value={replyMessage}
-                          onChange={(e) => setReplyMessage(e.target.value)}
-                          onKeyDown={async (e) => {
-                            if (e.key === 'Enter' && replyMessage) {
-                              // Duplicate logic for send
-                              try {
-                                const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                                  method: 'POST',
-                                  headers: getAuthHeaders(),
-                                  body: JSON.stringify({ user_id: user.id, message: replyMessage })
-                                });
-                                if (data) {
-                                  setReplyMessage('');
-                                  const msgs = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                                    headers: getAuthHeaders()
-                                  });
-                                  if (msgs) setTicketMessages(msgs);
-                                }
-                              } catch (err) {
-                                console.error('Auto-dispatch error:', err);
-                              }
-                            }
-                          }}
-                        />
-                        <button 
-                          onClick={async () => {
-                            if (!replyMessage) return;
-                            try {
-                              const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                                method: 'POST',
-                                headers: getAuthHeaders(),
-                                body: JSON.stringify({ user_id: user.id, message: replyMessage })
-                              });
-                              if (data) {
-                                setReplyMessage('');
-                                const messagesData = await fetchWithHandling<any[]>(`/api/admin/support/tickets/${selectedTicket.id}/messages`, {
-                                  headers: getAuthHeaders()
-                                });
-                                if (messagesData) setTicketMessages(messagesData);
-                              }
-                            } catch (err) {
-                              console.error('Send ticket message error:', err);
-                            }
-                          }}
-                          className="bg-stone-900 hover:bg-primary text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-widest transition-all shadow-xl shadow-stone-900/20 active:scale-95 group flex items-center space-x-3"
-                        >
-                          <span>Dispatch</span>
-                          <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-stone-400 space-y-8 bg-stone-50/20">
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-primary/10 blur-3xl rounded-full" />
-                    <div className="relative p-12 bg-white rounded-[3rem] shadow-xl border border-stone-100 animate-bounce duration-[3000ms]">
-                      <MessageSquare size={64} className="text-stone-200" />
-                    </div>
-                  </div>
-                  <div className="text-center space-y-2">
-                    <h4 className="text-2xl font-black text-stone-900 tracking-tight">Select a Ticket</h4>
-                    <p className="font-bold text-stone-400 uppercase tracking-widest text-[10px]">Select a communication channel on the left to begin messaging.</p>
-                  </div>
-                </div>
-              )}
-            </main>
-          </div>
-        )}
-
-        {activeTab === 'Expenses' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Deficit Ledger</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Operational expenditure and fiscal leakage auditing.</p>
-              </div>
-              <button 
-                onClick={() => setExpenseModal({ open: true })}
-                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:scale-110 transition-transform duration-500">
-                  <Plus size={20} />
-                </div>
-                <span>Log Expenditure</span>
-              </button>
-            </header>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-               <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
-                    <tr>
-                      <th className="px-10 py-8">Intercept Description</th>
-                      <th className="px-6 py-8">Taxonomy Category</th>
-                      <th className="px-6 py-8">Deficit Amount</th>
-                      <th className="px-6 py-8">Calendar Index</th>
-                      <th className="px-10 py-8 text-right">Operational Clearance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {expenses.map((expense, idx) => (
-                      <motion.tr 
-                        key={expense.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.03 }}
-                        className="hover:bg-stone-50/80 transition-all group"
-                      >
-                        <td className="px-10 py-6">
-                           <div className="flex items-center space-x-4">
-                             <div className="w-10 h-10 bg-red-50 text-red-500 rounded-xl flex items-center justify-center shrink-0">
-                               <TrendingDown size={18} />
-                             </div>
-                             <span className="text-sm font-black text-stone-900 group-hover:text-red-600 transition-colors">{expense.description}</span>
-                           </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <span className="text-[10px] font-black px-4 py-1.5 bg-stone-100 rounded-full uppercase tracking-widest text-stone-500">{expense.category}</span>
-                        </td>
-                        <td className="px-6 py-6 font-black text-red-600 text-lg tracking-tighter shadow-red-500/10">₹{expense.amount}</td>
-                        <td className="px-6 py-6 text-sm text-stone-400 font-medium">
-                          {new Date(expense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="px-10 py-6 text-right">
-                          <button 
-                            onClick={() => deleteExpense(expense.id)}
-                            className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {expenses.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-10 py-32 text-center">
-                           <div className="flex flex-col items-center space-y-4">
-                            <div className="p-6 bg-stone-50 rounded-full text-stone-200">
-                              <ShieldCheck size={48} />
-                            </div>
-                            <p className="text-stone-400 font-bold italic">Zero deficit protocols confirmed. Profit focus optimized.</p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Coupons' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Coupons</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Create and manage discount coupons for your store.</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setCouponModal({ open: true, mode: 'add' });
-                  setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1', expiry_date: '' });
-                }}
-                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:rotate-12 transition-transform duration-500">
-                  <Plus size={20} />
-                </div>
-                <span>Create Coupon</span>
-              </button>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-              {coupons.map((coupon, idx) => (
-                <motion.div 
-                  key={coupon.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className={cn(
-                    "group bg-white rounded-[2.5rem] shadow-sm border-2 transition-all duration-500 relative overflow-hidden",
-                    coupon.active ? "border-stone-100 hover:border-primary/30" : "border-stone-50 opacity-60 grayscale"
-                  )}
-                >
-                  <div className="p-8">
-                    <div className="flex justify-between items-start mb-8">
-                      <div className={cn(
-                        "w-16 h-16 rounded-3xl flex items-center justify-center transition-all duration-500 group-hover:scale-110 shadow-lg",
-                        coupon.active ? "bg-primary/10 text-primary" : "bg-stone-50 text-stone-300"
-                      )}>
-                        <Tag size={32} />
-                      </div>
-                      
-              <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <button 
-                          onClick={() => {
-                            setCouponModal({ open: true, mode: 'edit', editingId: coupon.id });
-                            setNewCoupon({
-                              code: coupon.code,
-                              type: coupon.type,
-                              value: coupon.value.toString(),
-                              min_order: coupon.min_order.toString(),
-                              usage_limit: coupon.usage_limit ? coupon.usage_limit.toString() : '',
-                              limit_per_user: coupon.limit_per_user ? coupon.limit_per_user.toString() : '1',
-                              expiry_date: coupon.expiry_date || ''
-                            });
-                          }}
-                          className="p-3 bg-stone-50 hover:bg-stone-200 text-stone-600 rounded-2xl transition-all"
-                        >
-                          <Pencil size={18} />
-                        </button>
-                         <button 
-                          onClick={() => toggleCouponStatus(coupon.id)}
-                          className="p-3 bg-stone-50 hover:bg-emerald-50 hover:text-emerald-500 rounded-2xl transition-all"
-                        >
-                          <RefreshCw size={18} />
-                        </button>
-                        <button 
-                          onClick={() => deleteCoupon(coupon.id)}
-                          className="p-3 bg-stone-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-6">
-                      <div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em] mb-1">Coupon Code</p>
-                        <h3 className="text-2xl font-black text-stone-900 group-hover:text-primary transition-colors tracking-tighter">{coupon.code}</h3>
-                      </div>
-
-                      <div className="flex items-end justify-between bg-stone-50 p-6 rounded-[2rem] border border-stone-100">
-                        <div>
-                          <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Discount Value</p>
-                          <p className="text-4xl font-black text-primary tracking-tighter">
-                            {coupon.type === 'flat' ? `₹${coupon.value}` : `${coupon.value}%`}
-                          </p>
-                        </div>
-                        <div className={cn(
-                          "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest",
-                          coupon.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
-                        )}>
-                          {coupon.active ? 'Active' : 'Disabled'}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-6 pt-2">
-                        <div>
-                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Usage Limit</p>
-                          <p className="text-sm font-black text-stone-900">{coupon.usage_limit || 'UNLIMITED'}</p>
-                          <p className="text-[8px] font-bold text-stone-400 uppercase mt-0.5">Used: {coupon.usage_count || 0}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1">Min Order</p>
-                          <p className="text-sm font-black text-stone-900">₹{coupon.min_order}</p>
-                          <p className="text-[8px] font-bold text-stone-400 uppercase mt-0.5">Limit Per User: {coupon.limit_per_user || 1}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className={cn(
-                    "h-2 w-full transition-colors duration-500",
-                    coupon.active ? "bg-primary" : "bg-stone-200"
-                  )} />
-                </motion.div>
-              ))}
-              
-              <motion.button
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                onClick={() => {
-                  setCouponModal({ open: true, mode: 'add' });
-                  setNewCoupon({ code: '', type: 'flat', value: '', min_order: '', usage_limit: '', limit_per_user: '1', expiry_date: '' });
-                }}
-                className="group border-4 border-dashed border-stone-100 rounded-[2.5rem] p-8 flex flex-col items-center justify-center space-y-6 hover:border-primary/20 hover:bg-primary/5 transition-all duration-500 min-h-[300px]"
-              >
-                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-stone-200 group-hover:text-primary group-hover:scale-110 group-hover:rotate-12 transition-all duration-500 shadow-sm">
-                  <Plus size={40} />
-                </div>
-                <div className="text-center">
-                  <p className="text-base font-black text-stone-400 group-hover:text-primary tracking-tight transition-colors">Create New Coupon</p>
-                  <p className="text-[10px] font-bold text-stone-300 uppercase tracking-widest mt-1">Add a new coupon code</p>
-                </div>
-              </motion.button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Bulk Discounts' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Tiered Pricing Engine</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">B2B algorithmic discounts and bulk procurement logic.</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setBulkDiscountModal({ open: true, mode: 'add', discount: null });
-                  setNewBulkDiscount({ 
-                    entity_type: 'product', 
-                    entity_id: '', 
-                    min_qty: '5', 
-                    discount_type: 'percentage', 
-                    discount_value: '10',
-                    active: true
-                  });
-                }}
-                className="group flex items-center space-x-3 bg-stone-900 text-white px-10 py-5 rounded-[2rem] text-sm font-black uppercase tracking-widest hover:bg-stone-800 transition-all shadow-2xl shadow-stone-900/30 hover:scale-105 active:scale-95"
-              >
-                <div className="p-1 bg-white/20 rounded-lg group-hover:scale-110 transition-transform duration-500">
-                  <Plus size={20} />
-                </div>
-                <span>Provision Rule</span>
-              </button>
-            </header>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-               <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.2em]">
-                    <tr>
-                      <th className="px-10 py-8">Target Entity</th>
-                      <th className="px-6 py-8">Trigger Quantity</th>
-                      <th className="px-6 py-8">Algorithmic Discount</th>
-                      <th className="px-6 py-8">Operational State</th>
-                      <th className="px-10 py-8 text-right">Clearance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {bulkDiscounts.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-10 py-32 text-center">
-                          <div className="flex flex-col items-center space-y-4">
-                            <div className="p-6 bg-stone-50 rounded-full text-stone-200">
-                              <Zap size={48} />
-                            </div>
-                            <p className="text-stone-400 font-bold italic">No tiered pricing protocols active. Deploy a rule to begin scaling.</p>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      bulkDiscounts.map((discount, idx) => (
-                        <motion.tr 
-                          key={discount.id} 
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: idx * 0.05 }}
-                          className="hover:bg-stone-50/80 transition-all group"
-                        >
-                          <td className="px-10 py-6">
-                            <div className="flex items-center space-x-3">
-                              <span className={cn(
-                                "text-[9px] font-black px-3 py-1 rounded-lg uppercase tracking-widest",
-                                discount.entity_type === 'product' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
-                              )}>
-                                {discount.entity_type === 'product' ? 'SKU' : 'DOMAIN'}
-                              </span>
-                              <span className="font-black text-stone-900 group-hover:text-primary transition-colors">{discount.entity_name}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-6 font-black text-stone-900 tracking-tight text-lg">{discount.min_qty}<span className="text-stone-300 ml-1 text-sm">units+</span></td>
-                          <td className="px-6 py-6 transition-all">
-                            <span className="font-black text-emerald-600 text-lg tracking-tighter bg-emerald-50 px-4 py-2 rounded-2xl">
-                              {discount.discount_type === 'percentage' ? `${discount.discount_value}% Off` : `₹${discount.discount_value} Off`}
-                            </span>
-                          </td>
-                          <td className="px-6 py-6">
-                            <button 
-                              onClick={() => handleToggleBulkDiscount(discount)}
-                              className={cn(
-                                "w-14 h-7 rounded-full transition-all duration-500 relative",
-                                discount.active ? 'bg-primary' : 'bg-stone-200'
-                              )}
-                            >
-                              <div className={cn(
-                                "absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-all duration-500",
-                                discount.active ? 'translate-x-[28px]' : 'translate-x-1'
-                              )} />
-                            </button>
-                          </td>
-                          <td className="px-10 py-6 text-right space-x-2">
-                            <button 
-                              onClick={() => {
-                                setBulkDiscountModal({ open: true, mode: 'edit', discount });
-                                setNewBulkDiscount({
-                                  entity_type: discount.entity_type,
-                                  entity_id: discount.entity_id.toString(),
-                                  min_qty: discount.min_qty.toString(),
-                                  discount_type: discount.discount_type,
-                                  discount_value: discount.discount_value.toString(),
-                                  active: discount.active === 1
-                                });
-                              }}
-                              className="p-3 bg-stone-100 hover:bg-white hover:shadow-xl hover:shadow-stone-200/50 hover:text-primary rounded-2xl transition-all border border-transparent"
-                            >
-                              <Settings size={18} />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteBulkDiscount(discount.id)}
-                              className="p-3 bg-stone-100 hover:bg-white hover:shadow-xl hover:shadow-red-200/50 hover:text-red-500 rounded-2xl transition-all border border-transparent"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </td>
-                        </motion.tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Returns Tab */}
-        {activeTab === 'Returns' && (() => {
-          const filteredReturns = returns.filter((ret) => {
-            if (selectedReturnReason === 'all') return true;
-            if (!ret.reason) return false;
-            const reasonLower = ret.reason.toLowerCase();
-            const filterLower = selectedReturnReason.toLowerCase();
-            return reasonLower.includes(filterLower);
-          });
-
-          return (
-            <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-                <div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Resolution Depot</h2>
-                  <p className="text-stone-500 mt-2 text-lg font-medium">Verify grievances, inspect liabilities, and restore customer favor.</p>
-                </div>
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
-                   <div className="flex flex-col">
-                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Liability Pool</span>
-                     <span className="text-2xl font-black text-red-500">{returns.length} Pending</span>
-                   </div>
-                   <div className="w-px h-10 bg-stone-100" />
-                   <div className="flex flex-col">
-                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Health Score</span>
-                     <span className="text-2xl font-black text-emerald-500">99.2%</span>
-                   </div>
-                </div>
-              </header>
-
-              {/* Filter Dropdown Area */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 bg-stone-50/50 rounded-3xl border border-stone-100 gap-4">
-                <div className="flex items-center space-x-3">
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Catalogic Issue Filter:</span>
-                  <div className="relative">
-                    <select
-                      id="return-reason-filter"
-                      value={selectedReturnReason}
-                      onChange={(e) => setSelectedReturnReason(e.target.value)}
-                      className="appearance-none bg-white border border-stone-200 text-stone-700 font-extrabold text-xs rounded-2xl pl-4 pr-10 py-2.5 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer"
-                    >
-                      <option value="all">🔍 Show All Returns</option>
-                      <option value="Damaged">⚠️ Damaged / Quality Issues</option>
-                      <option value="Incorrect Item">📦 Incorrect Item Sent</option>
-                      <option value="Customer Change of Mind">💭 Customer Change of Mind</option>
-                    </select>
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-stone-400">
-                      <ChevronDown size={14} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Quality Insights summary */}
-                {returns.length > 0 && (() => {
-                  const total = returns.length;
-                  const damagedCount = returns.filter(r => r.reason?.toLowerCase().includes('damaged')).length;
-                  const incorrectCount = returns.filter(r => r.reason?.toLowerCase().includes('incorrect')).length;
-                  const mindCount = returns.filter(r => r.reason?.toLowerCase().includes('mind') || r.reason?.toLowerCase().includes('change') || r.reason?.toLowerCase().includes('customer')).length;
-                  
-                  return (
-                    <div className="flex flex-wrap gap-2 text-[10px] font-mono text-stone-500 font-bold bg-white border border-stone-100 rounded-2xl p-2">
-                      <span className="px-2 py-1 bg-red-50 text-red-700 rounded-lg">Damaged: {damagedCount}</span>
-                      <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg">Incorrect: {incorrectCount}</span>
-                      <span className="px-2 py-1 bg-sky-50 text-sky-700 rounded-lg">Change of Mind: {mindCount}</span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-                 <div className="overflow-x-auto no-scrollbar">
-                  <table className="w-full text-left">
-                    <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                      <tr>
-                        <th className="px-10 py-8">Origin Order</th>
-                        <th className="px-6 py-8">Claimant Node</th>
-                        <th className="px-6 py-8">Faulty SKU</th>
-                        <th className="px-6 py-8">Reason Cipher</th>
-                        <th className="px-6 py-8">Protocol State</th>
-                        <th className="px-10 py-8 text-right">Intervention</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-50">
-                      {filteredReturns.map((ret, idx) => (
-                        <motion.tr 
-                          key={ret.id} 
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: idx * 0.04 }}
-                          className="hover:bg-stone-50/80 transition-all group"
-                        >
-                          <td className="px-10 py-6 font-black text-stone-900 tracking-tighter">ORD-{ret.order_num}</td>
-                          <td className="px-6 py-6 font-bold text-stone-600 text-xs uppercase tracking-widest">{ret.user_name}</td>
-                          <td className="px-6 py-6">
-                             <div className="flex flex-col">
-                               <span className="text-sm font-black text-stone-900">{ret.product_name}</span>
-                               <span className="text-[10px] font-black text-primary uppercase mt-1 tracking-widest">Quantity: {ret.quantity} units</span>
-                             </div>
-                          </td>
-                          <td className="px-6 py-6 italic text-stone-400 font-medium text-xs max-w-[200px] truncate">{ret.reason}</td>
-                          <td className="px-6 py-6">
-                            <span className={cn(
-                              "px-4 py-1.5 rounded-2xl text-[9px] font-black uppercase tracking-widest border",
-                              ret.status === 'pending' ? "bg-amber-50 text-amber-600 border-amber-100 active:animate-pulse" :
-                              ret.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                              "bg-red-50 text-red-600 border-red-100"
-                            )}>
-                              {ret.status}
-                            </span>
-                          </td>
-                          <td className="px-10 py-6 text-right">
-                            {ret.status === 'pending' ? (
-                              <div className="flex justify-end space-x-3">
-                                <button 
-                                  onClick={() => handleApproveReturn(ret)}
-                                  className="p-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
-                                  title="Authorize Refund"
-                                >
-                                  <Check size={18} />
-                                </button>
-                                <button 
-                                  onClick={() => handleRejectReturn(ret.id)}
-                                  className="p-4 bg-red-600 text-white rounded-2xl hover:bg-red-700 transition-all shadow-xl shadow-red-500/20 active:scale-95"
-                                  title="Decline Claim"
-                                >
-                                  <X size={18} />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex justify-end items-center space-x-2 text-stone-300">
-                                 <ShieldCheck size={16} />
-                                 <span className="text-[10px] font-black uppercase tracking-widest">Settled</span>
-                              </div>
-                            )}
-                          </td>
-                        </motion.tr>
-                      ))}
-                      {filteredReturns.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[2.5rem]">No returns or refunds match this filter criteria.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {activeTab === 'Feature Toggles' && (
-          <FeatureToggles config={config} onUpdate={fetchConfig} />
-        )}
-
-        {/* Supply Chain Hub (Suppliers) */}
-        {activeTab === 'Suppliers' && (
-          <motion.div 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="space-y-8"
-          >
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
-                    <Briefcase size={24} />
-                  </div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Supply Chain Hub</h2>
-                </div>
-                <p className="text-stone-500 font-medium text-lg ml-1">Coordinate with global and local trade partners.</p>
-              </div>
-              
-              <button 
-                onClick={() => {
-                  setSupplierModal({ open: true, mode: 'add', supplier: null });
-                  setNewSupplier({ name: '', contact_person: '', email: '', phone: '', address: '' });
-                }}
-                className="bg-primary text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-xl shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap group"
-              >
-                <Plus size={20} className="group-hover:rotate-90 transition-transform duration-300" />
-                <span>Onboard Supplier</span>
-              </button>
-            </div>
-            
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-widest">
-                    <tr>
-                      <th className="px-8 py-6">Partner Identity</th>
-                      <th className="px-6 py-6">Key Liaison</th>
-                      <th className="px-6 py-6">Communication Channels</th>
-                      <th className="px-6 py-6">Location</th>
-                      <th className="px-6 py-6">Partnership Since</th>
-                      <th className="px-8 py-6 text-right">Governance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100/50">
-                    {suppliers.map((supplier, idx) => (
-                      <motion.tr 
-                        key={supplier.id} 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className="hover:bg-stone-50/50 transition-all duration-300 group"
-                      >
-                        <td className="px-8 py-6">
-                           <div className="flex items-center space-x-3">
-                             <div className="w-10 h-10 bg-stone-100 rounded-xl flex items-center justify-center text-stone-400 font-black group-hover:bg-primary group-hover:text-white transition-all transform group-hover:rotate-6">
-                               {supplier.name?.[0] || 'S'}
-                             </div>
-                             <span className="font-black text-sm text-stone-900 tracking-tight">{supplier.name}</span>
-                           </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <span className="text-sm font-bold text-stone-700">{supplier.contact_person}</span>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex flex-col space-y-0.5">
-                            <div className="flex items-center space-x-2 text-xs font-bold text-stone-500">
-                              <Mail size={12} className="text-stone-300" />
-                              <span>{supplier.email || 'N/A'}</span>
-                            </div>
-                            <div className="flex items-center space-x-2 text-xs font-bold text-stone-500">
-                              <Phone size={12} className="text-stone-300" />
-                              <span>{supplier.phone || 'N/A'}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex items-center gap-2 max-w-[200px]">
-                            <div className="min-w-fit"><Truck size={14} className="text-stone-300" /></div>
-                            <span className="text-xs font-medium text-stone-500 truncate" title={supplier.address}>{supplier.address}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6 font-mono text-[10px] text-stone-400 uppercase font-black tracking-widest">
-                          {new Date(supplier.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', day: 'numeric' })}
-                        </td>
-                        <td className="px-8 py-6 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            <motion.button 
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => {
-                                setSupplierModal({ open: true, mode: 'edit', supplier });
-                                setNewSupplier({
-                                  name: supplier.name,
-                                  contact_person: supplier.contact_person,
-                                  email: supplier.email,
-                                  phone: supplier.phone,
-                                  address: supplier.address
-                                });
-                              }}
-                              className="p-2.5 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white hover:shadow-md border border-transparent rounded-xl transition-all"
-                            >
-                              <Settings size={18} />
-                            </motion.button>
-                            <motion.button 
-                              whileHover={{ scale: 1.1, color: '#ef4444' }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleDeleteSupplier(supplier.id)}
-                              className="p-2.5 bg-stone-50 text-stone-400 hover:bg-red-50 hover:shadow-md border border-transparent rounded-xl transition-all"
-                            >
-                              <Trash2 size={18} />
-                            </motion.button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {suppliers.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-8 py-20 text-center">
-                          <div className="w-20 h-20 bg-stone-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <Briefcase size={40} className="text-stone-200" />
-                          </div>
-                          <p className="text-stone-400 font-black uppercase tracking-widest text-xs">No active trade partners</p>
-                          <p className="text-[10px] text-stone-400 font-medium mt-1">Start by onboarding your first supplier.</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'Reviews' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-6">
-                    <Star size={24} fill="currentColor" />
-                  </div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Customer Reviews</h2>
-                </div>
-                <p className="text-stone-500 font-medium text-lg ml-1">Moderate customer feedback and review ratings.</p>
-              </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
-                 <div className="flex flex-col">
-                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Total Reviews</span>
-                   <span className="text-2xl font-black text-stone-900">{reviews.length} Total</span>
-                 </div>
-                 <div className="w-px h-10 bg-stone-100" />
-                 <div className="flex flex-col">
-                   <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Average Rating</span>
-                   <span className="text-2xl font-black text-primary">{reviews.length > 0 ? (reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0) / reviews.length).toFixed(1) : "0.0"} / 5.0</span>
-                 </div>
-              </div>
-            </header>
-
-            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">Product</th>
-                      <th className="px-6 py-8">Customer</th>
-                      <th className="px-6 py-8">Rating</th>
-                      <th className="px-6 py-8">Comment</th>
-                      <th className="px-6 py-8">Status</th>
-                      <th className="px-6 py-8">Date</th>
-                      <th className="px-10 py-8 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {reviews.map((review, idx) => (
-                      <motion.tr 
-                        key={review.id} 
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.04 }}
-                        className="group hover:bg-stone-50/80 transition-all"
-                      >
-                        <td className="px-10 py-6">
-                          <p className="font-black text-stone-900 tracking-tighter truncate max-w-[180px]" title={review.product_name}>{review.product_name}</p>
-                        </td>
-                        <td className="px-6 py-6">
-                          <p className="text-xs font-bold text-stone-600 uppercase tracking-widest">{review.user_name}</p>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex space-x-0.5 text-amber-400">
-                            {[...Array(5)].map((_, i) => (
-                              <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} className={i < review.rating ? "drop-shadow-[0_0_8px_rgba(251,191,36,0.3)]" : ""} />
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="max-w-[280px]">
-                            <p className="text-sm text-stone-600 italic font-medium leading-relaxed mb-1 line-clamp-2" title={review.comment}>"{review.comment}"</p>
-                            {review.response && (
-                              <div className="flex items-center space-x-2 text-[10px] text-primary font-black uppercase tracking-widest bg-primary/5 px-2 py-1 rounded-lg border border-primary/10 w-fit">
-                                <MessageSquare size={10} />
-                                <span>Response Logged</span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <span className={cn(
-                              "text-[9px] font-black px-3 py-1.5 rounded-2xl uppercase tracking-widest border",
-                              review.status === 'approved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                              review.status === 'rejected' ? "bg-red-50 text-red-600 border-red-100" :
-                              "bg-amber-50 text-amber-600 border-amber-100 animate-pulse"
-                          )}>{review.status}</span>
-                        </td>
-                        <td className="px-6 py-6 whitespace-nowrap">
-                           <div className="flex flex-col">
-                             <span className="text-xs font-black text-stone-800 tracking-tight">
-                               {review.created_at ? new Date(review.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'N/A'}
-                             </span>
-                             <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">
-                               {review.created_at ? new Date(review.created_at).getFullYear() : ''}
-                             </span>
-                           </div>
-                        </td>
-                        <td className="px-10 py-6 text-right">
-                          <div className="flex items-center justify-end space-x-3">
-                            {review.status === 'pending' && (
-                              <div className="flex space-x-2 mr-2">
-                                <button 
-                                  onClick={() => updateReviewStatus(review.id, 'approved')} 
-                                  className="p-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm border border-emerald-100"
-                                  title="Approve"
-                                >
-                                  <Check size={16} />
-                                </button>
-                                <button 
-                                  onClick={() => updateReviewStatus(review.id, 'rejected')} 
-                                  className="p-3 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl transition-all shadow-sm border border-red-100"
-                                  title="Reject"
-                                >
-                                  <X size={16} />
-                                </button>
-                              </div>
-                            )}
-                            <button 
-                              onClick={() => {
-                                setReviewResponseModal({ open: true, review });
-                                setReviewResponse(review.response || '');
-                              }}
-                              className="p-3 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white hover:shadow-md rounded-xl transition-all border border-transparent hover:border-stone-100"
-                              title={review.response ? 'Edit Response' : 'Reply'}
-                            >
-                              <MessageCircle size={18} />
-                            </button>
-                            <button 
-                              onClick={() => deleteReview(review.id)}
-                              className="p-3 bg-stone-50 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {reviews.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">No customer reviews found.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Suspicious Activities' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-14 h-14 bg-red-600 text-white rounded-2xl flex items-center justify-center -rotate-6 shadow-xl shadow-red-200">
-                    <ShieldAlert size={28} />
-                  </div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">Security Monitoring</h2>
-                </div>
-                <p className="text-stone-500 font-medium text-lg ml-1">Track unusual activities and security events.</p>
-              </div>
-              <button 
-                onClick={fetchSuspiciousActivities}
-                className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 text-stone-400 hover:text-primary transition-all group active:scale-95"
-              >
-                <RefreshCw size={24} className="group-hover:rotate-180 transition-transform duration-500" />
-              </button>
-            </header>
-
-            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">Activity Type</th>
-                      <th className="px-6 py-8">User</th>
-                      <th className="px-6 py-8">Details</th>
-                      <th className="px-6 py-8">Risk</th>
-                      <th className="px-6 py-8">Time</th>
-                      <th className="px-10 py-8 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {suspiciousActivities.map((activity, idx) => (
-                      <motion.tr 
-                        key={activity.id} 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.04 }}
-                        className="hover:bg-red-50/20 transition-all group"
-                      >
-                        <td className="px-10 py-6">
-                          <span className="text-[10px] font-black px-3 py-1.5 bg-stone-100 group-hover:bg-white text-stone-500 rounded-xl uppercase tracking-widest border border-stone-100 group-hover:border-stone-200 transition-colors">{activity.type}</span>
-                        </td>
-                        <td className="px-6 py-6">
-                          {activity.user_id ? (
-                            <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 bg-stone-100 rounded-xl flex items-center justify-center text-stone-400 font-black">
-                                {activity.user_name?.[0] || 'U'}
-                              </div>
-                              <div>
-                                <p className="font-black text-sm text-stone-900 tracking-tight">{activity.user_name}</p>
-                                <p className="text-[10px] text-stone-400 font-bold tracking-widest uppercase">{activity.user_phone}</p>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center space-x-3 text-stone-300">
-                               <Fingerprint size={20} />
-                               <span className="italic font-bold text-xs uppercase tracking-widest">Guest User</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="max-w-[300px] space-y-1">
-                            <p className="text-sm text-stone-600 font-medium leading-relaxed truncate" title={activity.description}>{activity.description}</p>
-                            <div className="flex items-center space-x-2 text-[10px] font-mono text-stone-400 bg-stone-50 w-fit px-2 py-0.5 rounded border border-stone-100">
-                               <Globe size={10} />
-                               <span>{activity.ip_address}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <span className={cn(
-                            "inline-flex items-center space-x-2 text-[10px] font-black px-4 py-2 rounded-2xl uppercase tracking-widest border",
-                            activity.severity === 'high' ? "bg-red-50 text-red-600 border-red-100 shadow-[0_0_15px_rgba(239,68,68,0.1)]" : 
-                            activity.severity === 'medium' ? "bg-amber-50 text-amber-600 border-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.1)]" : 
-                            activity.severity === 'resolved' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                            "bg-blue-50 text-blue-600 border-blue-100"
-                          )}>
-                             <div className={cn(
-                               "w-1.5 h-1.5 rounded-full",
-                               activity.severity === 'high' ? "bg-red-500 animate-ping" : 
-                               activity.severity === 'medium' ? "bg-amber-500 animate-pulse" : 
-                               activity.severity === 'resolved' ? "bg-emerald-500" : "bg-blue-500"
-                             )} />
-                             <span>{activity.severity}</span>
-                          </span>
-                        </td>
-                        <td className="px-6 py-6 whitespace-nowrap">
-                           <div className="flex flex-col">
-                             <span className="text-xs font-black text-stone-800 tracking-tight">{new Date(activity.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-                             <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest mt-0.5">{new Date(activity.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                           </div>
-                        </td>
-                        <td className="px-10 py-6 text-right">
-                          <button 
-                            onClick={() => handleResolveSuspicious(activity.id)}
-                            className="bg-stone-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-stone-900/10 active:scale-95"
-                          >
-                            Mark Resolved
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {suspiciousActivities.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">System integrity confirmed. No active threat vectors discovered.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Admin Management' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Admin Governance</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Manage operational privileges, track activity nodes, and enforce security protocols.</p>
-              </div>
-              <div className="flex items-center space-x-3">
-                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex items-center space-x-8">
-                   <div className="flex flex-col">
-                     <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Active Admins</span>
-                     <span className="text-2xl font-black text-stone-900">{admins.length}</span>
-                   </div>
-                 </div>
-                 <button 
-                  onClick={fetchAdmins}
-                  disabled={isAdminRefreshing}
-                  className="bg-stone-50 p-6 rounded-3xl border border-stone-100 hover:bg-stone-100 transition-all active:scale-95"
-                 >
-                   <RefreshCw className={cn("text-stone-400", isAdminRefreshing && "animate-spin")} size={24} />
-                 </button>
-              </div>
-            </header>
-
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">Administrator Identity</th>
-                      <th className="px-6 py-8">Role Tier</th>
-                      <th className="px-6 py-8">State Persistence</th>
-                      <th className="px-6 py-8">Last Node Access</th>
-                      <th className="px-10 py-8 text-right">Goverance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {admins.map((adm, idx) => (
-                      <motion.tr 
-                        key={adm.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className="group hover:bg-stone-50/50 transition-all"
-                      >
-                        <td className="px-10 py-7">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-12 h-12 bg-stone-100 rounded-2xl flex items-center justify-center text-stone-400 group-hover:bg-stone-900 group-hover:text-white transition-all duration-300">
-                              <Shield size={18} />
-                            </div>
-                            <div>
-                              <p className="text-sm font-black text-stone-900">{adm.name || 'Admin Entity'}</p>
-                              <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{adm.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-7">
-                          <span className={cn(
-                            "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border",
-                            adm.role === 'owner' ? "bg-purple-50 text-purple-600 border-purple-100" :
-                            adm.role === 'admin' ? "bg-red-50 text-red-600 border-red-100" :
-                            "bg-blue-50 text-blue-600 border-blue-100"
-                          )}>
-                            {adm.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-7">
-                           <div className="flex items-center space-x-2">
-                             <div className={cn("w-2 h-2 rounded-full", adm.status === 'disabled' ? 'bg-red-500' : 'bg-emerald-500')} />
-                             <span className="text-[10px] font-black text-stone-800 uppercase tracking-widest">
-                               {adm.status === 'disabled' ? 'Disabled' : 'Operational'}
-                             </span>
-                           </div>
-                        </td>
-                        <td className="px-6 py-7">
-                          <div className="flex flex-col">
-                            <span className="text-[11px] font-black text-stone-800">
-                              {adm.last_login_at ? new Date(adm.last_login_at).toLocaleString() : 'Never accessed'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-10 py-7 text-right">
-                          <div className="flex justify-end space-x-3">
-                             <button
-                               onClick={async () => {
-                                 const status = adm.status === 'disabled' ? 'active' : 'disabled';
-                                 try {
-                                   await fetchWithHandling(`/api/admin/admins/${adm.id}/status`, {
-                                     method: 'POST',
-                                     headers: getAuthHeaders(),
-                                     body: JSON.stringify({ status })
-                                   });
-                                   toast.success(`Admin ${status === 'active' ? 'enabled' : 'disabled'}`);
-                                   fetchAdmins();
-                                 } catch (err) {}
-                               }}
-                               className={cn(
-                                 "px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all",
-                                 adm.status === 'disabled' ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" : "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                               )}
-                             >
-                               {adm.status === 'disabled' ? 'Enable' : 'Disable'}
-                             </button>
-                             <button
-                               onClick={async () => {
-                                 if (confirm(`Are you sure you want to revoke admin rights for ${adm.email}?`)) {
-                                   try {
-                                     await fetchWithHandling(`/api/admin/admins/${adm.id}/revoke`, {
-                                       method: 'POST',
-                                       headers: getAuthHeaders()
-                                     });
-                                     toast.success('Admin rights revoked');
-                                     fetchAdmins();
-                                   } catch (err) {}
-                                 }
-                               }}
-                               className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all"
-                             >
-                               Revoke Access
-                             </button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-stone-50 p-8 rounded-[2rem] border border-dashed border-stone-200">
-                <div className="flex items-center space-x-4 mb-6">
-                  <div className="p-3 bg-stone-900 text-white rounded-2xl">
-                    <Activity size={24} />
-                  </div>
-                  <div>
-                     <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Governance Intelligence</h3>
-                     <p className="text-stone-500 font-medium">Recent high-level node modifications and access patterns.</p>
-                  </div>
-                </div>
-                
-                <div className="bg-white rounded-3xl border border-stone-100 overflow-hidden">
-                   <div className="max-h-96 overflow-y-auto no-scrollbar">
-                      <table className="w-full text-left">
-                         <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-widest">
-                            <tr>
-                               <th className="px-8 py-5">Node Identity</th>
-                               <th className="px-6 py-5">Directive Action</th>
-                               <th className="px-6 py-5">Target Resource</th>
-                               <th className="px-8 py-5 text-right">Time Offset</th>
-                            </tr>
-                         </thead>
-                         <tbody className="divide-y divide-stone-50">
-                            {auditLogs.slice(0, 20).map((log, lIdx) => (
-                               <tr key={log.id} className="hover:bg-stone-50/50 transition-all font-mono text-[10px]">
-                                  <td className="px-8 py-4 font-black text-stone-600">{log.admin_id}</td>
-                                  <td className="px-6 py-4">
-                                     <span className="bg-amber-50 text-amber-600 px-2 py-1 rounded text-[8px] font-black border border-amber-100">{log.action}</span>
-                                  </td>
-                                  <td className="px-6 py-4 text-stone-400">{log.target_type}#{log.target_id}</td>
-                                  <td className="px-8 py-4 text-right text-stone-300">{new Date(log.created_at).toLocaleString()}</td>
-                               </tr>
-                            ))}
-                         </tbody>
-                      </table>
-                   </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-[2rem] p-8 border border-stone-150 shadow-sm relative group overflow-hidden">
-                 <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                   <Trash2 size={120} />
-                 </div>
-                 <h3 className="text-2xl font-black text-stone-900 tracking-tight italic mb-8 relative z-10">Data Deletion Queue</h3>
-                 <div className="space-y-4 relative z-10">
-                    {deletionRequests.length === 0 ? (
-                      <div className="text-center py-20 text-stone-300 bg-stone-50/50 rounded-[2.5rem] border border-dashed border-stone-200">
-                        <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
-                          <CheckCircle2 size={32} className="text-emerald-500" />
-                        </div>
-                        <p className="font-black uppercase text-[10px] tracking-[0.25em] text-stone-300">Privacy Compliance: 100%</p>
-                        <p className="text-xs font-bold text-stone-400 mt-2">No active user deletion requests pending.</p>
-                      </div>
-                    ) : (
-                      deletionRequests.map((req, i) => (
-                        <div key={req.id} className="p-8 bg-red-50/50 rounded-[2.5rem] border border-red-100 space-y-6 shadow-sm">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center space-x-4">
-                              <div className="w-12 h-12 bg-white rounded-2xl border border-red-100 flex items-center justify-center text-red-500 shadow-sm">
-                                <Users size={20} />
-                              </div>
-                              <div>
-                                <p className="font-black text-red-900 leading-none text-lg tracking-tight">{req.user_name}</p>
-                                <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mt-1.5">Cipher: SYS-DEL-0{req.id}</p>
-                              </div>
-                            </div>
-                            <span className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-red-200">Pending Authorization</span>
-                          </div>
-                          <div className="bg-white p-5 rounded-2xl text-[11px] font-bold text-red-800 leading-relaxed italic relative border border-red-50">
-                             <span className="absolute -top-3 left-6 px-2 bg-white text-[8px] uppercase tracking-widest text-red-300">User Testimony</span>
-                            "{req.reason || 'No internal reason documented'}"
-                          </div>
-                          <div className="flex gap-3">
-                             <button 
-                              onClick={() => approveDeletion(req.id)} 
-                              className="flex-1 py-4 bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-200 hover:bg-red-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                             >
-                               Authorize Full Purge
-                             </button>
-                             <button 
-                              onClick={() => rejectDeletion(req.id)} 
-                              className="px-8 py-4 bg-white text-red-500 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-100 hover:bg-red-50 transition-all"
-                             >
-                               Reject
-                             </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Promotional Rules' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">Promotional Rule Configuration</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Manage BOGO, discounts, and tiered logic for products and categories.</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setNewPromotionRuleData({ title: '', type: 'bogo', target_type: 'all', target_id: '', condition_qty: 0, reward_qty: 0, discount_value: 0, active: true });
-                  setPromotionRuleFormModal({ open: true, mode: 'add', rule: null });
-                }}
-                className="bg-stone-900 text-white px-8 py-4 rounded-[2rem] font-black flex items-center space-x-3 shadow-2xl shadow-stone-300 hover:bg-stone-800 transition-all active:scale-95 group"
-              >
-                <Plus size={18} />
-                <span className="uppercase tracking-widest text-xs">Architect New Rule</span>
-              </button>
-            </header>
-            
-            <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100">
-                 <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-                    <h3 className="font-bold text-lg">Existing Rules</h3>
-                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="bg-stone-50 border-b border-stone-100 uppercase text-[10px] font-black text-stone-500 tracking-wider">
-                        <th className="p-4">Status</th>
-                        <th className="p-4">Title</th>
-                        <th className="p-4">Type</th>
-                        <th className="p-4">Target</th>
-                        <th className="p-4">Condition</th>
-                        <th className="p-4">Reward</th>
-                        <th className="p-4">Value</th>
-                        <th className="p-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {promotionRules.map((rule) => (
-                        <tr key={rule.id} className="hover:bg-stone-50 transition-colors">
-                          <td className="p-4">
-                            <span className={cn(
-                              "px-2 py-1 flex w-min items-center rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                              rule.active ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-500"
-                            )}>
-                              {rule.active ? 'Active' : 'Paused'}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold max-w-[200px] truncate">{rule.title}</td>
-                          <td className="p-4 uppercase text-[10px] font-black text-stone-500 tracking-widest">{rule.type}</td>
-                          <td className="p-4">
-                            <span className="bg-stone-100 px-2 py-1 rounded text-xs font-bold text-stone-600">
-                              {rule.target_type === 'all' ? 'Entire Store' : `${rule.target_type}: ${rule.target_id}`}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold">{rule.condition_qty || 0}</td>
-                          <td className="p-4 font-bold">{rule.reward_qty || 0}</td>
-                          <td className="p-4 font-bold text-emerald-600">
-                            {rule.type === 'percentage' ? `${rule.discount_value}%` : `₹${rule.discount_value || 0}`}
-                          </td>
-                          <td className="p-4 text-right">
-                             <div className="flex justify-end space-x-2">
-                               <button 
-                                 onClick={() => {
-                                    setNewPromotionRuleData({ title: rule.title, type: rule.type, target_type: rule.target_type, target_id: rule.target_id, condition_qty: rule.condition_qty, reward_qty: rule.reward_qty, discount_value: rule.discount_value, active: rule.active });
-                                    setPromotionRuleFormModal({ open: true, mode: 'edit', rule });
-                                 }}
-                                 className="text-primary hover:text-primary/80 font-bold"
-                               >Edit</button>
-                               <button 
-                                 onClick={() => handleDeleteRule(rule.id)}
-                                 className="text-red-500 hover:text-red-700 font-bold"
-                               >Delete</button>
-                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Security & Data' && (
-          <section className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <AdminStatCard label="Security Node" value="ACTIVE" icon={<ShieldCheck size={22} />} color="emerald" trend={{ value: 'Protocol Live', isUp: true }} progress={100} />
-              <AdminStatCard label="Data Encryption" value="256-BIT" icon={<Fingerprint size={22} />} color="purple" trend={{ value: 'AES/GCM', isUp: true }} progress={100} />
-              <AdminStatCard label="Audit Coverage" value="100%" icon={<Database size={22} />} color="stone" trend={{ value: 'Infinite Sync', isUp: true }} progress={100} />
-            </div>
-            
-            <div className="bg-white p-10 rounded-[3rem] border border-stone-100 shadow-sm">
-               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-12">
-                  <div className="flex items-center space-x-6">
-                    <div className="w-16 h-16 bg-stone-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl shadow-stone-200">
-                       <Shield size={28} />
-                    </div>
-                    <div>
-                       <h3 className="text-3xl font-black text-stone-900 tracking-tight leading-none uppercase italic">Security & Data Governance</h3>
-                       <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.25em] mt-3">Active Privacy & Operational Integrity Policy</p>
-                    </div>
-                  </div>
-                  <div className="flex bg-stone-50 p-2 rounded-2xl border border-stone-100 items-center space-x-4">
-                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-2" />
-                     <span className="text-[10px] font-black text-stone-600 uppercase tracking-widest pr-4">Identity Node: {String(user?.id || '').slice(0, 8)}</span>
-                  </div>
-               </div>
-               
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                  <div className="space-y-8">
-                     <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.25em] px-2 flex items-center gap-2">
-                        <ToggleLeft size={14} className="text-stone-300" />
-                        Access & Privacy Controls
-                     </h4>
-                     <div className="space-y-4">
-                        {[
-                          { label: 'Mask Phone Numbers', desc: 'Securely conceal user contact details in non-critical administrative views', active: true, icon: Smartphone },
-                          { label: 'Data Encryption', desc: 'Automatic AES-256 serialization of all PII (Personally Identifiable Information)', active: true, icon: Server },
-                          { label: 'Real-time Audit Trace', desc: 'Immutable logging of every administrative transaction and data mutation', active: true, icon: History },
-                          { label: 'Session Rotation', desc: 'Automated 24h refresh cycle for all active administrative tokens', active: false, icon: RotateCcw }
-                        ].map((item, i) => (
-                          <div key={i} className="flex items-center justify-between p-8 bg-stone-50 rounded-[2.5rem] border border-stone-100 group hover:border-primary/20 transition-all">
-                             <div className="flex items-start space-x-6 flex-1 pr-8">
-                                <div className="p-3 bg-white rounded-2xl text-stone-400 group-hover:text-primary transition-colors shadow-sm">
-                                   <item.icon size={20} />
-                                </div>
-                                <div>
-                                   <p className="text-base font-black text-stone-900 tracking-tight leading-none mb-1.5">{item.label}</p>
-                                   <p className="text-[11px] text-stone-400 font-bold leading-relaxed">{item.desc}</p>
-                                </div>
-                             </div>
-                             <button className={cn(
-                               "w-14 h-8 rounded-full relative transition-all duration-500 shadow-inner",
-                               item.active ? "bg-emerald-500 shadow-emerald-200" : "bg-stone-200"
-                             )}>
-                                <div className={cn(
-                                  "absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-500 shadow-md",
-                                  item.active ? "right-1" : "left-1"
-                                )} />
-                             </button>
-                          </div>
-                        ))}
-                     </div>
-                  </div>
-                  
-                  <div className="space-y-8">
-                     <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.25em] px-2 flex items-center gap-2">
-                        <Database size={14} className="text-stone-300" />
-                        Infrastructure Health Trace
-                     </h4>
-                     <div className="bg-stone-900 rounded-[3rem] p-10 text-white space-y-10 relative overflow-hidden shadow-2xl">
-                        <div className="absolute top-0 right-0 p-12 opacity-[0.03] rotate-12">
-                           <Database size={180} />
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-8 relative z-10">
-                           <div className="space-y-2">
-                              <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Identity Nodes</p>
-                              <div className="flex items-end space-x-2">
-                                 <p className="text-4xl font-black tracking-tighter italic leading-none">2,841</p>
-                                 <span className="text-[10px] text-emerald-400 font-black mb-1">+4.2%</span>
-                              </div>
-                           </div>
-                           <div className="space-y-2">
-                              <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Link Stability</p>
-                              <div className="flex items-end space-x-2">
-                                 <p className="text-4xl font-black tracking-tighter italic leading-none">99.8%</p>
-                                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mb-2" />
-                              </div>
-                           </div>
-                        </div>
-
-                        <div className="space-y-4 relative z-10 pt-4">
-                           <div className="flex justify-between items-end mb-2">
-                             <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40 leading-none">Database Payload: 4.2GB / 50GB</p>
-                             <p className="text-xs font-black italic">8.4% Capacity</p>
-                           </div>
-                           <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                              <motion.div 
-                                initial={{ width: 0 }}
-                                animate={{ width: '8.4%' }}
-                                transition={{ duration: 1.5, ease: "easeOut" }}
-                                className="h-full bg-primary shadow-[0_0_15px_rgba(251,191,36,0.3)]" 
-                              />
-                           </div>
-                        </div>
-
-                        <div className="bg-white/5 rounded-[2rem] p-6 space-y-4 relative z-10 border border-white/5 backdrop-blur-sm">
-                           <h5 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-50 mb-2">Active Protocols</h5>
-                           <div className="space-y-3">
-                              {[
-                                { label: 'Automated Redundancy', status: 'Healthy', color: 'text-emerald-400' },
-                                { label: 'Deep Packet Inspection', status: 'Running', color: 'text-primary' },
-                                { label: 'Cross-Region Replication', status: 'Synchronized', color: 'text-emerald-400' }
-                              ].map((p, i) => (
-                                <div key={i} className="flex justify-between items-center text-xs font-bold py-1">
-                                   <span className="opacity-70">{p.label}</span>
-                                   <span className={cn("text-[10px] font-black uppercase tracking-widest", p.color)}>{p.status}</span>
-                                </div>
-                              ))}
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-               </div>
-            </div>
-
-            <div className="bg-white p-10 rounded-[3rem] border border-stone-100 shadow-sm mt-8">
-               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                  <div>
-                     <h3 className="text-2xl font-black text-stone-900 tracking-tight flex items-center gap-2">
-                        <Wallet size={24} className="text-primary" /> Wallet Ledger Audit & Integrity Scan
-                     </h3>
-                     <p className="text-xs text-stone-500 font-medium mt-1">Cross-reference the latest 50 wallet_transactions with user.wallet_balance to flag mismatch anomalies.</p>
-                  </div>
-                  <button 
-                     onClick={runWalletDiagnostics}
-                     disabled={loadingDiagnostics}
-                     className="px-6 py-3 bg-stone-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-stone-800 transition-all active:scale-95 disabled:bg-stone-300 disabled:scale-100 flex items-center gap-2 cursor-pointer animate-in fade-in duration-300"
-                  >
-                     {loadingDiagnostics ? (
-                        <>
-                           <Loader2 size={14} className="animate-spin" /> Auditing Ledger...
-                        </>
-                     ) : (
-                        <>
-                           <RefreshCw size={14} /> Run Dynamic Integrity Scan
-                        </>
-                     )}
-                  </button>
-               </div>
-
-               {diagnosticResults && (
-                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
-                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Time Executed</p>
-                           <p className="text-sm font-bold text-stone-800">{new Date(diagnosticResults.checkedAt).toLocaleTimeString()}</p>
-                        </div>
-                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
-                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Transactions Verified</p>
-                           <p className="text-xl font-black text-stone-900">{diagnosticResults.totalTransactionsChecked}</p>
-                        </div>
-                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
-                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Unique Users Checked</p>
-                           <p className="text-xl font-black text-stone-900">{diagnosticResults.uniqueUsersCheckedCount}</p>
-                        </div>
-                        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
-                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider mb-1">Inconsistencies</p>
-                           <p className={cn("text-xl font-black", diagnosticResults.inconsistenciesFoundCount > 0 ? "text-red-500 animate-pulse" : "text-emerald-500")}>
-                              {diagnosticResults.inconsistenciesFoundCount}
-                           </p>
-                        </div>
-                     </div>
-
-                     {diagnosticResults.inconsistencies && diagnosticResults.inconsistencies.length > 0 ? (
-                        <div className="bg-red-50/50 rounded-2xl p-6 border border-red-100 space-y-3">
-                           <h4 className="text-xs font-black text-red-800 uppercase tracking-wider flex items-center gap-1">
-                              <AlertCircle size={14} /> Anomaly Forensics Log
-                           </h4>
-                           <div className="space-y-2">
-                              {diagnosticResults.inconsistencies.map((inc: string, idx: number) => (
-                                 <div key={idx} className="text-xs text-red-900 font-medium py-2 px-4 bg-white rounded-xl border border-red-50/50 shadow-sm flex items-center gap-3">
-                                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
-                                    <span>{inc}</span>
-                                 </div>
-                              ))}
-                           </div>
-                        </div>
-                     ) : (
-                        <div className="bg-emerald-50/50 rounded-2xl p-6 border border-emerald-100 flex items-center gap-3 text-xs text-emerald-800 font-black uppercase tracking-wider">
-                           <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> Integrity Confirmed: No ledger/balance discrepancies found in latest transaction nodes.
-                        </div>
-                     )}
-
-                     {/* Audited Users Detailed Interactive Table */}
-                     {diagnosticResults.users && diagnosticResults.users.length > 0 && (
-                        <div className="space-y-4">
-                           <h4 className="text-sm font-black text-stone-900 uppercase tracking-wider flex items-center gap-2">
-                              <Database size={16} className="text-[#6366f1]" /> Detailed Audited Users Ledger
-                           </h4>
-                           <div className="bg-white rounded-3xl border border-stone-200/60 overflow-hidden shadow-sm">
-                              <div className="overflow-x-auto no-scrollbar">
-                                 <table className="w-full text-left text-xs">
-                                    <thead className="bg-stone-50 border-b border-stone-100 text-[10px] text-stone-400 uppercase font-black tracking-widest">
-                                       <tr>
-                                          <th className="px-6 py-4">User Details</th>
-                                          <th className="px-6 py-4">Current Balance</th>
-                                          <th className="px-6 py-4">Calculated Ledger</th>
-                                          <th className="px-6 py-4">Discrepancy Amount</th>
-                                          <th className="px-6 py-4">Audit Verdict</th>
-                                          <th className="px-6 py-4 text-right">Verification & Correction</th>
-                                       </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-stone-100 font-semibold text-stone-600">
-                                       {diagnosticResults.users.map((audUser: any) => (
-                                          <tr key={audUser.userId} className="hover:bg-stone-50/40 transition-colors">
-                                             <td className="px-6 py-4">
-                                                <div>
-                                                   <p className="font-extrabold text-stone-800">{audUser.name}</p>
-                                                   <p className="text-[10px] text-stone-400 font-mono">ID: {audUser.userId} | {audUser.email}</p>
-                                                </div>
-                                             </td>
-                                             <td className="px-6 py-4 font-bold text-stone-700">₹{audUser.currentBalance.toFixed(2)}</td>
-                                             <td className="px-6 py-4 font-bold text-stone-700">₹{audUser.calculatedBalance.toFixed(2)}</td>
-                                             <td className={`px-6 py-4 font-black ${audUser.discrepancy !== 0 ? "text-red-600" : "text-emerald-600"}`}>
-                                                {audUser.discrepancy !== 0 ? `₹${audUser.discrepancy.toFixed(2)}` : '₹0.00'}
-                                             </td>
-                                             <td className="px-6 py-4">
-                                                <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 w-fit ${
-                                                   audUser.hasDiscrepancy 
-                                                      ? "bg-red-50 text-red-600 border border-red-100 animate-pulse" 
-                                                      : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                                                }`}>
-                                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${audUser.hasDiscrepancy ? "bg-red-500" : "bg-emerald-500"}`} />
-                                                   {audUser.hasDiscrepancy ? 'Action Required' : 'Status Stable'}
-                                                </span>
-                                             </td>
-                                             <td className="px-6 py-4 text-right">
-                                                {audUser.hasDiscrepancy ? (
-                                                   <button
-                                                      onClick={() => fixWalletDiscrepancy(audUser.userId)}
-                                                      disabled={fixingWalletUserId === audUser.userId}
-                                                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-widest rounded-xl transition-all disabled:bg-stone-300 flex items-center gap-1.5 ml-auto cursor-pointer"
-                                                   >
-                                                      {fixingWalletUserId === audUser.userId ? (
-                                                         <>
-                                                            <Loader2 size={12} className="animate-spin" /> Fixing...
-                                                         </>
-                                                      ) : (
-                                                         <>
-                                                            <RefreshCw size={12} /> Fix Discrepancy
-                                                         </>
-                                                      )}
-                                                   </button>
-                                                ) : (
-                                                   <span className="text-[10px] text-stone-400 font-bold uppercase tracking-wider select-none">Passed Audit</span>
-                                                )}
-                                             </td>
-                                          </tr>
-                                       ))}
-                                    </tbody>
-                                 </table>
-                              </div>
-                           </div>
-                        </div>
-                     )}
-                  </div>
-               )}
-            </div>
-          </section>
-        )}
-
-        {activeTab === 'Purchase Orders' && (
-          <PurchaseOrdersTab />
-        )}
-
-        {activeTab === 'Automatic Reports' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-14 h-14 bg-amber-500 text-white rounded-2xl flex items-center justify-center rotate-12 shadow-xl shadow-amber-200">
-                    <Bug size={28} />
-                  </div>
-                  <h2 className="text-4xl font-black text-stone-900 tracking-tight">System Anomalies</h2>
-                </div>
-                <p className="text-stone-500 font-medium text-lg ml-1">Automated capture of runtime exceptions and UI failures.</p>
-              </div>
-              <div className="flex items-center space-x-4 bg-white p-4 rounded-3xl border border-stone-100 shadow-sm">
-                 <div className="p-3 bg-red-50 text-red-500 rounded-2xl">
-                   <Activity size={20} />
-                 </div>
-                 <div className="pr-4">
-                   <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Active Errors</p>
-                   <p className="text-lg font-black text-stone-900">{bugReports.length}</p>
-                 </div>
-              </div>
-            </header>
-
-            <div className="bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden">
-              <div className="responsive-table-container no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
-                    <tr>
-                      <th className="px-10 py-8">ID / Reporter</th>
-                      <th className="px-6 py-8">Scope & Context</th>
-                      <th className="px-6 py-8">Error Details</th>
-                      <th className="px-6 py-8">Device Context</th>
-                      <th className="px-6 py-8">Timestamp</th>
-                      <th className="px-10 py-8 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {bugReports.map((bug: any, idx: number) => (
-                      <motion.tr 
-                        key={bug.id} 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className="hover:bg-stone-50/50 transition-all font-mono group"
-                      >
-                        <td className="px-10 py-6">
-                           <div className="flex flex-col">
-                              <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">ERR-{bug.id.toString().slice(-6)}</span>
-                              <span className="text-xs font-black text-stone-800 tracking-tight mt-1 truncate max-w-[120px]">{bug.reporter_name || 'System Node'}</span>
-                              <span className="text-[9px] font-bold text-stone-300 uppercase tracking-widest mt-1">UID: {bug.user_id ? bug.user_id.slice(0, 8) : 'GUEST'}</span>
-                           </div>
-                        </td>
-                        <td className="px-6 py-6">
-                          <div className="flex flex-col space-y-1">
-                             <div className="flex items-center space-x-2">
-                               <div className={cn("w-2 h-2 rounded-full animate-pulse", bug.type === 'API_ERROR' ? 'bg-orange-500' : 'bg-red-500')} />
-                               <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">{bug.type || 'REPORTER'}</span>
-                             </div>
-                             <span className="text-[11px] font-black text-stone-800 uppercase tracking-tighter truncate max-w-[150px]" title={bug.path}>{bug.path || 'System Core'}</span>
-                             {bug.api_endpoint && <span className="text-[9px] text-stone-400 truncate max-w-[150px] italic">{bug.api_endpoint}</span>}
-                          </div>
-                        </td>
-                        <td className="px-6 py-6">
-                           <div className="max-w-[300px] space-y-1">
-                             <p className="text-xs font-bold text-red-600 line-clamp-1" title={bug.message}>{bug.message}</p>
-                             <p className="text-[10px] text-stone-400 font-medium leading-relaxed line-clamp-2 italic">{bug.why || 'No root cause identified.'}</p>
-                           </div>
-                        </td>
-                        <td className="px-6 py-6">
-                           <div className="flex flex-col space-y-1">
-                             <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest truncate max-w-[150px]" title={bug.device_info}>{bug.device_info || 'Unknown Device'}</span>
-                             <span className="text-[9px] text-stone-400">{bug.screen_resolution || 'Unknown Res'}</span>
-                             {bug.network_status && <span className="text-[9px] text-emerald-500 font-black uppercase tracking-tighter">{bug.network_status}</span>}
-                           </div>
-                        </td>
-                        <td className="px-6 py-6">
-                           <div className="flex flex-col space-y-1 font-sans">
-                             <span className="text-[10px] font-black text-stone-600 uppercase tracking-[0.2em]">{new Date(bug.created_at).toLocaleDateString()}</span>
-                             <span className="text-[9px] font-bold text-stone-300 italic">{new Date(bug.created_at).toLocaleTimeString()}</span>
-                           </div>
-                        </td>
-                        <td className="px-10 py-6 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            <button 
-                              onClick={() => {
-                                setReportDetailModal({ open: true, report: bug });
-                              }}
-                              className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-400 hover:text-primary transition-all shadow-sm"
-                              title="Review Cipher"
-                            >
-                              <Eye size={16} />
-                            </button>
-                            <button 
-                              onClick={async () => {
-                                try {
-                                  await fetchWithHandling(`/api/bugs/report/${bug.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-                                  setBugReports(bugReports.filter((b: any) => b.id !== bug.id));
-                                  toast.success('Report Cleared');
-                                } catch (err) {}
-                              }}
-                              className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center text-stone-400 hover:text-red-500 transition-all shadow-sm"
-                              title="Purge Entry"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                    {bugReports.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-10 py-32 text-center text-stone-400 font-bold italic bg-stone-50/50 rounded-[3rem]">Optimal runtime performance. Zero anomalies recently logged.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'System Status' && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <h2 className="text-4xl font-black text-stone-900 tracking-tight">System Infrastructure</h2>
-                <p className="text-stone-500 mt-2 text-lg font-medium">Real-time telemetry, error matrix, and environment health monitoring.</p>
-              </div>
-              <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => generateSystemHealthReportPDF(systemHealth, errorLogs)}
-                  className="bg-white border border-stone-100 p-5 rounded-3xl shadow-sm hover:bg-stone-50 transition-all flex items-center space-x-3 group"
-                >
-                  <Download size={20} className="text-stone-400 group-hover:text-primary" />
-                  <span className="text-xs font-black uppercase tracking-widest">Health Audit</span>
-                </button>
-                <div className="flex bg-white px-8 py-5 rounded-3xl border border-stone-100 shadow-sm items-center space-x-8">
-                  <div className="flex flex-col">
-                    <span className="text-xs font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Uptime</span>
-                    <span className="text-xl font-black text-stone-900">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '0h 0m'}</span>
-                  </div>
-                  <div className="w-px h-10 bg-stone-100" />
-                  <div className="flex items-center space-x-3">
-                      <div className={cn("w-3 h-3 rounded-full animate-pulse", dbDiag?.connection === 'CONNECTED' ? 'bg-emerald-500' : dbDiag?.mode === 'SANDBOX' ? 'bg-amber-500' : 'bg-red-500')} />
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Database</span>
-                        <span className={cn("text-xs font-black uppercase tracking-widest", dbDiag?.connection === 'CONNECTED' ? 'text-emerald-600' : dbDiag?.mode === 'SANDBOX' ? 'text-amber-600' : 'text-red-600')}>
-                          {dbDiag?.mode === 'SANDBOX' ? 'Sandbox Mode' : dbDiag?.connection === 'CONNECTED' ? 'Active Production' : 'Connection Failed'}
-                        </span>
-                      </div>
-                  </div>
-                </div>
-              </div>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <AdminStatCard 
-                  label="DB Latency" 
-                  value={systemHealth?.latency || '2ms'} 
-                  icon={<Database size={22} />} 
-                  trend={{ value: 'Healthy', isUp: true }} 
-                  color="emerald" 
-                  progress={98}
-                />
-                <AdminStatCard 
-                  label="Active Sessions" 
-                  value={systemHealth?.metrics?.activeUsers || 0} 
-                  icon={<Activity size={22} />} 
-                  trend={{ value: 'Stable', isUp: true, color: 'text-blue-500' }} 
-                  color="blue" 
-                  progress={60}
-                />
-                <AdminStatCard 
-                  label="Uncaught Anomalies" 
-                  value={systemHealth?.metrics?.recentErrors || 0} 
-                  icon={<ShieldAlert size={22} />} 
-                  trend={{ 
-                    value: systemHealth?.metrics?.recentErrors > 0 ? 'Review Needed' : 'Nominal', 
-                    isUp: systemHealth?.metrics?.recentErrors === 0 
-                  }} 
-                  color={systemHealth?.metrics?.recentErrors > 0 ? "red" : "stone"} 
-                  progress={systemHealth?.metrics?.recentErrors > 0 ? 90 : 10}
-                />
-                <AdminStatCard 
-                  label="Node Payload" 
-                  value={systemHealth?.memory || '120MB / 512MB'} 
-                  icon={<Cpu size={22} />} 
-                  trend={{ value: 'Low Load', isUp: true, color: 'text-purple-500' }} 
-                  color="purple" 
-                  progress={25}
-                />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-               <div className="lg:col-span-2 space-y-6">
-                  <div className="flex items-center justify-between px-2">
-                     <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Kernel Events</h3>
-                     <button 
-                       onClick={fetchSystemLogs}
-                       className="p-3 bg-white border border-stone-100 rounded-2xl hover:bg-stone-50 transition-all shadow-sm"
-                     >
-                       <RefreshCw size={20} className={cn("text-stone-400", isRefreshingLogs && "animate-spin")} />
-                     </button>
-                  </div>
-                  <div className="bg-stone-950 rounded-[2.5rem] p-8 shadow-2xl border border-stone-800 relative overflow-hidden">
-                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary/20 via-primary/5 to-transparent" />
-                     <div className="space-y-4 font-mono text-[11px] max-h-[600px] overflow-y-auto no-scrollbar scroll-smooth">
-                        {systemLogs.map((log, i) => (
-                          <div key={i} className="flex space-x-6 group opacity-80 hover:opacity-100 transition-opacity">
-                            <span className="text-stone-600 shrink-0 font-bold">[{new Date(log.created_at).toLocaleTimeString()}]</span>
-                            <div className="flex flex-col space-y-1 w-full">
-                               <div className="flex items-center space-x-3">
-                                 <span className={cn(
-                                   "font-black uppercase tracking-widest",
-                                   log.type === 'error' ? "text-red-500" : 
-                                   log.type === 'warn' ? "text-amber-500" : 
-                                   log.type === 'info' ? "text-emerald-500" : "text-blue-500"
-                                 )}>
-                                   {log.type}
-                                 </span>
-                                 <span className="text-stone-300 font-bold leading-relaxed">{log.message}</span>
-                               </div>
-                               {log.details && (
-                                 <p className="text-stone-500 text-[10px] pl-0 break-all leading-relaxed bg-white/5 p-3 rounded-xl mt-2 border border-white/5">{log.details}</p>
-                               )}
-                            </div>
-                          </div>
-                        ))}
-                        {systemLogs.length === 0 && (
-                          <div className="py-20 text-center text-stone-600 font-black uppercase tracking-[0.3em]">No Kernel Activity Recorded</div>
-                        )}
-                     </div>
-                  </div>
-               </div>
-
-                  {/* Real-Time Exception Feed (onSnapshot Firestore Feed) */}
-                  <div className="lg:col-span-2 space-y-6">
-                     <div className="flex items-center justify-between px-2">
-                        <div className="flex items-center space-x-3">
-                           <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shadow-sm shadow-red-200" />
-                           <h3 className="text-xl font-black text-stone-900 uppercase tracking-tight">Real-Time Exception Feed</h3>
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-red-500 bg-red-50 px-3 py-1 rounded-full animate-pulse">
-                           Live Firestore Stream
-                        </span>
-                     </div>
-                     <div className="bg-stone-950 rounded-[2.5rem] p-8 shadow-2xl border border-stone-800 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500/20 via-red-500/5 to-transparent" />
-                        <div className="space-y-4 font-mono text-[11px] max-h-[600px] overflow-y-auto no-scrollbar scroll-smooth">
-                           {errorLogs.map((log: any, i: number) => {
-                             const dateVal = log.timestamp?.seconds 
-                               ? new Date(log.timestamp.seconds * 1000)
-                               : new Date(log.timestamp || Date.now());
-                             return (
-                               <div key={log.id || i} className="flex space-x-6 group opacity-90 hover:opacity-100 transition-opacity border-b border-stone-900/40 pb-4 last:border-0 last:pb-0 text-left">
-                                 <span className="text-red-500 shrink-0 font-bold">[{dateVal.toLocaleTimeString()}]</span>
-                                 <div className="flex flex-col space-y-1 w-full text-left">
-                                    <div className="flex items-center justify-between">
-                                       <span className="text-amber-400 font-black tracking-widest uppercase text-[9px] bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/10">Context: {log.context || 'Global / Sandbox'}</span>
-                                       <span className="text-stone-500 text-[9px] font-bold">User: {log.userId || 'anonymous'}</span>
-                                    </div>
-                                    <p className="text-stone-300 font-bold leading-relaxed whitespace-pre-wrap break-all">{log.error}</p>
-                                    {log.url && (
-                                       <p className="text-stone-500 text-[9px] truncate">URL: {log.url}</p>
-                                    )}
-                                 </div>
-                               </div>
-                             );
-                           })}
-                           {errorLogs.length === 0 && (
-                             <div className="py-20 text-center text-stone-600 font-black uppercase tracking-[0.3em]">No Exception Events Broadcasted</div>
-                           )}
-                        </div>
-                     </div>
-                  </div>
-
-               <div className="space-y-8">
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-6">
-                     <h3 className="text-lg font-black text-stone-900 uppercase tracking-tight">Security Matrix</h3>
-                     <div className="space-y-6">
-                        {[
-                          { label: 'HTTPS Governance', active: true },
-                          { label: 'XSS Sanitization', active: true },
-                          { label: 'CSRF Shield', active: true },
-                          { label: 'Rate Limit Node', active: true },
-                          { label: 'Audit Logging', active: true },
-                        ].map((s, i) => (
-                          <div key={i} className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-stone-500">{s.label}</span>
-                            <div className="w-10 h-5 bg-emerald-500/20 rounded-full flex items-center px-1">
-                               <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full" />
-                            </div>
-                          </div>
-                        ))}
-                     </div>
-                  </div>
-
-                  <div className="bg-stone-900 p-8 rounded-[2.5rem] shadow-xl text-white space-y-6">
-                     <div className="flex items-center space-x-3">
-                        <div className="p-3 bg-white/10 rounded-2xl"><Zap size={20} /></div>
-                        <h3 className="text-lg font-black uppercase tracking-tight">Live Throughput</h3>
-                     </div>
-                     <div className="space-y-4">
-                        <div className="flex justify-between items-end">
-                           <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Active Requests</span>
-                           <span className="text-2xl font-black">{systemHealth?.metrics?.activeUsers || 0}s/m</span>
-                        </div>
-                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                           <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(100, (systemHealth?.metrics?.activeUsers || 0) * 10)}%` }}
-                            className="h-full bg-primary" 
-                           />
-                        </div>
-                        <p className="text-[9px] text-stone-500 leading-relaxed font-bold">Requests are within optimal threshold. System is experiencing nominal traffic volume.</p>
-                     </div>
-                  </div>
-               </div>
-            </div>
-          </div>
-        )}
-     </div>
 
       <ModalContainer
         isOpen={walletModal.open}
@@ -11101,7 +5198,7 @@ export default function AdminDashboard() {
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold">{customerModal.user.name}</h3>
-                  <p className="text-stone-500">{maskPhoneNumber(customerModal.user.phone)}</p>
+                  <p className="text-stone-500">{displayPhoneNumber(customerModal.user.phone)}</p>
                   <p className="text-xs text-primary font-bold mt-1">
                     {customerModal.user.lat && customerModal.user.lng ? `Lat: ${customerModal.user.lat.toFixed(4)}, Lng: ${customerModal.user.lng.toFixed(4)}` : 'Location unknown'}
                   </p>
@@ -11635,8 +5732,8 @@ export default function AdminDashboard() {
                       </div>
                     )}
                     {orderModal.order.payment_screenshot && (
-                      <div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Payment Proof</p>
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Payment Proof</p>
                         <div className="relative group rounded-xl overflow-hidden bg-white border border-stone-100 aspect-video flex items-center justify-center">
                           <img src={orderModal.order.payment_screenshot} alt="Payment Proof" className="max-w-full max-h-full object-contain" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-4">
@@ -11645,6 +5742,25 @@ export default function AdminDashboard() {
                              </a>
                           </div>
                         </div>
+                        {orderModal.order.payment_status === 'verifying' && (
+                           <div className="flex items-center gap-2 mt-2">
+                             <button 
+                               onClick={() => handleApproveOrderPayment(orderModal.order.id)}
+                               className="flex-1 py-3 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+                             >
+                               Verify & Approve
+                             </button>
+                             <button 
+                               onClick={() => {
+                                 const reason = prompt('Reject reason (invalid screenshot/UTR)?');
+                                 if (reason) updateOrderStatus(orderModal.order.id, 'failed', reason);
+                               }}
+                               className="px-4 py-3 bg-red-50 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-100 transition-all"
+                             >
+                               Invalid
+                             </button>
+                           </div>
+                        )}
                       </div>
                     )}
                     {(orderModal.order.payment_method === 'wallet' || orderModal.order.wallet_used > 0) && (
@@ -11725,7 +5841,7 @@ export default function AdminDashboard() {
                             return (
                               <>
                                 <p className="font-bold text-stone-800">{addr.name}</p>
-                                <p>{addr.phone}</p>
+                                <p>{formatPhoneNumber(addr.phone)}</p>
                                 <p className="mt-1">{addr.address}</p>
                                 <p>{addr.city}, {addr.state} {addr.pincode}</p>
                                 {(orderModal.order.lat || addr.lat) && (
@@ -12411,153 +6527,16 @@ export default function AdminDashboard() {
             </div>
           </div>
         </ModalContainer>
-      <ModalContainer
-        isOpen={reportDetailModal.open && reportDetailModal.report !== null}
-        onClose={() => setReportDetailModal({ open: false, report: null })}
-        size="lg"
-        showHeader={false}
-      >
-        {reportDetailModal.report && (
-          <div className="p-8">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-red-50 text-red-500 rounded-2xl">
-                  <Bug size={32} />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black text-stone-900 tracking-tight">System Error Details</h3>
-                  <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mt-1">ID: ERR-{reportDetailModal.report.id.toString().slice(-6)}</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setReportDetailModal({ open: false, report: null })}
-                className="p-3 hover:bg-stone-50 rounded-2xl text-stone-400 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="space-y-8">
-              {/* Summary Section */}
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest block mb-1">Occurrence</span>
-                    <span className="text-xs font-bold text-stone-800">{new Date(reportDetailModal.report.created_at).toLocaleString()}</span>
-                 </div>
-                 <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest block mb-1">Error Type</span>
-                    <span className={cn("text-xs font-black px-2 py-0.5 rounded-lg", reportDetailModal.report.type === 'API_ERROR' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600')}>
-                      {reportDetailModal.report.type}
-                    </span>
-                 </div>
-              </div>
-
-              {/* Identity & Origin */}
-              <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Origin & Reporter</h4>
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 shadow-sm">
-                   <div className="flex justify-between items-center py-2 border-b border-stone-50">
-                      <span className="text-xs font-bold text-stone-500">Reporter</span>
-                      <span className="text-xs font-black text-stone-900">{reportDetailModal.report.reporter_name || 'Anonymous User'}</span>
-                   </div>
-                   <div className="flex justify-between items-center py-2 border-b border-stone-50">
-                      <span className="text-xs font-bold text-stone-500">User ID</span>
-                      <span className="text-xs font-mono font-bold text-stone-400">{reportDetailModal.report.user_id || 'unauthenticated'}</span>
-                   </div>
-                   <div className="flex justify-between items-center py-2 border-b border-stone-50">
-                      <span className="text-xs font-bold text-stone-500">Node Path</span>
-                      <span className="text-xs font-black text-primary">{reportDetailModal.report.path || 'Root Content'}</span>
-                   </div>
-                   {reportDetailModal.report.api_endpoint && (
-                     <div className="flex justify-between items-center py-2">
-                        <span className="text-xs font-bold text-stone-500">API Endpoint</span>
-                        <span className="text-xs font-mono font-bold text-stone-900 bg-stone-100 px-2 py-1 rounded-lg">{reportDetailModal.report.api_endpoint}</span>
-                     </div>
-                   )}
-                </div>
-              </div>
-
-              {/* Environmental Metrics */}
-              <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Device & Browser Context</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm flex items-center space-x-4">
-                      <div className="p-2 bg-stone-50 rounded-xl text-stone-400"><LayoutDashboard size={18} /></div>
-                      <div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Canvas Resolution</p>
-                        <p className="text-xs font-bold text-stone-800">{reportDetailModal.report.screen_resolution || 'Unknown'}</p>
-                      </div>
-                   </div>
-                   <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm flex items-center space-x-4">
-                      <div className="p-2 bg-stone-50 rounded-xl text-stone-400"><Activity size={18} /></div>
-                      <div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Network State</p>
-                        <p className="text-xs font-bold text-stone-800">{reportDetailModal.report.network_status || 'Unknown'}</p>
-                      </div>
-                   </div>
-                   <div className="p-4 bg-white border border-stone-100 rounded-3xl shadow-sm col-span-full">
-                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-2 px-1">Agent Signature</p>
-                      <p className="text-[10px] font-mono text-stone-500 break-all leading-relaxed bg-stone-50 p-3 rounded-xl border border-stone-100">{reportDetailModal.report.device_info}</p>
-                   </div>
-                </div>
-              </div>
-
-              {/* Error Details */}
-              <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] px-2">Payload & Trace</h4>
-                <div className="space-y-4">
-                  <div className="p-6 bg-red-50/50 rounded-3xl border border-red-100">
-                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-2">Primary Exception</p>
-                    <p className="text-sm font-black text-red-600 leading-tight">{reportDetailModal.report.message}</p>
-                  </div>
-                  
-                  {reportDetailModal.report.stack_trace && (
-                    <div className="p-6 bg-stone-900 rounded-3xl overflow-hidden">
-                      <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-3">StackTrace Console</p>
-                      <pre className="text-[10px] font-mono text-stone-300 overflow-x-auto no-scrollbar max-h-48 scroll-smooth">
-                        {reportDetailModal.report.stack_trace}
-                      </pre>
-                    </div>
-                  )}
-
-                  {reportDetailModal.report.metadata && (
-                    <div className="p-6 bg-white border border-stone-100 rounded-3xl shadow-sm">
-                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3">Associated Metadata</p>
-                      <pre className="text-[10px] font-mono text-stone-600 bg-stone-50 p-4 rounded-xl overflow-x-auto no-scrollbar border border-stone-100">
-                        {JSON.stringify(typeof reportDetailModal.report.metadata === 'string' ? JSON.parse(reportDetailModal.report.metadata) : reportDetailModal.report.metadata, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-10 flex space-x-3">
-               <button 
-                onClick={() => setReportDetailModal({ open: false, report: null })}
-                className="flex-1 py-4 bg-stone-900 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-stone-200"
-               >
-                 Acknowledge Report
-               </button>
-               <button 
-                onClick={async () => {
-                  try {
-                    await fetchWithHandling(`/api/bugs/report/${reportDetailModal.report.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-                    setBugReports(bugReports.filter((b: any) => b.id !== reportDetailModal.report.id));
-                    setReportDetailModal({ open: false, report: null });
-                    toast.success('Report Purged');
-                  } catch (err) {}
-                }}
-                className="w-16 h-16 bg-red-50 text-red-500 rounded-[1.5rem] flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
-               >
-                 <Trash2 size={24} />
-               </button>
-            </div>
-          </div>
-        )}
-      </ModalContainer>
-      <ExportProgressModal open={exportProgress.open} progress={exportProgress.progress} label={exportProgress.label} />
-      <ExportActionModal />
+      <DashboardModals 
+        exportModal={exportModal}
+        setExportModal={setExportModal}
+        exportFormat={exportFormat}
+        setExportFormat={setExportFormat}
+        handleGlobalExport={handleGlobalExport}
+        exportProgress={exportProgress}
+        ExportProgressModal={ExportProgressModal}
+      />
     </AdminDashboardLayout>
   );
 }
+

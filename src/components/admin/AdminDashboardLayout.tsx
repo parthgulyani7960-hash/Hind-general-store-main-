@@ -22,6 +22,7 @@ interface AdminDashboardLayoutProps {
   extraHeader?: React.ReactNode;
   loading?: boolean;
   healthStatus?: 'healthy' | 'warning' | 'critical' | 'offline';
+  syncStatus?: 'synced' | 'syncing' | 'offline';
 }
 
 /**
@@ -45,7 +46,8 @@ interface AdminDashboardLayoutProps {
 export default function AdminDashboardLayout({ 
   children, activeTab, setActiveTab, user, logout, adminTheme, 
   sidebarOpen, setSidebarOpen, getDisplayLabel, stats, extraHeader, loading,
-  healthStatus = 'offline'
+  healthStatus = 'offline',
+  syncStatus = 'synced'
 }: AdminDashboardLayoutProps) {
 
   const navigate = useNavigate();
@@ -127,6 +129,15 @@ export default function AdminDashboardLayout({
                )}></div>
                <span className="font-black text-stone-700">{healthStatus}</span>
             </button>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-50 border border-stone-100">
+               <div className={cn("w-2 h-2 rounded-full",
+                  syncStatus === 'synced' ? 'bg-emerald-500' :
+                  syncStatus === 'syncing' ? 'bg-blue-500 animate-pulse' : 'bg-red-500'
+               )} />
+               <span className="text-[10px] font-black text-stone-500 uppercase tracking-wider">
+                 {syncStatus}
+               </span>
+            </div>
             <div className="h-10 w-px bg-stone-100" />
             <button 
                onClick={() => {

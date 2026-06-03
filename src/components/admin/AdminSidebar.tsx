@@ -33,6 +33,7 @@ const menuGroups = [
     label: 'Finance',
     items: [
       { name: 'Wallet Requests', label: 'Wallet Top-ups', icon: CreditCard },
+      { name: 'Payments', label: 'Payment Sync', icon: CreditCard },
       { name: 'Coupons', label: 'Coupons', icon: Ticket },
       { name: 'Bulk Discounts', label: 'Bulk Pricing', icon: Percent },
       { name: 'Expenses', label: 'Expenses', icon: DollarSign },

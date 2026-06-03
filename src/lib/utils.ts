@@ -13,6 +13,20 @@ export function getAuthHeaders(): HeadersInit {
   };
 }
 
+export function formatPhoneNumber(phone: string | null | undefined): string {
+  if (!phone) return 'N/A';
+  const cleaned = phone.replace(/\D/g, '');
+  if (cleaned.length === 10) {
+    return `+91 ${cleaned.slice(0, 5)}-${cleaned.slice(5)}`;
+  }
+  return phone;
+}
+
+export function isValidPhone(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const cleaned = phone.replace(/\D/g, '');
+  return cleaned.length === 10;
+}
 export function calculateBulkDiscount(product: any, quantity: number, bulkDiscounts: any[]) {
   if (!bulkDiscounts || bulkDiscounts.length === 0) return 0;
 

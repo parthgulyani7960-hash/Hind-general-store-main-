@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
+import { useNetwork } from './hooks/useNetwork';
 import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './firebase'; 
 import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
@@ -53,6 +54,7 @@ interface StoreContextType {
   deleteAddress: (id: any) => Promise<void>;
   setDefaultAddress: (id: any) => Promise<void>;
   isOnline: boolean;
+  latency: number | null;
   isProfileComplete: () => boolean;
   isMobile: boolean;
   isTablet: boolean;
@@ -77,12 +79,48 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  // 1. State and Refs
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [dbError, setDbError] = useState(false);
   const initialCheckDone = useRef(false);
   const authRunningRef = useRef(false);
 
+  const [currentAlert, setCurrentAlert] = useState<any>(null);
+  const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
+  const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');
+  const [showImages, setShowImages] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('hgs_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartLoadedFromStorage, setCartLoadedFromStorage] = useState(true);
+  const [isSyncingCart, setIsSyncingCart] = useState(false);
+  const [isSyncCartPending, setIsSyncCartPending] = useState(false);
+  const [wishlist, setWishlist] = useState<number[]>([]);
+  const [config, setConfig] = useState<any[]>([]);
+  const [vibration, setVibration] = useState(true);
+  const [notifications, setNotifications] = useState(true);
+  const [sound, setSound] = useState(true);
+  const [adminTheme, setAdminTheme] = useState('theme-navy');
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [promotions, setPromotions] = useState<PromotionRule[]>([]);
+  const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
+  const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
+  const [language, setLanguage] = useState<Language>('en');
+  const [addresses, setAddresses] = useState<UserAddress[]>([]);
+  const { isOnline, latency } = useNetwork();
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+  const [lastAddedId, setLastAddedId] = useState<number | null>(null);
+
+  // 2. Helper Functions (useCallbacks and async functions)
   const checkMaintenance = React.useCallback(async () => {
     try {
       const data = await fetchWithHandling<any>('/api/settings');
@@ -117,20 +155,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {}
   }, []);
 
-  const [currentAlert, setCurrentAlert] = useState<any>(null);
-  const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
-  const [authMode, setAuthMode] = useState<'otp' | 'password'>('password');
-  const [showImages, setShowImages] = useState(true);
-
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('hgs_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-
   const checkAuth = React.useCallback(async (fbToken?: string) => {
     if (authRunningRef.current) return;
     authRunningRef.current = true;
@@ -142,115 +166,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (data && data.user) {
         console.log('User loaded:', data.user);
         setUser(prev => {
-           // Deep comparison to prevent redundant re-renders
            if (prev && JSON.stringify(prev) === JSON.stringify(data.user)) return prev;
            return data.user;
         });
         localStorage.setItem('hgs_user', JSON.stringify(data.user));
       } else {
-        setUser(prev => prev === null ? null : null);
+        setUser(null);
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
       }
     } catch (err) {
-      setUser(prev => prev === null ? null : null);
+      setUser(null);
       localStorage.removeItem('hgs_user');
       localStorage.removeItem('hgs_token');
     } finally {
       authRunningRef.current = false;
     }
-  }, [setUser]);
+  }, []);
 
-  useEffect(() => {
-    if (initialCheckDone.current) return;
-    initialCheckDone.current = true;
-    
-    let unsubscribe: any;
-    
-    const initialize = async () => {
-      try {
-        if (auth && typeof auth.authStateReady === 'function') {
-          // Set a fallback timeout for safety
-          const readyPromise = auth.authStateReady();
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Auth synchronization timeout')), 3500)
-          );
-          try {
-            await Promise.race([readyPromise, timeoutPromise]);
-          } catch (e) {
-            console.warn('[BOOT] authStateReady timed out or failed, proceeding with fallback flow');
-          }
-        }
-        const firebaseUser = auth?.currentUser;
-        
-        if (firebaseUser) {
-          const token = await firebaseUser.getIdToken();
-          localStorage.setItem('hgs_token', token);
-          await checkAuth(token);
-        } else {
-          const savedToken = localStorage.getItem('hgs_token');
-          if (savedToken) {
-            await checkAuth(savedToken);
-          } else {
-            setUser(null);
-          }
-        }
-      } catch (e) {
-        console.error('Initialization error', e);
-      } finally {
-        setIsAuthChecking(false);
-        await checkMaintenance();
+  const refreshUser = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<{user: User}>('/api/auth/me', { headers: getAuthHeaders() });
+      if (data && data.user) {
+        setUser(data.user);
+        localStorage.setItem('hgs_user', JSON.stringify(data.user));
       }
-      
-      unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
-        try {
-          if (firebaseUser) {
-            const token = await firebaseUser.getIdToken();
-            const currentToken = localStorage.getItem('hgs_token');
-            if (token !== currentToken) {
-              localStorage.setItem('hgs_token', token);
-              await checkAuth(token);
-            }
-          } else {
-            const savedToken = localStorage.getItem('hgs_token');
-            if (!savedToken) {
-               setUser(null);
-               return;
-            }
+    } catch (err) {
+      console.error('Failed to refresh user:', err);
+    }
+  }, []);
 
-            localStorage.removeItem('hgs_token');
-            localStorage.removeItem('hgs_user');
-            setUser(null);
-          }
-        } catch (e) {
-          console.error('Auth change handling error', e);
-        }
-      });
-    };
-    
-    initialize();
-    
-    const listener = () => setUser(null);
-    const dbErrListener = (e: any) => {
-      console.warn('[StoreContext] Database connection error event caught:', e.detail);
-      setDbError(true);
-    };
-    
-    window.addEventListener('auth_error', listener);
-    window.addEventListener('database_error', dbErrListener);
-    
-    return () => {
-      if (unsubscribe) unsubscribe();
-      window.removeEventListener('auth_error', listener);
-      window.removeEventListener('database_error', dbErrListener);
-    };
-  }, []); // Empty dependencies as functions inside are stable
-
+  const fetchUser = refreshUser;
 
   const fetchCart = async (userId: number) => {
     try {
       const items = await fetchWithHandling<any[]>(`/api/cart?userId=${userId}`);
-      if (items && items.length > 0) {
+      if (items) {
         setCart(items.map((i: any) => ({
           id: i.product_id,
           name: i.name || 'Unknown Product',
@@ -267,35 +218,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {}
   };
 
-  // Removed simulatedRole
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [cartLoadedFromStorage, setCartLoadedFromStorage] = useState(true);
-  const [isSyncingCart, setIsSyncingCart] = useState(false);
-  const [isSyncCartPending, setIsSyncCartPending] = useState(false);
-  const [wishlist, setWishlist] = useState<number[]>([]);
-  const [config, setConfig] = useState<any[]>([]);
-  const [vibration, setVibration] = useState(true);
-  const [notifications, setNotifications] = useState(true);
-  const [sound, setSound] = useState(true);
-  const [adminTheme, setAdminTheme] = useState('theme-navy');
-  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
-  const [promotions, setPromotions] = useState<PromotionRule[]>([]);
-  const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
-  const [language, setLanguage] = useState<Language>('en');
-  const [addresses, setAddresses] = useState<UserAddress[]>([]);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
-  const [lastAddedId, setLastAddedId] = useState<number | null>(null);
-
-  // Sync effect hooks
-  useEffect(() => {
-    if (user && cartLoadedFromStorage) {
-      const timeoutId = setTimeout(() => syncCartToBackend(cart), 1000);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [cart, user, cartLoadedFromStorage]);
-  
   const syncCartToBackend = async (cartItems: CartItem[]) => {
     if (!user) return;
     setIsSyncingCart(true);
@@ -313,48 +235,60 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = async () => {
-    try { await signOutUser(); } catch (e) {}
-    try { await fetchWithHandling('/api/auth/logout', { method: 'POST' }); } catch (err) {}
-    setUser(null);
-    localStorage.removeItem('hgs_user');
-    localStorage.removeItem('hgs_token');
-    toast.success('Logged out');
-  };
-
-  const getProductPrice = (product: Product, userRole?: string) => {
-    const activeRole = userRole || user?.role;
-    if (activeRole === 'wholesaler' && product.wholesale_price) return product.wholesale_price;
-    return product.retail_price || product.price;
-  };
-
-  const hasPermission = (permission: Permission) => user?.permissions?.includes(permission) ?? false;
-  const calculateDiscount = (cart: CartItem[]) => 0; // Simplified
-  const updateProfile = async (data: Partial<User>) => {};
-  
-  const refreshUser = React.useCallback(async () => {
+  const fetchAddresses = React.useCallback(async () => {
+    if (!user) return;
     try {
-      const data = await fetchWithHandling<{user: User}>('/api/auth/me', { headers: getAuthHeaders() });
-      if (data && data.user) {
-        console.log('User refreshed:', data.user);
-        setUser(data.user);
-        localStorage.setItem('hgs_user', JSON.stringify(data.user));
+      const data = await fetchWithHandling<UserAddress[]>('/api/addresses', { headers: getAuthHeaders() });
+      if (data) {
+        setAddresses(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
       }
     } catch (err) {
-      console.error('Failed to refresh user:', err);
+      console.error('Failed to fetch addresses:', err);
     }
-  }, [setUser]);
+  }, [user]);
 
-  const fetchUser = refreshUser;
-  
-  const subscribeNewsletter = async (email: string) => {};
-  const fetchConfig = async () => {};
-  const fetchAddresses = async () => {};
-  const saveAddress = async (addr: any) => {};
-  const deleteAddress = async (id: number) => {};
-  const setDefaultAddress = async (id: number) => {};
-  const logActivity = async (t: string, d: string) => {};
-  const markAlertAsRead = async (id: number) => {};
+  const saveAddress = async (addr: Partial<UserAddress>) => {
+    try {
+      const isNew = !addr.id;
+      const data = await fetchWithHandling<UserAddress>(isNew ? '/api/addresses' : `/api/addresses/${addr.id}`, {
+        method: isNew ? 'POST' : 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(addr)
+      });
+      if (data) {
+        toast.success(isNew ? 'Address added!' : 'Address updated!');
+        await fetchAddresses();
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save address');
+    }
+  };
+
+  const deleteAddress = async (id: number) => {
+    try {
+      await fetchWithHandling<any>(`/api/addresses/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      toast.success('Address removed');
+      await fetchAddresses();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete address');
+    }
+  };
+
+  const setDefaultAddress = async (id: number) => {
+    try {
+      await fetchWithHandling<any>(`/api/addresses/${id}/default`, {
+        method: 'PATCH',
+        headers: getAuthHeaders()
+      });
+      toast.success('Default address set');
+      await fetchAddresses();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to set default address');
+    }
+  };
 
   const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
     setCart(prev => {
@@ -376,18 +310,111 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCart(prev => prev.map(item => item.id === productId && (variantId ? item.variantId === variantId : !item.variantId) ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item));
   };
 
-  const clearCart = () => {
-    setCart([]);
-  };
+  const clearCart = () => setCart([]);
 
   const toggleWishlist = (productId: number) => {
     setWishlist(prev => prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]);
     toast.success(wishlist.includes(productId) ? 'Removed from wishlist' : 'Added to wishlist');
   };
 
-  const simulatedRole = null;
-  const setSimulatedRole = (role: string | null) => {};
+  const logout = async () => {
+    try { await signOutUser(); } catch (e) {}
+    try { await fetchWithHandling('/api/auth/logout', { method: 'POST' }); } catch (err) {}
+    setUser(null);
+    localStorage.removeItem('hgs_user');
+    localStorage.removeItem('hgs_token');
+    toast.success('Logged out');
+  };
 
+  const getProductPrice = (product: Product, userRole?: string) => {
+    const activeRole = userRole || user?.role;
+    if (activeRole === 'wholesaler' && product.wholesale_price) return product.wholesale_price;
+    return product.retail_price || product.price;
+  };
+
+  const hasPermission = (permission: Permission) => user?.permissions?.includes(permission) ?? false;
+  const calculateDiscount = (cart: CartItem[]) => 0; // Simplified
+  const updateProfile = async (data: Partial<User>) => {};
+  const subscribeNewsletter = async (email: string) => {};
+  const fetchConfig = async () => {};
+  const logActivity = async (t: string, d: string) => {};
+  const markAlertAsRead = async (id: number) => {};
+
+  // 3. Effects
+  useEffect(() => {
+    if (initialCheckDone.current) return;
+    initialCheckDone.current = true;
+    
+    let unsubscribe: any;
+    const initialize = async () => {
+      try {
+        if (auth && typeof auth.authStateReady === 'function') {
+          const readyPromise = auth.authStateReady();
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Auth timeout')), 3500));
+          try {
+            await Promise.race([readyPromise, timeoutPromise]);
+          } catch (e) {}
+        }
+        const firebaseUser = auth?.currentUser;
+        if (firebaseUser) {
+          const token = await firebaseUser.getIdToken();
+          localStorage.setItem('hgs_token', token);
+          await checkAuth(token);
+        } else {
+          const savedToken = localStorage.getItem('hgs_token');
+          if (savedToken) await checkAuth(savedToken);
+          else setUser(null);
+        }
+      } catch (e) {
+      } finally {
+        setIsAuthChecking(false);
+        await checkMaintenance();
+      }
+      
+      unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+        if (firebaseUser) {
+          const token = await firebaseUser.getIdToken();
+          if (token !== localStorage.getItem('hgs_token')) {
+            localStorage.setItem('hgs_token', token);
+            await checkAuth(token);
+          }
+        } else {
+          if (localStorage.getItem('hgs_token')) {
+            localStorage.removeItem('hgs_token');
+            localStorage.removeItem('hgs_user');
+            setUser(null);
+          }
+        }
+      });
+    };
+    
+    initialize();
+    
+    const listener = () => setUser(null);
+    const dbErrListener = (e: any) => setDbError(true);
+    window.addEventListener('auth_error', listener);
+    window.addEventListener('database_error', dbErrListener);
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+      window.removeEventListener('auth_error', listener);
+      window.removeEventListener('database_error', dbErrListener);
+    };
+  }, [checkAuth, checkMaintenance]);
+
+  useEffect(() => {
+    if (user) fetchAddresses();
+    else setAddresses([]);
+  }, [user, fetchAddresses]);
+
+  useEffect(() => {
+    if (user && cartLoadedFromStorage) {
+      const timeoutId = setTimeout(() => syncCartToBackend(cart), 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [cart, user, cartLoadedFromStorage, syncCartToBackend]);
+
+  // 4. Context Provider
   const contextValue = React.useMemo(() => ({
     user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
     isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance, fetchCart,
@@ -396,14 +423,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sound, setSound, adminTheme, setAdminTheme, appliedCoupon, setAppliedCoupon,
     promotions, fetchPromotions, bulkDiscounts, fetchBulkDiscounts, getProductPrice,
     simulatedRole, setSimulatedRole,
-    language, setLanguage, t: (key: any) => translations[language][key as keyof typeof translations.en] || key, addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
-    isOnline, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
+    language, setLanguage, t: (key: any) => translations[language][key as keyof typeof translations.en] || key, 
+    addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
+    isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
     isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
-    isSyncCartPending, logActivity,
-    lastAddedId, fetchWithHandling,
-    showImages,
-    dbError, setDbError
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError]);
+    isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole]);
 
   return (
     <StoreContext.Provider value={contextValue}>

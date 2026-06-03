@@ -29,10 +29,30 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
     fetchOrderDetailsModal,
     handleBulkOrderAction,
     asyncExportData,
-    config
+    config,
 }) => {
     const [ordersViewMode, setOrdersViewMode] = useState<'table' | 'kanban'>('table');
     const [orderSearchTerm, setOrderSearchTerm] = useState('');
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    const handleManualRefresh = () => {
+        if (!isOnline) return;
+        setIsRefreshing(true);
+        if (fetchOrders) fetchOrders();
+        setTimeout(() => setIsRefreshing(false), 2000);
+    };
     const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
     const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
     const [orderDateStart, setOrderDateStart] = useState<string>('');
@@ -83,7 +103,20 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                 <h2 className="text-3xl font-bold text-stone-900 tracking-tight">Orders Registry</h2>
                 <p className="text-stone-500 text-sm mt-1 font-sans">Manage, track, and complete physical store orders.</p>
               </div>
-              <div className="bg-stone-100/80 p-1 rounded-2xl flex space-x-1 border border-stone-200/30">
+              <div className="flex bg-stone-100/80 p-1 rounded-2xl space-x-1 border border-stone-200/30">
+                <button 
+                  onClick={handleManualRefresh}
+                  disabled={!isOnline || isRefreshing}
+                  className={cn(
+                    "flex items-center space-x-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all font-sans uppercase tracking-wider",
+                    !isOnline ? "opacity-50 cursor-not-allowed" : "bg-white text-stone-900 shadow-sm hover:bg-stone-50"
+                  )}
+                  title="Manual Registry Refresh"
+                >
+                  <RefreshCw size={14} className={cn(isRefreshing && "animate-spin")} />
+                  <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+                </button>
+                <div className="w-px h-6 bg-stone-200 self-center mx-1" />
                 <button 
                   onClick={() => setOrdersViewMode('table')}
                   className={cn(

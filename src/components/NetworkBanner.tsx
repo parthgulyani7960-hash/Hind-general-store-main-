@@ -4,7 +4,7 @@ import { WifiOff, AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const NetworkBanner = () => {
-  const isOnline = useNetwork();
+  const { isOnline } = useNetwork();
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(() => {
     try {

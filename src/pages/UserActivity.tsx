@@ -85,13 +85,6 @@ export default function UserActivity() {
     }
   };
 
-  const maskPhoneNumber = (phone: string | null | undefined) => {
-    if (!phone) return 'N/A';
-    const clean = phone.trim();
-    if (clean.length < 4) return '********';
-    return clean.slice(0, 3) + '****' + clean.slice(-3);
-  };
-
   if (loading) return <LoadingFallback message="Synchronizing Activity Logs..." />;
 
   return (

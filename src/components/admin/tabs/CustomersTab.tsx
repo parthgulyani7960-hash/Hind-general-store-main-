@@ -5,7 +5,7 @@ import {
   ShieldCheck, Clock, AlertCircle, IndianRupee, Activity, LayoutDashboard, Database
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '@/lib/utils';
+import { cn, formatPhoneNumber } from '@/lib/utils';
 import ExportTriggerButton from '@/components/admin/ExportTriggerButton';
 
 interface CustomersTabProps {
@@ -20,13 +20,6 @@ interface CustomersTabProps {
     getAuthHeaders: () => any;
     toast: any;
 }
-
-const maskPhoneNumber = (phone: string | null | undefined) => {
-    if (!phone) return 'HIDDEN CONTACT';
-    const p = phone.toString();
-    if (p.length < 4) return '***';
-    return p.substring(0, 3) + '****' + p.substring(p.length - 3);
-};
 
 const CustomersTab: React.FC<CustomersTabProps> = ({
     users,
@@ -43,6 +36,10 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
     const [customerSearchTerm, setCustomerSearchTerm] = useState('');
     const [selectedSegment, setSelectedSegment] = useState('all');
     const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
+
+    const displayPhoneNumber = (phone: string | null | undefined) => {
+        return formatPhoneNumber(phone);
+    };
 
     const filteredUsers = users.filter(u => {
         const matchesSearch = !customerSearchTerm || 
@@ -162,7 +159,7 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
                             </div>
                             <div>
                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight select-text">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown User')}</p>
-                              <p className="text-xs text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5 select-text">{maskPhoneNumber(u.phone) || u.email}</p>
+                              <p className="text-xs text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5 select-text">{displayPhoneNumber(u.phone) || u.email}</p>
                             </div>
                           </div>
                         </td>

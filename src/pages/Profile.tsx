@@ -17,7 +17,7 @@ import WholesaleInsights from '@/components/WholesaleInsights';
 import LocationPicker from '@/components/LocationPicker';
 import WalletModal from '@/components/WalletModal';
 import { fetchWithHandling } from '@/lib/api';
-import { getAuthHeaders } from '@/lib/utils';
+import { getAuthHeaders, formatPhoneNumber, isValidPhone } from '@/lib/utils';
 import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
 import { autofillLocation } from '@/lib/geocoding';
 import { 
@@ -155,11 +155,8 @@ export default function Profile() {
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
 
-  const maskPhoneNumber = (phone: string | null | undefined) => {
-    if (!phone) return 'N/A';
-    const clean = phone.trim();
-    if (clean.length < 4) return '********';
-    return clean.slice(0, 3) + '****' + clean.slice(-3);
+  const displayPhoneNumber = (phone: string | null | undefined) => {
+    return formatPhoneNumber(phone);
   };
   const [deliveryAreas, setDeliveryAreas] = useState<any[]>([]);
 
@@ -590,7 +587,23 @@ export default function Profile() {
     return null;
   }
 
+  const handlePhoneChange = (key: 'phone' | 'alternate_phone', val: string) => {
+    const cleaned = val.replace(/\D/g, '').slice(0, 10);
+    setFormData({ ...formData, [key]: cleaned });
+  };
+
   const handleSave = async () => {
+    // Phone validation
+    if (!isValidPhone(formData.phone)) {
+      toast.error('Primary phone must be exactly 10 digits');
+      return;
+    }
+
+    if (formData.alternate_phone && !isValidPhone(formData.alternate_phone)) {
+      toast.error('Alternate phone must be exactly 10 digits');
+      return;
+    }
+
     // Address validation
     if (formData.street_address && formData.street_address.length < 5) {
       toast.error('Street address is too short');
@@ -835,21 +848,36 @@ export default function Profile() {
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Phone Number</label>
                   <input 
-                    type="text" 
-                    className="input-field" 
+                    type="tel" 
+                    className={cn(
+                      "input-field",
+                      formData.phone && !isValidPhone(formData.phone) ? "border-amber-400" : ""
+                    )}
                     value={formData.phone}
-                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                    onChange={(e) => handlePhoneChange('phone', e.target.value)}
+                    maxLength={10}
+                    placeholder="10-digit mobile"
                   />
+                  {formData.phone && formData.phone.length > 0 && formData.phone.length < 10 && (
+                    <p className="text-[10px] text-amber-600 font-bold mt-1 uppercase">Requires 10 digits ({formData.phone.length}/10)</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Alt. Phone</label>
                   <input 
-                    type="text" 
-                    className="input-field" 
+                    type="tel" 
+                    className={cn(
+                      "input-field",
+                      formData.alternate_phone && !isValidPhone(formData.alternate_phone) ? "border-amber-400" : ""
+                    )}
                     value={formData.alternate_phone}
+                    onChange={(e) => handlePhoneChange('alternate_phone', e.target.value)}
+                    maxLength={10}
                     placeholder="Secondary contact"
-                    onChange={(e) => setFormData({...formData, alternate_phone: e.target.value})}
                   />
+                  {formData.alternate_phone && formData.alternate_phone.length > 0 && formData.alternate_phone.length < 10 && (
+                    <p className="text-[10px] text-amber-600 font-bold mt-1 uppercase">Requires 10 digits ({formData.alternate_phone.length}/10)</p>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -1234,7 +1262,7 @@ export default function Profile() {
                                     <span className="bg-primary text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full">Default</span>
                                   )}
                                 </div>
-                                <p className="text-xs text-stone-600 font-medium">{maskPhoneNumber(addr.phone)}</p>
+                    <p className="text-xs text-stone-600 font-medium">{displayPhoneNumber(addr.phone)}</p>
                                 <p className="text-xs text-stone-500 mt-2 leading-relaxed">
                                   {addr.house_number ? `${addr.house_number}, ` : ''}{addr.address}, {addr.city}, {addr.state} - {addr.pin_code}
                                 </p>
@@ -2385,6 +2413,13 @@ export default function Profile() {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
                   const data = Object.fromEntries(formData);
+                  
+                  const phone = data.phone as string;
+                  if (!isValidPhone(phone)) {
+                    toast.error('Please enter a valid 10-digit mobile number');
+                    return;
+                  }
+
                   await saveAddress({
                     ...data,
                     id: editingAddress?.id,
@@ -2424,9 +2459,16 @@ export default function Profile() {
                     <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Mobile Number</label>
                     <input 
                       name="phone"
+                      type="tel"
                       required
                       defaultValue={editingAddress?.phone}
                       placeholder="10 digit number"
+                      maxLength={10}
+                      onKeyPress={(e) => {
+                        if (!/[0-9]/.test(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
                       className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 placeholder:text-stone-300"
                     />
                   </div>

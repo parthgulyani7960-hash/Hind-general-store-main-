@@ -3,6 +3,7 @@ import { Bug, RefreshCw, Search, Eye, X, Server } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { adminService } from '@/services/adminService';
 import { getAuthHeaders } from '@/lib/utils';
+import { fetchWithHandling } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 const SystemLogsTab: React.FC = () => {

@@ -12,6 +12,9 @@ import toast from 'react-hot-toast';
 import UserAvatar from '@/components/UserAvatar';
 import { getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
+import SupportChat from '@/components/SupportChat';
+import { db } from '@/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function Support() {
   const { user, logout, refreshUser, config = [], fetchConfig, simulatedRole } = useStore();
@@ -116,6 +119,22 @@ export default function Support() {
           image_url: imageUrl
         })
       });
+
+      // Also save to Firestore for real-time chat
+      if (data && data.ticket_id || data?.id) {
+        const ticketId = String(data.ticket_id || data.id || Date.now());
+        await addDoc(collection(db, 'tickets'), {
+          id: ticketId,
+          user_id: user?.id || null,
+          user_name: form.name,
+          subject: form.subject,
+          message: form.message,
+          status: 'open',
+          created_at: serverTimestamp(),
+          image_url: imageUrl
+        });
+      }
+
       if (data) {
         toast.success('Support ticket created! We will contact you soon.');
         setForm(prev => ({ ...prev, subject: '', message: '', image: null }));
@@ -243,6 +262,20 @@ export default function Support() {
             </a>
           ))}
         </div>
+
+        {user && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-black text-stone-900">Active Support Corridors</h2>
+              <div className="px-4 py-1 bg-primary/10 text-primary rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse">Live Link Active</div>
+            </div>
+            <SupportChat user={user} />
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
             {/* Direct Message Form */}

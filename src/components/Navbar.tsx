@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import UserAvatar from './UserAvatar';
 import SearchOverlay from './SearchOverlay';
 import NotificationBell from './NotificationBell';
+import NetworkStatusIndicator from './NetworkStatusIndicator';
 
 const MiniCart = ({ cart, isOpen, showImages }: { cart: any[], isOpen: boolean, showImages: boolean }) => {
   const { t } = useStore();
@@ -154,12 +155,6 @@ export default function Navbar() {
         <div className="absolute inset-0 bg-gradient-to-r from-teal-400 via-indigo-500 to-pink-500 mix-blend-overlay blur-sm animate-pulse opacity-85" />
       </div>
 
-      {!isOnline && (
-        <div className="bg-red-500 text-white text-center py-1.5 text-[10px] font-black uppercase tracking-widest z-[60] shadow-inner">
-          ⚠️ Offline Mode - Local state protection enabled
-        </div>
-      )}
-
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-18 items-center">
           
@@ -259,6 +254,11 @@ export default function Navbar() {
             )}
 
             <div className="h-6 w-px bg-slate-100 hidden md:block" />
+            
+            {/* Real-time Network Indicator */}
+            <div className="hidden sm:block">
+              <NetworkStatusIndicator />
+            </div>
 
             {/* Notification Bell with Micro-Badge */}
             <div className="hidden sm:block">
