@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { LogIn, X, AlertCircle, RefreshCw } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
+import { logger } from '@/lib/logger';
 
 export default function AuthErrorReloader() {
   const [showError, setShowError] = useState(false);
@@ -16,8 +17,8 @@ export default function AuthErrorReloader() {
       // Don't show if we're already on the login page
       if (window.location.pathname === '/login') return;
       
-      console.warn('[AUTH ERROR RELOADER] Caught auth error event', event.detail?.url);
-      setErrorDetails(event.detail?.url || 'Unauthorized access detected');
+      logger.warn('[AUTH ERROR RELOADER] Caught auth error event');
+      setErrorDetails('Unauthorized access detected');
       setShowError(true);
     };
 
@@ -28,7 +29,7 @@ export default function AuthErrorReloader() {
   // Automatically redirect users to their dashboard/intended target if session has been successfully restored
   useEffect(() => {
     if (showError && user) {
-      console.log('[AUTH ERROR RELOADER] Session successfully restored! Dismissing error overlay.');
+      logger.info('Session successfully restored. Dismissing error overlay.');
       setShowError(false);
       
       // Determine dashboard destination based on user role

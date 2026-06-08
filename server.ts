@@ -2,68 +2,87 @@ console.log('[BOOT STEP 1] Starting server.ts execution');
 process.on('warning', (warning) => console.warn('[NODE_WARNING]', warning));
 
 // Privacy & Security Logger Redactor
+// Implements strict production logging policy: only log errors, redact all sensitive data.
 function redactConsole() {
   const originalLog = console.log;
   const originalWarn = console.warn;
   const originalError = console.error;
   const originalInfo = console.info;
 
-  const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
+  const isProduction = process.env.NODE_ENV === 'production';
 
-  function redact(arg: any): any {
-    if (typeof arg === 'string') {
-      let redacted = arg.replace(emailRegex, '[REDACTED_EMAIL]');
-      
-      // Filter out or mask sensitive details in production
-      if (process.env.NODE_ENV === 'production') {
-        // Redact any database IDs, project IDs, roles, uid, credentials, internal auth details, verification decisions
-        if (/Firebase|Firestore|Auth|Token|UID|userId|user_id|role|admin|balance|device|ip|timestamp|project|database|credentials|permission/i.test(redacted)) {
-          redacted = redacted.replace(/(Firebase|Firestore|Auth|Token|Bearer|getIdToken)/ig, '[PRIVACY_SEC_INTERNAL_SHIELD]');
-          redacted = redacted.replace(/(userId|user_id|uid|UID)\s*(?::|=)?\s*([a-zA-Z0-9_-]+)/ig, 'id: [REDACTED_ID]');
-          redacted = redacted.replace(/(role\s*(?::|=)?\s*)(["']?admin["']?)/ig, '$1 [REDACTED_ROLE]');
-          redacted = redacted.replace(/(balance|wallet|khata)\s*(?::|=)?\s*([\d.]+)/ig, '$1: [REDACTED_BALANCE]');
-          redacted = redacted.replace(/(ip|ip_address)\s*(?::|=)?\s*([\d.]+)/ig, '$1: [REDACTED_IP]');
-          redacted = redacted.replace(/(timestamp|login_time)\s*(?::|=)?\s*([^,\n}]+)/ig, '$1: [REDACTED_TIMESTAMP]');
-          redacted = redacted.replace(/(projectid|projectId|project_id|databaseId|database_id|firestoreDatabaseId)\s*(?::|=)?\s*([a-zA-Z0-9_-]+)/ig, '$1: [REDACTED_METADATA]');
-          redacted = redacted.replace(/(permission|role|admin|isUserAdmin|verification|authDecision)\s*(?::|=)?\s*([^,\n}]+)/ig, '$1: [REDACTED_ACCESS_CONTROL]');
+  function redact(data: any): any {
+    if (typeof data !== 'object' || data === null) {
+      if (typeof data === 'string') {
+        // Redact emails
+        const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
+        let redacted = data.replace(emailRegex, '[REDACTED_IDENTITY]');
+        
+        // Redact common sensitive patterns in production
+        if (isProduction) {
+          // Mask UIDs, IDs, Keys
+          if (data.length > 25 && /^[a-zA-Z0-9-_]+$/.test(data)) return '[REDACTED_HASH]';
+          
+          // Pattern-based redaction for strings that look like "role: admin" etc.
+          const sensitivePatterns = [
+            /role\s*[:=]\s*\w+/gi,
+            /(is|user)admin\s*[:=]\s*\w+/gi,
+            /permission\s*[:=]\s*\w+/gi,
+            /uid\s*[:=]\s*[a-zA-Z0-9_-]+/gi,
+            /userid\s*[:=]\s*[a-zA-Z0-9_-]+/gi,
+            /password\s*[:=]\s*[^\s,{}]+/gi,
+            /secret\s*[:=]\s*[^\s,{}]+/gi,
+            /token\s*[:=]\s*[^\s,{}]+/gi
+          ];
+          
+          sensitivePatterns.forEach(pattern => {
+            redacted = redacted.replace(pattern, (match) => match.split(/[:=]/)[0] + ': [REDACTED_SENSITIVE]');
+          });
         }
+        return redacted;
       }
-      return redacted;
-    } else if (arg && typeof arg === 'object') {
-      try {
-        const str = JSON.stringify(arg);
-        if (str) {
-          let redactedStr = str.replace(emailRegex, '[REDACTED_EMAIL]');
-          if (process.env.NODE_ENV === 'production') {
-            redactedStr = redactedStr.replace(/"(email|userId|user_id|uid|role|wallet_balance|khata_balance|ip|timestamp|firebase|firestore|project_id|projectId|databaseId|database_id|permission|isUserAdmin|admin)"\s*:\s*([^,}]+)/ig, (match, key, val) => {
-              const lowerKey = key.toLowerCase();
-              if (lowerKey === 'role' || lowerKey.includes('permission') || lowerKey.includes('admin') || lowerKey.includes('useradmin')) {
-                return `"${key}":"[REDACTED_ACCESS_CONTROL]"`;
-              }
-              if (lowerKey.includes('balance')) return `"${key}":"[REDACTED_BALANCE]"`;
-              if (lowerKey.includes('id') || lowerKey === 'uid') return `"${key}":"[REDACTED_ID]"`;
-              if (lowerKey.includes('ip')) return `"${key}":"[REDACTED_IP]"`;
-              if (lowerKey.includes('timestamp')) return `"${key}":"[REDACTED_TIMESTAMP]"`;
-              if (lowerKey.includes('firebase') || lowerKey.includes('firestore') || lowerKey.includes('project') || lowerKey.includes('database')) {
-                return `"${key}":"[REDACTED_METADATA]"`;
-              }
-              return `"${key}":"[REDACTED]"`;
-            });
-          }
-          return JSON.parse(redactedStr);
-        }
-      } catch (e) {
-        return '[REDACTED_OBJECT]';
+      return data;
+    }
+
+    if (Array.isArray(data)) {
+      return data.map(item => redact(item));
+    }
+
+    const redacted: Record<string, any> = {};
+    for (const key in data) {
+      const value = data[key];
+      const lowKey = key.toLowerCase();
+      
+      const isSensitiveKey = 
+        lowKey.includes('email') || 
+        lowKey.includes('uid') || 
+        lowKey.includes('phone') ||
+        lowKey.includes('password') || 
+        lowKey.includes('token') ||
+        lowKey.includes('role') ||
+        lowKey.includes('permission') ||
+        lowKey.includes('isadmin') ||
+        lowKey.includes('secret') ||
+        lowKey.includes('key') ||
+        lowKey.includes('auth') ||
+        lowKey.includes('idtoken') ||
+        lowKey.includes('credential');
+
+      if (isSensitiveKey && isProduction) {
+        redacted[key] = '[REDACTED_PROTECTED]';
+      } else if (typeof value === 'object') {
+        redacted[key] = redact(value);
+      } else {
+        redacted[key] = value;
       }
     }
-    return arg;
+    return redacted;
   }
 
-  const wrapLog = (orig: (...args: any[]) => void) => {
+  const wrapLog = (orig: (...args: any[]) => void, level: 'log' | 'warn' | 'info' | 'error') => {
     return (...args: any[]) => {
-      if (process.env.NODE_ENV === 'production') {
-        // Redact and print only if it's an error level.
-        // But some warnings might arise, let's keep it safe.
+      if (isProduction && level !== 'error') {
+        // Strict Policy: Remove all debug/console/warn logs in production.
         return;
       }
       const redactedArgs = args.map(arg => redact(arg));
@@ -71,17 +90,10 @@ function redactConsole() {
     };
   };
 
-  const wrapErrorLog = (orig: (...args: any[]) => void) => {
-    return (...args: any[]) => {
-      const redactedArgs = args.map(arg => redact(arg));
-      orig(...redactedArgs);
-    };
-  };
-
-  console.log = wrapLog(originalLog);
-  console.warn = wrapLog(originalWarn);
-  console.info = wrapLog(originalInfo);
-  console.error = wrapErrorLog(originalError);
+  console.log = wrapLog(originalLog, 'log');
+  console.warn = wrapLog(originalWarn, 'warn');
+  console.info = wrapLog(originalInfo, 'info');
+  console.error = wrapLog(originalError, 'error');
 }
 
 try {
@@ -92,7 +104,12 @@ import express from 'express';
 import crypto from 'crypto';
 console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
+import { validateEnvironment } from './src/lib/envCheck';
+import { logger } from './src/lib/logger';
+
 console.log('[BOOT] Dotenv loaded');
+validateEnvironment();
+logger.info('Environment validation completed.');
 import cron from 'node-cron';
 import 'express-session';
 
@@ -435,226 +452,102 @@ console.log('[BOOT STEP 2.4] performInitialization defined');
 
 console.log('[BOOT STEP 2.4] performInitialization starting');
 async function performInitialization(): Promise<void> {
-  console.log('[INIT START]');
-  console.log('[BOOT STEP 3] performInitialization started');
+  logger.info('[FIREBASE_INIT] Starting initialization sequence...');
   
   try {
-    // 0. Enforce Singleton / Ready State
-    if (admin.apps.length === 1) {
-      console.log('[INIT COMPLETE] Firebase Admin already initialized. Apps length:', admin.apps.length);
+    // 0. Enforce Singleton
+    if (admin.apps.length > 0) {
+      logger.info(`[FIREBASE_INIT] Already initialized (Apps: ${admin.apps.length})`);
       isFirebaseReady = true;
       return;
-    } else if (admin.apps.length > 1) {
-       console.error('[INIT ERROR] Multiple apps found:', admin.apps.length);
-       throw new Error('Multiple Firebase apps initialized.');
     }
 
     dbConnectionStatus.mode = 'INITIALIZING';
-    dbConnectionStatus.details = 'Searching for credentials and finalizing environment configuration...';
-    
-    console.log('[FIREBASE] Starting initialization...');
-    // To:
-    /*
-    347:  try {
-    348:  console.log('[BOOT] Checking Firebase Admin initialization status...');
-    349:  if (admin.apps.length === 1) {
-    350:    console.log('[INIT COMPLETE] Firebase already initialized.');
-    351:    isFirebaseReady = true;
-    352:    return;
-    353:  }
-    354:  if (admin.apps.length > 1) {
-    355:    throw new Error('Multiple Firebase applications initialized.');
-    356:  }
-    */
-    
-    // (And keep the rest of the existing code loading)
+    dbConnectionStatus.details = 'Verifying environment and credentials...';
 
-  dbConnectionStatus.mode = 'INITIALIZING';
-  dbConnectionStatus.details = 'Searching for credentials and finalizing environment configuration...';
-  
-  console.log('[FIREBASE] Starting initialization...');
-  console.log('[FIREBASE] Environment details:', {
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      databaseId: process.env.FIREBASE_DATABASE_ID
-  });
+    // 1. Environment Guard
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID || config?.projectId;
 
-  // 1. Resolve and load config file
-  let configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  if (!fs.existsSync(configPath)) {
-    configPath = path.join(process.cwd(), 'src/config', 'firebase-applet-config.json');
-  }
-  if (!fs.existsSync(configPath)) {
-    configPath = path.join(__dirname, 'firebase-applet-config.json');
-  }
-  if (!fs.existsSync(configPath)) {
-    configPath = path.join(__dirname, '..', 'firebase-applet-config.json');
-  }
-  if (fs.existsSync(configPath)) {
-    try {
-      const loadedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      config = mergeFirebaseConfigs(STATIC_BASELINE_CONFIG, loadedConfig);
-      
-      // Locking to the static baseline custom DB ID if the parsed file has placeholders
-      if (!config.firestoreDatabaseId || config.firestoreDatabaseId === '(default)' || config.firestoreDatabaseId === 'mock-project') {
-        console.log('[FIREBASE] Validating custom Database ID; fell back to static baseline custom Firestore Database ID:', STATIC_BASELINE_CONFIG.firestoreDatabaseId);
-        config.firestoreDatabaseId = STATIC_BASELINE_CONFIG.firestoreDatabaseId;
-      }
-
-      console.log('[FIREBASE] Using Firestore Database ID:', config.firestoreDatabaseId);
-      if (config.firestoreDatabaseId !== '(default)') {
-        console.warn('[FIREBASE] WARNING: Using non-default Firestore Database ID. If this is causing connection errors, ensure it matches the actual database ID in your Firebase project console. Standard ID is "(default)".');
-      }
-      console.log('[FIREBASE] Config baseline loaded and sanitized from file:', configPath);
-    } catch (err: any) {
-      console.error('[FIREBASE] Error reading runtime config file, using static baseline:', err.message);
+    if (!serviceAccountKey) {
+      const error = 'FIREBASE_SERVICE_ACCOUNT_KEY is missing from environment variables.';
+      dbConnectionStatus.mode = 'ERROR';
+      dbConnectionStatus.details = error;
+      logger.error(`[FIREBASE_INIT] ${error}`);
+      throw new Error(error);
     }
-  } else {
-    console.log('[FIREBASE] Runtime config file not found; utilizing statically bundled baseline config.');
-  }
 
-  // 2. Extract final configurations and enforce strict checks
-  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  let serviceAccountProjectId = 'None (Service Account Key is missing)';
-  let certData: any = null;
-
-  if (serviceAccountKey) {
+    // 2. Parse Credentials
+    let certData: any;
     try {
       certData = JSON.parse(serviceAccountKey);
-      serviceAccountProjectId = certData.project_id || certData.projectId || 'Unknown';
     } catch (parseErr: any) {
-      console.error('[FIREBASE] CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON! Error:', parseErr.message);
-      let cleanedKey = serviceAccountKey.trim();
-      if ((cleanedKey.startsWith('"') && cleanedKey.endsWith('"')) || (cleanedKey.startsWith("'") && cleanedKey.endsWith("'"))) {
-        cleanedKey = cleanedKey.substring(1, cleanedKey.length - 1);
-      }
+      // Attempt recovery from escaped string if it's a JSON string
       try {
-        certData = JSON.parse(cleanedKey);
-        serviceAccountProjectId = certData.project_id || certData.projectId || 'Unknown';
-      } catch (e2: any) {
-        console.error('[FIREBASE] Parsing serviceAccountKey failed even after cleanup.');
+        let cleaned = serviceAccountKey.trim();
+        if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+          cleaned = cleaned.substring(1, cleaned.length - 1);
+        }
+        certData = JSON.parse(cleaned);
+      } catch (e2) {
+        const error = `Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: ${parseErr.message}`;
+        dbConnectionStatus.mode = 'ERROR';
+        dbConnectionStatus.details = error;
+        logger.error(`[FIREBASE_INIT] ${error}`);
+        throw new Error(error);
       }
     }
-  }
 
+    const finalProjectId = certData.project_id || certData.projectId || projectId;
+    if (!finalProjectId || finalProjectId === 'mock-project') {
+      const error = 'Firebase Project ID is missing or invalid.';
+      dbConnectionStatus.mode = 'ERROR';
+      dbConnectionStatus.details = error;
+      logger.error(`[FIREBASE_INIT] ${error}`);
+      throw new Error(error);
+    }
 
-  console.log('[BOOT STEP 3.1] Checking Firebase Project ID');
-  const envProjectId = process.env.FIREBASE_PROJECT_ID || config?.projectId || serviceAccountProjectId;
-  console.log('[BOOT STEP 3.2] Checking Firebase Database ID');
-  const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
-
-  // Enforce mandatory fail-fast gates
-  if (!serviceAccountKey || !certData) {
-    console.error('================================================================');
-    console.error('❌ BOOT ERROR: FIREBASE_SERVICE_ACCOUNT_KEY environment secret is missing or invalid.');
-    console.error('Environment check:', { 
-        hasKey: !!serviceAccountKey,
-        keyLength: serviceAccountKey?.length,
-        hasCertData: !!certData 
+    // 3. Initialize Admin SDK
+    logger.info(`[FIREBASE_INIT] Initializing for project: ${finalProjectId}`);
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: certData.project_id || certData.projectId,
+        clientEmail: certData.client_email || certData.clientEmail,
+        privateKey: certData.private_key || certData.privateKey
+      }),
+      projectId: finalProjectId
     });
-    console.error('================================================================');
-    throw new Error('BOOT FAILURE: FIREBASE_SERVICE_ACCOUNT_KEY missing or invalid.');
-  }
 
-  if (!envProjectId || envProjectId === 'mock-project') {
-    console.error('================================================================');
-    console.error('❌ BOOT ERROR: FIREBASE_PROJECT_ID is missing or set to a mock project placeholder.');
-    console.error('Environment check:', { envProjectId });
-    console.error('================================================================');
-    throw new Error('BOOT FAILURE: FIREBASE_PROJECT_ID missing or mock.');
-  }
-
-  // 3. Log Startup Diagnostics BEFORE initializing
-  console.log('================================================================');
-  console.log('🔥 FIREBASE STARTUP DIAGNOSTICS');
-  console.log(`* admin.apps.length before init: ${admin.apps.length}`);
-  console.log(`* Firebase Project ID: ${envProjectId}`);
-  console.log(`* Firestore Database ID: ${envDatabaseId}`);
-  console.log(`* Service Account Project ID: ${serviceAccountProjectId}`);
-  console.log('================================================================');
-
-  if (!serviceAccountKey) {
-    console.error('FIREBASE_SERVICE_ACCOUNT_KEY env var is missing');
-  }
-
-  const promiseWithTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
-    ]);
-  };
-
-    console.log('[BOOT] Initializing Firebase Admin SDK...');
-    console.log('[BOOT STEP 4] Initializing Firebase Admin...');
-    console.log('[FIREBASE] admin.apps.length before init:', admin.apps.length);
-    console.log('[FIREBASE] Attempting Certified Initialization... (admin)');
+    // 4. Verify Firestore Instance
+    const envDatabaseId = process.env.FIREBASE_DATABASE_ID || config?.firestoreDatabaseId || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+    const db = getFirestore(admin.app(), envDatabaseId);
     
-    if (admin.apps.length > 0) {
-      console.log('[FIREBASE] Admin app already exists, using existing instance.');
-      const existingApp = admin.app();
-      console.log('[FIREBASE] Existing App Project ID:', existingApp.options.projectId);
-    } else {
-        console.log('[FIREBASE] No apps found. Initializing new app.');
-        console.log('FIREBASE_PROJECT_ID:', envProjectId);
-        console.log('Firebase Cert Data Keys:', certData ? Object.keys(certData) : 'null');
-        
-        try {
-            console.log('[ADMIN INIT ENTER]');
-            process.env.FIREBASE_PROJECT_ID && console.log(`[FIREBASE_PROJECT_ID] present: ${process.env.FIREBASE_PROJECT_ID.substring(0, 5)}...`);
-            console.log(`[ADMIN INIT] admin.apps.length=${admin.apps.length}`);
-            
-            admin.initializeApp({
-                credential: admin.credential.cert({
-                    projectId: certData.project_id || certData.projectId,
-                    clientEmail: certData.client_email || certData.clientEmail,
-                    privateKey: certData.private_key || certData.privateKey
-                }),
-                projectId: envProjectId
-            });
+    // Fast verification
+    await Promise.race([
+      db.collection('_health_').limit(1).get(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection timed out during initialization verification')), 3000))
+    ]);
 
-            console.log('[ADMIN INIT SUCCESS]');
-            console.log(`[INIT COMPLETE] admin.apps.length: ${admin.apps.length}`);
-            
-            if (admin.apps.length !== 1) {
-                throw new Error('Initialization failed: apps length is not 1 after initializeApp');
-            }
-        } catch (initErr: any) {
-            console.error('[ADMIN INIT FAILURE]');
-            console.error(`[ADMIN INIT ERROR] message: ${initErr.message}`);
-            console.error(`[ADMIN INIT ERROR] stack: ${initErr.stack}`);
-            throw initErr;
-        }
-    }
-
-    console.log('[BOOT STEP 5] Firebase Admin Initialization Result: SUCCESS');
-
-    console.log('[BOOT] BEFORE FIRESTORE');
-    try {
-        const db = getFirestore();
-        console.log('[BOOT] AFTER FIRESTORE');
-        console.log('[BOOT] Firestore instance acquired successfully');
-    } catch (fsErr: any) {
-        console.error('[BOOT ERROR] Failed to acquire Firestore instance:', fsErr.message);
-        console.error(fsErr.stack);
-        throw fsErr;
-    }
     isFirebaseReady = true;
     dbConnectionStatus.mode = 'PRODUCTION';
     dbConnectionStatus.active = true;
-    dbConnectionStatus.isFallback = false;
-    dbConnectionStatus.details = `Connected to Production Firestore (Project: ${envProjectId}, DB: ${envDatabaseId})`;
-    
-    console.log('[BOOT] Skipping heavy audit and probe for faster startup.');
-    return;
+    dbConnectionStatus.details = `Connected to Firestore (Project: ${finalProjectId}, Database: ${envDatabaseId})`;
+    logger.info(`[FIREBASE_INIT] Success: ${dbConnectionStatus.details}`);
+
   } catch (err: any) {
     initializationError = err.message;
-    console.error('================================================================');
-    console.error('* Firebase Admin Initialization Result: FAILED');
-    console.error(`* Firestore Connection Result: FAILED (${err.message})`);
-    console.error('* Full Error Details:', err);
-    console.error('================================================================');
-    console.error('❌ BOOT FAILURE: Firestore is unavailable or failed to initialize.');
-    console.error('================================================================');
-    throw err; // Throw to let startServer handle it
+    dbConnectionStatus.mode = 'ERROR';
+    dbConnectionStatus.details = err.message;
+    logger.error('[FIREBASE_INIT] Failed:', {
+      message: err.message,
+      stack: err.stack,
+      env: {
+        nodeEnv: process.env.NODE_ENV,
+        hasKey: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+        projectId: process.env.FIREBASE_PROJECT_ID
+      }
+    });
+    throw err;
   }
 }
 
@@ -677,14 +570,49 @@ const handleAppError = (err: any, message: string, context: string) => {
 
 console.log('[BOOT] Creating Express instance');
 const app = express();
+// Standardized Request Logger
+app.use((req, res, next) => {
+  const start = Date.now();
+  const requestId = crypto.randomUUID().slice(0, 8);
+  (req as any).id = requestId;
+  
+  logger.info(`[REQ] ${requestId} | ${req.method} ${req.path}`);
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.route(req.method, req.path, res.statusCode, duration);
+  });
+  next();
+});
 
 const ensureFirebaseReady = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
+    // Health and base status routes are always allowed even if Firebase fails
+    const bypassedPaths = [
+      '/api/health',
+      '/api/boot-status',
+      '/api/health-debug',
+      '/ping'
+    ];
+    
+    if (bypassedPaths.includes(req.path)) {
+      return next();
+    }
+    
     await appReady;
     next();
   } catch (err: any) {
-    console.error('[CRITICAL] Firebase initialization failed, blocking API request:', err.message);
-    res.status(503).json({ success: false, message: 'Database initialization failed' });
+    logger.error(`[CRITICAL] Request blocked - Firebase failed: ${err.message}`, {
+      path: req.path,
+      requestId: (req as any).id
+    });
+    res.status(503).json({ 
+      success: false, 
+      error: 'Service Unavailable', 
+      message: 'Database initialization failed. Please check backend logs.',
+      recoveryStatus: dbConnectionStatus.mode,
+      details: err.message
+    });
   }
 };
 app.use('/api', ensureFirebaseReady);
@@ -709,102 +637,6 @@ app.get('/api/boot-status', (req, res) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
-});
-
-app.use(async (req, res, next) => {
-  // console.log(`[DEBUG] Request received: ${req.method} ${req.path}`);
-  const isApi = req.path.startsWith('/api');
-  
-  // Inject Database Status for frontend visibility
-  res.setHeader('X-DB-Connection-Mode', dbConnectionStatus.mode);
-  if (dbConnectionStatus.isFallback) {
-    res.setHeader('X-DB-Status-Warning', 'SANDBOX_MODE_ACTIVE');
-  }
-
-  // Initialization Guard for Production Environments
-  // Prevents serving "empty" data while real DB is still connecting
-  if (isApi && req.path !== '/api/health' && req.path !== '/api/firebase-config' && req.path !== '/ping') {
-    if (dbConnectionStatus.mode === 'INITIALIZING') {
-        return res.status(503).json({ 
-            success: false, 
-            message: 'Database initialization in progress. Please retry momentarily.',
-            dbStatus: { ...dbConnectionStatus, lastCheck: new Date().toISOString() }
-        });
-    }
-  }
-
-  if (isApi) {
-    if (req.url === '/') console.log('[REQ] Root request received');
-    console.log(`[REQ][${new Date().toISOString()}] ${req.method} ${req.url} | Host: ${req.headers.host} | Proto: ${req.headers['x-forwarded-proto']}`);
-  }
-
-  // Intercept 500 errors to consistently log via logServerError and enrich responses
-  const originalStatus = res.status;
-  const originalJson = res.json;
-  const originalSend = res.send;
-
-  res.status = function(code: number) {
-    if (code === 500) {
-      (res as any)._is500 = true;
-    }
-    return originalStatus.call(this, code);
-  };
-
-  res.json = function(body: any) {
-    if ((res as any)._is500) {
-      const e = body instanceof Error 
-        ? body 
-        : new Error((body && (body.message || body.error)) ? String(body.message || body.error) : 'Internal Server Error (Captured via Interceptor)');
-      
-      console.error(`[500_INTERCEPTOR] Path: ${req.path}`);
-      console.error(`[500_INTERCEPTOR] Headers:`, JSON.stringify(req.headers));
-      console.error(`[500_INTERCEPTOR] Body:`, JSON.stringify(req.body || {}));
-      logServerError(e, req.path || 'API_ROUTE_ERROR', req, logToFirestoreError).catch(() => {});
-
-      let enrichedBody = body;
-      if (!body || (Array.isArray(body) && body.length === 0) || (typeof body === 'object' && Object.keys(body).length === 0)) {
-        enrichedBody = {
-          success: false,
-          message: 'An internal server error occurred',
-          context: req.path,
-          timestamp: new Date().toISOString()
-        };
-      } else {
-        enrichedBody = {
-          success: false,
-          message: body.message || body.error || 'An internal server error occurred',
-          context: req.path,
-          timestamp: new Date().toISOString(),
-          ...body
-        };
-      }
-      return originalJson.call(this, enrichedBody);
-    }
-    return originalJson.call(this, body);
-  };
-
-  res.send = function(body: any) {
-    if ((res as any)._is500) {
-      const e = new Error(typeof body === 'string' ? body : 'Internal Server Error (Captured via Interceptor)');
-      console.error(`[500_INTERCEPTOR_2] Path: ${req.path}`);
-      console.error(`[500_INTERCEPTOR_2] Headers:`, JSON.stringify(req.headers));
-      console.error(`[500_INTERCEPTOR_2] Body:`, JSON.stringify(req.body || {}));
-      logServerError(e, req.path || 'API_ROUTE_ERROR', req, logToFirestoreError).catch(() => {});
-
-      if (!body || body === 'No Data Available' || body === '[]' || body === '{}') {
-        res.setHeader('content-type', 'application/json');
-        return originalJson.call(this, {
-          success: false,
-          message: typeof body === 'string' && body ? body : 'An internal server error occurred',
-          context: req.path,
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-    return originalSend.call(this, body);
-  };
-
-  next();
 });
 
 app.get('/api/health-debug', async (req, res) => {
@@ -832,81 +664,53 @@ app.get('/api/health-debug', async (req, res) => {
 });
 
 app.get('/api/health', async (req, res) => {
-  const adminActive = admin.apps.length > 0;
-  
-  let firestoreStatus = 'NOT_INITIALIZED';
-  let firestoreDetails = '';
-  let databaseId = 'unknown';
-  let projectId = 'unknown';
-  
-  if (adminActive) {
-    try {
-      const activeApp = admin.app();
-      projectId = activeApp.options.projectId || 'unknown';
-      databaseId = config?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
-      
-      const db = getFirestoreInstance();
-      // Fast probe to verify firestore connectivity
-      await Promise.race([
-        db.collection('_health_').limit(1).get(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection probe timed out (1.5s)')), 1500))
-      ]);
-      firestoreStatus = 'CONNECTED';
-      firestoreDetails = `Successfully queried Firestore. DatabaseID: ${databaseId}`;
-    } catch (err: any) {
-      firestoreStatus = 'ERROR';
-      firestoreDetails = `Error: ${err.message}`;
-    }
-  }
-
-  let authStatus = 'NOT_INITIALIZED';
-  if (adminActive) {
-    try {
-      admin.auth();
-      authStatus = 'READY';
-    } catch (err: any) {
-      authStatus = 'ERROR';
-      firestoreDetails += ` | Auth Error: ${err.message}`;
-    }
-  }
-
-  // Check required environment variables
-  const dbVars = [
-    'FIREBASE_PROJECT_ID',
-    'FIREBASE_SERVICE_ACCOUNT_KEY',
-    'FIREBASE_CLIENT_EMAIL',
-    'FIREBASE_PRIVATE_KEY',
-    'SESSION_SECRET'
-  ];
-  const missingVars = dbVars.filter(v => !process.env[v]);
-
-  const sesVars = [
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_REGION'
-  ];
-  const sesStatus = sesVars.every(v => !!process.env[v]) ? 'CONFIGURED' : 'NOT_CONFIGURED';
-  const missingSesVars = sesVars.filter(v => !process.env[v]);
-
-  res.json({ 
-    status: firestoreStatus === 'CONNECTED' ? 'ok' : 'degraded', 
-    uptime: process.uptime(),
-    firebaseClientStatus: isFirebaseReady ? 'READY' : 'NOT_READY',
-    firebaseAdminStatus: adminActive ? 'INITIALIZED' : 'NOT_INITIALIZED',
-    firestoreStatus,
-    firestoreDetails,
-    authenticationStatus: authStatus,
-    sesStatus,
-    missingSesVars,
-    dbConnectionStatus,
-    projectId,
-    databaseId,
-    missingEnvVars: missingVars,
+  // 1. Base response that NEVER fails as long as server is alive
+  const response: any = {
+    status: 'ok',
+    server: 'running',
     timestamp: new Date().toISOString(),
-    bootPhase: 'runtime',
-    nodeEnv: process.env.NODE_ENV,
-    trustProxy: app.get('trust proxy')
-  });
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV,
+    bootPhase: 'runtime'
+  };
+
+  try {
+    // 2. Add diagnostic details but DON'T let them crash the response
+    const adminActive = admin.apps.length > 0;
+    response.firebaseAdminStatus = adminActive ? 'INITIALIZED' : 'NOT_INITIALIZED';
+    response.firebaseClientStatus = isFirebaseReady ? 'READY' : 'NOT_READY';
+    
+    if (adminActive) {
+      const activeApp = admin.app();
+      response.projectId = activeApp.options.projectId || 'unknown';
+      response.databaseId = config?.firestoreDatabaseId || process.env.FIREBASE_DATABASE_ID || 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+      
+      // We check Firestore status but use a very short timeout and catch errors
+      try {
+        const db = getFirestoreInstance();
+        await Promise.race([
+          db.collection('_health_').limit(1).get(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore probe timeout')), 500))
+        ]);
+        response.firestoreStatus = 'CONNECTED';
+      } catch (err: any) {
+        response.firestoreStatus = 'DEGRADED';
+        response.firestoreError = err.message;
+      }
+    } else {
+      response.firestoreStatus = 'UNINITIALIZED';
+    }
+
+    // 3. Environment check
+    const requiredVars = ['FIREBASE_PROJECT_ID', 'FIREBASE_SERVICE_ACCOUNT_KEY', 'SESSION_SECRET'];
+    response.missingVars = requiredVars.filter(v => !process.env[v]);
+    
+  } catch (diagErr: any) {
+    // Fail gracefully: we still want to return the base 'ok' status
+    response.diagnosticError = diagErr.message;
+  }
+
+  res.json(response);
 });
 
 app.get('/api/db-test', async (req, res) => {
@@ -9621,49 +9425,54 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     console.log('[BOOT] Running in Vercel environment - skipping server port listen for serverless function compatibility.');
   }
 
-  // Error handling middleware
+  // Global Error Handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const requestId = (req as any).id || crypto.randomUUID().slice(0, 8);
+    
     const errorDetails = {
+      requestId,
       message: err.message,
       stack: err.stack,
-      url: req.url,
       path: req.path,
       method: req.method,
-      headers: {
-        'content-type': req.get('content-type'),
-        'user-agent': req.get('user-agent'),
-        'referer': req.get('referer'),
-        'host': req.get('host')
-      },
       ip: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress,
       userId: (req.session as any)?.userId || null
     };
 
-    console.error('[GLOBAL ERROR]:', errorDetails);
+    logger.error(`[GLOBAL_ERROR] ${requestId} | ${req.method} ${req.path} | ${err.message}`, errorDetails);
     
-    // Log to Firestore if possible
+    // Log to Firestore if possible (non-blocking)
     if (isFirebaseReady) {
-      getFirestoreInstance().collection('system_logs').add({
-        level: 'critical_error',
-        message: `Unhandled Error: ${err.message}`,
-        details: JSON.stringify(errorDetails),
-        path: req.path,
-        method: req.method,
-        user_id: errorDetails.userId ? String(errorDetails.userId) : null,
-        created_at: new Date().toISOString()
-      }).catch(logErr => console.error('Failed to log error to Firestore:', logErr.message));
+      try {
+        const db = getFirestoreInstance();
+        db.collection('system_logs').add({
+          level: 'error',
+          requestId,
+          message: `Unhandled Error: ${err.message}`,
+          details: JSON.stringify({ ...errorDetails, headers: req.headers }),
+          path: req.path,
+          method: req.method,
+          user_id: errorDetails.userId ? String(errorDetails.userId) : null,
+          created_at: new Date().toISOString()
+        }).catch((logErr: any) => console.error('[ERROR_LOG_FAIL] Firestore log failed:', logErr.message));
+      } catch (e) {
+        // Silently fail if DB instance acquisition fails during error handling
+      }
     }
 
     if (res.headersSent) {
       return next(err);
     }
     
+    const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+    
     res.status(500).json({ 
       success: false, 
-      message: 'A server error occurred. We are looking into it.',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      requestId,
+      message: 'Internal Server Error',
+      error: isDevelopment ? err.message : 'An unexpected error occurred. Please contact support if the issue persists.',
       path: req.path,
-      method: req.method
+      timestamp: new Date().toISOString()
     });
   });
 

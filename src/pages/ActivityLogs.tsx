@@ -18,9 +18,8 @@ export default function ActivityLogs() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      
-      <main className="pt-24 pb-32 px-4">
+    <div className="h-[calc(100vh-4.5rem)] bg-stone-50 overflow-y-auto no-scrollbar scroll-smooth">
+      <main className="py-10 px-4">
         <div className="max-w-5xl mx-auto">
           <Link 
             to="/admin" 

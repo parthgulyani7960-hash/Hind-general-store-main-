@@ -17,7 +17,7 @@ export default function LogisticsTab({
   handleAssignRunner,
 }: LogisticsTabProps) {
   return (
-    <div className="space-y-8">
+    <div className="h-full overflow-y-auto no-scrollbar space-y-8 pb-10 pr-2">
       <div className="flex justify-between items-center bg-white p-8 rounded-3xl shadow-sm border border-stone-100">
         <div>
           <h2 className="text-3xl font-black text-stone-900 tracking-tight">Logistics Hub</h2>

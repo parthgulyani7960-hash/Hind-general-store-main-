@@ -96,9 +96,9 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
     });
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="h-full overflow-y-auto no-scrollbar space-y-6 animate-in fade-in duration-500 pb-10 pr-2">
             {/* Orders Header */}
-            <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
+            <header className="shrink-0 flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
               <div>
                 <h2 className="text-3xl font-bold text-stone-900 tracking-tight">Orders Registry</h2>
                 <p className="text-stone-500 text-sm mt-1 font-sans">Manage, track, and complete physical store orders.</p>
@@ -140,11 +140,12 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
               </div>
             </header>
 
-            <div className="w-full md:w-64">
+            <div className="shrink-0 w-full md:w-64">
                 <ExportTriggerButton type="orders" onClick={asyncExportData} />
             </div>
 
-            {/* Order Metrics Stats */}
+            <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-10">
+              {/* Order Metrics Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Pending Orders', val: orders.filter(o => o.status === 'pending').length, icon: Clock, color: 'amber', status: 'pending' },
@@ -511,8 +512,9 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                   ))}
                 </div>
             )}
+        </div>
 
-            <AnimatePresence>
+        <AnimatePresence>
                 {selectedOrders.length > 0 && (
                   <motion.div 
                     initial={{ y: 150, opacity: 0 }}

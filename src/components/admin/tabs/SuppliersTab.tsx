@@ -25,7 +25,7 @@ export default function SuppliersTab({
     <motion.div 
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      className="space-y-8 font-sans"
+      className="h-full overflow-y-auto no-scrollbar space-y-8 font-sans pb-10 pr-2"
     >
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 font-sans">
         <div className="space-y-1">

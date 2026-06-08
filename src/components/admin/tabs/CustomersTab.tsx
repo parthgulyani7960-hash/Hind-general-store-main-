@@ -55,7 +55,7 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
     });
 
     return (
-        <div className="space-y-10 animate-in fade-in duration-500">
+        <div className="h-full overflow-y-auto no-scrollbar space-y-10 animate-in fade-in duration-500 pb-10">
             {/* Intelligence Header */}
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>

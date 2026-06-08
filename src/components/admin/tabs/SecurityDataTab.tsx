@@ -102,7 +102,7 @@ export default function SecurityDataTab({
   }, []);
 
   return (
-    <section className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
+    <section className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 font-sans">
         <AdminStatCard label="Security Node" value="ACTIVE" icon={<ShieldCheck size={22} />} color="emerald" trend={{ value: 'Protocol Live', isUp: true }} progress={100} />
         <AdminStatCard label="Live Session" value={`${sessionMinutes}m`} icon={<Clock size={22} />} color="orange" trend={{ value: 'Current Uptime', isUp: true }} progress={75} />

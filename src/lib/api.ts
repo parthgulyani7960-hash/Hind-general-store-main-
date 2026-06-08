@@ -1,5 +1,6 @@
 import toast from 'react-hot-toast';
 import { errorService, ErrorType } from './errorReporting';
+import { logger } from './logger';
 
 export interface ApiResponse<T> {
   data: T | null;
@@ -13,11 +14,11 @@ const fetchWithHandlingInternal = async <T>(
   options: RequestInit = {},
   retries = 2
 ): Promise<T | null> => {
-  console.log(`[API] fetchWithHandlingInternal call to: ${url}`);
+  logger.debug(`fetchWithHandlingInternal call to: ${url}`);
   let cleanUrl = url;
   if (cleanUrl) {
     if (cleanUrl.includes(' ') || cleanUrl.includes('%20')) {
-      console.warn('[API] Auto-correcting malformed concatenated URL:', cleanUrl);
+      logger.warn('Auto-correcting malformed concatenated URL:', cleanUrl);
       const decoded = decodeURIComponent(cleanUrl);
       const parts = decoded.split(/\s+/).map(p => p.trim()).filter(Boolean);
       if (parts.length > 0) {
@@ -35,7 +36,7 @@ const fetchWithHandlingInternal = async <T>(
 
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   if (isOffline) {
-    console.warn(`[API] Suppressed fetch to ${cleanUrl} (Browser Offline)`);
+    logger.warn(`Suppressed fetch to ${cleanUrl} (Browser Offline)`);
     return null;
   }
 
@@ -62,7 +63,7 @@ const fetchWithHandlingInternal = async <T>(
             data = JSON.parse(rawText);
             isJson = true;
           } catch (parseErr: any) {
-            console.error(`[API ERROR] Non-JSON error payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
+            logger.error(`Non-JSON error payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
             errorService.report({
               type: ErrorType.API_ERROR,
               message: `Non-JSON error payload from ${url}`,
@@ -77,7 +78,7 @@ const fetchWithHandlingInternal = async <T>(
         }
         
         if (res.status === 404) {
-          console.warn(`[API] Resource not found: ${url}`);
+          logger.warn(`Resource not found: ${url}`);
           // Only use generic message if server didn't provide one
           if (!errorMessage || errorMessage.includes('Error:')) {
             errorMessage = "Requested resource not found";
@@ -109,7 +110,7 @@ const fetchWithHandlingInternal = async <T>(
           
           if (isSilent) return null;
  
-          console.warn(`[API] 401 Unauthorized for ${url}`);
+          logger.warn(`401 Unauthorized for ${url}`);
           errorMessage = "Session expired";
           
           // Signal global auth error only once every 30 seconds to prevent toast flooding
@@ -128,7 +129,7 @@ const fetchWithHandlingInternal = async <T>(
           if (retries > 0) {
             const attemptNumber = 3 - retries;
             const delay = res.status === 429 ? 3000 : (1000 * Math.pow(2, attemptNumber - 1));
-            console.log(`[API] Retrying ${url} due to ${res.status} error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
+            logger.info(`Retrying ${url} due to ${res.status} error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
             await new Promise(r => setTimeout(r, delay));
             return fetchWithHandling(url, options, retries - 1);
           }
@@ -142,7 +143,7 @@ const fetchWithHandlingInternal = async <T>(
             (errorMessage && /firebase|credential|firestore|database|connect/i.test(errorMessage));
  
           if (isFirebaseUnreachable) {
-            console.error(`[API] Centralized Error Boundary categorized unreachable Firebase backend at ${url} (${res.status}): ${errorMessage}`);
+            logger.error(`Centralized Error Boundary categorized unreachable Firebase backend at ${url} (${res.status}): ${errorMessage}`);
             errorMessage = "Database connection unstable. Please try again.";
             
             // Dispatch event for DB connection error component to react
@@ -153,7 +154,7 @@ const fetchWithHandlingInternal = async <T>(
  
           // Return null for read operations to prevent blank white page crashes under rate limits or server errors
           if (options.method === 'GET' || !options.method) {
-            console.warn(`[API] Returning null for failed GET ${url} on status ${res.status}`);
+            logger.warn(`Returning null for failed GET ${url} on status ${res.status}`);
             return null;
           }
         }
@@ -169,7 +170,7 @@ const fetchWithHandlingInternal = async <T>(
       try {
         return JSON.parse(rawText);
       } catch (parseErr: any) {
-        console.error(`[API ERROR] Non-JSON success payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
+        logger.error(`Non-JSON success payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
         errorService.report({
           type: ErrorType.API_ERROR,
           message: `Non-JSON success payload from ${url}`,
@@ -187,11 +188,11 @@ const fetchWithHandlingInternal = async <T>(
     if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
       const attemptNumber = 3 - retries;
       const delay = 1000 * Math.pow(2, attemptNumber - 1);
-      console.log(`[API] Retrying ${url} due to network error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
+      logger.info(`Retrying ${url} due to network error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
       await new Promise(r => setTimeout(r, delay));
       return fetchWithHandling(url, options, retries - 1);
     }
-    console.error(`API Error [${url}]:`, err);
+    logger.error(`API Error [${url}]`, err);
     
     // Check if it's a network offline/unreachable error
     const isNetworkError = err instanceof TypeError || 
@@ -202,7 +203,7 @@ const fetchWithHandlingInternal = async <T>(
                            err.message?.includes('aborted');
 
     if (isNetworkError) {
-      console.warn(`[API] Network offline or unreachable endpoint at ${url}`);
+      logger.warn(`Network offline or unreachable endpoint at ${url}`);
       // Do not trigger global maintenance block for temporary fetch drops
     }
 
@@ -291,12 +292,12 @@ export const fetchWithHandling = async <T>(
   if (isCachable) {
     const cached = apiCache[cleanCacheUrl];
     if (cached && Date.now() - cached.timestamp < API_CACHE_TIME) {
-      console.log(`[API CACHE HIT] ${cleanCacheUrl}`);
+      logger.debug(`API CACHE HIT: ${cleanCacheUrl}`);
       return cached.data;
     }
 
     if (apiPendingPromises[cleanCacheUrl]) {
-      console.log(`[API DEDUP HIT] Joining in-flight: ${cleanCacheUrl}`);
+      logger.debug(`API DEDUP HIT: Joining in-flight: ${cleanCacheUrl}`);
       return apiPendingPromises[cleanCacheUrl];
     }
 

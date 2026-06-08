@@ -31,6 +31,7 @@ import { useStore } from '@/StoreContext';
 import { cn, Order, PromotionRule } from '@/types';
 import { getAuthHeaders, formatPhoneNumber } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
+import { logger } from '@/lib/logger';
 import { StatSkeleton, TableRowSkeleton, OrderSkeleton } from '@/components/ui/Skeleton';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -86,7 +87,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Admin Security' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
 
 // Lazy loaded admin tabs
 const OrdersTab = lazy(() => import('@/components/admin/tabs/OrdersTab'));
@@ -150,7 +151,7 @@ export default function AdminDashboard() {
         'System Logs', 'Suspicious Activities', 'Promotions', 'Bulk Discounts', 
         'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
         'Automatic Reports', 'Admin Management', 'Data Exports', 
-        'Security & Data', 'Admin Security', 'Promotional Rules', 'Purchase Orders', 
+        'Security & Data', 'Security Audit', 'Promotional Rules', 'Purchase Orders', 
         'Order Batching', 'UPI Webhook Logs'
       ];
       const foundMatch = validTabs.find(t => t.toLowerCase() === tabParam.toLowerCase());
@@ -170,7 +171,7 @@ export default function AdminDashboard() {
   }, [activeTab, navigate, location.search]);
 
   React.useEffect(() => {
-    if (activeTab === 'System Status' || activeTab === 'Security & Data' || activeTab === 'Admin Security') {
+    if (activeTab === 'System Status' || activeTab === 'Security & Data' || activeTab === 'Security Audit') {
       runDbDiagnostics();
     }
   }, [activeTab]);
@@ -884,10 +885,10 @@ export default function AdminDashboard() {
                   fixWalletDiscrepancy={fixWalletDiscrepancy}
                 />
               );
-            case 'Admin Security':
+            case 'Security Audit':
               return (
-                <AdminSecurityTab
-                  user={user}
+                <AdminSecurityTab 
+                  user={user} 
                   fetchWithHandling={fetchWithHandling}
                   getAuthHeaders={getAuthHeaders}
                   toast={toast}
@@ -940,9 +941,9 @@ export default function AdminDashboard() {
   }, [users]);
 
   useEffect(() => {
-    console.log("Admin Dashboard Auth Check: user =", user);
+    logger.info("Admin Dashboard Auth Check: user =", user);
     if (user) {
-        console.log("User Role:", user.role);
+        logger.info("User Role:", user.role);
     }
   }, [user]);
 
@@ -967,7 +968,7 @@ export default function AdminDashboard() {
       const data = await adminService.getStats(getAuthHeaders());
       if (data) setStats(data);
     } catch (err: any) {
-      console.error('Stats fetch error:', err);
+      logger.error('Stats fetch error:', err);
     } finally {
       isFetchingStats.current = false;
       if (!silent) setLoading(false);
@@ -998,7 +999,7 @@ export default function AdminDashboard() {
         setExpiringSoon(data);
       }
     } catch (err) {
-      console.error('Failed to fetch expiring products:', err);
+      logger.error('Failed to fetch expiring products:', err);
     }
   };
 
@@ -1009,10 +1010,10 @@ export default function AdminDashboard() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(data);
     }, (err) => {
-      console.warn('Firestore Orders subscription fell back safely to REST API due to:', err.message);
+      logger.warn(`Firestore Orders subscription fell back safely to REST API due to: ${err.message}`);
       adminService.getOrders(getAuthHeaders())
         .then(data => { if (data) setOrders(data); })
-        .catch(fetchErr => console.error('REST backup orders fetch failed:', fetchErr));
+        .catch(fetchErr => logger.error('REST backup orders fetch failed:', fetchErr));
     });
   };
 
@@ -1035,7 +1036,7 @@ export default function AdminDashboard() {
       setAllProducts(data);
       setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
     }, (err) => {
-      console.warn('Firestore Products subscription fell back safely to REST API due to:', err.message);
+      logger.warn(`Firestore Products subscription fell back safely to REST API due to: ${err.message}`);
       adminService.getProducts(getAuthHeaders())
         .then(data => {
           if (data) {
@@ -1044,7 +1045,7 @@ export default function AdminDashboard() {
           }
         })
         .catch(fetchErr => {
-          console.error('REST backup products fetch failed:', fetchErr);
+          logger.error('REST backup products fetch failed:', fetchErr);
         });
     });
   };
@@ -1123,7 +1124,7 @@ export default function AdminDashboard() {
         setExpenses(data);
       }
     } catch (err) {
-      console.error('Failed to fetch expenses:', err);
+      logger.error('Failed to fetch expenses:', err);
     }
   };
 
@@ -1205,7 +1206,7 @@ export default function AdminDashboard() {
         setCustomerActivities(data);
       }
     } catch (err) {
-      console.error('Failed to fetch individual customer activities:', err);
+      logger.error('Failed to fetch individual customer activities:', err);
     }
   };
 
@@ -1242,7 +1243,7 @@ export default function AdminDashboard() {
         setPurchaseForm({ supplier_id: '', product_id: '', quantity: '', cost_price: '', invoice_number: '', batch_number: '', expiry_date: '' });
       }
     } catch (err) {
-      console.error('Purchase submit error:', err);
+      logger.error('Purchase submit error:', err);
     }
   };
 
@@ -1312,7 +1313,7 @@ export default function AdminDashboard() {
         setRunners(data);
       }
     } catch (err) {
-      console.error('Failed to fetch runners:', err);
+      logger.error('Failed to fetch runners:', err);
     }
   };
 
@@ -1324,7 +1325,7 @@ export default function AdminDashboard() {
         setAuditLogs(data);
       }
     } catch (err) {
-      console.error('Failed to fetch audit logs:', err);
+      logger.error('Failed to fetch audit logs:', err);
     } finally {
       setIsFetchingAudit(false);
     }
@@ -1338,7 +1339,7 @@ export default function AdminDashboard() {
         setSuspiciousActivities(data);
       }
     } catch (err) {
-      console.error('Failed to fetch suspicious activities:', err);
+      logger.error('Failed to fetch suspicious activities:', err);
     }
   };
 
@@ -1353,7 +1354,7 @@ export default function AdminDashboard() {
         fetchSuspiciousActivities();
       }
     } catch (err) {
-      console.error('Failed to resolve activity:', err);
+      logger.error('Failed to resolve activity:', err);
     }
   };
 
@@ -1371,7 +1372,7 @@ export default function AdminDashboard() {
         fetchRunners(); // Refresh runners
       }
     } catch (err) {
-      console.error('Assign runner error:', err);
+      logger.error('Assign runner error:', err);
     }
   };
 
@@ -1398,7 +1399,7 @@ export default function AdminDashboard() {
         fetchRunners();
       }
     } catch (err) {
-      console.error('Save runner error:', err);
+      logger.error('Save runner error:', err);
     }
   };
 
@@ -1410,7 +1411,7 @@ export default function AdminDashboard() {
         setWalletRequests(data);
       }
     } catch (err) {
-      console.error('Failed to fetch wallet requests:', err);
+      logger.error('Failed to fetch wallet requests:', err);
     }
   };
 
@@ -1431,7 +1432,7 @@ export default function AdminDashboard() {
         fetchWalletRequests();
       }
     } catch (err) {
-      console.error('Approve wallet request error:', err);
+      logger.error('Approve wallet request error:', err);
     }
   };
 
@@ -1449,7 +1450,7 @@ export default function AdminDashboard() {
         fetchWalletRequests();
       }
     } catch (err) {
-      console.error('Reject wallet request error:', err);
+      logger.error('Reject wallet request error:', err);
     }
   };
   const handleApproveOrderPayment = async (orderId: number) => {
@@ -1469,7 +1470,7 @@ export default function AdminDashboard() {
         }
       }
     } catch (err) {
-      console.error('Payment approval error:', err);
+      logger.error('Payment approval error:', err);
     }
   };
 
@@ -1547,7 +1548,7 @@ export default function AdminDashboard() {
         fetchReturns();
       }
     } catch (err) {
-      console.error('Approve return error:', err);
+      logger.error('Approve return error:', err);
     }
   };
 
@@ -1563,7 +1564,7 @@ export default function AdminDashboard() {
         fetchReturns();
       }
     } catch (err) {
-      console.error('Reject return error:', err);
+      logger.error('Reject return error:', err);
     }
   };
 
@@ -1575,7 +1576,7 @@ export default function AdminDashboard() {
         setSuppliers(data);
       }
     } catch (err) {
-      console.error('Failed to fetch suppliers:', err);
+      logger.error('Failed to fetch suppliers:', err);
     }
   };
 
@@ -1606,7 +1607,7 @@ export default function AdminDashboard() {
         fetchSuppliers();
       }
     } catch (err) {
-      console.error('Save supplier error:', err);
+      logger.error('Save supplier error:', err);
     }
   };
 
@@ -1622,7 +1623,7 @@ export default function AdminDashboard() {
         fetchSuppliers();
       }
     } catch (err) {
-      console.error('Delete supplier error:', err);
+      logger.error('Delete supplier error:', err);
     }
   };
 
@@ -1668,7 +1669,7 @@ export default function AdminDashboard() {
         fetchBulkDiscounts();
       }
     } catch (err) {
-      console.error('Bulk discount submit error:', err);
+      logger.error('Bulk discount submit error:', err);
     }
   };
 
@@ -1684,7 +1685,7 @@ export default function AdminDashboard() {
         fetchBulkDiscounts();
       }
     } catch (err) {
-      console.error('Toggle bulk discount error:', err);
+      logger.error('Toggle bulk discount error:', err);
     }
   };
 
@@ -1700,7 +1701,7 @@ export default function AdminDashboard() {
         fetchBulkDiscounts();
       }
     } catch (err) {
-      console.error('Delete bulk discount error:', err);
+      logger.error('Delete bulk discount error:', err);
     }
   };
 
@@ -1718,7 +1719,7 @@ export default function AdminDashboard() {
           setGlobalSearchResults(data);
         }
       } catch (err) {
-        console.error('Global search error:', err);
+        logger.error('Global search error:', err);
       } finally {
         setIsGlobalSearching(false);
       }

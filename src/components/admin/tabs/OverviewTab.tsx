@@ -48,9 +48,10 @@ export default function OverviewTab({
   );
 
   return (
-    <motion.div 
-        initial="hidden"
-        animate="show"
+    <div className="h-full overflow-y-auto no-scrollbar pb-10 pr-2">
+      <motion.div 
+          initial="hidden"
+          animate="show"
         variants={{
           hidden: { opacity: 0 },
           show: {
@@ -60,7 +61,7 @@ export default function OverviewTab({
             }
           }
         }}
-        className="space-y-10"
+        className="h-full overflow-y-auto no-scrollbar space-y-10 pb-10"
     >
         <OverviewTabHeader fetchStats={refreshStats} />
 
@@ -242,6 +243,7 @@ export default function OverviewTab({
           </motion.div>
         </div>
     </motion.div>
+    </div>
   );
 }
 

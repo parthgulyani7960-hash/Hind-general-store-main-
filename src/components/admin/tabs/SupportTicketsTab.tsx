@@ -49,8 +49,8 @@ export default function SupportTicketsTab({
   }, [selectedTicket, setTicketMessages]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
-      <aside className="lg:col-span-1 bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden flex flex-col h-[800px]">
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans h-full overflow-hidden">
+      <aside className="lg:col-span-1 bg-white rounded-[3rem] shadow-sm border border-stone-100 overflow-hidden flex flex-col h-full">
         <div className="p-8 border-b border-stone-100 flex items-center justify-between">
           <div>
             <h3 className="font-black text-2xl tracking-tight text-stone-900 text-left">Comms Log</h3>
@@ -94,7 +94,7 @@ export default function SupportTicketsTab({
         </div>
       </aside>
 
-      <main className="lg:col-span-3 bg-white rounded-[3rem] shadow-sm border border-stone-100 flex flex-col h-[800px] overflow-hidden relative">
+      <main className="lg:col-span-3 bg-white rounded-[3rem] shadow-sm border border-stone-100 flex flex-col h-full overflow-hidden relative">
         {selectedTicket ? (
           <>
             <header className="p-8 border-b border-stone-100 flex justify-between items-center bg-white z-10">

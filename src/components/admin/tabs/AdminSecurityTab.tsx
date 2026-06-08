@@ -340,7 +340,7 @@ export default function AdminSecurityTab({
   const currentAuditLogs = getFilteredAuditLogs();
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 font-sans text-left">
+    <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in duration-500 font-sans text-left pb-10 pr-2">
       
       {/* Title & Stats Grid */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">

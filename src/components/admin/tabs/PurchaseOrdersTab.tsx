@@ -144,7 +144,7 @@ export default function PurchaseOrdersTab() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 pr-2">
       <header className="flex justify-between items-end">
         <div>
           <h2 className="text-4xl font-black text-stone-900 tracking-tight">Purchase Orders</h2>

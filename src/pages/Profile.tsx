@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { logger } from '@/lib/logger';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, ShoppingBag, Shield, HelpCircle, 
@@ -2068,7 +2069,7 @@ export default function Profile() {
                     <div className="flex gap-4">
                       <button 
                         onClick={() => {
-                          console.log('Add money button clicked');
+                          logger.info('Wallet recharge intent triggered');
                           navigate('/add-money');
                         }}
                         className="bg-white text-stone-900 px-8 py-3 rounded-2xl font-bold flex items-center space-x-2 hover:bg-primary hover:text-white transition-all shadow-xl shadow-stone-900/10"

@@ -11,6 +11,8 @@ export interface SecurityLog {
   metadata?: Record<string, any>;
 }
 
+import { logger } from '@/lib/logger';
+
 export const securityService = {
   /**
    * Records a security event in Firestore
@@ -24,7 +26,7 @@ export const securityService = {
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Server',
         url: typeof window !== 'undefined' ? window.location.href : 'N/A'
       });
-      console.log(`[SECURITY] Event Logged: ${log.type} - ${log.details}`);
+      logger.info(`[SECURITY] Event: ${log.type} - ${log.details}`);
     } catch (err) {
       console.error('[SECURITY] Failed to log security event:', err);
       

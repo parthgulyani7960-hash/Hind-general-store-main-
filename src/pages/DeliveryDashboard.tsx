@@ -77,7 +77,7 @@ export default function DeliveryDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 py-12">
+    <div className="h-[calc(100vh-4.5rem)] bg-stone-50 overflow-y-auto no-scrollbar scroll-smooth py-12 px-4 shadow-inner">
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex items-center space-x-4 mb-8">
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">

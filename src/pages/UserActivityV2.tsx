@@ -151,7 +151,7 @@ export default function UserActivity() {
     (activeTab === 'khata' && isKhataEmpty);
 
   return (
-    <div className="min-h-[90vh] bg-stone-50 select-none pb-24 pt-8 px-4 sm:px-6">
+    <div className="h-[calc(100vh-4.5rem)] bg-stone-50 overflow-y-auto no-scrollbar scroll-smooth select-none pb-24 pt-8 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-6">
         
         {/* Back navigational cue & Title */}

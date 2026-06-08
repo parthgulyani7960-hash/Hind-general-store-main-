@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { logger } from '@/lib/logger';
 import { 
   Search, Filter, ShoppingCart, Plus, Minus, 
   Share2, Heart, Star, Loader2, X, Camera,
@@ -180,8 +181,8 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
     return ['All', ...list];
   }, [globalCategories]);
 
-  console.log('[PAGE RENDER SUCCESS] Products', { productsCount: products.length, categoriesCount: storeCategories.length });
-
+  // Render context logging suppressed for production
+  
   // Body scroll lock and hide mobile nav
   useEffect(() => {
     const mobileNav = document.querySelector('.mobile-bottom-nav');
@@ -293,8 +294,8 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
 
   const isFilterActive = selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && products.length > 0 && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance';
 
-  console.log('[PRODUCTS_PAGE] Rendering Main Return (290)', { productsCount: products.length, zoomImage });
-
+  // Rendering Main Return
+  
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10 space-y-8 relative">
 

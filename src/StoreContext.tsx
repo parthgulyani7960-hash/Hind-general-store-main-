@@ -7,6 +7,7 @@ import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './fireb
 import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
 import { securityService } from './services/securityService';
+import { logger } from './lib/logger';
 
 interface StoreContextType {
   user: User | null;
@@ -75,6 +76,11 @@ interface StoreContextType {
   isSyncCartPending: boolean;
   setIsRevalidating: (val: boolean) => void;
   logActivity: (type: string, description: string) => Promise<void>;
+  notificationsList: any[];
+  unreadNotificationsCount: number;
+  readNotificationIds: number[];
+  fetchNotifications: () => Promise<void>;
+  markNotificationAsRead: (id: number) => void;
   fetchCart: (userId: any, forceRefresh?: boolean) => Promise<void>;
   lastAddedId: number | null;
   fetchWithHandling: <T>(url: string, options?: RequestInit) => Promise<T>;
@@ -160,6 +166,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<any[]>([]);
   const [vibration, setVibration] = useState(true);
   const [notifications, setNotifications] = useState(true);
+  const [notificationsList, setNotificationsList] = useState<any[]>([]);
+  const [readNotificationIds, setReadNotificationIds] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem('read_notifications');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [sound, setSound] = useState(true);
   const [adminTheme, setAdminTheme] = useState('theme-navy');
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
@@ -183,7 +198,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      console.log('Fetching products...');
+      logger.debug('Fetching products...');
       const data = await fetchWithHandling<Product[]>('/api/products');
       if (data && data.length > 0) {
         setProducts(data);
@@ -293,12 +308,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const fetchCart = React.useCallback(async (userId: any, forceRefresh = false) => {
     if (!forceRefresh && !isCartCacheDirtyRef.current && cachedCartRef.current && cachedCartRef.current.userId === userId && Date.now() - cachedCartRef.current.timestamp < 15000) {
-      console.log(`[CART CACHE HIT] Returning cached cart for user ${userId}`);
+      logger.debug(`CART CACHE HIT: Returning cached cart for user ${userId}`);
       return;
     }
 
     if (fetchCartPromiseRef.current) {
-      console.log('[CART FETCH DEDUP] Joining in-flight cart fetch promise');
+      logger.debug('CART FETCH DEDUP: Joining in-flight cart fetch promise');
       try {
         const items = await fetchCartPromiseRef.current;
         setCart(items);
@@ -470,6 +485,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const hasPermission = (permission: Permission) => user?.permissions?.includes(permission) ?? false;
+  const fetchNotifications = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await fetchWithHandling<any[]>('/api/notifications');
+      if (data && Array.isArray(data)) {
+        const activeRole = simulatedRole || user?.role || 'user';
+        const visible = data.filter((n: any) => 
+          (n.user_id === user?.id || !n.user_id) && 
+          (!n.target_role || n.target_role === 'all' || n.target_role === activeRole)
+        );
+        setNotificationsList(visible);
+      }
+    } catch (err) {
+      logger.warn('Notifications fetch failed');
+    }
+  }, [user, simulatedRole]);
+
+  const markNotificationAsRead = React.useCallback((id: number) => {
+    setReadNotificationIds(prev => {
+      const next = [...new Set([...prev, id])];
+      localStorage.setItem('read_notifications', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const unreadNotificationsCount = React.useMemo(() => {
+    return notificationsList.filter(n => !readNotificationIds.includes(n.id)).length;
+  }, [notificationsList, readNotificationIds]);
+
   const calculateDiscount = (cart: CartItem[]) => 0; // Simplified
   const updateProfile = async (data: Partial<User>) => {
     try {
@@ -525,7 +569,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 3. Effects
   useEffect(() => {
     if (initialCheckDone.current) {
-        console.log('[INIT] StoreProvider was already initialized, skipping');
+        logger.debug('StoreProvider was already initialized, skipping');
         return;
     }
     initialCheckDone.current = true;
@@ -633,7 +677,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user && !previousUserRef.current && isOnline) {
-      console.log('[LOGIN TRIGGER] User logged in. Force synchronizing and fetching latest cart.');
+      logger.debug('User logged in. Force synchronizing and fetching latest cart.');
       isCartCacheDirtyRef.current = true;
       fetchCart(user.id, true);
     }
@@ -642,7 +686,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isOnline && !previousOnlineRef.current) {
-      console.log('[RECONNECT TRIGGER] Connection restored. Force synchronizing cart.');
+      logger.debug('Connection restored. Force synchronizing cart.');
       if (user) {
         isCartCacheDirtyRef.current = true;
         fetchCart(user.id, true);
@@ -687,7 +731,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         setIsApiUp(false);
         setDbError(true);
-        console.error('[API MONITOR] Failed to ping /api/health:', err);
+        logger.error('[API MONITOR] Failed to ping /api/health', err);
       }
     };
     
@@ -720,10 +764,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
     isAuthChecking, isRevalidating, setIsRevalidating, isInitialAuthPerformed, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError,
+    notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts,
     isApiUp, setIsApiUp,
     categories, setCategories, fetchCategories, isLoadingCategories
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, products, setProducts, fetchProducts, isLoadingProducts, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories]);
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
+    notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
+    products, setProducts, fetchProducts, isLoadingProducts, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories]);
 
   return (
     <StoreContext.Provider value={contextValue}>

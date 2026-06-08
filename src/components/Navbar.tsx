@@ -93,9 +93,7 @@ export default function Navbar() {
   const isUserAdmin = user?.role === 'admin';
   
   useEffect(() => {
-    if (user) {
-      console.log('Navbar Debug:', { email: user.email, role: user.role, isUserAdmin });
-    }
+    // Role monitoring removed for production security protocol
   }, [user, isUserAdmin]);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);

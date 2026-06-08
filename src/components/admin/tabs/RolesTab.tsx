@@ -21,7 +21,7 @@ export default function RolesTab({
   toast,
 }: RolesTabProps) {
   return (
-    <div className="space-y-6">
+    <div className="h-full overflow-y-auto no-scrollbar space-y-6 pb-10 pr-2">
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-stone-900 text-left">Admin Management</h2>

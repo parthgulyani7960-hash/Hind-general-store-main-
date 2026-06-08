@@ -82,7 +82,7 @@ export default function AdminDashboardLayout({
   const healthColorStr = healthColors[healthStatus || 'offline'];
 
   return (
-    <div className={cn("h-screen bg-stone-50 flex overflow-hidden", adminTheme)}>
+    <div className={cn("h-[calc(100vh-4.5rem)] bg-stone-50 flex overflow-hidden", adminTheme)}>
       <AdminSidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -161,10 +161,18 @@ export default function AdminDashboardLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto w-full p-8">
-            <div className="max-w-[1600px] mx-auto space-y-8">
-                {loading ? <LoadingFallback fullScreen={false} message="Loading dashboard..." /> : children}
+        <main className="flex-1 min-h-0 w-full flex flex-col overflow-hidden">
+          {loading ? (
+            <div className="p-8">
+              <LoadingFallback fullScreen={false} message="Loading dashboard..." />
             </div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-8">
+              <div className="flex-1 max-w-[1600px] mx-auto w-full min-h-0">
+                {children}
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

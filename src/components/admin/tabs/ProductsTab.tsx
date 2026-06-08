@@ -127,9 +127,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
     };
 
     return (
-      <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in duration-500 pb-10 pr-2">
         {/* Inventory Control Center Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div className="shrink-0 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="space-y-1">
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary rotate-3">
@@ -177,170 +177,171 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
           </div>
         </div>
 
-        <div className="w-full md:w-64">
+        <div className="shrink-0 w-full md:w-64">
             <ExportTriggerButton type="products" onClick={() => {}} />
         </div>
 
-        {/* Intelligence Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <AdminStatCard 
-            label="Total SKU Catalog" 
-            value={allProducts.length} 
-            icon={<Package size={22} />} 
-            color="primary"
-            trend={{ value: 'Active', isUp: true }}
-            progress={100}
-          />
-          <AdminStatCard 
-            label="Out of Stock" 
-            value={allProducts.filter(p => Number(p.stock) <= 0).length} 
-            icon={<AlertTriangle size={22} />} 
-            color="red"
-            trend={{ value: 'Action Required', isUp: false }}
-            progress={allProducts.length > 0 ? (allProducts.filter(p => Number(p.stock) <= 0).length / allProducts.length) * 100 : 0}
-          />
-          <AdminStatCard 
-            label="Low Stock Replenish" 
-            value={allProducts.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.reorder_point || 5)).length} 
-            icon={<ShieldAlert size={22} />} 
-            color="amber"
-            trend={{ value: 'Reviewing', isUp: true, color: 'text-amber-500' }}
-            progress={45}
-          />
-          <AdminStatCard 
-            label="Expiring Manifest" 
-            value={allProducts.filter(p => p.expiry_date && new Date(p.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length} 
-            icon={<Clock size={22} />} 
-            color="emerald"
-            trend={{ value: 'Mitigation', isUp: true }}
-            progress={15}
-          />
-        </div>
-
-        {/* Global Catalog Utility Bar */}
-        <div className="flex flex-col lg:flex-row gap-6 items-center">
-          <div className="w-full lg:flex-1 relative group">
-            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={20} />
-            <input 
-              type="text" 
-              placeholder="Search by SKU, Name, Category or Batch Number..."
-              className="w-full bg-white border-stone-200 border rounded-[2rem] pl-16 pr-6 py-4 text-sm focus:ring-8 focus:ring-primary/5 outline-none transition-all placeholder:text-stone-300 font-medium shadow-sm hover:border-stone-300 focus:border-primary"
-              value={productSearchTerm}
-              onChange={(e) => {
-                setProductSearchTerm(e.target.value);
-              }}
+        <div className="flex-1 overflow-y-auto no-scrollbar space-y-8 pb-10">
+          {/* Intelligence Quick Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <AdminStatCard 
+              label="Total SKU Catalog" 
+              value={allProducts.length} 
+              icon={<Package size={22} />} 
+              color="primary"
+              trend={{ value: 'Active', isUp: true }}
+              progress={100}
+            />
+            <AdminStatCard 
+              label="Out of Stock" 
+              value={allProducts.filter(p => Number(p.stock) <= 0).length} 
+              icon={<AlertTriangle size={22} />} 
+              color="red"
+              trend={{ value: 'Action Required', isUp: false }}
+              progress={allProducts.length > 0 ? (allProducts.filter(p => Number(p.stock) <= 0).length / allProducts.length) * 100 : 0}
+            />
+            <AdminStatCard 
+              label="Low Stock Replenish" 
+              value={allProducts.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.reorder_point || 5)).length} 
+              icon={<ShieldAlert size={22} />} 
+              color="amber"
+              trend={{ value: 'Reviewing', isUp: true, color: 'text-amber-500' }}
+              progress={45}
+            />
+            <AdminStatCard 
+              label="Expiring Manifest" 
+              value={allProducts.filter(p => p.expiry_date && new Date(p.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length} 
+              icon={<Clock size={22} />} 
+              color="emerald"
+              trend={{ value: 'Mitigation', isUp: true }}
+              progress={15}
             />
           </div>
 
-          <div className="flex items-center space-x-3 w-full lg:w-auto">
-            <div className="flex items-center p-1 bg-white border border-stone-100 rounded-2xl shadow-sm">
-              <button 
-                onClick={downloadTemplate}
-                className="p-3 text-stone-400 hover:text-primary transition-all rounded-xl hover:bg-stone-50"
-                title="Export CSV Template"
-              >
-                <Download size={20} />
-              </button>
-              <label className="p-3 text-stone-400 hover:text-emerald-500 transition-all rounded-xl cursor-pointer hover:bg-stone-50">
-                <Upload size={20} />
-                <input type="file" accept=".csv" className="hidden" onChange={handleBulkUpload} />
-              </label>
-              {(productStockFilter === 'low' || productStockFilter === 'out') && (
+          {/* Global Catalog Utility Bar */}
+          <div className="flex flex-col lg:flex-row gap-6 items-center">
+            <div className="w-full lg:flex-1 relative group">
+              <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-stone-300 group-focus-within:text-primary transition-colors" size={20} />
+              <input 
+                type="text" 
+                placeholder="Search by SKU, Name, Category or Batch Number..."
+                className="w-full bg-white border-stone-200 border rounded-[2rem] pl-16 pr-6 py-4 text-sm focus:ring-8 focus:ring-primary/5 outline-none transition-all placeholder:text-stone-300 font-medium shadow-sm hover:border-stone-300 focus:border-primary"
+                value={productSearchTerm}
+                onChange={(e) => {
+                  setProductSearchTerm(e.target.value);
+                }}
+              />
+            </div>
+
+            <div className="flex items-center space-x-3 w-full lg:w-auto">
+              <div className="flex items-center p-1 bg-white border border-stone-100 rounded-2xl shadow-sm">
                 <button 
-                  onClick={generatePurchaseOrder}
-                  className="p-3 text-stone-400 hover:text-amber-500 transition-all rounded-xl hover:bg-stone-50"
-                  title="Generate PO for Low Stock"
+                  onClick={downloadTemplate}
+                  className="p-3 text-stone-400 hover:text-primary transition-all rounded-xl hover:bg-stone-50"
+                  title="Export CSV Template"
                 >
-                  <Receipt size={20} />
+                  <Download size={20} />
                 </button>
-              )}
+                <label className="p-3 text-stone-400 hover:text-emerald-500 transition-all rounded-xl cursor-pointer hover:bg-stone-50">
+                  <Upload size={20} />
+                  <input type="file" accept=".csv" className="hidden" onChange={handleBulkUpload} />
+                </label>
+                {(productStockFilter === 'low' || productStockFilter === 'out') && (
+                  <button 
+                    onClick={generatePurchaseOrder}
+                    className="p-3 text-stone-400 hover:text-amber-500 transition-all rounded-xl hover:bg-stone-50"
+                    title="Generate PO for Low Stock"
+                  >
+                    <Receipt size={20} />
+                  </button>
+                )}
+              </div>
+              
+              <div className="h-10 w-px bg-stone-200 mx-2" />
+              
+              <motion.button 
+                whileTap={{ scale: 0.9 }}
+                onClick={handleManualRefresh}
+                disabled={!isOnline || isRefreshing}
+                className={cn(
+                  "p-4 bg-white border border-stone-100 rounded-2xl text-stone-400 transition-all active:scale-95",
+                  !isOnline ? "opacity-50 cursor-not-allowed" : "hover:text-primary hover:shadow-md"
+                )}
+              >
+                <RefreshCw size={20} className={cn(isRefreshing && "animate-spin")} />
+              </motion.button>
+            </div>
+          </div>
+
+          {/* Enhanced Filters */}
+          <section className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
+            <div className="flex items-center space-x-3 pr-6 border-r border-stone-100">
+              <div className="p-3 bg-primary/10 rounded-2xl text-primary">
+                <Filter size={20} />
+              </div>
+              <span className="text-xs font-black text-stone-900 uppercase tracking-widest leading-none">Catalog<br/><span className="text-stone-400 font-bold">Filters</span></span>
             </div>
             
-            <div className="h-10 w-px bg-stone-200 mx-2" />
-            
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Stock</label>
+              <select 
+                className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
+                value={productStockFilter}
+                onChange={(e) => setProductStockFilter(e.target.value as any)}
+              >
+                <option value="all">All Inventory</option>
+                <option value="low">Low Stock Only</option>
+                <option value="out">Out of Stock</option>
+                <option value="expiring">Near Expiry</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
+              <select 
+                className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer min-w-[140px]"
+                value={productCategoryFilter}
+                onChange={(e) => setProductCategoryFilter(e.target.value)}
+              >
+                <option value="all">All Categories</option>
+                {categories.map(c => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Sort By</label>
+              <select 
+                className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
+                value={productSortBy}
+                onChange={(e) => setProductSortBy(e.target.value as any)}
+              >
+                <option value="name">Name (A-Z)</option>
+                <option value="price">Price (Value)</option>
+                <option value="stock">Stock (Count)</option>
+                <option value="created_at">Submission Date</option>
+              </select>
+            </div>
+
             <motion.button 
-              whileTap={{ scale: 0.9 }}
-              onClick={handleManualRefresh}
-              disabled={!isOnline || isRefreshing}
-              className={cn(
-                "p-4 bg-white border border-stone-100 rounded-2xl text-stone-400 transition-all active:scale-95",
-                !isOnline ? "opacity-50 cursor-not-allowed" : "hover:text-primary hover:shadow-md"
-              )}
+              whileHover={{ rotate: -90 }}
+              onClick={() => {
+                setProductStockFilter('all');
+                setProductCategoryFilter('all');
+                setProductListedFilter('all');
+                setProductSearchTerm('');
+                setProductSortBy('name');
+              }}
+              className="ml-auto p-3 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white border border-stone-100 rounded-2xl transition-all shadow-sm group"
+              title="Reset Filters"
             >
-              <RefreshCw size={20} className={cn(isRefreshing && "animate-spin")} />
+              <RefreshCw size={20} className="group-active:scale-90" />
             </motion.button>
-          </div>
-        </div>
+          </section>
 
-        {/* Enhanced Filters */}
-        <section className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
-          <div className="flex items-center space-x-3 pr-6 border-r border-stone-100">
-            <div className="p-3 bg-primary/10 rounded-2xl text-primary">
-              <Filter size={20} />
-            </div>
-            <span className="text-xs font-black text-stone-900 uppercase tracking-widest leading-none">Catalog<br/><span className="text-stone-400 font-bold">Filters</span></span>
-          </div>
-          
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Stock</label>
-            <select 
-              className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
-              value={productStockFilter}
-              onChange={(e) => setProductStockFilter(e.target.value as any)}
-            >
-              <option value="all">All Inventory</option>
-              <option value="low">Low Stock Only</option>
-              <option value="out">Out of Stock</option>
-              <option value="expiring">Near Expiry</option>
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
-            <select 
-              className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer min-w-[140px]"
-              value={productCategoryFilter}
-              onChange={(e) => setProductCategoryFilter(e.target.value)}
-            >
-              <option value="all">All Categories</option>
-              {categories.map(c => (
-                <option key={c.id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-stone-400 uppercase tracking-widest px-1">Sort By</label>
-            <select 
-              className="bg-stone-50 border-stone-200 border rounded-xl text-xs font-bold py-2.5 px-4 focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer"
-              value={productSortBy}
-              onChange={(e) => setProductSortBy(e.target.value as any)}
-            >
-              <option value="name">Name (A-Z)</option>
-              <option value="price">Price (Value)</option>
-              <option value="stock">Stock (Count)</option>
-              <option value="created_at">Submission Date</option>
-            </select>
-          </div>
-
-          <motion.button 
-            whileHover={{ rotate: -90 }}
-            onClick={() => {
-              setProductStockFilter('all');
-              setProductCategoryFilter('all');
-              setProductListedFilter('all');
-              setProductSearchTerm('');
-              setProductSortBy('name');
-            }}
-            className="ml-auto p-3 bg-stone-50 text-stone-400 hover:text-primary hover:bg-white border border-stone-100 rounded-2xl transition-all shadow-sm group"
-            title="Reset Filters"
-          >
-            <RefreshCw size={20} className="group-active:scale-90" />
-          </motion.button>
-        </section>
-
-        <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
-          <div className="overflow-x-auto no-scrollbar">
+          <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+            <div className="overflow-x-auto no-scrollbar">
             <table className="w-full text-left">
               <thead className="bg-stone-50/50 text-stone-400 text-xs uppercase font-black tracking-[0.15em]">
                 <tr>
@@ -443,8 +444,9 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
             </table>
           </div>
         </div>
+      </div>
 
-        <AnimatePresence>
+      <AnimatePresence>
           {selectedProducts.length > 0 && (
             <motion.div 
               initial={{ y: 150, opacity: 0 }}

@@ -29,8 +29,8 @@ export default function AdminManagementTab({
   toast,
 }: AdminManagementTabProps) {
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+    <div className="h-full overflow-y-auto no-scrollbar space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10">
+      <header className="shrink-0 flex flex-col md:flex-row md:items-end justify-between gap-8">
         <div>
           <h2 className="text-4xl font-black text-stone-900 tracking-tight text-left">Admin Governance</h2>
           <p className="text-stone-500 mt-2 text-lg font-medium text-left">Manage operational privileges, track activity nodes, and enforce security protocols.</p>

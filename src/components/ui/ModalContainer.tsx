@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,17 +45,27 @@ export default function ModalContainer({
     full: 'max-w-full h-full sm:h-auto'
   };
 
+  useEffect(() => {
+    if (isOpen) {
+      const originalStyle = window.getComputedStyle(document.body).overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalStyle;
+      };
+    }
+  }, [isOpen]);
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 md:p-10">
           {/* Backdrop Overlay */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 bg-stone-900/40 backdrop-blur-md"
+            className="absolute inset-0 bg-stone-900/60 backdrop-blur-md"
             onClick={onClose}
           />
 
@@ -66,7 +76,7 @@ export default function ModalContainer({
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             className={cn(
-              "bg-white rounded-[2.5rem] shadow-2xl relative z-10 w-full overflow-hidden border border-stone-100/50 flex flex-col",
+              "bg-white rounded-[2.5rem] shadow-2xl relative z-10 w-full overflow-hidden border border-stone-100/50 flex flex-col max-h-full",
               sizeClasses[size],
               className
             )}

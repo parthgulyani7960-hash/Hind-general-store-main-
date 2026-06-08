@@ -6,46 +6,18 @@ import { Link } from 'react-router-dom';
 import { cn } from '@/types';
 
 export default function NotificationBell() {
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [readIds, setReadIds] = useState<number[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  const { user, simulatedRole } = useStore();
-  const activeRole = simulatedRole || user?.role || 'user';
-
-  const fetchNotifs = async () => {
-    if (!user) return;
-    try {
-      const res = await fetch('/api/notifications');
-      const data = await res.json();
-      
-      // Filter by user_id and activeRole
-      const visible = Array.isArray(data) ? data.filter((n: any) => 
-          (n.user_id === user?.id || !n.user_id) && 
-          (!n.target_role || n.target_role === 'all' || n.target_role === activeRole)
-      ) : [];
-      setNotifications(visible);
-    } catch (err) {
-      console.warn('Notifications fetch failed');
-    }
-  };
+  const { user, notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead } = useStore();
 
   useEffect(() => {
-    const saved = localStorage.getItem('read_notifications');
-    if (saved) setReadIds(JSON.parse(saved));
+    fetchNotifications();
+  }, [user?.id]);
 
-    fetchNotifs();
-  }, [activeRole, user?.id]);
-
-  const unreadCount = notifications.filter(n => !readIds.includes(n.id)).length;
-
-  const markAsRead = (id: number, createdAt: string) => {
-    const next = [...readIds, id];
-    setReadIds(next);
-    localStorage.setItem('read_notifications', JSON.stringify(next));
-  };
+  const notifications = notificationsList || [];
+  const unreadCount = unreadNotificationsCount || 0;
 
   return (
-    <div className="relative group/bell" onMouseEnter={() => { setIsOpen(true); fetchNotifs(); }} onMouseLeave={() => setIsOpen(false)}>
+    <div className="relative group/bell" onMouseEnter={() => { setIsOpen(true); fetchNotifications(); }} onMouseLeave={() => setIsOpen(false)}>
       <button className="relative p-2 text-stone-600 hover:text-primary transition-colors block">
         <motion.div
            whileHover={{ rotate: 15 }}
@@ -79,9 +51,7 @@ export default function NotificationBell() {
               {unreadCount > 0 && (
                 <button 
                   onClick={() => {
-                    const allIds = notifications.map(n => n.id);
-                    setReadIds(allIds);
-                    localStorage.setItem('read_notifications', JSON.stringify(allIds));
+                    notifications.forEach(n => markNotificationAsRead(n.id));
                   }}
                   className="text-[10px] font-black text-primary uppercase tracking-tighter hover:underline"
                 >
@@ -91,7 +61,7 @@ export default function NotificationBell() {
             </div>
             
             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar no-scrollbar">
-              {notifications.filter(n => !readIds.includes(n.id)).length === 0 ? (
+              {unreadCount === 0 ? (
                 <div className="text-center py-10">
                   <div className="w-16 h-16 bg-stone-50 rounded-[1.5rem] flex items-center justify-center mx-auto mb-4 text-stone-200">
                     <CheckCircle2 size={32} />
@@ -100,7 +70,7 @@ export default function NotificationBell() {
                   <p className="text-[10px] text-stone-400 font-medium mt-1">No pending updates at this time</p>
                 </div>
               ) : (
-                notifications.filter(n => !readIds.includes(n.id)).map(n => {
+                notifications.filter(n => !readNotificationIds.includes(n.id)).map(n => {
                     const content = (
                       <div className="bg-stone-50 hover:bg-stone-100/80 rounded-2xl p-4 border border-stone-100/60 transition-all flex items-start space-x-3 relative group/item">
                         <div className={cn(
@@ -118,7 +88,7 @@ export default function NotificationBell() {
                           </span>
                         </div>
                         <button 
-                          onClick={(e) => { e.preventDefault(); markAsRead(n.id, n.created_at); }}
+                          onClick={(e) => { e.preventDefault(); markNotificationAsRead(n.id); }}
                           className="absolute top-3 right-3 p-1 text-stone-200 hover:text-red-500 opacity-0 group-hover/item:opacity-100 transition-all"
                           title="Dismiss"
                         >
@@ -126,7 +96,7 @@ export default function NotificationBell() {
                         </button>
                       </div>
                     );
-                    return n.link ? <Link key={n.id} to={n.link} onClick={() => markAsRead(n.id, n.created_at)}>{content}</Link> : <div key={n.id}>{content}</div>;
+                    return n.link ? <Link key={n.id} to={n.link} onClick={() => markNotificationAsRead(n.id)}>{content}</Link> : <div key={n.id}>{content}</div>;
                 })
               )}
             </div>

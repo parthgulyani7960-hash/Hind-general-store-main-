@@ -136,8 +136,8 @@ export default function AdminPayments() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 p-6 md:p-10">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="h-[calc(100vh-4.5rem)] bg-stone-50 overflow-y-auto no-scrollbar scroll-smooth">
+      <div className="max-w-7xl mx-auto p-6 md:p-10 space-y-8 pb-32">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>

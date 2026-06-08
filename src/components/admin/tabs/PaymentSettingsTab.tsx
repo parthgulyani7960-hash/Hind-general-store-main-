@@ -12,7 +12,7 @@ export default function PaymentSettingsTab({
   updateSetting,
 }: PaymentSettingsTabProps) {
   return (
-    <div className="max-w-2xl space-y-6 font-sans">
+    <div className="h-full overflow-y-auto no-scrollbar max-w-2xl space-y-6 font-sans pb-10 pr-2">
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-bold text-stone-900">UPI Payment Details</h3>

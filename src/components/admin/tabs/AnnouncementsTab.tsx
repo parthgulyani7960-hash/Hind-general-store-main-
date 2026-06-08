@@ -28,7 +28,7 @@ const AnnouncementsTab: React.FC<AnnouncementsTabProps> = ({
     toast
 }) => {
     return (
-        <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in duration-500 pb-10 pr-2">
              <div className="bg-white p-10 rounded-[3rem] shadow-xl shadow-stone-200/40 border border-stone-100 flex flex-col lg:flex-row justify-between items-center gap-8 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32" />
               <div className="relative z-10 text-center lg:text-left">

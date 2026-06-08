@@ -5,6 +5,7 @@ import LoadingFallback from './LoadingFallback';
 import toast from 'react-hot-toast';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { logger } from '@/lib/logger';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -36,12 +37,12 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
               setIsAdminWhitelisted(true);
             } else {
               setIsAdminWhitelisted(false);
-              console.log('[AuthGuard] Email not found or inactive in admin_whitelist:', cleanEmail);
+              logger.warn('[AuthGuard] Administrative access denied: Whitelist verification failed');
             }
           }
         })
         .catch((err) => {
-          console.error('[AuthGuard] Error checking admin whitelist:', err);
+          logger.error('[AuthGuard] Error checking admin whitelist');
           if (active) {
             setIsAdminWhitelisted(false);
           }
@@ -65,24 +66,13 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
 
   useEffect(() => {
     if (isInitialAuthPerformed && !user) {
-        console.log('[AuthGuard] Access denied: User not authenticated', {
-            path: location.pathname,
-            isAuthChecking,
-            isRevalidating,
-            isInitialAuthPerformed
-        });
+        logger.warn('[AuthGuard] Access denied: User not authenticated');
         if (!hasShownToast.current) {
           toast.error('Please log in to continue');
           hasShownToast.current = true;
         }
     } else if (isInitialAuthPerformed && user && allowedRoles && !isAuthorized && !isVerifyingWhitelist && isAdminWhitelisted !== null) {
-        console.log('[AuthGuard] Access denied: Insufficient privileges', {
-            path: location.pathname,
-            userRole,
-            allowedRoles,
-            isAdminWhitelisted,
-            user: { id: user.id, email: user.email }
-        });
+        logger.warn('[AuthGuard] Access denied: Insufficient privileges');
         toast.error('Access denied. Insufficient privileges.');
     }
   }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isVerifyingWhitelist, isAdminWhitelisted]);

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone, Bell,
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
   Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus,
-  Terminal
+  Terminal, ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/types';
 
@@ -59,7 +59,7 @@ const menuGroups = [
       { name: 'Suspicious Activities', label: 'Risk Manager', icon: ShieldAlert },
       { name: 'Audit Logs', label: 'Activity Logs', icon: ClipboardList },
       { name: 'Security & Data', label: 'Security & Data', icon: Shield },
-      { name: 'Admin Security', label: 'Admin Security', icon: Shield },
+      { name: 'Security Audit', label: 'Security Audit', icon: ShieldCheck },
       { name: 'Automatic Reports', label: 'Anomalies', icon: Bug },
       { name: 'Diagnostic Console', label: 'Diagnostic Panel', icon: Terminal },
     ]

@@ -8,65 +8,86 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
 
 // Privacy / Security Console Redaction
+// Implements strict production logging policy: only log errors, redact all sensitive data.
 function redactConsole() {
   const originalLog = console.log;
   const originalWarn = console.warn;
   const originalError = console.error;
   const originalInfo = console.info;
 
-  const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
+  const isProduction = import.meta.env.PROD;
 
-  function redact(arg: any): any {
-    if (typeof arg === 'string') {
-      let redacted = arg.replace(emailRegex, '[REDACTED_EMAIL]');
-      
-      // If we are in production, hide sensitive keywords
-      if (import.meta.env.PROD) {
-        if (/Firebase|Firestore|Auth|Token|UID|userId|user_id|role|admin|balance|device|ip|timestamp|project|database|credentials|permission/i.test(redacted)) {
-          redacted = redacted.replace(/(Firebase|Firestore|Auth|Token|Bearer|getIdToken|authStateReady)/ig, '[PRIVACY_SEC_INTERNAL_SHIELD]');
-          redacted = redacted.replace(/(userId|user_id|uid|UID)\s*(?::|=)?\s*([a-zA-Z0-9_-]+)/ig, 'id: [REDACTED_ID]');
-          redacted = redacted.replace(/(role\s*(?::|=)?\s*)(["']?admin["']?)/ig, '$1 [REDACTED_ROLE]');
-          redacted = redacted.replace(/(balance|wallet|khata)\s*(?::|=)?\s*([\d.]+)/ig, '$1: [REDACTED_BALANCE]');
-          redacted = redacted.replace(/(ip|ip_address)\s*(?::|=)?\s*([\d.]+)/ig, '$1: [REDACTED_IP]');
-          redacted = redacted.replace(/(timestamp|login_time)\s*(?::|=)?\s*([^,\n}]+)/ig, '$1: [REDACTED_TIMESTAMP]');
-          redacted = redacted.replace(/(projectid|projectId|project_id|databaseId|database_id|firestoreDatabaseId)\s*(?::|=)?\s*([a-zA-Z0-9_-]+)/ig, '$1: [REDACTED_METADATA]');
-          redacted = redacted.replace(/(permission|role|admin|isUserAdmin|verification|authDecision)\s*(?::|=)?\s*([^,\n}]+)/ig, '$1: [REDACTED_ACCESS_CONTROL]');
+  function redact(data: any): any {
+    if (typeof data !== 'object' || data === null) {
+      if (typeof data === 'string') {
+        const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
+        let redacted = data.replace(emailRegex, '[REDACTED_IDENTITY]');
+        
+        if (isProduction) {
+          if (data.length > 25 && /^[a-zA-Z0-9-_]+$/.test(data)) return '[REDACTED_HASH]';
+          
+          const sensitivePatterns = [
+            /role\s*[:=]\s*\w+/gi,
+            /(is|user)admin\s*[:=]\s*\w+/gi,
+            /permission\s*[:=]\s*\w+/gi,
+            /uid\s*[:=]\s*[a-zA-Z0-9_-]+/gi,
+            /userid\s*[:=]\s*[a-zA-Z0-9_-]+/gi,
+            /password\s*[:=]\s*[^\s,{}]+/gi,
+            /secret\s*[:=]\s*[^\s,{}]+/gi,
+            /token\s*[:=]\s*[^\s,{}]+/gi,
+            /authDecision\s*[:=]\s*\w+/gi,
+            /verificationResults\s*[:=]\s*\w+/gi
+          ];
+          
+          sensitivePatterns.forEach(pattern => {
+            redacted = redacted.replace(pattern, (match) => match.split(/[:=]/)[0] + ': [REDACTED_SENSITIVE]');
+          });
         }
+        return redacted;
       }
-      return redacted;
-    } else if (arg && typeof arg === 'object') {
-      try {
-        const str = JSON.stringify(arg);
-        if (str) {
-          let redactedStr = str.replace(emailRegex, '[REDACTED_EMAIL]');
-          if (import.meta.env.PROD) {
-            redactedStr = redactedStr.replace(/"(email|userId|user_id|uid|role|wallet_balance|khata_balance|ip|timestamp|firebase|firestore|project_id|projectId|databaseId|database_id|permission|isUserAdmin|admin)"\s*:\s*([^,}]+)/ig, (match, key, val) => {
-              const lowerKey = key.toLowerCase();
-              if (lowerKey === 'role' || lowerKey.includes('permission') || lowerKey.includes('admin') || lowerKey.includes('useradmin')) {
-                return `"${key}":"[REDACTED_ACCESS_CONTROL]"`;
-              }
-              if (lowerKey.includes('balance')) return `"${key}":"[REDACTED_BALANCE]"`;
-              if (lowerKey.includes('id') || lowerKey === 'uid') return `"${key}":"[REDACTED_ID]"`;
-              if (lowerKey.includes('ip')) return `"${key}":"[REDACTED_IP]"`;
-              if (lowerKey.includes('timestamp')) return `"${key}":"[REDACTED_TIMESTAMP]"`;
-              if (lowerKey.includes('firebase') || lowerKey.includes('firestore') || lowerKey.includes('project') || lowerKey.includes('database')) {
-                return `"${key}":"[REDACTED_METADATA]"`;
-              }
-              return `"${key}":"[REDACTED]"`;
-            });
-          }
-          return JSON.parse(redactedStr);
-        }
-      } catch (e) {
-        return '[REDACTED_OBJECT]';
+      return data;
+    }
+
+    if (Array.isArray(data)) {
+      return data.map(item => redact(item));
+    }
+
+    const redacted: Record<string, any> = {};
+    for (const key in data) {
+      const value = data[key];
+      const lowKey = key.toLowerCase();
+      
+      const isSensitiveKey = 
+        lowKey.includes('email') || 
+        lowKey.includes('uid') || 
+        lowKey.includes('phone') ||
+        lowKey.includes('password') || 
+        lowKey.includes('token') ||
+        lowKey.includes('role') ||
+        lowKey.includes('permission') ||
+        lowKey.includes('isadmin') ||
+        lowKey.includes('secret') ||
+        lowKey.includes('key') ||
+        lowKey.includes('auth') ||
+        lowKey.includes('idtoken') ||
+        lowKey.includes('credential') ||
+        lowKey.includes('decision');
+
+      if (isSensitiveKey && isProduction) {
+        redacted[key] = '[REDACTED_PROTECTED]';
+      } else if (typeof value === 'object') {
+        redacted[key] = redact(value);
+      } else {
+        redacted[key] = value;
       }
     }
-    return arg;
+    return redacted;
   }
 
-  const wrapLog = (orig: (...args: any[]) => void) => {
+  const wrapLog = (orig: (...args: any[]) => void, level: 'log' | 'warn' | 'info' | 'error') => {
     return (...args: any[]) => {
-      if (import.meta.env.PROD) {
+      if (isProduction && level !== 'error') {
+        // Strict Policy: Remove all debug/console/warn logs in production.
         return;
       }
       const redactedArgs = args.map(arg => redact(arg));
@@ -74,17 +95,10 @@ function redactConsole() {
     };
   };
 
-  const wrapErrorLog = (orig: (...args: any[]) => void) => {
-    return (...args: any[]) => {
-      const redactedArgs = args.map(arg => redact(arg));
-      orig(...redactedArgs);
-    };
-  };
-
-  console.log = wrapLog(originalLog);
-  console.warn = wrapLog(originalWarn);
-  console.info = wrapLog(originalInfo);
-  console.error = wrapErrorLog(originalError);
+  console.log = wrapLog(originalLog, 'log');
+  console.warn = wrapLog(originalWarn, 'warn');
+  console.info = wrapLog(originalInfo, 'info');
+  console.error = wrapLog(originalError, 'error');
 }
 
 try {

@@ -57,7 +57,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     };
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in duration-500 pb-10">
             {/* Intel Dashboard Header */}
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
               <div className="space-y-1">
