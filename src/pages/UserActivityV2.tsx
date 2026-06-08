@@ -193,8 +193,8 @@ export default function UserActivity() {
         <div className="bg-white p-1.5 rounded-[1.75rem] shadow-sm border border-stone-100 grid grid-cols-3 gap-2">
           {[
             { id: 'orders', label: 'My Orders', count: orders.length, icon: ShoppingBag, color: 'text-indigo-600 bg-indigo-50/50' },
-            { id: 'wallet', label: 'Wallet Logs', count: walletTx.length, icon: Wallet, color: 'text-emerald-600 bg-emerald-50/50' },
-            { id: 'khata', label: 'Khata Ledger', count: khataTx.length, icon: Clock, color: 'text-amber-600 bg-amber-50/50' }
+            { id: 'wallet', label: 'Wallet History', count: walletTx.length, icon: Wallet, color: 'text-emerald-600 bg-emerald-50/50' },
+            { id: 'khata', label: 'Khata History', count: khataTx.length, icon: Clock, color: 'text-amber-600 bg-amber-50/50' }
           ].map(tab => (
             <button 
               key={tab.id} 
@@ -239,7 +239,15 @@ export default function UserActivity() {
               </div>
               <div>
                 <h3 className="font-bold text-stone-700 capitalize">No {activeTab} Recorded</h3>
-                <p className="text-xs text-stone-400 max-w-sm mx-auto mt-1">There are currently no active transactions, applications, or invoices registered under this account.</p>
+                <p className="text-xs text-stone-400 max-w-sm mx-auto mt-1 mb-6">There are currently no active transactions, applications, or invoices registered under this account.</p>
+                {activeTab === 'orders' && (
+                  <Link 
+                    to="/products" 
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-stone-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-stone-800 transition-all shadow-md active:scale-[0.98]"
+                  >
+                    Start Shopping
+                  </Link>
+                )}
               </div>
             </div>
           ) : (
@@ -324,7 +332,7 @@ export default function UserActivity() {
                   );
                 })}
 
-                {/* 2. WALLET LOGS */}
+                {/* 2. WALLET HISTORY */}
                 {activeTab === 'wallet' && walletTx.map((tx: any) => {
                   const isDebit = tx.type === 'debit';
                   const timestamp = tx.created_at || new Date().toISOString();
@@ -374,7 +382,7 @@ export default function UserActivity() {
                   );
                 })}
 
-                {/* 3. KHATA LEDGER LOGS */}
+                {/* 3. KHATA HISTORY LOGS */}
                 {activeTab === 'khata' && khataTx.map((tx: any) => {
                   const isDebit = tx.type === 'debit';
                   const timestamp = tx.created_at || new Date().toISOString();
@@ -430,7 +438,7 @@ export default function UserActivity() {
         <div className="bg-primary/5 p-5 rounded-3xl border border-primary/10 flex items-start gap-3.5">
           <AlertCircle className="text-primary shrink-0 mt-0.5" size={18} />
           <div>
-            <h4 className="text-xs font-black uppercase tracking-wider text-primary">Need assistance with dynamic ledgers?</h4>
+            <h4 className="text-xs font-black uppercase tracking-wider text-primary">Need assistance with dynamic histories?</h4>
             <p className="text-xs text-stone-500 mt-1 leading-relaxed">
               Our automated audits synchronize records in real-time. Feel free to contact our store manager directly via the support desks if any deposit verification is not completed within 2 hours.
             </p>

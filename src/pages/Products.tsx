@@ -19,9 +19,22 @@ import { io } from 'socket.io-client';
 
 export default function Products() {
   const location = useLocation();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedRating, setSelectedRating] = useState<number | null>(null);
+  const [minPrice, setMinPrice] = useState('0');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [sortBy, setSortBy] = useState('relevance');
+  const [onSaleOnly, setOnSaleOnly] = useState(false);
+  const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
+  const { 
+    t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, 
+    simulatedRole, config = [], products, setProducts, fetchProducts, isLoadingProducts, isOnline,
+    categories: globalCategories, fetchCategories
+  } = useStore();
+  
   const [searchTerm, setSearchTerm] = useState('');
+  
+  const loading = isLoadingProducts && products.length === 0;
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -30,23 +43,13 @@ export default function Products() {
       setSearchTerm(search);
     }
   }, [location.search]);
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedRating, setSelectedRating] = useState<number | null>(null);
-  const [minPrice, setMinPrice] = useState('0');
-  const [maxPrice, setMaxPrice] = useState('');
-  const [sortBy, setSortBy] = useState('relevance');
-  const [onSaleOnly, setOnSaleOnly] = useState(false);
-  const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
-  const { t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, simulatedRole, config = [] } = useStore();
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const { isMobile, isTablet } = useDeviceType();
   const activeRole = simulatedRole || user?.role;
-
-  const [error, setError] = useState<string | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [quickViewProduct, setQuickViewProduct] = useState<any>(null);
   const [showFloatingButtons, setShowFloatingButtons] = useState(false);
   const [showOptions, setShowOptions] = useState(true);
   const [showScrollUpPill, setShowScrollUpPill] = useState(false);
@@ -70,7 +73,7 @@ export default function Products() {
   }, [config]);
 
   useEffect(() => {
-    if (isFilterOpen || quickViewProduct) {
+    if (isFilterOpen) {
       document.body.classList.add('drawer-open');
     } else {
       document.body.classList.remove('drawer-open');
@@ -78,80 +81,17 @@ export default function Products() {
     return () => {
       document.body.classList.remove('drawer-open');
     };
-  }, [isFilterOpen, quickViewProduct]);
-
-  const fetchProducts = async (isMounted = true) => {
-    setLoading(true);
-    setError(null);
-    setLoadFailed(false);
-    try {
-      console.log('Fetching products from /api/products...');
-      const data = await fetchWithHandling<Product[]>('/api/products').catch(() => null);
-      if (data && data.length > 0) {
-        if (isMounted) {
-            setProducts(data);
-            const maxP = Math.max(...data.map((p: Product) => getProductPrice(p, user?.role)));
-            setMaxPrice(maxP.toString());
-            setLoading(false);
-        }
-        return;
-      }
-      
-      // 2. If API fails or is empty, try direct Firestore fallback (User request: "stored in the Firebase")
-      console.log('API failed or empty, attempting Firestore fallback...');
-      try {
-        // Broaden the query; filter on client-side if needed to be safe while troubleshooting rendering
-        const q = query(collection(fsDb, 'products'), limitFb(50));
-        let snapshot;
-        try {
-          snapshot = await getDocs(q);
-        } catch (error) {
-          handleFirestoreError(error, OperationType.GET, 'products');
-          throw error;
-        }
-        
-        const fbData = snapshot!.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-        console.log('Firestore fetched products:', fbData.length, fbData.slice(0, 5));
-        
-        if (isMounted) {
-            if (fbData.length > 0) {
-              setProducts(fbData);
-              const maxP = Math.max(...fbData.map((p: any) => getProductPrice(p as any, user?.role)));
-              setMaxPrice(maxP.toString());
-              toast.success('Loaded products from backup source');
-            } else {
-              console.log('No products found in Firestore.');
-              setProducts([]);
-            }
-            setLoading(false);
-        }
-        return;
-      } catch (fbError) {
-        console.error('Firestore fallback failed:', fbError);
-        throw new Error(`Primary and backup sources failed. ${fbError}`);
-      }
-    } catch (err: any) {
-      if (isMounted) {
-          console.error('Products fetch error:', err);
-          setProducts([]);
-          setLoadFailed(true);
-          setError(null);
-          toast.error('Search service is temporarily offline or unavailable. Showing empty state.');
-          setLoading(false);
-      }
-    }
-  };
+  }, [isFilterOpen]);
 
   const lastFetchRef = useRef<string>('');
   useEffect(() => {
     let isMounted = true;
     const currentKey = `${user?.id}-${user?.role}`;
     
-    // Prevent redundant fetches if role/user hasn't changed meaningfully
-    if (lastFetchRef.current === currentKey && products.length > 0) return;
-    lastFetchRef.current = currentKey;
-
-    fetchProducts(isMounted);
+    // Initial fetch from global context
+    if (products.length === 0) {
+      fetchProducts();
+    }
 
     // Real-Time Inventory Management Socket.io
     const socket = io();
@@ -235,7 +175,12 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
   setZoomImage(url);
 };
 
-const categories = ['All', 'Essential Pantry', 'Fresh Produce', 'Personal Care', 'Dairy & Eggs', 'Home Needs', 'Beverages', 'Spices & Masalas'];
+  const storeCategories = useMemo(() => {
+    const list = globalCategories.map(c => c.name);
+    return ['All', ...list];
+  }, [globalCategories]);
+
+  console.log('[PAGE RENDER SUCCESS] Products', { productsCount: products.length, categoriesCount: storeCategories.length });
 
   // Body scroll lock and hide mobile nav
   useEffect(() => {
@@ -334,38 +279,25 @@ const categories = ['All', 'Essential Pantry', 'Fresh Produce', 'Personal Care',
 
   if (loading) return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {[...Array(8)].map((_, i) => (
+      <div className="flex items-center justify-between mb-8">
+        <div className="h-10 w-48 bg-stone-100 animate-pulse rounded-xl" />
+        <div className="h-10 w-32 bg-stone-100 animate-pulse rounded-xl" />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+        {[...Array(12)].map((_, i) => (
           <ProductSkeleton key={i} />
         ))}
       </div>
     </div>
   );
 
-  if (error) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="bg-white p-8 rounded-3xl shadow-xl border border-stone-100 max-w-md w-full text-center space-y-6">
-        <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
-          <X size={32} />
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-2xl font-black text-stone-900">{t('failed_load_products') || 'Failed to load products'}</h2>
-          <p className="text-stone-500">{error}</p>
-        </div>
-        <button 
-          onClick={() => fetchProducts()}
-          className="w-full btn-primary py-4"
-        >
-          {t('try_again') || 'Try Again'}
-        </button>
-      </div>
-    </div>
-  );
+  const isFilterActive = selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && products.length > 0 && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance';
 
-  const isFilterActive = selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance';
+  console.log('[PRODUCTS_PAGE] Rendering Main Return (290)', { productsCount: products.length, zoomImage });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-32 md:pb-10 space-y-8 relative">
+
       {/* Zoom Modal */}
       <AnimatePresence>
         {zoomImage && (
@@ -679,7 +611,7 @@ const categories = ['All', 'Essential Pantry', 'Fresh Produce', 'Personal Care',
                         <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Shop Categories</h3>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        {categories.map(cat => (
+                        {storeCategories.map(cat => (
                           <button
                             key={cat}
                             onClick={() => setSelectedCategory(cat)}

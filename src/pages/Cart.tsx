@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock, Camera } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock, Camera, WifiOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { useState, useEffect } from 'react';
@@ -9,16 +9,33 @@ import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
 
 export default function Cart() {
-  const { t, cart, updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [] } = useStore();
+  const { t, cart, updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [], isOnline } = useStore();
   
   useEffect(() => {
-    if (user) fetchCart(user.id);
-    fetchBulkDiscounts();
-  }, [fetchBulkDiscounts]);
+    if (isOnline) {
+      if (user) fetchCart(user.id);
+      fetchBulkDiscounts();
+    }
+  }, [fetchBulkDiscounts, isOnline, user]);
 
   const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const [couponCode, setCouponCode] = useState(appliedCoupon?.code || '');
   const [isValidating, setIsValidating] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleManualRefresh = async () => {
+    if (!user || !isOnline) return;
+    setIsRefreshing(true);
+    const toastId = toast.loading('Synchronizing bag with secure servers...');
+    try {
+      await fetchCart(user.id, true);
+      toast.success('Bag synchronized and live!', { id: toastId });
+    } catch (e) {
+      toast.error('Failed to sync bag.', { id: toastId });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const cartWithDiscounts = cart.map(item => {
     // The 'price' field in the cart item is already adjusted for the user role in StoreContext
@@ -134,7 +151,7 @@ export default function Cart() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 pb-32">
-      <div className="flex flex-col gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-8 border-b border-stone-100 pb-6">
         <div>
           <h1 className="text-4xl font-black text-stone-900 tracking-tighter">My Bag</h1>
           <p className="text-stone-500 font-bold mt-1 flex items-center text-sm">
@@ -142,6 +159,34 @@ export default function Cart() {
             {cart.length} {cart.length === 1 ? 'item' : 'items'}
           </p>
         </div>
+
+        {user && isOnline && (
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="self-start sm:self-center flex items-center space-x-2 px-5 py-2.5 bg-white border border-stone-100 hover:bg-stone-50 text-stone-700 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw size={14} className={cn(isRefreshing && "animate-spin")} />
+            <span>{isRefreshing ? 'Syncing...' : 'Sync Bag'}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-8">
+
+        {!isOnline && (
+          <div className="bg-amber-50 border border-amber-200/60 rounded-[1.5rem] p-5 flex items-center justify-between text-amber-800">
+            <div className="flex items-center space-x-3.5">
+              <span className="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl flex items-center justify-center">
+                <WifiOff size={18} />
+              </span>
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider">Offline Mode Active</p>
+                <p className="text-xs text-amber-700/80 font-medium mt-0.5">Viewing cached bag items. Reconnect to resume live cart pricing & checkout.</p>
+              </div>
+            </div>
+          </div>
+        )}
         
         {remainingForFree > 0 ? (
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 w-full">
@@ -380,13 +425,23 @@ export default function Cart() {
                   </div>
                 </div>
                 
-                <Link 
-                  to="/checkout" 
-                  className="w-full bg-stone-900 text-white py-6 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-stone-800 transition-all hover:shadow-2xl hover:shadow-stone-900/30 active:scale-[0.98] group/btn"
-                >
-                  <span>Checkout</span>
-                  <ArrowRight size={20} className="group-hover/btn:translate-x-1 transition-transform" />
-                </Link>
+                {!isOnline ? (
+                  <button 
+                    disabled
+                    className="w-full bg-stone-100 text-stone-400 py-6 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest cursor-not-allowed border border-stone-200"
+                  >
+                    <span>Connect to Checkout</span>
+                    <WifiOff size={20} />
+                  </button>
+                ) : (
+                  <Link 
+                    to="/checkout" 
+                    className="w-full bg-stone-900 text-white py-6 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-stone-800 transition-all hover:shadow-2xl hover:shadow-stone-900/30 active:scale-[0.98] group/btn"
+                  >
+                    <span>Checkout</span>
+                    <ArrowRight size={20} className="group-hover/btn:translate-x-1 transition-transform" />
+                  </Link>
+                )}
               </div>
             </div>
 

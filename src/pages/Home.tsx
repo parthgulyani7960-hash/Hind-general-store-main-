@@ -12,16 +12,15 @@ import LoadingFallback from '@/components/LoadingFallback';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
 function HomeInner() {
-  const { user, simulatedRole, t, config = [] } = useStore();
+  const { user, simulatedRole, t, config = [], categories: globalCategories, fetchCategories, isLoadingCategories } = useStore();
   const navigate = useNavigate();
   const [localSearch, setLocalSearch] = React.useState('');
-  const [categories, setCategories] = React.useState<any[]>([]);
-  const [loadingCats, setLoadingCats] = React.useState(true);
   const [banners, setBanners] = React.useState<any[]>([]);
   const [previewPromo, setPreviewPromo] = React.useState<any>(null);
   const [currentHeroIndex, setCurrentHeroIndex] = React.useState(0);
   
   const bannersLoaded = React.useRef(false);
+
 
   const previewPromoId = new URLSearchParams(window.location.search).get('preview_promo');
   const activeRole = simulatedRole || user?.role;
@@ -33,20 +32,14 @@ function HomeInner() {
       setCurrentHeroIndex((prev) => (prev + 1) % heroBanners.length);
     }, 4000);
     return () => clearInterval(interval);
-  }, [heroBanners]);
+  }, [heroBanners.length]);
 
   React.useEffect(() => {
     const fetchHomeData = () => {
-      fetchWithHandling<any[]>('/api/categories')
-        .then(data => {
-          if (data) {
-            setCategories(data);
-          }
-          setLoadingCats(false);
-        })
-        .catch(() => {
-          setLoadingCats(false);
-        });
+      // Trigger global categories fetch if empty
+      if (!globalCategories || globalCategories.length === 0) {
+        fetchCategories();
+      }
 
       fetchWithHandling<any[]>('/api/promotions')
         .then(data => {
@@ -64,16 +57,17 @@ function HomeInner() {
     };
 
     fetchHomeData();
-  }, [previewPromoId]);
+  }, [previewPromoId, globalCategories.length, fetchCategories]);
 
-  if (loadingCats) return <LoadingFallback message="Initializing categories..." fullScreen={false} />;
+  if (isLoadingCategories && globalCategories.length === 0) return <LoadingFallback message="Synchronizing categories..." fullScreen={false} />;
+
 
   const handleBannerClick = (id: number) => {
     fetchWithHandling(`/api/promotions/${id}/click`, { method: 'POST' });
   };
 
   return (
-    <div className="bg-stone-50 min-h-screen pb-20">
+    <div className="bg-stone-50 min-h-screen pb-20 relative">
       {/* Aesthetic Hero Carousel */}
       <section className="relative w-full h-[600px] bg-white overflow-hidden">
         {heroBanners.length > 0 ? (
@@ -237,10 +231,10 @@ function HomeInner() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {loadingCats ? (
+          {isLoadingCategories ? (
             [...Array(4)].map((_, i) => <div key={i} className="h-48 rounded-3xl bg-stone-100 animate-pulse" />)
-          ) : categories.length > 0 ? (
-            categories.slice(0, 4).map((cat, i) => (
+          ) : globalCategories.length > 0 ? (
+            globalCategories.slice(0, 4).map((cat: any, i: number) => (
               <Link 
                 key={i}
                 to={`/products?category=${encodeURIComponent(cat.name)}`}
@@ -250,6 +244,7 @@ function HomeInner() {
                   src={cat.image_url && cat.image_url.trim() !== '' ? cat.image_url : `https://picsum.photos/seed/${encodeURIComponent(cat.name)}/400/300`} 
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   alt={cat.name}
+                  referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-stone-950/70 to-transparent p-6 flex flex-col justify-end">
                   <h3 className="text-white text-xl font-bold">{cat.name}</h3>

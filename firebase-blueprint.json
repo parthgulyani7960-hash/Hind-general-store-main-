@@ -63,6 +63,19 @@
         "created_at": { "type": "string" }
       },
       "required": ["product_id", "quantity", "cost_price"]
+    },
+    "admin_whitelist": {
+      "title": "Admin Whitelist",
+      "description": "Whitelisted administrator emails and authorization states",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "addedBy": { "type": "string" },
+        "addedAt": { "type": "string" },
+        "status": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["email"]
     }
   },
   "firestore": {
@@ -104,6 +117,10 @@
     "settings/{key}": {
         "schema": "setting",
         "description": "Global store settings"
+    },
+    "admin_whitelist/{email}": {
+        "schema": "admin_whitelist",
+        "description": "Administrator whitelist entries"
     }
   }
 }

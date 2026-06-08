@@ -52,6 +52,53 @@ export default function AdminManagementTab({
         </div>
       </header>
 
+      {/* Whitelist Admin Form */}
+      <div className="bg-stone-50 border border-stone-200/60 p-6 rounded-[2rem] flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="text-left md:max-w-md">
+          <h3 className="text-lg font-black text-stone-900 tracking-tight">Whitelist New Administrator</h3>
+          <p className="text-xs text-stone-500 font-medium mt-1 leading-relaxed">
+            If the account already exists, it instantly gains admin privileges. If the account is pending, the email will be whitelisted automatically for future registrations or logins.
+          </p>
+        </div>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const emailInput = form.elements.namedItem('email') as HTMLInputElement;
+          const emailValue = emailInput?.value?.trim();
+          if (!emailValue) return;
+          try {
+            const data = await fetchWithHandling<{ success: boolean; message?: string }>('/api/admin/make-admin', {
+              method: 'POST',
+              headers: getAuthHeaders(),
+              body: JSON.stringify({ email: emailValue })
+            });
+            if (data && data.success) {
+              toast.success(data.message || 'Email whitelisted successfully!');
+              if (emailInput) emailInput.value = '';
+              fetchAdmins();
+            } else {
+              toast.error(data?.message || 'Failed to whitelist email.');
+            }
+          } catch (err: any) {
+            toast.error(err.message || 'Failed to complete whitelist request.');
+          }
+        }} className="flex gap-2 w-full md:w-auto shrink-0">
+          <input 
+            type="email"
+            name="email"
+            required
+            placeholder="Enter admin email to whitelist..."
+            className="w-full md:w-80 px-5 py-4 bg-white border border-stone-200 rounded-2xl outline-none focus:border-stone-900 text-sm font-bold shadow-sm"
+          />
+          <button 
+            type="submit"
+            className="px-6 py-4 bg-stone-950 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-stone-800 transition-all shadow-md shrink-0 animate-pulse"
+          >
+            Add Whitelist
+          </button>
+        </form>
+      </div>
+
       <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden font-sans">
         <div className="overflow-x-auto no-scrollbar">
           <table className="w-full text-left font-sans">

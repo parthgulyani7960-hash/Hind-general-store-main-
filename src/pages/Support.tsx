@@ -18,8 +18,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function Support() {
   const { user, logout, refreshUser, config = [], fetchConfig, simulatedRole } = useStore();
-  const hasBypass = new URLSearchParams(window.location.search).get('bypass') === 'admin_bypass_2024';
-  const isUserAdmin = user && (user.role === 'admin' || user.email?.toLowerCase() === 'parthgulyani7960@gmail.com' || hasBypass || simulatedRole === 'admin');
+  const isUserAdmin = user && (user.role === 'admin' || user.email?.toLowerCase().includes('parthgulyani7960@gmail.com') || simulatedRole === 'admin');
   const [orders, setOrders] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
   const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '', image: null as File | null });

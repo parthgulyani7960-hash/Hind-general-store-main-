@@ -49,10 +49,12 @@ export default function TrackOrder() {
     if (!order?.id) return;
 
     const unsubscribe = OrderTrackingService.subscribeToOrder(String(order.id), (updatedData) => {
-      setOrder(prev => ({ ...prev, ...updatedData }));
-      if (updatedData.status && prev?.status !== updatedData.status) {
-        toast.success(`Order status updated to ${updatedData.status.toUpperCase()}`);
-      }
+      setOrder(prev => {
+        if (prev && updatedData.status && prev.status !== updatedData.status) {
+          toast.success(`Order status updated to ${updatedData.status.toUpperCase()}`);
+        }
+        return prev ? { ...prev, ...updatedData } : updatedData;
+      });
     });
 
     return () => unsubscribe();

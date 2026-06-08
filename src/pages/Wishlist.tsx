@@ -9,19 +9,10 @@ import { fetchWithHandling } from '@/lib/api';
 import { ProductSkeleton } from '@/components/ui/Skeleton';
 
 export default function Wishlist() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { wishlist, toggleWishlist, addToCart } = useStore();
-
-  useEffect(() => {
-    fetchWithHandling<any>('/api/products')
-      .then(data => {
-        if (data) {
-          setProducts(data.filter((p: Product) => wishlist.includes(p.id)));
-          setLoading(false);
-        }
-      });
-  }, [wishlist]);
+  const { wishlist, toggleWishlist, addToCart, products: allProducts, isLoadingProducts, isOnline } = useStore();
+  
+  const products = allProducts.filter((p: Product) => wishlist.includes(p.id));
+  const loading = isLoadingProducts && allProducts.length === 0;
 
   if (loading) {
     return (
@@ -40,15 +31,29 @@ export default function Wishlist() {
   return (
     <div className="min-h-screen bg-stone-50 py-12 pb-32 md:pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-4xl font-serif font-bold text-stone-900">My Wishlist</h1>
-            <p className="text-stone-500 mt-2">Products you've saved for later</p>
+        <div className="flex flex-col gap-4 mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-serif font-bold text-stone-900">My Wishlist</h1>
+              <p className="text-stone-500 mt-2">Products you've saved for later</p>
+            </div>
+            <Link to="/products" className="text-primary font-bold flex items-center space-x-2 hover:underline">
+              <span>Continue Shopping</span>
+              <ArrowRight size={18} />
+            </Link>
           </div>
-          <Link to="/products" className="text-primary font-bold flex items-center space-x-2 hover:underline">
-            <span>Continue Shopping</span>
-            <ArrowRight size={18} />
-          </Link>
+
+          {!isOnline && (
+            <div className="bg-amber-50 border border-amber-200/60 rounded-[1.5rem] p-5 flex items-center text-amber-800">
+              <span className="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl mr-3 flex items-center justify-center">
+                <Heart size={18} className="animate-pulse" />
+              </span>
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider">Offline State</p>
+                <p className="text-xs text-amber-700/80 font-medium mt-0.5">Viewing saved wishlist items from local cache. Connect to complete purchases.</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {products.length === 0 ? (

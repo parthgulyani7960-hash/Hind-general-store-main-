@@ -138,8 +138,8 @@ export default function SpendingInsights() {
               <option>Last Year</option>
             </select>
           </div>
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-80 w-full min-w-[200px]" style={{ minWidth: "200px", minHeight: "320px" }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
               <AreaChart data={data.spendingHistory}>
                 <defs>
                   <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
@@ -185,8 +185,8 @@ export default function SpendingInsights() {
             <PieIcon className="text-stone-300" size={20} />
           </div>
           <div className="h-80 w-full flex flex-col md:flex-row items-center">
-            <div className="h-full w-full md:w-2/3">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-full w-full md:w-2/3 min-w-[200px]" style={{ minWidth: "200px", minHeight: "320px" }}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
                 <PieChart>
                   <Pie
                     data={data.categoryBreakdown}

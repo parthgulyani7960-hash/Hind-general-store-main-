@@ -456,7 +456,7 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                                         className="flex items-center space-x-3 px-6 py-2.5 hover:bg-stone-50 group transition-all"
                                       >
                                         <Receipt size={14} className="text-stone-600" />
-                                        <span className="text-xs font-black text-stone-800 font-sans uppercase tracking-wider">Generate Ledger</span>
+                                        <span className="text-xs font-black text-stone-800 font-sans uppercase tracking-wider">Generate History</span>
                                       </button>
                                     </motion.div>
                                   )}

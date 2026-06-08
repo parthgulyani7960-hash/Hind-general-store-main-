@@ -12,8 +12,6 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({ images, in
   const [index, setIndex] = React.useState(initialIndex);
 
   React.useEffect(() => {
-    console.log('[DEBUG] #product-modal .modal-content-wrapper loaded');
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };

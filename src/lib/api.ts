@@ -8,11 +8,12 @@ export interface ApiResponse<T> {
   ok: boolean;
 }
 
-export const fetchWithHandling = async <T>(
+const fetchWithHandlingInternal = async <T>(
   url: string,
   options: RequestInit = {},
   retries = 2
 ): Promise<T | null> => {
+  console.log(`[API] fetchWithHandlingInternal call to: ${url}`);
   let cleanUrl = url;
   if (cleanUrl) {
     if (cleanUrl.includes(' ') || cleanUrl.includes('%20')) {
@@ -41,10 +42,13 @@ export const fetchWithHandling = async <T>(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+  window.dispatchEvent(new CustomEvent('api_loading_start'));
+
   try {
     // Global fetch is now wrapped in main.tsx, so it handles token injection and retries
     const res = await fetch(cleanUrl, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
+    window.dispatchEvent(new CustomEvent('api_loading_stop'));
     
     if (!res.ok) {
         let errorMessage = `Error: ${res.status}`;
@@ -91,7 +95,6 @@ export const fetchWithHandling = async <T>(
           // 401 is handled by main.tsx fetch wrapper (token refresh). 
           // If it still reaches here, it means refresh failed or was not possible.
           const silentEndpoints = [
-            '/api/auth/me',
             '/api/products',
             '/api/categories',
             '/api/admin/stats',
@@ -117,7 +120,8 @@ export const fetchWithHandling = async <T>(
           }
           
           // Return null for read operations that failed with 401 to prevent UI crashes
-          if (options.method === 'GET' || !options.method) return null;
+          // EXCEPT for auth checking, which we want to throw to handle logout.
+          if ((options.method === 'GET' || !options.method) && !url.includes('/api/auth/me')) return null;
         } else if (res.status === 403) {
           errorMessage = "You do not have permission to perform this action";
         } else if (res.status === 429 || res.status >= 500) {
@@ -179,6 +183,7 @@ export const fetchWithHandling = async <T>(
     }
     return null;
   } catch (err: any) {
+    window.dispatchEvent(new CustomEvent('api_loading_stop'));
     if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
       const attemptNumber = 3 - retries;
       const delay = 1000 * Math.pow(2, attemptNumber - 1);
@@ -232,4 +237,81 @@ export const fetchWithHandling = async <T>(
     // but we return null for most common use cases.
     return null;
   }
+};
+
+const apiCache: Record<string, { data: any; timestamp: number }> = {};
+const apiPendingPromises: Record<string, Promise<any>> = {};
+const API_CACHE_TIME = 15000; // 15 seconds
+
+export const fetchWithHandling = async <T>(
+  url: string,
+  options: RequestInit = {},
+  retries = 2
+): Promise<T | null> => {
+  const method = (options.method || 'GET').toUpperCase();
+  
+  // Clean url key for caching
+  let cleanCacheUrl = url;
+  if (cleanCacheUrl.startsWith('api/')) {
+    cleanCacheUrl = '/' + cleanCacheUrl;
+  }
+  
+  if (method !== 'GET') {
+    // Mutation: Clear related cache domains
+    if (cleanCacheUrl.includes('/api/addresses')) {
+      Object.keys(apiCache).forEach(k => { if (k.includes('/api/addresses')) delete apiCache[k]; });
+    }
+    if (cleanCacheUrl.includes('/api/settings')) {
+      Object.keys(apiCache).forEach(k => { if (k.includes('/api/settings')) delete apiCache[k]; });
+    }
+    if (cleanCacheUrl.includes('/api/promotions')) {
+      Object.keys(apiCache).forEach(k => { if (k.includes('/api/promotions')) delete apiCache[k]; });
+    }
+    if (cleanCacheUrl.includes('/api/announcements')) {
+      Object.keys(apiCache).forEach(k => { if (k.includes('/api/announcements')) delete apiCache[k]; });
+    }
+    if (cleanCacheUrl.includes('/api/notifications')) {
+      Object.keys(apiCache).forEach(k => { if (k.includes('/api/notifications')) delete apiCache[k]; });
+    }
+    return fetchWithHandlingInternal<T>(url, options, retries);
+  }
+
+  // Check if this path is target cached path
+  const targetPaths = [
+    '/api/settings',
+    '/api/promotions',
+    '/api/promotions-rules',
+    '/api/announcements',
+    '/api/addresses',
+    '/api/notifications'
+  ];
+  
+  const isCachable = targetPaths.some(p => cleanCacheUrl.includes(p));
+
+  if (isCachable) {
+    const cached = apiCache[cleanCacheUrl];
+    if (cached && Date.now() - cached.timestamp < API_CACHE_TIME) {
+      console.log(`[API CACHE HIT] ${cleanCacheUrl}`);
+      return cached.data;
+    }
+
+    if (apiPendingPromises[cleanCacheUrl]) {
+      console.log(`[API DEDUP HIT] Joining in-flight: ${cleanCacheUrl}`);
+      return apiPendingPromises[cleanCacheUrl];
+    }
+
+    const promise = fetchWithHandlingInternal<T>(url, options, retries).then(data => {
+      if (data !== null) {
+        apiCache[cleanCacheUrl] = { data, timestamp: Date.now() };
+      }
+      return data;
+    }).finally(() => {
+      delete apiPendingPromises[cleanCacheUrl];
+    });
+
+    apiPendingPromises[cleanCacheUrl] = promise;
+    return promise;
+  }
+
+  return fetchWithHandlingInternal<T>(url, options, retries);
 };

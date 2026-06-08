@@ -1,6 +1,95 @@
 console.log('[BOOT STEP 1] Starting server.ts execution');
 process.on('warning', (warning) => console.warn('[NODE_WARNING]', warning));
+
+// Privacy & Security Logger Redactor
+function redactConsole() {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  const originalInfo = console.info;
+
+  const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
+
+  function redact(arg: any): any {
+    if (typeof arg === 'string') {
+      let redacted = arg.replace(emailRegex, '[REDACTED_EMAIL]');
+      
+      // Filter out or mask sensitive details in production
+      if (process.env.NODE_ENV === 'production') {
+        // Redact any database IDs, project IDs, roles, uid, credentials, internal auth details, verification decisions
+        if (/Firebase|Firestore|Auth|Token|UID|userId|user_id|role|admin|balance|device|ip|timestamp|project|database|credentials|permission/i.test(redacted)) {
+          redacted = redacted.replace(/(Firebase|Firestore|Auth|Token|Bearer|getIdToken)/ig, '[PRIVACY_SEC_INTERNAL_SHIELD]');
+          redacted = redacted.replace(/(userId|user_id|uid|UID)\s*(?::|=)?\s*([a-zA-Z0-9_-]+)/ig, 'id: [REDACTED_ID]');
+          redacted = redacted.replace(/(role\s*(?::|=)?\s*)(["']?admin["']?)/ig, '$1 [REDACTED_ROLE]');
+          redacted = redacted.replace(/(balance|wallet|khata)\s*(?::|=)?\s*([\d.]+)/ig, '$1: [REDACTED_BALANCE]');
+          redacted = redacted.replace(/(ip|ip_address)\s*(?::|=)?\s*([\d.]+)/ig, '$1: [REDACTED_IP]');
+          redacted = redacted.replace(/(timestamp|login_time)\s*(?::|=)?\s*([^,\n}]+)/ig, '$1: [REDACTED_TIMESTAMP]');
+          redacted = redacted.replace(/(projectid|projectId|project_id|databaseId|database_id|firestoreDatabaseId)\s*(?::|=)?\s*([a-zA-Z0-9_-]+)/ig, '$1: [REDACTED_METADATA]');
+          redacted = redacted.replace(/(permission|role|admin|isUserAdmin|verification|authDecision)\s*(?::|=)?\s*([^,\n}]+)/ig, '$1: [REDACTED_ACCESS_CONTROL]');
+        }
+      }
+      return redacted;
+    } else if (arg && typeof arg === 'object') {
+      try {
+        const str = JSON.stringify(arg);
+        if (str) {
+          let redactedStr = str.replace(emailRegex, '[REDACTED_EMAIL]');
+          if (process.env.NODE_ENV === 'production') {
+            redactedStr = redactedStr.replace(/"(email|userId|user_id|uid|role|wallet_balance|khata_balance|ip|timestamp|firebase|firestore|project_id|projectId|databaseId|database_id|permission|isUserAdmin|admin)"\s*:\s*([^,}]+)/ig, (match, key, val) => {
+              const lowerKey = key.toLowerCase();
+              if (lowerKey === 'role' || lowerKey.includes('permission') || lowerKey.includes('admin') || lowerKey.includes('useradmin')) {
+                return `"${key}":"[REDACTED_ACCESS_CONTROL]"`;
+              }
+              if (lowerKey.includes('balance')) return `"${key}":"[REDACTED_BALANCE]"`;
+              if (lowerKey.includes('id') || lowerKey === 'uid') return `"${key}":"[REDACTED_ID]"`;
+              if (lowerKey.includes('ip')) return `"${key}":"[REDACTED_IP]"`;
+              if (lowerKey.includes('timestamp')) return `"${key}":"[REDACTED_TIMESTAMP]"`;
+              if (lowerKey.includes('firebase') || lowerKey.includes('firestore') || lowerKey.includes('project') || lowerKey.includes('database')) {
+                return `"${key}":"[REDACTED_METADATA]"`;
+              }
+              return `"${key}":"[REDACTED]"`;
+            });
+          }
+          return JSON.parse(redactedStr);
+        }
+      } catch (e) {
+        return '[REDACTED_OBJECT]';
+      }
+    }
+    return arg;
+  }
+
+  const wrapLog = (orig: (...args: any[]) => void) => {
+    return (...args: any[]) => {
+      if (process.env.NODE_ENV === 'production') {
+        // Redact and print only if it's an error level.
+        // But some warnings might arise, let's keep it safe.
+        return;
+      }
+      const redactedArgs = args.map(arg => redact(arg));
+      orig(...redactedArgs);
+    };
+  };
+
+  const wrapErrorLog = (orig: (...args: any[]) => void) => {
+    return (...args: any[]) => {
+      const redactedArgs = args.map(arg => redact(arg));
+      orig(...redactedArgs);
+    };
+  };
+
+  console.log = wrapLog(originalLog);
+  console.warn = wrapLog(originalWarn);
+  console.info = wrapLog(originalInfo);
+  console.error = wrapErrorLog(originalError);
+}
+
+try {
+  redactConsole();
+} catch (e) {}
+
 import express from 'express';
+import crypto from 'crypto';
 console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
 console.log('[BOOT] Dotenv loaded');
@@ -171,6 +260,9 @@ const getAuthInstance = () => {
 };
 
 const safeVerifyIdToken = async (token: string): Promise<any> => {
+  if (!token || typeof token !== 'string' || token === 'null' || token === 'undefined' || token.trim() === '' || token.split('.').length !== 3) {
+    throw new Error('Decoding Firebase ID token failed. Invalid token format provided.');
+  }
   return await getAuthInstance().verifyIdToken(token);
 };
 
@@ -1461,10 +1553,27 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
         snap = await usersColl.where('email', '==', NBSP_Email).limit(1).get();
       }
       
-      const adminEmailConfig = await getAdminEmail();
-      const isDeveloperEmail = lowercaseEmail === 'parthgulyani7960@gmail.com';
-      const isConfigAdmin = lowercaseEmail === sanitizeEmail(adminEmailConfig);
-      const shouldBeAdmin = isDeveloperEmail || isConfigAdmin;
+      let shouldBeAdmin = false;
+      const lowerEmail = lowercaseEmail;
+      
+      const adminDoc = await getFirestoreInstance().collection('admin_whitelist').doc(lowerEmail).get();
+      if (lowerEmail === 'parthgulyani7960@gmail.com') {
+        shouldBeAdmin = true;
+        if (!adminDoc.exists) {
+          await getFirestoreInstance().collection('admin_whitelist').doc(lowerEmail).set({
+            email: lowerEmail,
+            addedBy: 'system',
+            addedAt: new Date().toISOString(),
+            status: 'active',
+            lastLogin: new Date().toISOString()
+          });
+        }
+      } else {
+        if (adminDoc.exists && adminDoc.data()?.status === 'active') {
+          shouldBeAdmin = true;
+        }
+      }
+      
       const role = shouldBeAdmin ? 'admin' : 'customer';
 
       if (!snap.empty) {
@@ -1472,10 +1581,11 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
         let user = { id: doc.id, ...doc.data() } as any;
         const updates: any = {};
         
-        // Auto-upgrade role if environment says so
-        if (shouldBeAdmin && user.role !== 'admin') {
-          updates.role = 'admin';
-          user.role = 'admin';
+        // Auto-upgrade or downgrade role based on admins collection
+        const targetRole = shouldBeAdmin ? 'admin' : 'customer';
+        if (user.role !== targetRole) {
+          updates.role = targetRole;
+          user.role = targetRole;
         }
 
         // Auto-link old account if uid is missing
@@ -1528,8 +1638,15 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
 // Helper to verify Firebase token and get/create user
 const verifyFirebaseUser = async (req: express.Request) => {
   if (!isFirebaseReady) return null;
+  if ((req as any)._verifiedUser !== undefined) {
+    return (req as any)._verifiedUser;
+  }
+
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    (req as any)._verifiedUser = null;
+    return null;
+  }
 
   const token = authHeader.split(' ')[1];
   try {
@@ -1538,6 +1655,7 @@ const verifyFirebaseUser = async (req: express.Request) => {
     
     if (!email) {
       console.warn(`[AUTH FAIL] Token verified but missing email for UID: ${decodedToken.uid}`);
+      (req as any)._verifiedUser = null;
       return null;
     }
 
@@ -1546,6 +1664,7 @@ const verifyFirebaseUser = async (req: express.Request) => {
     if (user) {
       if (user.status === 'disabled') {
         console.warn(`[AUTH] Login attempt by disabled user: ${email}`);
+        (req as any)._verifiedUser = null;
         return null;
       }
       
@@ -1561,13 +1680,17 @@ const verifyFirebaseUser = async (req: express.Request) => {
       (req as any).session = (req as any).session || {};
       (req as any).session.userId = user.id;
       (req as any).session.role = user.role;
+      (req as any)._verifiedUser = user;
       return user;
     }
   } catch (err: any) {
-    if (err.code !== 'auth/argument-error') { 
+    if (err.code !== 'auth/argument-error' && err.code !== 'auth/id-token-expired') { 
         console.warn(`[AUTH] Token verification failed: ${err.message}`);
+    } else {
+        console.log(`[AUTH] Token status: ${err.code === 'auth/id-token-expired' ? 'expired' : 'invalid'}`);
     }
   }
+  (req as any)._verifiedUser = null;
   return null;
 };
 
@@ -1644,6 +1767,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const token = authHeader.split(' ')[1];
+        (req as any).session = (req as any).session || {};
+        
         if (admin.apps.length > 0) {
           const decodedToken = await safeVerifyIdToken(token);
           const email = decodedToken.email?.toLowerCase();
@@ -1971,6 +2096,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       // Strict Session Validation: Check if session has userId
       if (req.session?.userId) {
          const userIdStr = String(req.session.userId);
+
          const doc = await getFirestoreInstance().collection('users').doc(userIdStr).get();
          
          if (doc.exists) {
@@ -2023,6 +2149,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
 
       if (req.session?.userId) {
+        const userIdStr = String(req.session.userId);
+
         // Safe bypass for initialization if DB is empty or user doc missing
         const isDeveloper = (req.session as any).email === 'parthgulyani7960@gmail.com';
         
@@ -2035,42 +2163,63 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         const doc = await db.collection('users').doc(String(req.session.userId)).get();
         if (doc.exists) {
           const udata = doc.data();
-          const cleanEmail = sanitizeEmail(udata?.email);
-          const adminEmailConfig = await getAdminEmail();
-          const isDeveloperEmail = cleanEmail === 'parthgulyani7960@gmail.com' || (req.session as any).email === 'parthgulyani7960@gmail.com';
-          const isConfigAdmin = cleanEmail === sanitizeEmail(adminEmailConfig);
-          const shouldBeAdmin = isDeveloperEmail || isConfigAdmin;
-
-          const finalRole = shouldBeAdmin ? 'admin' : (udata?.role || 'customer');
-          req.session.role = finalRole;
-          if (['admin', 'owner', 'manager'].includes(finalRole)) {
-            return next();
+          const userEmail = sanitizeEmail(udata?.email);
+          
+          if (userEmail) {
+            // Verify if email exists in 'admin_whitelist' collection and is active
+            const adminDoc = await db.collection('admin_whitelist').doc(userEmail).get();
+            if (userEmail === 'parthgulyani7960@gmail.com' && !adminDoc.exists) {
+              await db.collection('admin_whitelist').doc(userEmail).set({
+                email: userEmail,
+                addedBy: 'system',
+                addedAt: new Date().toISOString(),
+                status: 'active',
+                lastLogin: new Date().toISOString()
+              });
+              req.session.role = 'admin';
+              return next();
+            }
+            if (adminDoc.exists && adminDoc.data()?.status === 'active') {
+              req.session.role = 'admin';
+              return next();
+            }
           }
-        } else if (isDeveloper) {
-          req.session.role = 'admin';
-          return next();
-        } else {
-          req.session = null;
         }
+        
+        // Block if not authorized
         return res.status(403).json({ success: false, message: 'Admin access required' });
       }
 
       const user = await verifyFirebaseUser(req);
       if (user) {
         const cleanEmail = sanitizeEmail(user.email);
-        const adminEmailConfig = await getAdminEmail();
-        const isDeveloperEmail = cleanEmail === 'parthgulyani7960@gmail.com';
-        const isConfigAdmin = cleanEmail === sanitizeEmail(adminEmailConfig);
-        const shouldBeAdmin = isDeveloperEmail || isConfigAdmin;
+        const db = getFirestoreInstance();
+        
+        let shouldBeAdmin = false;
+        if (cleanEmail === 'parthgulyani7960@gmail.com') {
+          shouldBeAdmin = true;
+          const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
+          if (!adminDoc.exists) {
+            await db.collection('admin_whitelist').doc(cleanEmail).set({
+              email: cleanEmail,
+              addedBy: 'system',
+              addedAt: new Date().toISOString(),
+              status: 'active',
+              lastLogin: new Date().toISOString()
+            });
+          }
+        } else {
+          const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
+          if (adminDoc.exists && adminDoc.data()?.status === 'active') {
+            shouldBeAdmin = true;
+          }
+        }
 
         (req as any).session = (req as any).session || {};
         (req as any).session.userId = user.id;
-        if (shouldBeAdmin) {
-          user.role = 'admin';
-        }
-        (req as any).session.role = user.role;
+        (req as any).session.role = shouldBeAdmin ? 'admin' : 'customer';
 
-        if (['admin', 'owner', 'manager'].includes(user.role)) {
+        if (shouldBeAdmin) {
           return next();
         }
       }
@@ -3252,37 +3401,29 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       console.log('[STEP 2] Verifying authentication flow...');
       if (!req.session) {
-        return res.status(401).json({ success: false, message: 'SESSION_NOT_FOUND' });
+        (req as any).session = {};
       }
       if (!req.session.userId) {
         const authHeader = req.headers.authorization;
         if (authHeader && authHeader.startsWith('Bearer ')) {
           const token = authHeader.split(' ')[1];
-          if (token && token.startsWith('demo_bypass_token_')) {
-            const role = token.replace('demo_bypass_token_', '');
-            (req as any).session = (req as any).session || {};
-            (req as any).session.userId = 'demo_' + role;
-            (req as any).session.role = role;
-            console.log('AUTH VERIFY SUCCESS: Demo Token');
-          } else {
-            try {
-              if (isFirebaseReady && admin.apps.length) {
-                const decodedToken = await safeVerifyIdToken(token);
-                console.log('AUTH VERIFY SUCCESS: Firebase Token');
-                const email = sanitizeEmail(decodedToken.email);
-                
-                if (email) {
-                  const user = await getOrCreateUser(email, decodedToken);
-                  if (user) {
-                    (req as any).session = (req as any).session || {};
-                    (req as any).session.userId = user.id;
-                    (req as any).session.role = user.role;
-                  }
+          try {
+            if (isFirebaseReady && admin.apps.length) {
+              const decodedToken = await safeVerifyIdToken(token);
+              console.log('AUTH VERIFY SUCCESS: Firebase Token');
+              const email = sanitizeEmail(decodedToken.email);
+              
+              if (email) {
+                const user = await getOrCreateUser(email, decodedToken);
+                if (user) {
+                  (req as any).session = (req as any).session || {};
+                  (req as any).session.userId = user.id;
+                  (req as any).session.role = user.role;
                 }
               }
-            } catch (e: any) {
-              console.warn('[AUTH/ME] Token restoration bypassed/unable to verify:', e.message);
             }
+          } catch (e: any) {
+            console.warn('[AUTH/ME] Token restoration bypassed/unable to verify:', e.message);
           }
         }
       }
@@ -3302,15 +3443,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           console.warn('[AUTH/ME] Firestore session retrieval failed, using fallback:', dbErr.message);
         }
 
-        // Apply fallback parsing for token_, shadow_, or demo_ IDs if the database fetch failed or returned nothing
+        // Apply fallback parsing for token_ or shadow_ IDs if the database fetch failed or returned nothing
         if (!sessionUser) {
           const uId = String(req.session.userId);
-          if (uId.startsWith('token_') || uId.startsWith('shadow_') || uId.startsWith('demo_')) {
+          if (uId.startsWith('token_') || uId.startsWith('shadow_')) {
             sessionUser = { 
               id: uId, 
-              email: uId.split('_')[2] || (uId.startsWith('demo_') ? `demo_${req.session.role}@example.com` : 'user@example.com'),
+              email: uId.split('_')[2] || 'user@example.com',
               role: req.session.role || 'customer',
-              name: uId.startsWith('demo_') ? `Demo ${String(req.session.role).toUpperCase()}` : 'Shadow User',
+              name: 'Shadow User',
               is_shadow: true
             };
           } else {
@@ -3344,23 +3485,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         }
       }
       
-      if (!sessionUser && String(req.session.userId).startsWith('demo_')) {
-        const role = String(req.session.userId).replace('demo_', '');
-        sessionUser = {
-          id: 'demo_' + role,
-          username: 'demo_' + role + '_' + Math.round(Math.random() * 1000),
-          email: `demo_${role}@example.com`,
-          name: `Demo ${role.charAt(0).toUpperCase() + role.slice(1)}`,
-          profile_photo: 'https://picsum.photos/seed/' + role + '/150/150',
-          role: role,
-          phone: '+919999999999',
-          shop_name: (role === 'retailer' || role === 'wholesaler') ? 'Demo Shop' : null,
-          pin_code: '160012',
-          khata_enabled: 1,
-          khata_limit: 25000,
-          created_at: new Date().toISOString()
-        };
-      }
+
       
       if (!sessionUser) {
         return res.status(401).json({ success: false, message: 'USER_NOT_FOUND', reqSessionUserId: req.session.userId });
@@ -3446,6 +3571,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/auth/firebase-login', async (req, res) => {
     console.log('[ROUTE START] /api/auth/firebase-login', { requestId: (req as any).id });
+    const ip = req.ip || 'unknown';
+    const attemptsRef = getFirestoreInstance().collection('login_attempts').doc(ip);
     try {
       const { idToken } = req.body;
       console.log('[STEP 1] Received idToken length:', idToken?.length);
@@ -3454,6 +3581,19 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       if (!isFirebaseReady) {
         console.warn('[STEP 2.1] Firebase Admin not initialized');
         return res.status(500).json({ success: false, message: 'Currently offline.' });
+      }
+      
+      // Rate limiting: Check failed attempts by IP
+      const attemptsDoc = await attemptsRef.get();
+      if (attemptsDoc.exists) {
+        const data = attemptsDoc.data();
+        if (data && data.count >= 5 && Date.now() < data.lockedUntil) {
+           return res.status(429).json({ success: false, message: 'Too many attempts. Please try again later.' });
+        }
+        if (data && data.count >= 5 && Date.now() >= data.lockedUntil) {
+           // Reset lock
+           await attemptsRef.update({ count: 0, lockedUntil: 0 });
+        }
       }
 
       console.log('[STEP 3] Verifying idToken...');
@@ -3498,6 +3638,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           ip_address: req.ip || null,
           device_info: req.headers['user-agent'] || null
         });
+        await attemptsRef.set({ count: 0, lockedUntil: 0 }); // Reset attempts
         user.last_login_at = new Date().toISOString();
       } catch (updateErr) {
         console.error('[AUTH] Failed to update login details:', updateErr);
@@ -3515,6 +3656,20 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         stack: e.stack,
         requestId: (req as any).id
       });
+      // Increment failed attempts
+      try {
+        const attemptsDoc = await attemptsRef.get();
+        if (!attemptsDoc.exists) {
+            await attemptsRef.set({ count: 1, lockedUntil: 0 });
+        } else {
+            const data = attemptsDoc.data();
+            const newCount = (data?.count || 0) + 1;
+            const newLockedUntil = newCount >= 5 ? Date.now() + 600000 : 0; // Lock for 10 mins
+            await attemptsRef.update({ count: newCount, lockedUntil: newLockedUntil });
+        }
+      } catch (err) {
+        console.error('Failed to update login attempts', err);
+      }
       res.status(500).json({
         success: false,
         route: '/api/auth/firebase-login',
@@ -4034,18 +4189,67 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch(e) { res.status(500).json({ success: false, message: String(e) }); }
   });
 
+  async function logAdminActivity(req: any, action: string, details: any) {
+    try {
+       const db = getFirestoreInstance();
+       const adminId = req.session?.userId || 'system';
+       let adminEmail = 'System';
+       if (adminId && adminId !== 'system') {
+          const adminUser = await db.collection('users').doc(String(adminId)).get();
+          adminEmail = adminUser.data()?.email || 'Admin';
+       }
+       await db.collection('audit_logs').add({
+          admin_id: String(adminId),
+          admin_name: adminEmail,
+          action: action,
+          target_type: 'SYSTEM',
+          details: typeof details === 'string' ? details : JSON.stringify(details),
+          created_at: new Date().toISOString()
+       });
+    } catch (err) {
+       console.error('Failed to log admin activity:', err);
+    }
+  }
+
   app.post('/api/admin/make-admin', requireAdmin, async (req, res) => {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
     if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not connected' });
+    
     try {
-      const snap = await getFirestoreInstance().collection('users').where('email', '==', email?.toLowerCase()).get();
-      if (snap.empty) {
-        return res.status(404).json({ success: false, message: 'User not found' });
+      const db = getFirestoreInstance();
+      const sanitized = sanitizeEmail(email);
+
+      // Get requester details
+      const adminUser = await db.collection('users').doc(String(req.session.userId)).get();
+      const adminEmail = adminUser.data()?.email || 'admin';
+
+      // 1. Add to whitelisted 'admin_whitelist' collection
+      const adminRef = db.collection('admin_whitelist').doc(sanitized);
+      const adminDoc = await adminRef.get();
+      
+      const adminPayload = {
+         email: sanitized,
+         addedBy: adminEmail,
+         addedAt: new Date().toISOString(),
+         status: 'active',
+         lastLogin: adminDoc.exists ? (adminDoc.data()?.lastLogin || null) : null
+      };
+      
+      await adminRef.set(adminPayload);
+
+      // 2. If user already exists, update their role instantly
+      const snap = await db.collection('users').where('email', '==', sanitized).get();
+      if (!snap.empty) {
+        for (const doc of snap.docs) {
+          await doc.ref.update({ role: 'admin' });
+        }
       }
-      for (const doc of snap.docs) {
-        await doc.ref.update({ role: 'admin' });
-      }
-      res.json({ success: true });
+
+      // Log activity
+      await logAdminActivity(req, 'ADD_ADMIN_WHITELIST', { email: sanitized, message: `Admin ${adminEmail} whitelisted ${sanitized} for admin access.` });
+
+      res.json({ success: true, message: 'Admin email whitelisted successfully.' });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }
@@ -4823,6 +5027,89 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       logEvent('info', `User ${userId} requested wallet top-up of ₹${amount}`, JSON.stringify({ paymentId, screenshot }), userId);
       res.json({ success: true, message: 'Request submitted. Balance will update after verification.' });
     } catch(e) { res.status(500).json({ message: 'Error submitting wallet request' }); }
+  });
+
+  // SECURE PAYMENT QR VERIFICATION LAYER
+  app.post('/api/payment/generate-qr', async (req, res) => {
+    const { amount, type, reference } = req.body;
+    const userId = (req.session?.userId as any) || 'anonymous';
+    if (!amount) return res.status(400).json({ success: false, message: 'Missing amount' });
+    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not ready' });
+
+    try {
+      const db = getFirestoreInstance();
+      // Fetch UPI credentials from settings
+      const settingsSnap = await db.collection('settings').get();
+      const settingsMap = new Map(settingsSnap.docs.map(doc => [doc.id, doc.data()?.value]));
+      const upiId = (settingsMap.get('upi_id') as string) || 'parthgulyani7960@okaxis';
+      const upiname = (settingsMap.get('upi_name') as string) || 'General Store Karyana Shop';
+
+      // Check if UPI payment method is temporarily disabled
+      const upiDisabled = (settingsMap.get('upi_disabled') as string) === 'true';
+      if (upiDisabled) {
+         return res.status(400).json({ success: false, message: 'UPI Payment method is temporarily disabled' });
+      }
+
+      // Generate unique transaction ID
+      const txnId = `TXN-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      
+      // Construct dynamic QR string
+      const qr_string = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiname)}&am=${Number(amount)}&cu=INR&tr=${txnId}&tn=${encodeURIComponent(String(reference || 'HGS_PAYMENT'))}`;
+
+      // Generate SHA-256 hash using crypto
+      const hash = crypto.createHash('sha256').update(qr_string).digest('hex');
+
+      // Fetch user name
+      let userName = 'Anonymous';
+      if (userId !== 'anonymous') {
+         const uDoc = await db.collection('users').doc(String(userId)).get();
+         if (uDoc.exists) userName = uDoc.data()?.name || 'User';
+      }
+
+      const qrPayload = {
+         id: txnId,
+         qr_string,
+         hash,
+         amount: Number(amount),
+         upi_id: upiId,
+         user_id: String(userId),
+         user_name: userName,
+         reference: String(reference || ''),
+         type: String(type || 'order'),
+         status: 'pending_admin',
+         created_at: new Date().toISOString(),
+         verified_by: null,
+         verified_at: null
+      };
+
+      await db.collection('payment_qrs').doc(txnId).set(qrPayload);
+
+      res.json({ success: true, txnId, status: 'pending_admin' });
+    } catch(e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/payment/qr-status/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not ready' });
+    try {
+      const db = getFirestoreInstance();
+      const doc = await db.collection('payment_qrs').doc(String(id)).get();
+      if (!doc.exists) {
+         return res.status(404).json({ success: false, message: 'QR not found' });
+      }
+      const data = doc.data()!;
+      res.json({
+         success: true,
+         status: data.status,
+         qr_string: data.status === 'active' ? data.qr_string : null,
+         amount: data.amount,
+         upi_id: data.upi_id
+      });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
   });
 
   app.get('/api/wallet-history/:userId', async (req, res) => {
@@ -7418,6 +7705,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         notification_promotions: notification_promotions !== undefined ? (notification_promotions ? 1 : 0) : currentUser.notification_promotions
       };
 
+      // Sanitize: Firestore update cannot handle 'undefined' values
+      Object.keys(merged).forEach(key => (merged as any)[key] === undefined && delete (merged as any)[key]);
+
       merged.name = merged.name ? capitalizeName(merged.name) : merged.name;
       
       await userRef.update(merged);
@@ -7798,6 +8088,94 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     pollGmailForPayments();
   }
 
+  app.get('/api/admin/pending-qrs', requireAdmin, async (req, res) => {
+    try {
+      if (!admin.apps.length) return res.json([]);
+      const snap = await getFirestoreInstance().collection('payment_qrs').orderBy('created_at', 'desc').limit(200).get();
+      res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/payment-qrs/:id/verify', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const adminId = req.session.userId;
+    try {
+      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not ready' });
+      const db = getFirestoreInstance();
+      
+      const adminUser = await db.collection('users').doc(String(adminId)).get();
+      const adminEmail = adminUser.data()?.email || 'admin';
+
+      const ref = db.collection('payment_qrs').doc(String(id));
+      const doc = await ref.get();
+      if (!doc.exists) {
+         return res.status(404).json({ success: false, message: 'QR record not found' });
+      }
+
+      await ref.update({
+         status: 'active',
+         verified_by: adminEmail,
+         verified_at: new Date().toISOString()
+      });
+
+      // Log in audit trail
+      await db.collection('audit_logs').add({
+         admin_id: String(adminId),
+         admin_name: adminEmail,
+         action: 'QR_VERIFIED',
+         target_type: 'PAYMENT_QR',
+         target_id: String(id),
+         details: JSON.stringify({ message: `QR ID ${id} verified and activated by ${adminEmail}.` }),
+         created_at: new Date().toISOString()
+      });
+
+      res.json({ success: true, message: 'QR approved and activated successfully' });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/payment-qrs/:id/reject', requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const adminId = req.session.userId;
+    try {
+      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not ready' });
+      const db = getFirestoreInstance();
+      
+      const adminUser = await db.collection('users').doc(String(adminId)).get();
+      const adminEmail = adminUser.data()?.email || 'admin';
+
+      const ref = db.collection('payment_qrs').doc(String(id));
+      const doc = await ref.get();
+      if (!doc.exists) {
+         return res.status(404).json({ success: false, message: 'QR record not found' });
+      }
+
+      await ref.update({
+         status: 'rejected',
+         verified_by: adminEmail,
+         verified_at: new Date().toISOString()
+      });
+
+      // Log in audit trail
+      await db.collection('audit_logs').add({
+         admin_id: String(adminId),
+         admin_name: adminEmail,
+         action: 'QR_REJECTED',
+         target_type: 'PAYMENT_QR',
+         target_id: String(id),
+         details: JSON.stringify({ message: `QR ID ${id} rejected by ${adminEmail}.` }),
+         created_at: new Date().toISOString()
+      });
+
+      res.json({ success: true, message: 'QR rejected successfully' });
+    } catch (e: any) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   app.get('/api/admin/emails-log', requireAdmin, async (req, res) => {
     try {
        if (!admin.apps.length) return res.json([]);
@@ -7833,6 +8211,33 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             log.admin_name = 'Auto Payment Verifier';
          }
       }
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/security-logs', requireAdmin, async (req, res) => {
+    const { limit = 100, type } = req.query;
+    try {
+      if (!admin.apps.length) return res.json([]);
+      let q: any = getFirestoreInstance().collection('security_logs');
+      if (type && type !== 'all') {
+         q = q.where('type', '==', type);
+      }
+      q = q.orderBy('timestamp', 'desc');
+      if (limit !== 'all') {
+         q = q.limit(Number(limit) || 100);
+      }
+      const snap = await q.get();
+      const logs = snap.docs.map((d: any) => {
+         const data = d.data();
+         return {
+            id: d.id,
+            ...data,
+            timestamp: data.timestamp ? (data.timestamp.toDate ? data.timestamp.toDate().toISOString() : data.timestamp) : null
+         };
+      });
       res.json(logs);
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
@@ -8306,10 +8711,30 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.get('/api/admin/admins', requireAdmin, async (req, res) => {
     try {
       if (!admin.apps.length) return res.json([]);
-      const snap = await getFirestoreInstance().collection('users').where('role', '==', 'admin').get();
-      let admins = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      admins.sort((a, b) => new Date(b.last_login_at || 0).getTime() - new Date(a.last_login_at || 0).getTime());
-      res.json(admins);
+      const db = getFirestoreInstance();
+      
+      const adminsSnap = await db.collection('admin_whitelist').get();
+      const whitelistMap = new Map(adminsSnap.docs.map(doc => [doc.id, doc.data()]));
+      
+      const usersSnap = await db.collection('users').where('role', '==', 'admin').get();
+      const usersMap = new Map(usersSnap.docs.map(doc => [doc.data()?.email, { id: doc.id, ...doc.data() }]));
+
+      const mergedList = Array.from(whitelistMap.entries()).map(([email, wData]: any) => {
+         const matchedUser = usersMap.get(email) as any;
+         return {
+            id: matchedUser?.id || `pending-${email}`,
+            email,
+            name: matchedUser?.name || 'Pending Registration',
+            role: 'admin',
+            status: wData.status || 'active',
+            addedBy: wData.addedBy || 'system',
+            addedAt: wData.addedAt || null,
+            last_login_at: matchedUser?.last_login_at || wData.lastLogin || null
+         };
+      });
+
+      mergedList.sort((a,b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
+      res.json(mergedList);
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }
@@ -8325,11 +8750,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     try {
       if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const batch = getFirestoreInstance().batch();
-      batch.update(getFirestoreInstance().collection('users').doc(String(id)), { role: 'customer' });
-      batch.set(getFirestoreInstance().collection('audit_logs').doc(), {
-         admin_id: String(adminId), action: 'ROLE_REVOKED', target_type: 'USER', target_id: String(id), details: JSON.stringify({ message: 'Admin privileges revoked manually.' }), created_at: new Date().toISOString()
+      const db = getFirestoreInstance();
+      
+      let userEmail = '';
+      if (id.startsWith('pending-')) {
+         userEmail = id.replace('pending-', '');
+      } else {
+         const uDoc = await db.collection('users').doc(String(id)).get();
+         if (uDoc.exists) {
+            userEmail = uDoc.data()?.email;
+         }
+      }
+
+      const batch = db.batch();
+      
+      if (!id.startsWith('pending-')) {
+         batch.update(db.collection('users').doc(String(id)), { role: 'customer' });
+      }
+
+      if (userEmail) {
+         batch.delete(db.collection('admin_whitelist').doc(userEmail));
+      }
+
+      batch.set(db.collection('audit_logs').doc(), {
+         admin_id: String(adminId), action: 'ROLE_REVOKED', target_type: 'USER', target_id: String(id), details: JSON.stringify({ email: userEmail, message: 'Admin privileges revoked manually.' }), created_at: new Date().toISOString()
       });
+
       await batch.commit();
       res.json({ success: true });
     } catch (err: any) {
@@ -8348,11 +8794,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     try {
       if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const batch = getFirestoreInstance().batch();
-      batch.update(getFirestoreInstance().collection('users').doc(String(id)), { status });
-      batch.set(getFirestoreInstance().collection('audit_logs').doc(), {
-         admin_id: String(adminId), action: 'STATUS_CHANGE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ newStatus: status }), created_at: new Date().toISOString()
+      const db = getFirestoreInstance();
+      
+      let userEmail = '';
+      if (id.startsWith('pending-')) {
+         userEmail = id.replace('pending-', '');
+      } else {
+         const uDoc = await db.collection('users').doc(String(id)).get();
+         if (uDoc.exists) {
+            userEmail = uDoc.data()?.email;
+         }
+      }
+
+      const batch = db.batch();
+      
+      if (!id.startsWith('pending-')) {
+         batch.update(db.collection('users').doc(String(id)), { status });
+      }
+
+      if (userEmail) {
+         batch.update(db.collection('admin_whitelist').doc(userEmail), { status });
+      }
+
+      batch.set(db.collection('audit_logs').doc(), {
+         admin_id: String(adminId), action: 'STATUS_CHANGE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ email: userEmail, newStatus: status }), created_at: new Date().toISOString()
       });
+
       await batch.commit();
       res.json({ success: true });
     } catch (err: any) {
@@ -9008,6 +9475,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   // API 404 handler (must be after all valid API routes)
   app.use('/api', (req, res) => {
     res.status(404).json({ success: false, message: `API route not found: ${req.method} ${req.path}` });
+  });
+
+  // Favicon mapping to prevent browser 404 console errors
+  app.get('/favicon.ico', (req, res) => {
+    const faviconPath = path.join(process.cwd(), 'public', 'favicon.svg');
+    if (fs.existsSync(faviconPath)) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.sendFile(faviconPath);
+    }
+    return res.status(404).end();
   });
 
   // Vite middleware for development

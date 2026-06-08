@@ -1,8 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import SmartLink from './components/SmartLink';
 import { NetworkBanner } from './components/NetworkBanner';
+import { GlobalProgressBar } from './components/GlobalProgressBar';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import GlobalAnnouncements from './components/GlobalAnnouncements';
 import MobileBottomNav from './components/MobileBottomNav';
 import FloatingCart from './components/FloatingCart';
@@ -10,6 +12,7 @@ import BackToTop from './components/BackToTop';
 import FullScreenAlert from './components/FullScreenAlert';
 import AuthGuard from './components/AuthGuard';
 import ReviewPromptNotification from './components/ReviewPromptNotification';
+import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
 
 // Shared Vibration Helper for Flash Messages
 export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') => {
@@ -31,6 +34,7 @@ import { errorService, ErrorType } from './lib/errorReporting';
 import LoadingFallback from './components/LoadingFallback';
 import ErrorBoundary from './components/ErrorBoundary';
 import { DatabaseConnectionError } from './components/DatabaseConnectionError';
+
 
 function ToastManager() {
   const { toasts } = useToasterStore();
@@ -128,11 +132,24 @@ const UserActivity = lazyWithRetry(() => import('./pages/UserActivityV2'));
 
 function AnimatedRoutes() {
   const location = useLocation();
-  const { isMaintenance, user, isAuthChecking, subscribeNewsletter, config = [], t } = useStore();
-  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const { 
+    isMaintenance, 
+    user, 
+    isAuthChecking, 
+    subscribeNewsletter, 
+    config = [], 
+    t, 
+    isInitialAuthPerformed,
+    categories,
+    isOnline,
+    isApiUp
+  } = useStore();
   
+  const globalCategories = categories || [];
+  
+  const [newsletterEmail, setNewsletterEmail] = useState('');
   const isAdmin = user && user.role === 'admin';
-
+  
   const handleNewsletter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newsletterEmail) return;
@@ -140,6 +157,14 @@ function AnimatedRoutes() {
     await subscribeNewsletter(newsletterEmail);
     setNewsletterEmail('');
   };
+
+  useEffect(() => {
+    // No-op for trace
+  }, [location.pathname, isAuthChecking, isInitialAuthPerformed, isMaintenance, isAdmin]);
+
+  if (isAuthChecking && !isInitialAuthPerformed) {
+    return <LoadingFallback message="Initializing..." />;
+  }
 
   if (isMaintenance && !isAdmin) {
     return (
@@ -152,82 +177,48 @@ function AnimatedRoutes() {
   const showFooter = ['/', '/profile'].includes(location.pathname);
 
   return (
-    <Suspense fallback={<LoadingFallback />}>
-      <AnimatePresence mode="wait">
-        {/* @ts-ignore */}
-        <Routes location={location} key={location.pathname}>
-          <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
-          <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
-          <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
-          <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
-          <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
-          <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
-          <Route path="/checkout" element={<AuthGuard><PageWrapper><Checkout /></PageWrapper></AuthGuard>} />
-          <Route path="/invoice/:id" element={<AuthGuard><PageWrapper><Invoice /></PageWrapper></AuthGuard>} />
-          <Route path="/wishlist" element={<AuthGuard><PageWrapper><Wishlist /></PageWrapper></AuthGuard>} />
-          <Route path="/profile" element={<AuthGuard><PageWrapper><Profile /></PageWrapper></AuthGuard>} />
-          <Route path="/add-money" element={<AuthGuard><PageWrapper><AddMoney /></PageWrapper></AuthGuard>} />
-          <Route path="/admin/activity-logs" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><ActivityLogs /></PageWrapper></AuthGuard>} />
-          <Route path="/admin" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminDashboard /></PageWrapper></AuthGuard>} />
-          <Route path="/admin/payments" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminPayments /></PageWrapper></AuthGuard>} />
-          <Route path="/runner" element={<AuthGuard allowedRoles={['delivery', 'runner', 'admin']}><PageWrapper><DeliveryDashboard /></PageWrapper></AuthGuard>} />
-          <Route path="/history" element={<AuthGuard><PageWrapper><UserActivity /></PageWrapper></AuthGuard>} />
-          <Route path="/track-order" element={<AuthGuard><PageWrapper><TrackOrder /></PageWrapper></AuthGuard>} />
-          <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
-          <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
-          <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
-          <Route path="/privacy-policy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
-          <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
-          <Route path="/legal" element={<PageWrapper><LegalPage title="Legal Information" type="privacy" /></PageWrapper>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AnimatePresence>
-      {showFooter && (
-        <footer className="bg-stone-900 text-stone-400 py-12 pb-32 md:pb-12 mt-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div className="space-y-4">
-              <h3 className="text-white font-bold text-lg">General Store Karyana Shop</h3>
-              <p className="text-sm">Your one-stop shop for all karyana and daily essentials. Quality and trust since 1995.</p>
-            </div>
-            <div className="space-y-4">
-              <h3 className="text-white font-bold text-lg">Quick Links</h3>
-              <ul className="space-y-2 text-sm">
-                <li><SmartLink to="/products" className="hover:text-white transition-colors">All Products</SmartLink></li>
-                <li><SmartLink to="/track-order" className="hover:text-white transition-colors">Track Order</SmartLink></li>
-                <li><SmartLink to="/support" className="hover:text-white transition-colors">Help & Support</SmartLink></li>
-                <li><SmartLink to="/login" className="hover:text-white transition-colors">My Account</SmartLink></li>
-              </ul>
-            </div>
-            <div className="space-y-4">
-              <h3 className="text-white font-bold text-lg">Customer Care</h3>
-              <ul className="space-y-2 text-sm">
-                <li><SmartLink to="/about" className="hover:text-white transition-colors">About Us</SmartLink></li>
-                <li><SmartLink to="/contact" className="hover:text-white transition-colors">Contact Us</SmartLink></li>
-                <li><SmartLink to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</SmartLink></li>
-                <li><SmartLink to="/terms-and-conditions" className="hover:text-white transition-colors">Terms & Conditions</SmartLink></li>
-              </ul>
-            </div>
-            <div className="space-y-4">
-              <h3 className="text-white font-bold text-lg">Newsletter</h3>
-              <p className="text-sm">Subscribe to get special offers and updates.</p>
-              <form onSubmit={handleNewsletter} className="flex">
-                <input 
-                  type="email" 
-                  placeholder="Email" 
-                  required
-                  value={newsletterEmail}
-                  onChange={(e) => setNewsletterEmail(e.target.value)}
-                  className="bg-stone-800 border-none rounded-l-lg px-4 py-2 w-full focus:ring-1 focus:ring-primary" 
-                />
-                <button type="submit" className="bg-primary text-white px-4 py-2 rounded-r-lg font-bold">Join</button>
-              </form>
-            </div>
-          </div>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-8 border-t border-stone-800 text-center text-xs">
-            © {new Date().getFullYear()} {(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'}. All rights reserved.
-          </div>
-        </footer>
-      )}
+    <Suspense fallback={<LoadingFallback message="Loading..." />}>
+      <div id="application-content-root" className="min-h-full flex flex-col relative bg-white">
+        <div className="flex-1 flex flex-col">
+          <AnimatePresence mode="wait">
+            <Routes location={location} key={location.pathname}>
+              <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
+              <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
+              <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
+              <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
+              <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
+              <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
+              <Route path="/checkout" element={<AuthGuard><PageWrapper><Checkout /></PageWrapper></AuthGuard>} />
+              <Route path="/invoice/:id" element={<AuthGuard><PageWrapper><Invoice /></PageWrapper></AuthGuard>} />
+              <Route path="/wishlist" element={<AuthGuard><PageWrapper><Wishlist /></PageWrapper></AuthGuard>} />
+              <Route path="/profile" element={<AuthGuard><PageWrapper><Profile /></PageWrapper></AuthGuard>} />
+              <Route path="/add-money" element={<AuthGuard><PageWrapper><AddMoney /></PageWrapper></AuthGuard>} />
+              <Route path="/admin/activity-logs" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><ActivityLogs /></PageWrapper></AuthGuard>} />
+              <Route path="/admin" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminDashboard /></PageWrapper></AuthGuard>} />
+              <Route path="/admin/payments" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminPayments /></PageWrapper></AuthGuard>} />
+              <Route path="/runner" element={<AuthGuard allowedRoles={['delivery', 'runner', 'admin']}><PageWrapper><DeliveryDashboard /></PageWrapper></AuthGuard>} />
+              <Route path="/history" element={<AuthGuard><PageWrapper><UserActivity /></PageWrapper></AuthGuard>} />
+              <Route path="/track-order" element={<AuthGuard><PageWrapper><TrackOrder /></PageWrapper></AuthGuard>} />
+              <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
+              <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
+              <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
+              <Route path="/privacy-policy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
+              <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
+              <Route path="/legal" element={<PageWrapper><LegalPage title="Legal Information" type="privacy" /></PageWrapper>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AnimatePresence>
+        </div>
+        
+        {showFooter && (
+          <Footer 
+            config={config} 
+            handleNewsletter={handleNewsletter} 
+            newsletterEmail={newsletterEmail} 
+            setNewsletterEmail={setNewsletterEmail} 
+          />
+        )}
+      </div>
     </Suspense>
   );
 }
@@ -235,15 +226,11 @@ function AnimatedRoutes() {
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.98 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={{ 
-        duration: 0.5, 
-        ease: [0.22, 1, 0.36, 1],
-        scale: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
-      }}
-      className="page-transition-wrapper origin-top"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.2, ease: "easeInOut" }}
+      className="page-transition-wrapper origin-top flex-1 flex flex-col relative"
     >
       <Suspense fallback={<LoadingFallback message="Loading content..." fullScreen={false} />}>
          {children}
@@ -254,7 +241,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const store = useStore();
-  const { adminTheme, dbError } = store;
+  const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout } = store;
 
   useEffect(() => {
     // Global error handler
@@ -276,11 +263,18 @@ export default function App() {
       });
     };
 
+    const handleSessionExpired = () => {
+      toast.error('Session expired, please sign in again');
+    };
+
     window.addEventListener('error', handleGlobalError);
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('session_expired', handleSessionExpired);
+    
     return () => {
       window.removeEventListener('error', handleGlobalError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('session_expired', handleSessionExpired);
     };
   }, []);
 
@@ -295,11 +289,17 @@ export default function App() {
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <NetworkBanner />
+        <GlobalProgressBar />
         <GlobalAnnouncements />
         <ToastManager />
         <Toaster position="top-center" />
         <Navbar />
-        <main className="flex-1 pb-24 md:pb-0">
+        <ConfirmLogoutDialog 
+          isOpen={showLogoutDialog} 
+          onClose={() => setShowLogoutDialog(false)} 
+          onConfirm={performLogout} 
+        />
+        <main className="flex-1 pb-24 md:pb-0 relative">
           <ErrorBoundary>
             <AnimatedRoutes />
           </ErrorBoundary>

@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import { Settings } from 'lucide-react';
-import * as motion from 'motion/react-client';
+import { motion } from 'motion/react';
 
 interface FeatureTogglesProps {
   config: any[];

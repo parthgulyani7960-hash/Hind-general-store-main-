@@ -163,8 +163,8 @@ export default function OverviewTab({
                 <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Normal Growth</span>
               </div>
             </div>
-            <div className="h-72 w-full min-h-72">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+            <div className="h-72 w-full min-h-72 min-w-[200px]" style={{ minWidth: "200px", minHeight: "288px" }}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
                 <AreaChart data={revenueData}>
                   <defs>
                     <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">

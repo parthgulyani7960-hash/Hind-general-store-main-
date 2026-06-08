@@ -64,7 +64,6 @@ import CategoriesTab from '@/components/admin/tabs/CategoriesTab';
 import PaymentSettingsTab from '@/components/admin/tabs/PaymentSettingsTab';
 import StoreSettingsTab from '@/components/admin/tabs/StoreSettingsTab';
 import SupportTicketsTab from '@/components/admin/tabs/SupportTicketsTab';
-import DiagnosticTab from '@/components/admin/tabs/DiagnosticTab';
 import ExpensesTab from '@/components/admin/tabs/ExpensesTab';
 import CouponsTab from '@/components/admin/tabs/CouponsTab';
 import BulkDiscountsTab from '@/components/admin/tabs/BulkDiscountsTab';
@@ -75,6 +74,7 @@ import SuspiciousActivitiesTab from '@/components/admin/tabs/SuspiciousActivitie
 import AdminManagementTab from '@/components/admin/tabs/AdminManagementTab';
 import PromotionalRulesTab from '@/components/admin/tabs/PromotionalRulesTab';
 import SecurityDataTab from '@/components/admin/tabs/SecurityDataTab';
+import AdminSecurityTab from '@/components/admin/tabs/AdminSecurityTab';
 import AutomaticReportsTab from '@/components/admin/tabs/AutomaticReportsTab';
 import SystemStatusTab from '@/components/admin/tabs/SystemStatusTab';
 
@@ -86,7 +86,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Diagnostics';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Admin Security' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
 
 // Lazy loaded admin tabs
 const OrdersTab = lazy(() => import('@/components/admin/tabs/OrdersTab'));
@@ -150,8 +150,8 @@ export default function AdminDashboard() {
         'System Logs', 'Suspicious Activities', 'Promotions', 'Bulk Discounts', 
         'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
         'Automatic Reports', 'Admin Management', 'Data Exports', 
-        'Security & Data', 'Promotional Rules', 'Purchase Orders', 
-        'Order Batching', 'UPI Webhook Logs', 'Diagnostics'
+        'Security & Data', 'Admin Security', 'Promotional Rules', 'Purchase Orders', 
+        'Order Batching', 'UPI Webhook Logs'
       ];
       const foundMatch = validTabs.find(t => t.toLowerCase() === tabParam.toLowerCase());
       if (foundMatch) {
@@ -170,7 +170,7 @@ export default function AdminDashboard() {
   }, [activeTab, navigate, location.search]);
 
   React.useEffect(() => {
-    if (activeTab === 'System Status' || activeTab === 'Security & Data') {
+    if (activeTab === 'System Status' || activeTab === 'Security & Data' || activeTab === 'Admin Security') {
       runDbDiagnostics();
     }
   }, [activeTab]);
@@ -448,28 +448,27 @@ export default function AdminDashboard() {
   const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
   const [newUserCount, setNewUserCount] = useState(0);
 
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
   const isFetchingStats = useRef(false);
   const isCheckingHealth = useRef(false);
+
+  // Initial load only on login/mount
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || !navigator.onLine) return;
+    
+    fetchStats(true);
+    checkHealth();
+  }, [user]);
 
   // Centralized background polling for real-time dashboard health and metrics
   useEffect(() => {
     if (!user || user.role !== 'admin') return;
 
     let mounted = true;
-
-    // Initial load
-    const initData = async () => {
-      if (!navigator.onLine) return;
-      try {
-        await Promise.all([
-          fetchStats(true),
-          checkHealth()
-        ]);
-      } catch (err) {
-        console.error('Initial background data load error:', err);
-      }
-    };
-    initData();
 
     // Centralized interval (Reduced frequency: every 60s for health, 2m for stats)
     // Only happens if the document is visible to save battery and network
@@ -481,7 +480,7 @@ export default function AdminDashboard() {
 
       // Stats fetch runs every 2 minutes (every 2nd tick)
       // but only if on Overview tab or Analytics tab to avoid useless background calls
-      const needsStats = activeTab === 'Overview' || activeTab === 'Analytics';
+      const needsStats = activeTabRef.current === 'Overview' || activeTabRef.current === 'Analytics';
       if (needsStats) {
         fetchStats(true); 
       }
@@ -491,7 +490,7 @@ export default function AdminDashboard() {
       mounted = false;
       clearInterval(pollingInterval);
     };
-  }, [user, activeTab]); // Include activeTab to react to tab changes if needed
+  }, [user]); // Only dependent on user. activeTab handled by activeTabRef
 
   useEffect(() => {
     setLoading(true);
@@ -525,8 +524,8 @@ export default function AdminDashboard() {
       'System Status': 'System Health',
       'Suspicious Activities': 'Security',
       'Audit Logs': 'Activity Logs',
-      'Automatic Reports': 'Anomalies',
-      'Diagnostics': 'System Diagnostics'
+      'Admin Security': 'Security Audit',
+      'Automatic Reports': 'Anomalies'
     };
     return mapping[tab] || tab;
   };
@@ -553,8 +552,6 @@ export default function AdminDashboard() {
                   setNotificationModal={setNotificationModal}
                 />
               );
-            case 'Diagnostics':
-              return <DiagnosticTab />;
             case 'Orders':
               return (
                 <OrdersTab 
@@ -722,7 +719,7 @@ export default function AdminDashboard() {
               return (
                 <RolesTab
                   roles={roles}
-                  setRoleModal={setRoleModal}
+                  setRoleModal={setRoleModal as any}
                   setNewRole={setNewRole}
                   setRoles={setRoles}
                   getAuthHeaders={getAuthHeaders}
@@ -756,6 +753,16 @@ export default function AdminDashboard() {
                   config={config}
                   getSetting={getSetting}
                   updateSetting={updateSetting}
+                  deliveryFee={deliveryFee}
+                  setDeliveryFee={setDeliveryFee}
+                  freeDeliveryThreshold={freeDeliveryThreshold}
+                  setFreeDeliveryThreshold={setFreeDeliveryThreshold}
+                  deliveryAreas={deliveryAreas}
+                  setDeliveryAreaModal={setDeliveryAreaModal as any}
+                  setNewDeliveryArea={setNewDeliveryArea}
+                  handleDeleteDeliveryArea={handleDeleteDeliveryArea}
+                  adminTheme={adminTheme}
+                  setAdminTheme={setAdminTheme}
                 />
               );
             case 'Support Tickets':
@@ -861,7 +868,7 @@ export default function AdminDashboard() {
               return (
                 <PromotionalRulesTab
                   promotionRules={promotionRules}
-                  setNewPromotionRuleData={setNewPromotionRuleData}
+                  setNewPromotionRuleData={setNewPromotionRuleData as any}
                   setPromotionRuleFormModal={setPromotionRuleFormModal}
                   handleDeleteRule={handleDeleteRule}
                 />
@@ -870,6 +877,20 @@ export default function AdminDashboard() {
               return (
                 <SecurityDataTab
                   user={user}
+                  runWalletDiagnostics={runWalletDiagnostics}
+                  loadingDiagnostics={loadingDiagnostics}
+                  diagnosticResults={diagnosticResults}
+                  fixingWalletUserId={fixingWalletUserId}
+                  fixWalletDiscrepancy={fixWalletDiscrepancy}
+                />
+              );
+            case 'Admin Security':
+              return (
+                <AdminSecurityTab
+                  user={user}
+                  fetchWithHandling={fetchWithHandling}
+                  getAuthHeaders={getAuthHeaders}
+                  toast={toast}
                   runWalletDiagnostics={runWalletDiagnostics}
                   loadingDiagnostics={loadingDiagnostics}
                   diagnosticResults={diagnosticResults}
@@ -1095,8 +1116,9 @@ export default function AdminDashboard() {
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [reviewResponseModal, setReviewResponseModal] = useState<{ open: boolean; review: any }>({ open: false, review: null });
   const fetchExpenses = async () => {
+    if (!navigator.onLine) return;
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/expenses', { headers: getAuthHeaders() });
+      const data = await adminService.getExpenses(getAuthHeaders());
       if (data) {
         setExpenses(data);
       }
@@ -1236,15 +1258,17 @@ export default function AdminDashboard() {
   const [newRunner, setNewRunner] = useState({ name: '', phone: '' });
 
   const fetchAdmins = async () => {
+    if (!navigator.onLine) return;
     setIsAdminRefreshing(true);
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/admins', { headers: getAuthHeaders() });
+      const data = await adminService.getAdmins(getAuthHeaders());
       if (data) setAdmins(data);
     } catch (err) {}
     finally { setIsAdminRefreshing(false); }
   };
 
   const fetchDeletionRequests = async () => {
+    if (!navigator.onLine) return;
     try {
       const data = await fetchWithHandling<any[]>('/api/admin/deletion-requests', { headers: getAuthHeaders() });
       if (data) setDeletionRequests(data);
@@ -1307,8 +1331,9 @@ export default function AdminDashboard() {
   };
 
   const fetchSuspiciousActivities = async () => {
+    if (!navigator.onLine) return;
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/suspicious-activities', { headers: getAuthHeaders() });
+      const data = await adminService.getSuspiciousActivities(getAuthHeaders());
       if (data) {
         setSuspiciousActivities(data);
       }
@@ -1378,8 +1403,9 @@ export default function AdminDashboard() {
   };
 
   const fetchWalletRequests = async () => {
+    if (!navigator.onLine) return;
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/wallet/requests', { headers: getAuthHeaders() });
+      const data = await adminService.getWalletRequests(getAuthHeaders());
       if (data) {
         setWalletRequests(data);
       }
@@ -1542,8 +1568,9 @@ export default function AdminDashboard() {
   };
 
   const fetchSuppliers = async () => {
+    if (!navigator.onLine) return;
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/suppliers', { headers: getAuthHeaders() });
+      const data = await adminService.getSuppliers(getAuthHeaders());
       if (data) {
         setSuppliers(data);
       }
@@ -1978,8 +2005,9 @@ export default function AdminDashboard() {
 
 
   const fetchConfig = async () => {
+    if (!navigator.onLine) return;
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/config', { headers: getAuthHeaders() });
+      const data = await adminService.getConfig(getAuthHeaders());
       if (data) {
         setConfig(data);
       }
@@ -2093,6 +2121,7 @@ export default function AdminDashboard() {
   };
 
   const fetchPromotions = async () => {
+    if (!navigator.onLine) return;
     setLoading(true);
     try {
       const data = await fetchWithHandling<any[]>('/api/promotions', { headers: getAuthHeaders() });
@@ -2107,11 +2136,10 @@ export default function AdminDashboard() {
   };
 
   const fetchPromotionRules = async () => {
+    if (!navigator.onLine) return;
     setLoading(true);
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/promotional-rules', {
-        headers: getAuthHeaders()
-      });
+      const data = await adminService.getPromotionRules(getAuthHeaders());
       if (data) {
         setPromotionRules(data);
       }
@@ -2123,9 +2151,10 @@ export default function AdminDashboard() {
   };
 
   const fetchBulkDiscounts = async () => {
+    if (!navigator.onLine) return;
     setLoading(true);
     try {
-      const data = await fetchWithHandling<any[]>('/api/admin/bulk-discounts', { headers: getAuthHeaders() });
+      const data = await adminService.getBulkDiscounts(getAuthHeaders());
       if (data) {
         setBulkDiscounts(data);
       }
@@ -3415,7 +3444,6 @@ export default function AdminDashboard() {
         { name: 'Support Tickets' as Tab, icon: MessageSquare },
         { name: 'Expenses' as Tab, icon: Receipt },
         { name: 'Audit Logs' as Tab, icon: History },
-        { name: 'Diagnostics' as Tab, icon: Activity },
       ]
     },
     {
@@ -3464,7 +3492,7 @@ export default function AdminDashboard() {
     'Customers', 'Wallet Requests', 'Reviews', 'Coupons', 'Newsletter', 'Roles', 'Support Tickets', 
     'Purchase Orders', 'Order Batching', 'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 'System Logs', 
     'Suspicious Activities', 'Promotions', 'Bulk Discounts', 'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
-    'Automatic Reports', 'Data Exports', 'Promotional Rules', 'UPI Webhook Logs', 'Diagnostics'
+    'Automatic Reports', 'Data Exports', 'Promotional Rules', 'UPI Webhook Logs'
   ];
 
   if (showPOPrint && poData) {
@@ -3724,6 +3752,7 @@ export default function AdminDashboard() {
       loading={loading}
       healthStatus={healthStatus}
       syncStatus={syncStatus}
+      pendingOrdersCount={orders.filter(o => o.status === 'pending').length}
     >
       <div className="space-y-4 md:space-y-8 pb-12">
         <AnimatePresence mode="wait">
@@ -4256,7 +4285,7 @@ export default function AdminDashboard() {
                       <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-stone-200 group">
                         <img src={img} className="w-full h-full object-cover" alt="" />
                         {newProduct.image === img && (
-                          <div className="absolute top-0 left-0 bg-primary text-white text-[8px] px-1 font-bold">MAIN</div>
+                          <div className="absolute inset-0 ring-4 ring-primary ring-inset rounded-lg pointer-events-none" />
                         )}
                       </div>
                     ))}
@@ -5751,10 +5780,7 @@ export default function AdminDashboard() {
                                Verify & Approve
                              </button>
                              <button 
-                               onClick={() => {
-                                 const reason = prompt('Reject reason (invalid screenshot/UTR)?');
-                                 if (reason) updateOrderStatus(orderModal.order.id, 'failed', reason);
-                               }}
+                               onClick={() => updateOrderStatus(orderModal.order.id, 'failed')}
                                className="px-4 py-3 bg-red-50 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-100 transition-all"
                              >
                                Invalid

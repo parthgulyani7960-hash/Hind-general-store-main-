@@ -7,9 +7,10 @@ export function cn(...inputs: ClassValue[]) {
 
 export function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('hgs_token');
+  const isValidToken = token && token !== 'null' && token !== 'undefined' && token.trim() !== '' && token.split('.').length === 3;
   return {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    ...(isValidToken ? { 'Authorization': `Bearer ${token}` } : {})
   };
 }
 

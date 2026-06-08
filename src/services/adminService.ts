@@ -46,4 +46,11 @@ export const adminService = {
   getExpiring: (headers: any) => fetchCached('expiring', () => fetchWithHandling<any[]>('/api/admin/inventory/expiring', { headers })),
   getNewsletterSubs: (headers: any) => fetchCached('newsletter_subs', () => fetchWithHandling<any[]>('/api/admin/newsletter', { headers })),
   getNewsletterCampaigns: (headers: any) => fetchCached('newsletter_campaigns', () => fetchWithHandling<any[]>('/api/admin/newsletter/campaigns', { headers })),
+  getAdmins: (headers: any) => fetchCached('admins', () => fetchWithHandling<any[]>('/api/admin/admins', { headers })),
+  getSuspiciousActivities: (headers: any) => fetchCached('suspicious', () => fetchWithHandling<any[]>('/api/admin/suspicious-activities', { headers })),
+  getWalletRequests: (headers: any) => fetchCached('wallet_requests', () => fetchWithHandling<any[]>('/api/admin/wallet/requests', { headers })),
+  getReturns: (headers: any) => fetchCached('returns', () => fetchWithHandling<any[]>('/api/admin/returns', { headers })),
+  getSuppliers: (headers: any) => fetchCached('suppliers', () => fetchWithHandling<any[]>('/api/admin/suppliers', { headers })),
+  getPromotionRules: (headers: any) => fetchCached('promo_rules', () => fetchWithHandling<any[]>('/api/admin/promotional-rules', { headers })),
+  getBulkDiscounts: (headers: any) => fetchCached('bulk_discounts', () => fetchWithHandling<any[]>('/api/admin/bulk-discounts', { headers })),
 };

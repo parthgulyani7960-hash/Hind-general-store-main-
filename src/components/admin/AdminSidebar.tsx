@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone,
+  LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone, Bell,
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
-  Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus
+  Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus,
+  Terminal
 } from 'lucide-react';
 import { cn } from '@/types';
 
@@ -14,6 +15,7 @@ const menuGroups = [
       { name: 'Overview', label: 'Dashboard', icon: LayoutDashboard },
       { name: 'Analytics', label: 'Sales Reports', icon: TrendingUp },
       { name: 'Announcements', label: 'Announcements', icon: Megaphone },
+      { name: 'Notifications', label: 'Notifications', icon: Bell },
     ]
   },
   {
@@ -57,7 +59,9 @@ const menuGroups = [
       { name: 'Suspicious Activities', label: 'Risk Manager', icon: ShieldAlert },
       { name: 'Audit Logs', label: 'Activity Logs', icon: ClipboardList },
       { name: 'Security & Data', label: 'Security & Data', icon: Shield },
+      { name: 'Admin Security', label: 'Admin Security', icon: Shield },
       { name: 'Automatic Reports', label: 'Anomalies', icon: Bug },
+      { name: 'Diagnostic Console', label: 'Diagnostic Panel', icon: Terminal },
     ]
   }
 ];
@@ -167,6 +171,11 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
                         whileTap={{ scale: 0.98 }}
                         onClick={(e) => { 
                           e.preventDefault();
+                          if (item.name === 'Diagnostic Console') {
+                            window.dispatchEvent(new Event('open-diagnostic-console'));
+                            if (window.innerWidth < 768) setIsOpen(false);
+                            return;
+                          }
                           setActiveTab(item.name); 
                           if (window.innerWidth < 768) setIsOpen(false); 
                         }}

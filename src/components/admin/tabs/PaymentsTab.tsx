@@ -3,7 +3,7 @@ import {
   Zap, Mail, Wallet, Shield, History, 
   Search, RefreshCw, CheckCircle2, XCircle, 
   AlertCircle, ArrowUpRight, ArrowDownLeft,
-  Filter, Eye, ExternalLink, ShieldCheck, MailWarning
+  Filter, Eye, ExternalLink, ShieldCheck, MailWarning, Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -15,10 +15,11 @@ interface PaymentsTabProps {
 }
 
 export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }: PaymentsTabProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'verification' | 'logs' | 'wallets' | 'audit'>('verification');
+  const [activeSubTab, setActiveSubTab] = useState<'verification' | 'qr_verification' | 'logs' | 'wallets' | 'audit'>('verification');
   const [logs, setLogs] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [walletCredits, setWalletCredits] = useState<any[]>([]);
+  const [pendingQRs, setPendingQRs] = useState<any[]>([]);
   const [systemStatus, setSystemStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -26,16 +27,18 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
   const fetchPaymentData = async () => {
     setLoading(true);
     try {
-      const [emailLogs, audit, wallets, status] = await Promise.all([
+      const [emailLogs, audit, wallets, status, qrs] = await Promise.all([
         fetchWithHandling<any[]>('/api/admin/emails-log', { headers: getAuthHeaders() }),
         fetchWithHandling<any[]>('/api/admin/audit-logs', { headers: getAuthHeaders() }),
         fetchWithHandling<any[]>('/api/admin/wallet-credits', { headers: getAuthHeaders() }),
-        fetchWithHandling<any>('/api/admin/payment-system-status', { headers: getAuthHeaders() })
+        fetchWithHandling<any>('/api/admin/payment-system-status', { headers: getAuthHeaders() }),
+        fetchWithHandling<any[]>('/api/admin/pending-qrs', { headers: getAuthHeaders() })
       ]);
       setLogs(emailLogs || []);
       setAuditLogs(audit || []);
       setWalletCredits(wallets || []);
       setSystemStatus(status);
+      setPendingQRs(qrs || []);
     } catch (err) {
       console.error('Failed to fetch payment data:', err);
     } finally {
@@ -81,6 +84,32 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
     }
   };
 
+  const handleVerifyQR = async (id: string) => {
+     try {
+       await fetchWithHandling(`/api/admin/payment-qrs/${id}/verify`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+       });
+       toast.success('QR Approved & Activated!');
+       fetchPaymentData();
+     } catch (err: any) {
+       toast.error(err.message || 'Verification failed');
+     }
+  };
+
+  const handleRejectQR = async (id: string) => {
+     try {
+       await fetchWithHandling(`/api/admin/payment-qrs/${id}/reject`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+       });
+       toast.success('QR Rejected Successfully!');
+       fetchPaymentData();
+     } catch (err: any) {
+       toast.error(err.message || 'Rejection failed');
+     }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 font-sans">
       {/* Header with Control Panel */}
@@ -92,7 +121,7 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
             </div>
             <h2 className="text-4xl font-black text-stone-900 tracking-tight text-left">FinOps Intelligence</h2>
           </div>
-          <p className="text-stone-500 font-medium text-lg ml-1 text-left">Real-time payment matching & ledger synchronization.</p>
+          <p className="text-stone-500 font-medium text-lg ml-1 text-left">Real-time payment matching & history synchronization.</p>
         </div>
 
         <div className="flex items-center space-x-3">
@@ -123,9 +152,10 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
       </header>
 
       {/* Sub-Tabs Navigation */}
-      <nav className="flex space-x-1 bg-stone-100 p-1 rounded-2xl w-fit">
+      <nav className="flex flex-wrap gap-2 bg-stone-105 p-1.5 rounded-2xl w-fit">
         {[
           { id: 'verification', label: 'Email Matching', icon: <Mail size={16} /> },
+          { id: 'qr_verification', label: 'QR Verification', icon: <ShieldCheck size={16} /> },
           { id: 'wallets', label: 'Wallet Credits', icon: <Wallet size={16} /> },
           { id: 'audit', label: 'Audit Log', icon: <Shield size={16} /> },
           { id: 'logs', label: 'System Logs', icon: <History size={16} /> },
@@ -135,7 +165,7 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
             onClick={() => setActiveSubTab(tab.id as any)}
             className={cn(
               "flex items-center space-x-2 px-6 py-3 rounded-xl text-xs font-bold transition-all",
-              activeSubTab === tab.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-400 hover:text-stone-600"
+              activeSubTab === tab.id ? "bg-stone-900 text-white shadow-sm" : "text-stone-400 hover:text-stone-600"
             )}
           >
             {tab.icon}
@@ -146,6 +176,95 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
 
       {/* Content Area */}
       <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+        {activeSubTab === 'qr_verification' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
+                <tr>
+                  <th className="px-10 py-8">Transaction ID</th>
+                  <th className="px-6 py-8">User & Reference</th>
+                  <th className="px-6 py-8">Value (₹)</th>
+                  <th className="px-6 py-8">Secured Hash</th>
+                  <th className="px-6 py-8">Verification Status</th>
+                  <th className="px-10 py-8 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-50">
+                {pendingQRs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-10 py-24 text-center text-stone-300 font-bold uppercase tracking-widest text-xs italic">
+                      No pending payment QR codes requiring action.
+                    </td>
+                  </tr>
+                ) : (
+                  pendingQRs.map((qr) => (
+                    <tr key={qr.id} className="hover:bg-stone-50/50 transition-colors">
+                      <td className="px-10 py-6">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-black text-stone-900">{qr.id}</span>
+                          <span className="text-[10px] font-bold text-stone-400 mt-1 uppercase tracking-wider">{new Date(qr.created_at).toLocaleString()}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-6">
+                        <div className="flex flex-col text-left">
+                          <span className="text-xs font-black text-stone-800">{qr.user_name || 'Anonymous User'}</span>
+                          <span className="text-[10px] font-bold text-stone-400 mt-1 uppercase tracking-widest">Ref: {qr.reference || 'N/A'}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-6 font-black text-stone-950">
+                        ₹{qr.amount || 0}
+                      </td>
+                      <td className="px-6 py-6">
+                        <span className="font-mono text-[9px] bg-stone-105 text-stone-550 px-2 py-1 rounded max-w-[200px] truncate block" title={qr.hash}>
+                          {qr.hash ? `${qr.hash.slice(0, 16)}...` : 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-6">
+                        {qr.status === 'pending_admin' ? (
+                          <div className="flex items-center space-x-2 text-amber-500">
+                            <AlertCircle size={16} />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Awaiting Verification</span>
+                          </div>
+                        ) : qr.status === 'active' ? (
+                          <div className="flex items-center space-x-2 text-emerald-500">
+                            <CheckCircle2 size={16} />
+                            <span className="text-[10px] font-black uppercase tracking-widest" title={`By: ${qr.verified_by}`}>Verified & Displayed</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2 text-red-500">
+                            <XCircle size={16} />
+                            <span className="text-[10px] font-black uppercase tracking-widest" title={`By: ${qr.verified_by}`}>Rejected</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-10 py-6 text-right">
+                        {qr.status === 'pending_admin' ? (
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => handleVerifyQR(qr.id)}
+                              className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white font-black text-[9px] uppercase tracking-widest rounded-xl transition-all shadow"
+                            >
+                              Verify
+                            </button>
+                            <button
+                              onClick={() => handleRejectQR(qr.id)}
+                              className="px-4 py-2 bg-red-100/50 hover:bg-red-100 text-red-600 font-black text-[9px] uppercase tracking-widest rounded-xl transition-all"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] font-black uppercase tracking-widest text-stone-300">Resolved</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {activeSubTab === 'verification' && (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -230,7 +349,7 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
             <table className="w-full text-left">
               <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
                 <tr>
-                  <th className="px-10 py-8">Ledger Entity</th>
+                  <th className="px-10 py-8">History Entity</th>
                   <th className="px-6 py-8">Flow Vector</th>
                   <th className="px-6 py-8">Value (₹)</th>
                   <th className="px-6 py-8">Verification Source</th>
@@ -241,7 +360,7 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
                 {walletCredits.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-10 py-24 text-center text-stone-300 font-bold uppercase tracking-widest text-xs italic">
-                      No monetary ledger transactions recorded.
+                      No monetary history transactions recorded.
                     </td>
                   </tr>
                 ) : (
@@ -249,7 +368,7 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
                     <tr key={tx.id} className="hover:bg-stone-50/50 transition-colors">
                        <td className="px-10 py-6">
                         <div className="flex flex-col">
-                          <span className="text-xs font-black text-stone-900">{tx.user_name || 'System Ledger'}</span>
+                          <span className="text-xs font-black text-stone-900">{tx.user_name || 'System History'}</span>
                           <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">ID: {tx.user_id?.slice(0,8)}</span>
                         </div>
                       </td>

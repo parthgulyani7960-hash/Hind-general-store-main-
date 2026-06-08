@@ -78,7 +78,11 @@ export default function AddMoney() {
       if (data && data.success) {
         toast.success(data.message || 'Submitted');
         navigate('/history?tab=wallet');
-      } else toast.error(data?.message || 'Failed');
+      } else {
+        const { securityService } = await import('@/services/securityService');
+        securityService.logFailedPayment(paymentId.trim() || 'UPI_DEPOSIT', 'upi_deposit', data?.message || 'SUBMISSION_FAILED', { amount: Number(amount) });
+        toast.error(data?.message || 'Failed');
+      }
     } finally { setIsSubmitting(false); }
   };
 

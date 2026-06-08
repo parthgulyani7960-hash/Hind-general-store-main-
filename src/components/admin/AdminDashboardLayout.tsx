@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Activity, Sparkles } from 'lucide-react';
+import { Menu, Activity, Sparkles, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
@@ -19,6 +19,7 @@ interface AdminDashboardLayoutProps {
   setSidebarOpen: (open: boolean) => void;
   getDisplayLabel: (tab: any) => string;
   stats: any;
+  pendingOrdersCount?: number;
   extraHeader?: React.ReactNode;
   loading?: boolean;
   healthStatus?: 'healthy' | 'warning' | 'critical' | 'offline';
@@ -45,7 +46,7 @@ interface AdminDashboardLayoutProps {
  */
 export default function AdminDashboardLayout({ 
   children, activeTab, setActiveTab, user, logout, adminTheme, 
-  sidebarOpen, setSidebarOpen, getDisplayLabel, stats, extraHeader, loading,
+  sidebarOpen, setSidebarOpen, getDisplayLabel, stats, pendingOrdersCount = 0, extraHeader, loading,
   healthStatus = 'offline',
   syncStatus = 'synced'
 }: AdminDashboardLayoutProps) {
@@ -139,6 +140,14 @@ export default function AdminDashboardLayout({
                </span>
             </div>
             <div className="h-10 w-px bg-stone-100" />
+            <button className="relative p-3 hover:bg-stone-50 rounded-2xl transition-all border border-stone-200">
+               <Bell size={20} className="text-stone-600" />
+               {((stats?.lowStock || 0) + pendingOrdersCount > 0) && (
+                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold">
+                   {(stats?.lowStock || 0) + pendingOrdersCount}
+                 </span>
+               )}
+            </button>
             <button 
                onClick={() => {
                  setActiveTab('Product Catalog');

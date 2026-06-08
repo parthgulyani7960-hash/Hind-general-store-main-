@@ -91,8 +91,8 @@ export default function WholesaleInsights() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm">
           <h3 className="text-lg font-black text-stone-900 mb-8">Procurement Trend</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 min-w-[200px]" style={{ minWidth: "200px", minHeight: "256px" }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
               <AreaChart data={data.spendingHistory}>
                 <defs>
                   <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
@@ -126,8 +126,8 @@ export default function WholesaleInsights() {
         <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm">
           <h3 className="text-lg font-black text-stone-900 mb-8">Category Breakdown</h3>
           <div className="h-64 flex flex-col sm:flex-row items-center">
-            <div className="w-full sm:w-1/2 h-full">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full sm:w-1/2 h-full min-w-[150px]" style={{ minWidth: "150px", minHeight: "256px" }}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={150} minHeight={150}>
                 <PieChart>
                   <Pie
                     data={data.categoryBreakdown}

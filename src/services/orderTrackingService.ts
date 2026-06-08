@@ -21,7 +21,7 @@ export class OrderTrackingService {
     
     return onSnapshot(orderRef, (snapshot) => {
       if (snapshot.exists()) {
-        onUpdate({ id: snapshot.id, ...snapshot.data() } as OrderUpdate);
+        onUpdate({ id: snapshot.id, ...snapshot.data() } as any as OrderUpdate);
       }
     }, (error) => {
       console.error('[OrderTrackingService] Error subscribing to order:', error);
@@ -33,7 +33,7 @@ export class OrderTrackingService {
     const orderRef = doc(db, 'orders', orderId);
     const snapshot = await getDoc(orderRef);
     if (snapshot.exists()) {
-      return { id: snapshot.id, ...snapshot.data() } as OrderUpdate;
+      return { id: snapshot.id, ...snapshot.data() } as any as OrderUpdate;
     }
     return null;
   }

@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged } from 'firebase/auth';
-import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer, orderBy } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { errorService, ErrorType } from './lib/errorReporting';
 
@@ -8,7 +8,7 @@ import firebaseConfig from '@config/firebase-applet-config.json';
 
 // Resolve Firebase configuration dynamically from environment, window, or local fallback JSON
 const getResolvedFirebaseConfig = () => {
-  const DEFAULT_DB_ID = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+  const DEFAULT_DB_ID = '(default)';
   
   // Baseline configuration for this applet
   const BASELINE = {
@@ -94,13 +94,15 @@ const validConfig = getResolvedFirebaseConfig();
 
 const activeDatabaseId = validConfig.firestoreDatabaseId && validConfig.firestoreDatabaseId !== '(default)' 
   ? validConfig.firestoreDatabaseId 
-  : 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+  : '(default)';
 
-console.log('--- FRONTEND FIREBASE DIAGNOSTICS ---');
-console.log('FRONTEND DATABASE ID:', activeDatabaseId);
-console.log('FIREBASE PROJECT ID:', validConfig.projectId);
-console.log('FIRESTORE DATABASE ID:', activeDatabaseId);
-console.log('------------------------------------');
+if (!import.meta.env.PROD) {
+  console.log('--- FRONTEND FIREBASE DIAGNOSTICS ---');
+  console.log('FRONTEND DATABASE ID:', activeDatabaseId);
+  console.log('FIREBASE PROJECT ID:', validConfig.projectId);
+  console.log('FIRESTORE DATABASE ID:', activeDatabaseId);
+  console.log('------------------------------------');
+}
 
 let app: any;
 let auth: any;
@@ -116,6 +118,7 @@ try {
 try {
   if (app) {
     auth = getAuth(app);
+    setPersistence(auth, browserLocalPersistence).catch(console.error);
   } else {
     throw new Error('App not initialized');
   }
@@ -215,6 +218,7 @@ export {
   query, 
   where, 
   limit,
+  orderBy,
   addDoc, 
   serverTimestamp,
   ref, 
@@ -235,6 +239,11 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
     default:
       return 'We could not securely sign you in at this time. Please try again later.';
   }
+};
+
+export const handleAuthError = (error: any): string => {
+  const errorCode = error?.code || error?.originalError?.code || '';
+  return getFirebaseErrorMessage(errorCode) || error?.message || 'Authentication failed.';
 };
 
 export const signInWithGoogle = async (emailInput?: string) => {

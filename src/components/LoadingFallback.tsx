@@ -4,7 +4,7 @@ import { ShoppingBag } from 'lucide-react';
 
 export default function LoadingFallback({ message, fullScreen = true }: { message?: string; fullScreen?: boolean }) {
   return (
-    <div className={fullScreen ? "fixed inset-0 flex items-center justify-center bg-stone-50 z-50 animate-in fade-in duration-300" : "w-full min-h-[50vh] flex items-center justify-center bg-transparent py-16 animate-in fade-in duration-300"}>
+    <div className={fullScreen ? "fixed inset-0 flex items-center justify-center bg-stone-50 z-50" : "w-full min-h-[50vh] flex items-center justify-center bg-transparent py-16"}>
       <div className="flex flex-col items-center space-y-8">
         <div className="relative flex items-center justify-center">
           {/* Outer Ring */}

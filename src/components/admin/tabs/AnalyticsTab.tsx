@@ -172,8 +172,8 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div className="h-80 min-h-[320px] w-full" style={{ minWidth: "1px", minHeight: "1px" }}>
-                    <ResponsiveContainer width="99%" height={320} minWidth={0} minHeight={0}>
+                  <div className="h-80 min-h-[320px] w-full min-w-[200px]" style={{ minWidth: "200px", minHeight: "320px" }}>
+                    <ResponsiveContainer width="99%" height={320} minWidth={200} minHeight={250}>
                       <AreaChart 
                         data={showWeeklyComparison ? getWeeklyComparisonData() : salesAnalytics.dailySales} 
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
@@ -213,8 +213,8 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
 
                 <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                     <h3 className="text-xl font-black text-stone-900 tracking-tight mb-8">Category Mix</h3>
-                    <div className="h-80 w-full" style={{ minWidth: "1px", minHeight: "1px" }}>
-                         <ResponsiveContainer width="99%" height={320} minWidth={0} minHeight={0}>
+                    <div className="h-80 w-full min-w-[200px]" style={{ minWidth: "200px", minHeight: "320px" }}>
+                         <ResponsiveContainer width="99%" height={320} minWidth={200} minHeight={250}>
                             <PieChart>
                                 <Pie
                                     data={analyticsData?.categorySales || []}

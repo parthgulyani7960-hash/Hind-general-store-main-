@@ -12,10 +12,12 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { cn, Product } from '@/types';
+import { auth } from '@/firebase';
 import { useEffect } from 'react';
 import WholesaleInsights from '@/components/WholesaleInsights';
 import LocationPicker from '@/components/LocationPicker';
 import WalletModal from '@/components/WalletModal';
+import LoadingFallback from '@/components/LoadingFallback';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, formatPhoneNumber, isValidPhone } from '@/lib/utils';
 import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
@@ -46,16 +48,112 @@ export default function Profile() {
     config = [],
     language,
     setLanguage,
-    refreshUser
+    refreshUser,
+    isAuthChecking
   } = useStore();
+  
   const navigate = useNavigate();
   const location = useLocation();
+  const [isFetchingUser, setIsFetchingUser] = useState(false);
+
+  useEffect(() => {
+    if (user && isFetchingUser) {
+      setIsFetchingUser(false);
+    }
+  }, [user, isFetchingUser]);
+
+  useEffect(() => {
+    // 5-second safety timeout for data refresh - only run if a potential session exists
+    const token = localStorage.getItem('hgs_token');
+    if (!token && !user) return;
+
+    const timer = setTimeout(() => {
+        if (!user && refreshUser) {
+            setIsFetchingUser(true);
+            refreshUser().finally(() => setIsFetchingUser(false));
+        }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [user, refreshUser]);
+
   const activeRole = simulatedRole || user?.role;
-  const hasBypass = new URLSearchParams(window.location.search).get('bypass') === 'admin_bypass_2024';
   const emailMatch = user?.email?.toLowerCase().includes('parthgulyani7960@gmail.com');
-  const isUserAdmin = user && (user.role === 'admin' || emailMatch || hasBypass || simulatedRole === 'admin');
+  const isUserAdmin = user && (user.role === 'admin' || emailMatch || simulatedRole === 'admin');
   const [isEditing, setIsEditing] = useState(false);
+  const [showManageAccountModal, setShowManageAccountModal] = useState(false);
+  const [accountName, setAccountName] = useState(user?.name || '');
+  const [accountPhone, setAccountPhone] = useState(user?.phone || '');
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setAccountName(user.name || '');
+      setAccountPhone(user.phone || '');
+    }
+  }, [user]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showPhotoSelector, setShowPhotoSelector] = useState(false);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // This state is initialized below with user data
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: { ideal: 480 }, 
+          height: { ideal: 480 }, 
+          facingMode: 'user' 
+        } 
+      });
+      setCameraStream(stream);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 150);
+    } catch (err: any) {
+      console.error('Failed to access camera:', err);
+      toast.error('Could not access camera. Please check permissions or device setup.');
+      setShowCameraModal(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      const size = Math.min(video.videoWidth, video.videoHeight) || 480;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.translate(size, 0);
+        ctx.scale(-1, 1);
+        const sx = (video.videoWidth - size) / 2;
+        const sy = (video.videoHeight - size) / 2;
+        ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        
+        setFormData(prev => ({ ...prev, profile_photo: dataUrl }));
+        updateProfile({ profile_photo: dataUrl });
+        
+        toast.success('New profile photo set successfully!');
+        stopCamera();
+        setShowCameraModal(false);
+      }
+    }
+  };
 
   const [exportStatus, setExportStatus] = useState<{ status: string; created_at: string } | null>(null);
 
@@ -326,6 +424,44 @@ export default function Profile() {
     }
   };
 
+  // Sync formData and refresh data when user changes
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        name: user.name || '',
+        username: user.username || '',
+        email: user.email || '',
+        shop_name: user.shop_name || '',
+        owner_name: (user as any).owner_name || '',
+        alternate_phone: (user as any).alternate_phone || '',
+        business_type: (user as any).business_type || 'retail',
+        gst_number: (user as any).gst_number || '',
+        pin_code: user.pin_code || '',
+        street_address: (user as any).street_address || '',
+        city: (user as any).city || '',
+        state: (user as any).state || '',
+        zip_code: (user as any).zip_code || '',
+        address: user.address || '',
+        profile_photo: user.profile_photo || '',
+        phone: user.phone || '',
+        lat: (user as any).lat || null,
+        lng: (user as any).lng || null
+      });
+      
+      // Refresh data
+      fetchOrders();
+      fetchWalletHistory();
+    }
+  }, [user]);
+
+  // Orders and Wallet Effect
+  useEffect(() => {
+     if (user) {
+        fetchOrders();
+        fetchWalletHistory();
+     }
+  }, [user?.id]);
+
   const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet' | 'khata' | 'settings'>('settings');
   
   useEffect(() => {
@@ -422,7 +558,13 @@ export default function Profile() {
     }
   };
   const [reviewComment, setReviewComment] = useState('');
-  const [newsletterEmail, setNewsletterEmail] = useState(user.email || '');
+  const [newsletterEmail, setNewsletterEmail] = useState(user?.email || '');
+
+  useEffect(() => {
+    if (user?.email && !newsletterEmail) {
+      setNewsletterEmail(user.email);
+    }
+  }, [user]);
 
   const handleReviewSubmit = async () => {
     if (!reviewComment.trim()) {
@@ -577,16 +719,6 @@ export default function Profile() {
     }
   }, [user?.id]);
 
-  React.useEffect(() => {
-    if (!user) {
-      navigate('/login');
-    }
-  }, [user, navigate]);
-
-  if (!user) {
-    return null;
-  }
-
   const handlePhoneChange = (key: 'phone' | 'alternate_phone', val: string) => {
     const cleaned = val.replace(/\D/g, '').slice(0, 10);
     setFormData({ ...formData, [key]: cleaned });
@@ -632,8 +764,10 @@ export default function Profile() {
   const handlePhotoUpload = (file: File) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      setFormData({ ...formData, profile_photo: reader.result as string });
-      toast.success('Photo updated locally. Click "Save Changes" to persist.');
+      const result = reader.result as string;
+      setFormData({ ...formData, profile_photo: result });
+      updateProfile({ profile_photo: result });
+      toast.success('Profile photo uploaded and processed!');
     };
     reader.readAsDataURL(file);
   };
@@ -649,6 +783,32 @@ export default function Profile() {
       handlePhotoUpload(file);
     }
   };
+
+  // Defensive check: if auth is still checking, always show loading.
+  if (isAuthChecking || isFetchingUser) {
+    return <LoadingFallback message="Synchronizing profile data..." />;
+  }
+
+  // If user object is missing, redirect/show login.
+  if (!user) {
+    return (
+      <div className="flex h-screen items-center justify-center p-4">
+        <div className="p-8 bg-white rounded-2xl shadow-xl text-center">
+            <h2 className="text-xl font-bold text-stone-900 mb-4">Please log in to continue</h2>
+            <button 
+              onClick={() => navigate('/login')}
+              className="px-6 py-2 bg-amber-500 text-white rounded-full font-bold"
+            >
+              Go to Login
+            </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Defensive check with safe fallbacks. We do not block rendering of Profile screen if some fields are empty, as that prevents the user from being able to configure them.
+  const displayUserName = user.name || user.email?.split('@')[0] || 'Dear Customer';
+  const displayUserEmail = user.email || 'No email registered';
 
   const menuItems = [
     { icon: Wallet, label: 'My Wallet', value: `₹${user.wallet_balance}`, color: 'text-primary', id: 'wallet' },
@@ -671,7 +831,8 @@ export default function Profile() {
   ];
 
   return (
-    <div className="min-h-screen bg-stone-50/50 py-8 px-4 sm:px-6 lg:px-8 pb-16">
+    <div className="min-h-screen bg-stone-50/50 py-8 px-4 sm:px-6 lg:px-8 pb-16 relative">
+
       <div className="max-w-6xl mx-auto space-y-8 pb-32">
         {/* Profile Header */}
         <motion.div 
@@ -696,7 +857,7 @@ export default function Profile() {
             <div className="relative group/photo">
               <div 
                 className="w-32 h-32 md:w-40 md:h-40 rounded-full bg-slate-800 border-4 border-amber-500/30 overflow-hidden flex items-center justify-center cursor-pointer transition-all hover:scale-105 hover:border-amber-400"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setShowPhotoSelector(true)}
               >
                 {formData.profile_photo ? (
                   <img src={formData.profile_photo} alt={user.name} className="w-full h-full object-cover" />
@@ -707,7 +868,7 @@ export default function Profile() {
               <motion.button 
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setShowPhotoSelector(true)}
                 className="absolute bottom-2 right-2 p-3 bg-amber-500 text-slate-950 rounded-full shadow-xl hover:bg-amber-400 transition-colors"
               >
                 <Camera size={20} />
@@ -727,9 +888,9 @@ export default function Profile() {
 
             <div className="flex-1 text-center md:text-left space-y-4">
               <div>
-                <h1 className="text-3xl md:text-4xl font-serif font-black text-white tracking-tight leading-none group-hover:text-amber-400 transition-colors">{user.name}</h1>
+                <h1 className="text-3xl md:text-4xl font-serif font-black text-white tracking-tight leading-none group-hover:text-amber-400 transition-colors">{displayUserName}</h1>
                 <p className="text-slate-400 font-bold mt-2.5 flex items-center justify-center md:justify-start gap-1 text-sm">
-                  <Mail size={13} className="text-amber-500/70" /> {user.email}
+                  <Mail size={13} className="text-amber-500/70" /> {displayUserEmail}
                 </p>
               </div>
               
@@ -1098,6 +1259,38 @@ export default function Profile() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Manage Account Section */}
+                    <div className="border-t border-stone-100 pt-6 space-y-4">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                          <User size={18} className="text-amber-500" />
+                          <span>Manage Account</span>
+                        </h3>
+                        <p className="text-xs text-stone-500">
+                          Securely manage and update your primary profile details integrated with your identity credentials.
+                        </p>
+                        <div className="bg-stone-50/70 rounded-2xl p-4 space-y-3 font-mono text-xs border border-stone-100">
+                          <div className="flex justify-between border-b border-stone-100 pb-2">
+                            <span className="text-stone-500">Primary Display Name:</span>
+                            <span className="font-bold text-stone-900">{user?.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-stone-500">Phone Number:</span>
+                            <span className="font-bold text-stone-900">{user?.phone || 'Not Configured'}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAccountName(user?.name || '');
+                            setAccountPhone(user?.phone || '');
+                            setShowManageAccountModal(true);
+                          }}
+                          className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-sm active:scale-[0.98]"
+                        >
+                          Update Account Details
+                        </button>
+                    </div>
                 </motion.div>
             )}
             {activeProfileTab === 'khata' && (
@@ -1350,8 +1543,8 @@ export default function Profile() {
                       No order details available to generate spending trends.
                     </div>
                   ) : (
-                    <div className="w-full h-64">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="w-full h-64 min-w-[200px]" style={{ minWidth: "200px", minHeight: "256px" }}>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
                         <AreaChart
                           data={getMonthlySpendingData()}
                           margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
@@ -2186,85 +2379,87 @@ export default function Profile() {
             <span>Logout Account</span>
           </button>
 
-          {/* Privacy & Data Section */}
-          <div className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden mt-6">
-            <div className="p-6 border-b border-stone-100 bg-stone-50/50">
-              <h3 className="font-bold text-lg flex items-center space-x-2">
-                <Shield size={20} className="text-emerald-600" />
-                <span>Privacy & Data</span>
-              </h3>
-              <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mt-1">Manage your personal information</p>
-            </div>
-            <div className="divide-y divide-stone-50">
-              <div className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className={cn(
-                      "p-3 rounded-2xl transition-colors",
-                      isExporting ? "bg-amber-100 text-amber-600 animate-pulse" : "bg-stone-100 text-stone-500"
-                    )}>
-                      <Download size={20} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-stone-700">Export My Data Archive</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Download a structured copy of your profile and history</p>
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button 
-                      disabled={isExporting}
-                      onClick={() => handleExportData('pdf')} 
-                      className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50"
-                    >
-                      {isExporting ? 'Compiling...' : 'PDF'}
-                    </button>
-                    <button 
-                      disabled={isExporting}
-                      onClick={() => handleExportData('json')} 
-                      className="px-4 py-2 bg-stone-100 text-stone-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-200 transition-all disabled:opacity-50"
-                    >
-                      JSON
-                    </button>
-                  </div>
-                </div>
+          {/* Privacy & Data Section (Admin Only) */}
+          {isUserAdmin && (
+            <div className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden mt-6">
+              <div className="p-6 border-b border-stone-100 bg-stone-50/50">
+                <h3 className="font-bold text-lg flex items-center space-x-2">
+                  <Shield size={20} className="text-emerald-600" />
+                  <span>Privacy & Data</span>
+                </h3>
+                <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mt-1">Manage your personal information</p>
               </div>
-              <div className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-red-50 group-hover:text-red-600 transition-colors">
-                      <Trash2 size={20} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-stone-700">Permanent Account Deletion</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Request removal of all your data</p>
-                    </div>
-                  </div>
-                  <div>
-                    { (!deletionStatus || deletionStatus.status === 'NONE') ? (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleDataRequest('delete'); }} 
-                        className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
-                      >
-                        Request Deletion
-                      </button>
-                    ) : (
-                      <div className="flex flex-col items-end">
-                        <span className={cn(
-                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                          deletionStatus.status === 'PENDING' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                        )}>
-                          {deletionStatus.status}
-                        </span>
-                        {deletionStatus.scheduled_for && (
-                          <p className="text-[8px] text-stone-400 mt-1">Scheduled: {new Date(deletionStatus.scheduled_for).toLocaleDateString()}</p>
-                        )}
+              <div className="divide-y divide-stone-50">
+                <div className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className={cn(
+                        "p-3 rounded-2xl transition-colors",
+                        isExporting ? "bg-amber-100 text-amber-600 animate-pulse" : "bg-stone-100 text-stone-500"
+                      )}>
+                        <Download size={20} />
                       </div>
-                    )}
+                      <div>
+                        <p className="font-bold text-stone-700">Export My Data Archive</p>
+                        <p className="text-[10px] text-stone-400 font-medium">Download a structured copy of your profile and history</p>
+                      </div>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button 
+                        disabled={isExporting}
+                        onClick={() => handleExportData('pdf')} 
+                        className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50"
+                      >
+                        {isExporting ? 'Compiling...' : 'PDF'}
+                      </button>
+                      <button 
+                        disabled={isExporting}
+                        onClick={() => handleExportData('json')} 
+                        className="px-4 py-2 bg-stone-100 text-stone-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-200 transition-all disabled:opacity-50"
+                      >
+                        JSON
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-red-50 group-hover:text-red-600 transition-colors">
+                        <Trash2 size={20} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-stone-700">Permanent Account Deletion</p>
+                        <p className="text-[10px] text-stone-400 font-medium">Request removal of all your data</p>
+                      </div>
+                    </div>
+                    <div>
+                      { (!deletionStatus || deletionStatus.status === 'NONE') ? (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDataRequest('delete'); }} 
+                          className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
+                        >
+                          Request Deletion
+                        </button>
+                      ) : (
+                        <div className="flex flex-col items-end">
+                          <span className={cn(
+                            "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
+                            deletionStatus.status === 'PENDING' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                          )}>
+                            {deletionStatus.status}
+                          </span>
+                          {deletionStatus.scheduled_for && (
+                            <p className="text-[8px] text-stone-400 mt-1">Scheduled: {new Date(deletionStatus.scheduled_for).toLocaleDateString()}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -2701,6 +2896,225 @@ export default function Profile() {
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Camera Capture and Photo Choice Modals */}
+      <AnimatePresence>
+        {showPhotoSelector && (
+          <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white text-stone-900 rounded-3xl p-6 max-w-sm w-full border border-stone-200/50 shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setShowPhotoSelector(false)}
+                className="absolute top-4 right-4 p-1 rounded-full text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+              <h3 className="text-lg font-bold text-center mb-5 font-serif text-slate-900">Update Profile Picture</h3>
+              <div className="space-y-3">
+                <button 
+                  onClick={async () => {
+                    setShowPhotoSelector(false);
+                    setShowCameraModal(true);
+                    await startCamera();
+                  }}
+                  className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold flex items-center justify-center gap-3 transition-colors shadow-sm cursor-pointer"
+                >
+                  <Camera size={18} />
+                  <span>Take Live Photo</span>
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowPhotoSelector(false);
+                    fileInputRef.current?.click();
+                  }}
+                  className="w-full py-3.5 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-2xl font-bold flex items-center justify-center gap-3 transition-colors border border-stone-200 cursor-pointer"
+                >
+                  <Plus size={18} />
+                  <span>Upload from Device</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showCameraModal && (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-950 text-white rounded-3xl overflow-hidden max-w-md w-full border border-slate-800 shadow-2xl flex flex-col relative"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-slate-900">
+                <h3 className="text-md font-bold tracking-tight text-white flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                  Live Camera Preview
+                </h3>
+                <button 
+                  onClick={() => {
+                    stopCamera();
+                    setShowCameraModal(false);
+                  }}
+                  className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="relative aspect-square w-full bg-black flex items-center justify-center overflow-hidden">
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className="w-full h-full object-cover scale-x-[-1]"
+                />
+                
+                <div className="absolute inset-0 pointer-events-none border-[30px] md:border-[40px] border-black/50 flex items-center justify-center">
+                  <div className="w-full h-full rounded-full border-2 border-dashed border-amber-500/80 pointer-events-none animate-pulse" />
+                </div>
+              </div>
+
+              <div className="p-6 bg-slate-900 flex flex-col items-center gap-4">
+                <span className="text-[11px] font-medium text-slate-400 text-center">
+                  Position your face centered inside the camera guide
+                </span>
+                
+                <div className="flex items-center gap-6">
+                  <button 
+                    onClick={() => {
+                      stopCamera();
+                      setShowCameraModal(false);
+                    }}
+                    className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold font-mono uppercase tracking-widest transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  
+                  <button 
+                    onClick={capturePhoto}
+                    className="w-16 h-16 rounded-full bg-amber-500 hover:bg-amber-400 flex items-center justify-center text-slate-950 border-4 border-slate-950 active:scale-95 transition-transform shadow-lg cursor-pointer animate-pulse"
+                    title="Capture Photo"
+                  >
+                    <div className="w-6 h-6 rounded-full bg-slate-950 border border-amber-500" />
+                  </button>
+                  
+                  <div className="w-12" />
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showManageAccountModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 text-left">
+            {/* Backdrop */}
+            <div 
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowManageAccountModal(false)}
+            ></div>
+            
+            {/* Modal Container */}
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl border border-stone-100 z-10 max-h-[80vh] overflow-y-auto"
+            >
+              <h3 className="text-xl font-serif font-black text-stone-900 mb-2 flex items-center gap-2">
+                <ShieldCheck className="text-amber-500" />
+                <span>Manage Account</span>
+              </h3>
+              <p className="text-stone-500 text-xs mb-6">
+                Update your primary display name and verified phone number. Changes will securely synchronize with standard identity store.
+              </p>
+              
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setIsSavingAccount(true);
+                try {
+                  // 1. Firebase Auth display name update
+                  if (auth?.currentUser) {
+                    const { updateProfile: firebaseUpdateProfile } = await import('firebase/auth');
+                    await firebaseUpdateProfile(auth.currentUser, {
+                      displayName: accountName
+                    });
+                  }
+                  
+                  // 2. Database update-profile call
+                  await updateProfile({
+                    name: accountName,
+                    phone: accountPhone
+                  });
+                  
+                  setShowManageAccountModal(false);
+                } catch (err: any) {
+                  console.error('[CRITICAL] Account update failure:', err);
+                  toast.error(err.message || 'Verification or update failed.');
+                } finally {
+                  setIsSavingAccount(false);
+                }
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5 font-mono">
+                    Primary Display Name
+                  </label>
+                  <input 
+                    type="text" 
+                    required
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:outline-none focus:border-amber-500 font-medium text-stone-900 bg-stone-50/50 text-sm"
+                    placeholder="e.g. Parth Gulyani"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5 font-mono">
+                    Primary Phone Number
+                  </label>
+                  <input 
+                    type="text" 
+                    required
+                    value={accountPhone}
+                    onChange={(e) => setAccountPhone(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:outline-none focus:border-amber-500 font-medium text-stone-900 bg-stone-50/50 text-sm"
+                    placeholder="e.g. +91 98765 43210"
+                  />
+                </div>
+                
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowManageAccountModal(false)}
+                    className="flex-1 py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl text-xs uppercase tracking-wider transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingAccount}
+                    className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-300 text-stone-950 font-bold rounded-xl text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isSavingAccount ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></div>
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <span>Save Changes</span>
+                    )}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

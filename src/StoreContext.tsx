@@ -6,6 +6,7 @@ import { useNetwork } from './hooks/useNetwork';
 import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './firebase'; 
 import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
+import { securityService } from './services/securityService';
 
 interface StoreContextType {
   user: User | null;
@@ -16,6 +17,9 @@ interface StoreContextType {
   updateQuantity: (productId: any, delta: number, variantId?: any) => void;
   clearCart: () => void;
   logout: () => void;
+  performLogout: () => Promise<void>;
+  showLogoutDialog: boolean;
+  setShowLogoutDialog: (val: boolean) => void;
   isMaintenance: boolean;
   setMaintenance: (val: boolean) => void;
   checkMaintenance: () => Promise<void>;
@@ -61,19 +65,32 @@ interface StoreContextType {
   isSyncingCart: boolean;
   syncCartToBackend: (cartItems: CartItem[]) => Promise<void>;
   isAuthChecking: boolean;
+  isInitialAuthPerformed: boolean;
   currentAlert: any;
   setCurrentAlert: (alert: any) => void;
   markAlertAsRead: (id: any) => Promise<void>;
   hasPermission: (permission: Permission) => boolean;
   calculateDiscount: (cart: CartItem[]) => number;
+  isRevalidating: boolean;
   isSyncCartPending: boolean;
+  setIsRevalidating: (val: boolean) => void;
   logActivity: (type: string, description: string) => Promise<void>;
-  fetchCart: (userId: any) => Promise<void>;
+  fetchCart: (userId: any, forceRefresh?: boolean) => Promise<void>;
   lastAddedId: number | null;
   fetchWithHandling: <T>(url: string, options?: RequestInit) => Promise<T>;
   showImages: boolean;
   dbError: boolean;
   setDbError: (val: boolean) => void;
+  products: Product[];
+  setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
+  fetchProducts: () => Promise<void>;
+  isLoadingProducts: boolean;
+  isApiUp: boolean;
+  setIsApiUp: (val: boolean) => void;
+  categories: any[];
+  setCategories: (cats: any[]) => void;
+  isLoadingCategories: boolean;
+  fetchCategories: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -82,8 +99,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 1. State and Refs
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(false);
   const [dbError, setDbError] = useState(false);
+  const [isApiUp, setIsApiUp] = useState(true);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const initialCheckDone = useRef(false);
+  const isInitialized = useRef(false);
+  const isLoadingCategoriesRef = useRef(false);
   const authRunningRef = useRef(false);
 
   const [currentAlert, setCurrentAlert] = useState<any>(null);
@@ -99,11 +122,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   });
 
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const saved = localStorage.getItem('hgs_products');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('hgs_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [cartLoadedFromStorage, setCartLoadedFromStorage] = useState(true);
   const [isSyncingCart, setIsSyncingCart] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [isSyncCartPending, setIsSyncCartPending] = useState(false);
-  const [wishlist, setWishlist] = useState<number[]>([]);
+  const [wishlist, setWishlist] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem('hgs_wishlist');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const lastSyncCartStrRef = React.useRef<string>(JSON.stringify(cart));
+  const cachedCartRef = React.useRef<{ data: CartItem[]; timestamp: number; userId: any } | null>(null);
+  const fetchCartPromiseRef = React.useRef<Promise<CartItem[]> | null>(null);
+  const isCartCacheDirtyRef = React.useRef<boolean>(true);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [config, setConfig] = useState<any[]>([]);
   const [vibration, setVibration] = useState(true);
   const [notifications, setNotifications] = useState(true);
@@ -121,6 +174,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [lastAddedId, setLastAddedId] = useState<number | null>(null);
 
   // 2. Helper Functions (useCallbacks and async functions)
+  const fetchProducts = React.useCallback(async () => {
+    if (isLoadingProducts) return;
+    setIsLoadingProducts(true);
+    try {
+      if (!isOnline && products.length > 0) {
+        setIsLoadingProducts(false);
+        return;
+      }
+
+      console.log('Fetching products...');
+      const data = await fetchWithHandling<Product[]>('/api/products');
+      if (data && data.length > 0) {
+        setProducts(data);
+        localStorage.setItem('hgs_products', JSON.stringify(data));
+      }
+    } catch (err) {
+      console.error('Failed to fetch products:', err);
+    } finally {
+      setIsLoadingProducts(false);
+    }
+  }, [isOnline, products.length, isLoadingProducts]);
+
   const checkMaintenance = React.useCallback(async () => {
     try {
       const data = await fetchWithHandling<any>('/api/settings');
@@ -160,31 +235,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     authRunningRef.current = true;
     try {
       const token = fbToken || localStorage.getItem('hgs_token');
+      const isValidToken = token && token !== 'null' && token !== 'undefined' && token.trim() !== '' && token.split('.').length === 3;
+      
+      if (!isValidToken) {
+        setUser(null);
+        localStorage.removeItem('hgs_user');
+        localStorage.removeItem('hgs_token');
+        authRunningRef.current = false;
+        return;
+      }
+
       const data = await fetchWithHandling<{user: User}>('/api/auth/me', {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       if (data && data.user) {
-        console.log('User loaded:', data.user);
+        const isNewLogin = !user || user.id !== data.user.id;
         setUser(prev => {
            if (prev && JSON.stringify(prev) === JSON.stringify(data.user)) return prev;
            return data.user;
         });
         localStorage.setItem('hgs_user', JSON.stringify(data.user));
+        if (isNewLogin) {
+          securityService.trackAuth('login', data.user);
+        }
       } else {
         setUser(null);
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
       }
-    } catch (err) {
-      setUser(null);
-      localStorage.removeItem('hgs_user');
-      localStorage.removeItem('hgs_token');
+    } catch (err: any) {
+      if (err.status === 401) {
+        setUser(null);
+        localStorage.removeItem('hgs_user');
+        localStorage.removeItem('hgs_token');
+      }
     } finally {
       authRunningRef.current = false;
     }
   }, []);
 
   const refreshUser = React.useCallback(async () => {
+    setIsRevalidating(true);
     try {
       const data = await fetchWithHandling<{user: User}>('/api/auth/me', { headers: getAuthHeaders() });
       if (data && data.user) {
@@ -192,33 +283,65 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('hgs_user', JSON.stringify(data.user));
       }
     } catch (err) {
-      console.error('Failed to refresh user:', err);
+      // ignore
+    } finally {
+      setIsRevalidating(false);
     }
   }, []);
 
   const fetchUser = refreshUser;
 
-  const fetchCart = async (userId: number) => {
-    try {
-      const items = await fetchWithHandling<any[]>(`/api/cart?userId=${userId}`);
-      if (items) {
-        setCart(items.map((i: any) => ({
-          id: i.product_id,
-          name: i.name || 'Unknown Product',
-          price: Number(i.price) || 0,
-          image_url: i.image_url || '',
-          stock: i.stock,
-          category: i.category,
-          quantity: i.quantity,
-          description: i.description || '',
-          unit: i.unit || ''
-        })));
-        setIsSyncCartPending(false);
-      }
-    } catch (err) {}
-  };
+  const fetchCart = React.useCallback(async (userId: any, forceRefresh = false) => {
+    if (!forceRefresh && !isCartCacheDirtyRef.current && cachedCartRef.current && cachedCartRef.current.userId === userId && Date.now() - cachedCartRef.current.timestamp < 15000) {
+      console.log(`[CART CACHE HIT] Returning cached cart for user ${userId}`);
+      return;
+    }
 
-  const syncCartToBackend = async (cartItems: CartItem[]) => {
+    if (fetchCartPromiseRef.current) {
+      console.log('[CART FETCH DEDUP] Joining in-flight cart fetch promise');
+      try {
+        const items = await fetchCartPromiseRef.current;
+        setCart(items);
+        return;
+      } catch (err) {
+        // Fallback to fresh fetch if failure or try again below if ref was cleared
+      }
+    }
+
+    const fetchPromise = (async () => {
+      const items = await fetchWithHandling<any[]>(`/api/cart?userId=${userId}`);
+      if (!items) throw new Error('Failed to fetch cart');
+      const mappedItems = items.map((i: any) => ({
+        id: i.product_id,
+        name: i.name || 'Unknown Product',
+        price: Number(i.price) || 0,
+        image_url: i.image_url || '',
+        stock: i.stock,
+        category: i.category,
+        quantity: i.quantity,
+        description: i.description || '',
+        unit: i.unit || ''
+      }));
+      return mappedItems;
+    })();
+
+    fetchCartPromiseRef.current = fetchPromise;
+
+    try {
+      const mappedItems = await fetchPromise;
+      setCart(mappedItems);
+      cachedCartRef.current = { data: mappedItems, timestamp: Date.now(), userId };
+      lastSyncCartStrRef.current = JSON.stringify(mappedItems);
+      isCartCacheDirtyRef.current = false;
+      setIsSyncCartPending(false);
+    } catch (err) {
+      console.error('[CART FETCH] Error fetching cart:', err);
+    } finally {
+      fetchCartPromiseRef.current = null;
+    }
+  }, []);
+
+  const syncCartToBackend = React.useCallback(async (cartItems: CartItem[]) => {
     if (!user) return;
     setIsSyncingCart(true);
     try {
@@ -227,13 +350,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: user.id, items: cartItems })
         });
+        cachedCartRef.current = { data: cartItems, timestamp: Date.now(), userId: user.id };
+        isCartCacheDirtyRef.current = false;
         setIsSyncCartPending(false);
     } catch (err) {
         setIsSyncCartPending(true);
+        isCartCacheDirtyRef.current = true;
     } finally {
         setIsSyncingCart(false);
     }
-  };
+  }, [user]);
 
   const fetchAddresses = React.useCallback(async () => {
     if (!user) return;
@@ -291,6 +417,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
+    isCartCacheDirtyRef.current = true;
     setCart(prev => {
         const existing = prev.find(item => item.id === product.id && (variant ? item.variantId === variant.id : !item.variantId));
         if (existing) {
@@ -302,23 +429,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeFromCart = (productId: number, variantId?: number) => {
+    isCartCacheDirtyRef.current = true;
     setCart(prev => prev.filter(item => !(item.id === productId && (variantId ? item.variantId === variantId : !item.variantId))));
     toast.success('Removed from cart');
   };
 
   const updateQuantity = (productId: number, delta: number, variantId?: number) => {
+    isCartCacheDirtyRef.current = true;
     setCart(prev => prev.map(item => item.id === productId && (variantId ? item.variantId === variantId : !item.variantId) ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item));
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    isCartCacheDirtyRef.current = true;
+    setCart([]);
+  };
 
   const toggleWishlist = (productId: number) => {
     setWishlist(prev => prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]);
     toast.success(wishlist.includes(productId) ? 'Removed from wishlist' : 'Added to wishlist');
   };
 
-  const logout = async () => {
-    try { await signOutUser(); } catch (e) {}
+  const logout = () => setShowLogoutDialog(true);
+  const performLogout = async () => {
+    try { 
+      const currentUser = user;
+      await signOutUser(); 
+      securityService.trackAuth('logout', currentUser);
+    } catch (e) {}
     try { await fetchWithHandling('/api/auth/logout', { method: 'POST' }); } catch (err) {}
     setUser(null);
     localStorage.removeItem('hgs_user');
@@ -334,41 +471,106 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = (permission: Permission) => user?.permissions?.includes(permission) ?? false;
   const calculateDiscount = (cart: CartItem[]) => 0; // Simplified
-  const updateProfile = async (data: Partial<User>) => {};
+  const updateProfile = async (data: Partial<User>) => {
+    try {
+      const res = await fetchWithHandling<{success: boolean; user: User}>('/api/user/update-profile', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(data)
+      });
+      if (res && res.success && res.user) {
+        setUser(res.user);
+        localStorage.setItem('hgs_user', JSON.stringify(res.user));
+        toast.success(translations[language]['profile_updated'] as string || 'Profile successfully updated!');
+      } else {
+        toast.error('Failed to update profile.');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update profile');
+    }
+  };
   const subscribeNewsletter = async (email: string) => {};
-  const fetchConfig = async () => {};
+  const fetchCategories = React.useCallback(async () => {
+    if (isLoadingCategoriesRef.current) return;
+    isLoadingCategoriesRef.current = true;
+    setIsLoadingCategories(true);
+    try {
+      const data = await fetchWithHandling<any[]>('/api/categories');
+      if (data && Array.isArray(data)) {
+        setCategories(data);
+      } else {
+        setCategories([]);
+      }
+    } catch (err) {
+      setCategories([]);
+    } finally {
+      setIsLoadingCategories(false);
+      isLoadingCategoriesRef.current = false;
+    }
+  }, []);
+
+  const fetchConfig = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<any>('/api/settings');
+      if (data && data.config) {
+        setConfig(prev => JSON.stringify(prev) !== JSON.stringify(data.config) ? data.config : prev);
+      }
+    } catch (err) {
+      // Config failure handled silently
+    }
+  }, []);
   const logActivity = async (t: string, d: string) => {};
   const markAlertAsRead = async (id: number) => {};
 
   // 3. Effects
   useEffect(() => {
-    if (initialCheckDone.current) return;
+    if (initialCheckDone.current) {
+        console.log('[INIT] StoreProvider was already initialized, skipping');
+        return;
+    }
     initialCheckDone.current = true;
     
     let unsubscribe: any;
+
     const initialize = async () => {
       try {
+        const coreAssetsPromise = Promise.allSettled([
+          checkMaintenance(),
+          fetchConfig(),
+          fetchCategories()
+        ]);
+
         if (auth && typeof auth.authStateReady === 'function') {
-          const readyPromise = auth.authStateReady();
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Auth timeout')), 3500));
           try {
-            await Promise.race([readyPromise, timeoutPromise]);
-          } catch (e) {}
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Auth state timeout')), 5000));
+            await Promise.race([auth.authStateReady(), timeoutPromise]);
+          } catch (e: any) {
+            // handle error
+          }
         }
+
         const firebaseUser = auth?.currentUser;
+
         if (firebaseUser) {
           const token = await firebaseUser.getIdToken();
           localStorage.setItem('hgs_token', token);
           await checkAuth(token);
         } else {
           const savedToken = localStorage.getItem('hgs_token');
-          if (savedToken) await checkAuth(savedToken);
-          else setUser(null);
+          if (savedToken && savedToken !== 'null' && savedToken.split('.').length === 3) {
+            await checkAuth(savedToken);
+          } else {
+            setUser(null);
+          }
         }
-      } catch (e) {
+
+        await coreAssetsPromise;
+
+      } catch (err: any) {
+        // handle error
       } finally {
         setIsAuthChecking(false);
-        await checkMaintenance();
+        setIsInitialAuthPerformed(true);
       }
       
       unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
@@ -390,17 +592,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     
     initialize();
     
-    const listener = () => setUser(null);
-    const dbErrListener = (e: any) => setDbError(true);
-    window.addEventListener('auth_error', listener);
+    const authErrListener = () => {
+      setUser(null);
+    };
+    const dbErrListener = () => {
+      setDbError(true);
+    };
+    window.addEventListener('auth_error', authErrListener);
     window.addEventListener('database_error', dbErrListener);
     
     return () => {
       if (unsubscribe) unsubscribe();
-      window.removeEventListener('auth_error', listener);
+      window.removeEventListener('auth_error', authErrListener);
       window.removeEventListener('database_error', dbErrListener);
     };
-  }, [checkAuth, checkMaintenance]);
+  }, []);
 
   useEffect(() => {
     if (user) fetchAddresses();
@@ -408,15 +614,101 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchAddresses]);
 
   useEffect(() => {
-    if (user && cartLoadedFromStorage) {
-      const timeoutId = setTimeout(() => syncCartToBackend(cart), 1000);
-      return () => clearTimeout(timeoutId);
+    localStorage.setItem('hgs_cart', JSON.stringify(cart));
+    const cartStr = JSON.stringify(cart);
+    if (user && cartLoadedFromStorage && isOnline) {
+      if (cartStr !== lastSyncCartStrRef.current) {
+        const timeoutId = setTimeout(() => {
+          syncCartToBackend(cart);
+          lastSyncCartStrRef.current = cartStr;
+        }, 1000);
+        return () => clearTimeout(timeoutId);
+      }
     }
-  }, [cart, user, cartLoadedFromStorage, syncCartToBackend]);
+  }, [cart, user, cartLoadedFromStorage, syncCartToBackend, isOnline]);
+
+  // Track reconnection & login event triggers safely
+  const previousOnlineRef = React.useRef<boolean>(isOnline);
+  const previousUserRef = React.useRef<User | null>(user);
+
+  useEffect(() => {
+    if (user && !previousUserRef.current && isOnline) {
+      console.log('[LOGIN TRIGGER] User logged in. Force synchronizing and fetching latest cart.');
+      isCartCacheDirtyRef.current = true;
+      fetchCart(user.id, true);
+    }
+    previousUserRef.current = user;
+  }, [user, isOnline, fetchCart]);
+
+  useEffect(() => {
+    if (isOnline && !previousOnlineRef.current) {
+      console.log('[RECONNECT TRIGGER] Connection restored. Force synchronizing cart.');
+      if (user) {
+        isCartCacheDirtyRef.current = true;
+        fetchCart(user.id, true);
+      }
+    }
+    previousOnlineRef.current = isOnline;
+  }, [isOnline, user, fetchCart]);
+
+  useEffect(() => {
+    localStorage.setItem('hgs_wishlist', JSON.stringify(wishlist));
+  }, [wishlist]);
+
+  // API Health Monitor Polling
+  useEffect(() => {
+    let intervalId: any;
+    
+    const checkApiHealth = async () => {
+      try {
+        const res = await fetch('/api/health', { 
+          method: 'GET', 
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          const contentType = res.headers.get("content-type");
+          if (!contentType || !contentType.includes("application/json")) {
+            console.warn("[API MONITOR] API health response is not JSON, treating as up but not fully functional.");
+            setIsApiUp(true);
+            return;
+          }
+          setIsApiUp(true);
+          setDbError(false);
+          const data = await res.json();
+          if (data.status === 'degraded' || data.firestoreStatus === 'ERROR') {
+            setDbError(true);
+          }
+        } else {
+          setIsApiUp(false);
+          if (res.status === 503) setDbError(true);
+          console.warn(`[API MONITOR] /api/health returned non-2xx status: ${res.status}`);
+        }
+      } catch (err) {
+        setIsApiUp(false);
+        setDbError(true);
+        console.error('[API MONITOR] Failed to ping /api/health:', err);
+      }
+    };
+    
+    // Initial check
+    checkApiHealth();
+    
+    // Poll every 15 seconds
+    intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        checkApiHealth();
+      }
+    }, 15000);
+    
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
 
   // 4. Context Provider
   const contextValue = React.useMemo(() => ({
-    user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout,
+    user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout, performLogout, showLogoutDialog, setShowLogoutDialog,
     isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance, fetchCart,
     authMode, updateProfile, refreshUser, fetchUser, wishlist, toggleWishlist, config, fetchConfig,
     subscribeNewsletter, vibration, setVibration, notifications, setNotifications,
@@ -426,9 +718,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     language, setLanguage, t: (key: any) => translations[language][key as keyof typeof translations.en] || key, 
     addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
     isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
-    isAuthChecking, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
-    isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole]);
+    isAuthChecking, isRevalidating, setIsRevalidating, isInitialAuthPerformed, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
+    isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError,
+    products, setProducts, fetchProducts, isLoadingProducts,
+    isApiUp, setIsApiUp,
+    categories, setCategories, fetchCategories, isLoadingCategories
+  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, products, setProducts, fetchProducts, isLoadingProducts, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories]);
 
   return (
     <StoreContext.Provider value={contextValue}>

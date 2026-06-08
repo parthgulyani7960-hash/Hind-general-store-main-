@@ -65,6 +65,11 @@ export default function PrivacyPolicy() {
                       <p>We collect information you provide directly to us (e.g., name, email, address, phone number during registration or order placement). We also automatically collect some technical data when you use our platform.</p>
                       <h3>How We Use Your Information</h3>
                       <p>We use your data to process orders, improve our services, communicate important updates, and personalize your experience.</p>
+                      
+                      <h3>Security & Operational Integrity</h3>
+                      <p>Our application implements a high-quality security system designed to prevent unauthorized access and protect user privacy. All data is encrypted using industry-standard protocols, ensuring that your identifiable information remains protected from external threats. Security is maintained such that any unauthorized attempts to modify the application environment are automatically rejected.</p>
+                      <p>We track critical operational events, including login/logout timestamps and session durations, to maintain a robust audit trail. All transaction IDs and payment statuses are securely recorded to ensure transparency and security for all financial interactions.</p>
+
                       <h3>Your Rights</h3>
                       <p>You have the right to access, update, or request deletion of your personal data. Please contact support for any such requests.</p>
                     </div>

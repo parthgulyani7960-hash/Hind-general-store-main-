@@ -6,6 +6,7 @@ import {
   Wallet, Camera, X, AlertCircle, Download, Clock, Book,
   Plus, Minus, RefreshCcw, Loader2, Copy, Info
 } from 'lucide-react';
+import { OrderSummary } from '@/components/OrderSummary';
 import { useStore } from '@/StoreContext';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -336,6 +337,8 @@ export default function Checkout() {
       }
 
     } catch (err: any) {
+      const { securityService } = await import('@/services/securityService');
+      securityService.logFailedPayment(pendingOrder?.id || 'NEW_ORDER', method, err.message || 'API_REJECTION', { amount: total });
       handleAppError(err, 'Failed to place order', 'placeOrder', user?.role === 'admin');
     } finally {
       setIsProcessing(false);
@@ -942,30 +945,13 @@ export default function Checkout() {
                 >
                   <h2 className="text-2xl font-bold">Review Order</h2>
                   
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                        {cartWithDiscounts.map(item => (
-                            <div key={item.id} className="flex justify-between text-sm text-stone-600">
-                                <span>{item.name} x {item.quantity}</span>
-                                <span>₹{item.finalPrice * item.quantity}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="border-t border-stone-100 pt-4 space-y-2 text-stone-600">
-                        <div className="flex justify-between">
-                            <span>Subtotal</span>
-                            <span>₹{subtotal}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>Delivery Fee</span>
-                            <span>₹{deliveryFee}</span>
-                        </div>
-                        <div className="flex justify-between font-bold text-lg text-stone-900 border-t pt-2">
-                            <span>Total</span>
-                            <span>₹{total}</span>
-                        </div>
-                    </div>
-                  </div>
+                  <OrderSummary 
+                    cartItems={cartWithDiscounts}
+                    subtotal={subtotal}
+                    deliveryFee={deliveryFee}
+                    total={total}
+                    couponDiscount={couponDiscount}
+                  />
 
                   <div className="space-y-2 text-sm text-stone-600">
                     <p>Payment Method: <strong className="uppercase">{selectedPaymentMethod}</strong></p>
