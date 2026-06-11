@@ -49,10 +49,14 @@ const getResolvedFirebaseConfig = () => {
     }
   }
 
+const isBackend = typeof process !== 'undefined' && process.env != null;
+
   // 2. Try individual environment variables
   const getEnv = (key: string) => {
-    const val = import.meta.env?.[key] || (typeof process !== 'undefined' && process.env?.[key]);
-    return val && val !== 'undefined' && val !== '""' ? val : null;
+    if (isBackend) {
+        return process.env[key] || process.env[key.replace('VITE_', '')];
+    }
+    return import.meta.env?.[key];
   };
 
   const envConfig: any = {};
@@ -69,7 +73,8 @@ const getResolvedFirebaseConfig = () => {
   let hasEnv = false;
   Object.entries(mapping).forEach(([envKey, configKey]) => {
     const val = getEnv(envKey);
-    if (val) {
+    // Ignore 'undefined' explicitly stringified
+    if (val && val !== 'undefined' && val !== '""') {
       envConfig[configKey] = val;
       hasEnv = true;
     }
@@ -96,7 +101,7 @@ const activeDatabaseId = validConfig.firestoreDatabaseId && validConfig.firestor
   ? validConfig.firestoreDatabaseId 
   : '(default)';
 
-if (!import.meta.env.PROD) {
+if (process.env.NODE_ENV !== 'production') {
   console.log('--- FRONTEND FIREBASE DIAGNOSTICS ---');
   console.log('FRONTEND DATABASE ID:', activeDatabaseId);
   console.log('FIREBASE PROJECT ID:', validConfig.projectId);

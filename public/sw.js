@@ -1,23 +1,32 @@
-// Self-cleaning Service Worker to resolve any caching issues and deactivate cleanly
-self.addEventListener('install', () => {
-  self.skipWaiting();
-});
+const CACHE_NAME = 'hgs-cache-v1';
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/manifest.json'
+];
 
-self.addEventListener('activate', (event) => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => caches.delete(key))
-      );
-    }).then(() => {
-      return self.clients.claim();
-    }).then(() => {
-      console.log('[SW] Caches cleared and claiming clients completed.');
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
   );
 });
 
-// Direct network pass-through for all requests
 self.addEventListener('fetch', (event) => {
-  event.respondWith(fetch(event.request));
+  // Only handle GET requests and skip API requests
+  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+    return;
+  }
+  
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      // Serve from cache if available, otherwise fetch
+      return response || fetch(event.request).catch(async () => {
+        // Handle offline: if request failed, maybe return offline page
+        if (event.request.mode === 'navigate') {
+          return caches.match('/index.html');
+        }
+        return new Response('You are offline', { status: 503 });
+      });
+    })
+  );
 });

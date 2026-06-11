@@ -51,6 +51,20 @@ const fetchWithHandlingInternal = async <T>(
     clearTimeout(timeoutId);
     window.dispatchEvent(new CustomEvent('api_loading_stop'));
     
+    // Diagnostic logging for profile endpoint
+    if (url.includes('/api/user/profile')) {
+      window.dispatchEvent(new CustomEvent('diagnostic_api_log', {
+        detail: {
+          url,
+          method: options.method || 'GET',
+          status: res.status,
+          statusText: res.statusText,
+          ok: res.ok,
+          timestamp: new Date().toISOString()
+        }
+      }));
+    }
+    
     if (!res.ok) {
         let errorMessage = `Error: ${res.status}`;
         let detailedError = '';
@@ -193,6 +207,21 @@ const fetchWithHandlingInternal = async <T>(
       return fetchWithHandling(url, options, retries - 1);
     }
     logger.error(`API Error [${url}]`, err);
+    
+    // Diagnostic logging for profile endpoint network error
+    if (url.includes('/api/user/profile')) {
+      window.dispatchEvent(new CustomEvent('diagnostic_api_log', {
+        detail: {
+          url,
+          method: options.method || 'GET',
+          status: err.status || 0,
+          statusText: 'Network Error',
+          ok: false,
+          error: err.message,
+          timestamp: new Date().toISOString()
+        }
+      }));
+    }
     
     // Check if it's a network offline/unreachable error
     const isNetworkError = err instanceof TypeError || 

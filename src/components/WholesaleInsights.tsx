@@ -59,7 +59,7 @@ export default function WholesaleInsights() {
             <TrendingUp size={20} />
           </div>
           <p className="text-stone-500 text-[10px] font-bold uppercase tracking-widest mb-1">Total Procurement</p>
-          <h3 className="text-2xl font-black text-stone-900">₹{data.totalSpent?.toLocaleString()}</h3>
+          <h3 className="text-2xl font-black text-stone-900">₹{data.totalSpent !== undefined && data.totalSpent !== null ? Number(data.totalSpent).toLocaleString() : '0'}</h3>
         </div>
 
         <div className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm">
@@ -93,7 +93,7 @@ export default function WholesaleInsights() {
           <h3 className="text-lg font-black text-stone-900 mb-8">Procurement Trend</h3>
           <div className="h-64 min-w-[200px]" style={{ minWidth: "200px", minHeight: "256px" }}>
             <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
-              <AreaChart data={data.spendingHistory}>
+              <AreaChart data={data.spendingHistory || []}>
                 <defs>
                   <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
@@ -130,13 +130,13 @@ export default function WholesaleInsights() {
               <ResponsiveContainer width="100%" height="100%" minWidth={150} minHeight={150}>
                 <PieChart>
                   <Pie
-                    data={data.categoryBreakdown}
+                    data={data.categoryBreakdown || []}
                     innerRadius={50}
                     outerRadius={80}
                     paddingAngle={5}
                     dataKey="value"
                   >
-                    {data.categoryBreakdown.map((_: any, index: number) => (
+                    {(data.categoryBreakdown || []).map((_: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -145,13 +145,13 @@ export default function WholesaleInsights() {
               </ResponsiveContainer>
             </div>
             <div className="w-full sm:w-1/2 space-y-3 mt-4 sm:mt-0">
-              {data.categoryBreakdown.slice(0, 5).map((item: any, index: number) => (
+              {(data.categoryBreakdown || []).slice(0, 5).map((item: any, index: number) => (
                 <div key={item.name} className="flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                     <span className="font-bold text-stone-600">{item.name}</span>
                   </div>
-                  <span className="font-black text-stone-900">₹{item.value.toLocaleString()}</span>
+                  <span className="font-black text-stone-900">₹{item.value !== undefined && item.value !== null ? Number(item.value).toLocaleString() : '0'}</span>
                 </div>
               ))}
             </div>
@@ -170,7 +170,7 @@ export default function WholesaleInsights() {
                 <p className="text-xs font-bold text-stone-900 truncate">{product.name}</p>
                 <p className="text-[10px] text-stone-400 font-bold uppercase">{product.total_qty} Units</p>
               </div>
-              <p className="text-xs font-black text-primary">₹{product.total_spent.toLocaleString()}</p>
+              <p className="text-xs font-black text-primary">₹{product.total_spent !== undefined && product.total_spent !== null ? Number(product.total_spent).toLocaleString() : '0'}</p>
             </div>
           ))}
         </div>

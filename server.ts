@@ -104,11 +104,11 @@ import express from 'express';
 import crypto from 'crypto';
 console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
-import { validateEnvironment } from './src/lib/envCheck';
+import { validateEnvironment as validateEnvCheck } from './src/lib/envCheck';
 import { logger } from './src/lib/logger';
 
 console.log('[BOOT] Dotenv loaded');
-validateEnvironment();
+validateEnvCheck();
 logger.info('Environment validation completed.');
 import cron from 'node-cron';
 import 'express-session';
@@ -525,7 +525,7 @@ async function performInitialization(): Promise<void> {
     // Fast verification
     await Promise.race([
       db.collection('_health_').limit(1).get(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection timed out during initialization verification')), 3000))
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection timed out during initialization verification')), 15000))
     ]);
 
     isFirebaseReady = true;
@@ -690,7 +690,7 @@ app.get('/api/health', async (req, res) => {
         const db = getFirestoreInstance();
         await Promise.race([
           db.collection('_health_').limit(1).get(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore probe timeout')), 500))
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore probe timeout')), 5000))
         ]);
         response.firestoreStatus = 'CONNECTED';
       } catch (err: any) {

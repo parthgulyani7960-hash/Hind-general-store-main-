@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } f
 import SmartLink from './components/SmartLink';
 import { NetworkBanner } from './components/NetworkBanner';
 import { GlobalProgressBar } from './components/GlobalProgressBar';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -13,6 +14,7 @@ import FullScreenAlert from './components/FullScreenAlert';
 import AuthGuard from './components/AuthGuard';
 import ReviewPromptNotification from './components/ReviewPromptNotification';
 import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
+import { AdminDiagnosticPanel } from './components/AdminDiagnosticPanel';
 
 // Shared Vibration Helper for Flash Messages
 export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') => {
@@ -158,10 +160,6 @@ function AnimatedRoutes() {
     setNewsletterEmail('');
   };
 
-  useEffect(() => {
-    // No-op for trace
-  }, [location.pathname, isAuthChecking, isInitialAuthPerformed, isMaintenance, isAdmin]);
-
   if (isAuthChecking && !isInitialAuthPerformed) {
     return <LoadingFallback message="Initializing..." />;
   }
@@ -288,6 +286,7 @@ export default function App() {
       <ReviewPromptNotification />
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
+        <OfflineIndicator />
         <NetworkBanner />
         <GlobalProgressBar />
         <GlobalAnnouncements />
@@ -300,13 +299,13 @@ export default function App() {
           onConfirm={performLogout} 
         />
         <main className="flex-1 pb-24 md:pb-0 relative">
+          <AdminDiagnosticPanel />
           <ErrorBoundary>
             <AnimatedRoutes />
           </ErrorBoundary>
         </main>
         <MobileBottomNav />
         <FloatingCart />
-        <BackToTop />
       </div>
     </Router>
   );

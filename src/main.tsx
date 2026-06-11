@@ -6,6 +6,7 @@ import './index.css';
 import 'leaflet/dist/leaflet.css';
 import ErrorBoundary from './components/ErrorBoundary';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
+import { getOrRefreshToken } from './lib/authInterceptor';
 
 // Privacy / Security Console Redaction
 // Implements strict production logging policy: only log errors, redact all sensitive data.
@@ -112,43 +113,7 @@ try {
     let refreshPromise: Promise<string | null> | null = null;
 
     const performRefresh = async (): Promise<string | null> => {
-        try {
-            const currentToken = localStorage.getItem('hgs_token');
-
-            // Set a timeout to prevent infinite hang
-            const readyPromise = typeof auth.authStateReady === 'function' ? auth.authStateReady() : Promise.resolve();
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Refresh auth timeout')), 3000)
-            );
-            try {
-                await Promise.race([readyPromise, timeoutPromise]);
-            } catch (e) {
-                console.warn('Firebase authStateReady timed out during refresh');
-            }
-
-            const user = auth.currentUser;
-            if (user) {
-              const tokenPromise = user.getIdToken(true);
-              const tPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
-              try {
-                const newToken = await Promise.race([tokenPromise, tPromise]) as string;
-                localStorage.setItem('hgs_token', newToken);
-                return newToken;
-              } catch(e) {
-                console.warn('getIdToken timed out in performRefresh');
-                return null;
-              }
-            } else {
-              localStorage.removeItem('hgs_token');
-              localStorage.removeItem('hgs_user');
-              return null;
-            }
-        } catch (err) {
-            console.error('[AUTH] Token refresh failed:', err);
-            throw err;
-        } finally {
-            refreshPromise = null;
-        }
+        return await getOrRefreshToken();
     };
 
     Object.defineProperty(window, 'fetch', {
@@ -338,16 +303,12 @@ createRoot(document.getElementById('root')!).render(
 );
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const registration of registrations) {
-      registration.unregister().then((success) => {
-        if (success) {
-          console.log('[SW] Cleanly unregistered persistent stale service worker.');
-        }
-      });
-    }
-  }).catch((err) => {
-    console.warn('[SW] Failed to fetch registrations for automatic clean:', err);
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      console.log('[SW] ServiceWorker registration successful with scope: ', registration.scope);
+    }).catch((err) => {
+      console.error('[SW] ServiceWorker registration failed: ', err);
+    });
   });
 }
 

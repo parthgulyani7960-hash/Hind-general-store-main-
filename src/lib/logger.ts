@@ -1,5 +1,5 @@
 
-const isProduction = typeof process !== 'undefined' ? process.env.NODE_ENV === 'production' : (import.meta as any).env.PROD;
+const isProduction = process.env.NODE_ENV === 'production';
 
 /**
  * Standardized Redaction Utility

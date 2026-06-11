@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ShoppingBag } from 'lucide-react';
 
 export default function LoadingFallback({ message, fullScreen = true }: { message?: string; fullScreen?: boolean }) {
+  const [isSlow, setIsSlow] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsSlow(true);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className={fullScreen ? "fixed inset-0 flex items-center justify-center bg-stone-50 z-50" : "w-full min-h-[50vh] flex items-center justify-center bg-transparent py-16"}>
       <div className="flex flex-col items-center space-y-8">
@@ -35,8 +44,17 @@ export default function LoadingFallback({ message, fullScreen = true }: { messag
           className="flex flex-col items-center"
         >
           <span className="font-black text-[9px] tracking-[0.25em] uppercase text-stone-400 mb-2">New Hind General Store V1.0.0</span>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col items-center space-y-2">
             <span className="font-bold text-sm text-stone-900">{message || 'Synchronizing inventory...'}</span>
+            {isSlow && (
+                <motion.span 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-amber-600 text-[10px] font-medium"
+                >
+                    Reconnecting...
+                </motion.span>
+            )}
             <div className="flex space-x-1">
               {[0, 1, 2].map(i => (
                 <motion.div

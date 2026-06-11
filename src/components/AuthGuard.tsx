@@ -65,17 +65,32 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   ));
 
   useEffect(() => {
+    // Add a grace period to prevent false auth-wall triggers on slow mobile networks
+    const gracePeriodTimer = setTimeout(() => {
+        logger.info('[AuthGuard] Grace period expired, checking auth finality...');
+    }, 2000);
+
+    logger.info('[AuthGuard] Mount/Update state:', {
+      user: user ? String(user.id) : 'null',
+      isAuthChecking,
+      isInitialAuthPerformed,
+      isRevalidating,
+      location: location.pathname
+    });
+
     if (isInitialAuthPerformed && !user) {
-        logger.warn('[AuthGuard] Access denied: User not authenticated');
-        if (!hasShownToast.current) {
-          toast.error('Please log in to continue');
-          hasShownToast.current = true;
-        }
+      logger.warn('[AuthGuard] Access denied: User not authenticated');
+      if (!hasShownToast.current) {
+        toast.error('Please log in to continue');
+        hasShownToast.current = true;
+      }
     } else if (isInitialAuthPerformed && user && allowedRoles && !isAuthorized && !isVerifyingWhitelist && isAdminWhitelisted !== null) {
-        logger.warn('[AuthGuard] Access denied: Insufficient privileges');
-        toast.error('Access denied. Insufficient privileges.');
+      logger.warn('[AuthGuard] Access denied: Insufficient privileges');
+      toast.error('Access denied. Insufficient privileges.');
     }
-  }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isVerifyingWhitelist, isAdminWhitelisted]);
+    
+    return () => clearTimeout(gracePeriodTimer);
+  }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isVerifyingWhitelist, isAdminWhitelisted, isAuthChecking, isRevalidating]);
 
   if (isAuthChecking || (isCheckingWhitelistNeeded && (isVerifyingWhitelist || isAdminWhitelisted === null))) {
     return <LoadingFallback message="Verifying administrative access..." />;

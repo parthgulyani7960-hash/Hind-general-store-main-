@@ -577,32 +577,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let unsubscribe: any;
 
     const initialize = async () => {
+      console.log('STORE_INIT_START');
       try {
+        logger.info('[BOOT] Starting store context initialization...');
+        
+        // Add timeout detection for overall init
+        const initTimeout = setTimeout(() => logger.error('[BOOT] Initialization is taking longer than 15s'), 15000);
+
         const coreAssetsPromise = Promise.allSettled([
           checkMaintenance(),
           fetchConfig(),
           fetchCategories()
         ]);
+        
+        await coreAssetsPromise;
+        clearTimeout(initTimeout);
 
         if (auth && typeof auth.authStateReady === 'function') {
           try {
+            logger.info('[BOOT] Checking Firebase auth state...');
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Auth state timeout')), 5000));
             await Promise.race([auth.authStateReady(), timeoutPromise]);
+            console.log('AUTH_STATE_RECEIVED');
+            logger.info('[BOOT] Firebase auth state ready.');
           } catch (e: any) {
-            // handle error
+            logger.warn('[BOOT] Auth state check failed or timed out:', e.message);
           }
         }
 
         const firebaseUser = auth?.currentUser;
+        logger.info(`[BOOT] Initial firebaseUser: ${firebaseUser ? firebaseUser.uid : 'null'}`);
 
         if (firebaseUser) {
           const token = await firebaseUser.getIdToken();
           localStorage.setItem('hgs_token', token);
           await checkAuth(token);
+          console.log('USER_CONTEXT_SET');
         } else {
           const savedToken = localStorage.getItem('hgs_token');
+          logger.info(`[BOOT] No firebaseUser. Checking saved token: ${savedToken ? 'exists' : 'missing'}`);
           if (savedToken && savedToken !== 'null' && savedToken.split('.').length === 3) {
             await checkAuth(savedToken);
+            console.log('USER_CONTEXT_SET');
           } else {
             setUser(null);
           }
@@ -615,6 +631,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } finally {
         setIsAuthChecking(false);
         setIsInitialAuthPerformed(true);
+        console.log('STORE_INIT_COMPLETE');
       }
       
       unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {

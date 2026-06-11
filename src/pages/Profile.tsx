@@ -19,6 +19,7 @@ import WholesaleInsights from '@/components/WholesaleInsights';
 import LocationPicker from '@/components/LocationPicker';
 import WalletModal from '@/components/WalletModal';
 import LoadingFallback from '@/components/LoadingFallback';
+import { useProfileAuthDebug } from '@/hooks/useProfileAuthDebug';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, formatPhoneNumber, isValidPhone } from '@/lib/utils';
 import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
@@ -50,18 +51,12 @@ export default function Profile() {
     language,
     setLanguage,
     refreshUser,
-    isAuthChecking
+    isAuthChecking,
+    isRevalidating
   } = useStore();
   
   const navigate = useNavigate();
   const location = useLocation();
-  const [isFetchingUser, setIsFetchingUser] = useState(false);
-
-  useEffect(() => {
-    if (user && isFetchingUser) {
-      setIsFetchingUser(false);
-    }
-  }, [user, isFetchingUser]);
 
   useEffect(() => {
     // 5-second safety timeout for data refresh - only run if a potential session exists
@@ -70,21 +65,32 @@ export default function Profile() {
 
     const timer = setTimeout(() => {
         if (!user && refreshUser) {
-            setIsFetchingUser(true);
-            refreshUser().finally(() => setIsFetchingUser(false));
+            refreshUser();
         }
     }, 5000);
     return () => clearTimeout(timer);
   }, [user, refreshUser]);
 
   const activeRole = simulatedRole || user?.role;
-  const emailMatch = user?.email?.toLowerCase().includes('parthgulyani7960@gmail.com');
+  const emailMatch = user?.email ? user.email.toLowerCase().includes('parthgulyani7960@gmail.com') : false;
   const isUserAdmin = user && (user.role === 'admin' || emailMatch || simulatedRole === 'admin');
   const [isEditing, setIsEditing] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
   const [showManageAccountModal, setShowManageAccountModal] = useState(false);
   const [accountName, setAccountName] = useState(user?.name || '');
   const [accountPhone, setAccountPhone] = useState(user?.phone || '');
   const [isSavingAccount, setIsSavingAccount] = useState(false);
+  const [isError, setIsError] = useState(false);
+
+  const lastLoadedUserIdRef = useRef<string | number | null>(null);
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -165,9 +171,7 @@ export default function Profile() {
       });
   };
 
-  useEffect(() => {
-    fetchExportStatus();
-  }, []);
+  // Redundant fetchExportStatus effect removed - handled by combined status effect below
 
   const [isExporting, setIsExporting] = useState(false);
 
@@ -368,18 +372,27 @@ export default function Profile() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
 
-  const fetchOrders = async () => {
+  const fetchOrders = React.useCallback(async () => {
     if (!user) return;
-    setLoadingOrders(true);
+    setOrders(prev => {
+      if (prev.length === 0) {
+        setLoadingOrders(true);
+      }
+      return prev;
+    });
     try {
       const data = await fetchWithHandling<any[]>(`/api/orders/user/${user.id}`, { headers: getAuthHeaders() });
-      if (data) setOrders(data);
+      if (isMountedRef.current && data) {
+        setOrders(data);
+      }
     } catch (err) {
       console.error('Failed to fetch orders:', err);
     } finally {
-      setLoadingOrders(false);
+      if (isMountedRef.current) {
+        setLoadingOrders(false);
+      }
     }
-  };
+  }, [user?.id]);
 
   const handleUpdateOrder = async () => {
     if (!editingOrder) return;
@@ -412,56 +425,81 @@ export default function Profile() {
   const [walletHistory, setWalletHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const fetchWalletHistory = async () => {
+  const fetchWalletHistory = React.useCallback(async () => {
     if (!user) return;
-    setLoadingHistory(true);
+    setWalletHistory(prev => {
+      if (prev.length === 0) {
+        setLoadingHistory(true);
+      }
+      return prev;
+    });
     try {
       const data = await fetchWithHandling<any[]>(`/api/wallet-history/${user.id}`, { headers: getAuthHeaders() });
-      if (data) setWalletHistory(data);
+      if (isMountedRef.current && data) {
+        setWalletHistory(data);
+      }
     } catch (err) {
       console.error('Failed to fetch wallet history:', err);
     } finally {
-      setLoadingHistory(false);
+      if (isMountedRef.current) {
+        setLoadingHistory(false);
+      }
     }
-  };
+  }, [user?.id]);
+
+  const loadData = React.useCallback(async (forceUserRefresh = false) => {
+    console.log('PROFILE_RENDER_START');
+    setIsError(false);
+    if (forceUserRefresh) {
+      setLoadingOrders(true);
+      setLoadingHistory(true);
+      setOrders([]);
+      setWalletHistory([]);
+    }
+    try {
+      if (forceUserRefresh && refreshUser) {
+        await refreshUser();
+      }
+      await Promise.all([fetchOrders(), fetchWalletHistory()]);
+      console.log('PROFILE_RENDER_COMPLETE');
+    } catch (err) {
+      setIsError(true);
+      toast.error('Failed to load profile data.');
+    }
+  }, [refreshUser, fetchOrders, fetchWalletHistory]);
 
   // Sync formData and refresh data when user changes
   useEffect(() => {
     if (user) {
-      setFormData({
-        name: user.name || '',
-        username: user.username || '',
-        email: user.email || '',
-        shop_name: user.shop_name || '',
-        owner_name: (user as any).owner_name || '',
-        alternate_phone: (user as any).alternate_phone || '',
-        business_type: (user as any).business_type || 'retail',
-        gst_number: (user as any).gst_number || '',
-        pin_code: user.pin_code || '',
-        street_address: (user as any).street_address || '',
-        city: (user as any).city || '',
-        state: (user as any).state || '',
-        zip_code: (user as any).zip_code || '',
-        address: user.address || '',
-        profile_photo: user.profile_photo || '',
-        phone: user.phone || '',
-        lat: (user as any).lat || null,
-        lng: (user as any).lng || null
-      });
-      
-      // Refresh data
-      fetchOrders();
-      fetchWalletHistory();
+      if (user.id !== lastLoadedUserIdRef.current) {
+        lastLoadedUserIdRef.current = user.id;
+        setFormData({
+          name: user.name || '',
+          username: user.username || '',
+          email: user.email || '',
+          shop_name: user.shop_name || '',
+          owner_name: (user as any).owner_name || '',
+          alternate_phone: (user as any).alternate_phone || '',
+          business_type: (user as any).business_type || 'retail',
+          gst_number: (user as any).gst_number || '',
+          pin_code: user.pin_code || '',
+          street_address: (user as any).street_address || '',
+          city: (user as any).city || '',
+          state: (user as any).state || '',
+          zip_code: (user as any).zip_code || '',
+          address: user.address || '',
+          profile_photo: user.profile_photo || '',
+          phone: user.phone || '',
+          lat: (user as any).lat || null,
+          lng: (user as any).lng || null
+        });
+        
+        loadData();
+      }
+    } else {
+      lastLoadedUserIdRef.current = null;
     }
-  }, [user]);
-
-  // Orders and Wallet Effect
-  useEffect(() => {
-     if (user) {
-        fetchOrders();
-        fetchWalletHistory();
-     }
-  }, [user?.id]);
+  }, [user, loadData]);
 
   const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet' | 'khata' | 'settings'>('settings');
   
@@ -485,24 +523,33 @@ export default function Profile() {
   const [khataHistory, setKhataHistory] = useState<any[]>([]);
   const [loadingKhata, setLoadingKhata] = useState(false);
 
-  const fetchKhataHistory = async () => {
+  const fetchKhataHistory = React.useCallback(async () => {
     if (!user) return;
-    setLoadingKhata(true);
+    setKhataHistory(prev => {
+      if (prev.length === 0) {
+        setLoadingKhata(true);
+      }
+      return prev;
+    });
     try {
       const data = await fetchWithHandling<any[]>(`/api/user/khata/history/${user.id}`, { headers: getAuthHeaders() });
-      if (data) setKhataHistory(data);
+      if (isMountedRef.current && data) {
+        setKhataHistory(data);
+      }
     } catch (err) {
       console.error('Failed to fetch Khata history:', err);
     } finally {
-      setLoadingKhata(false);
+      if (isMountedRef.current) {
+        setLoadingKhata(false);
+      }
     }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     if (activeProfileTab === 'khata') {
       fetchKhataHistory();
     }
-  }, [activeProfileTab]);
+  }, [activeProfileTab, fetchKhataHistory]);
 
   
   const [addAmount, setAddAmount] = useState('');
@@ -712,13 +759,7 @@ export default function Profile() {
     }));
   };
 
-  React.useEffect(() => {
-    fetchOrders();
-    fetchWalletHistory();
-    if (refreshUser) {
-      refreshUser();
-    }
-  }, [user?.id]);
+  // Removed redundant effect block
 
   const handlePhoneChange = (key: 'phone' | 'alternate_phone', val: string) => {
     const cleaned = val.replace(/\D/g, '').slice(0, 10);
@@ -726,6 +767,7 @@ export default function Profile() {
   };
 
   const handleSave = async () => {
+    if (isSavingProfile) return;
     // Phone validation
     if (!isValidPhone(formData.phone)) {
       toast.error('Primary phone must be exactly 10 digits');
@@ -758,8 +800,16 @@ export default function Profile() {
       return;
     }
 
-    await updateProfile(formData);
-    setIsEditing(false);
+    setIsSavingProfile(true);
+    try {
+      await updateProfile(formData);
+      setIsEditing(false);
+    } catch (err: any) {
+      console.error('[CRITICAL] Profile update error:', err);
+      toast.error(err?.message || 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   const handlePhotoUpload = (file: File) => {
@@ -785,31 +835,58 @@ export default function Profile() {
     }
   };
 
-  // Defensive check: if auth is still checking, always show loading.
-  if (isAuthChecking || isFetchingUser) {
-    return <LoadingFallback message="Synchronizing profile data..." />;
+  const { status, details } = useProfileAuthDebug();
+
+  // ... inside Profile return component
+  if (isError) {
+      return (
+        <div className="flex h-screen items-center justify-center p-4">
+            <div className="p-8 bg-white rounded-2xl shadow-xl text-center border border-stone-100">
+                <h2 className="text-xl font-bold text-stone-900 mb-4">Connection Issue</h2>
+                <p className="text-stone-500 mb-6">Unable to load profile data. Please check your connection and retry.</p>
+                <button 
+                  onClick={() => loadData(true)}
+                  className="px-6 py-2 bg-amber-500 text-white rounded-full font-bold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 mx-auto"
+                >
+                  <RefreshCw size={16} />
+                  Retry Loading
+                </button>
+            </div>
+        </div>
+      );
+  }
+
+  if (isAuthChecking) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center p-4 bg-stone-50/50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+        <p className="text-stone-500 font-medium text-sm">Verifying session...</p>
+      </div>
+    );
   }
 
   // If user object is missing, redirect/show login.
   if (!user) {
     return (
       <div className="flex h-screen items-center justify-center p-4">
-        <div className="p-8 bg-white rounded-2xl shadow-xl text-center">
-            <h2 className="text-xl font-bold text-stone-900 mb-4">Please log in to continue</h2>
+        <div className="p-8 bg-white rounded-2xl shadow-xl text-center border border-stone-100">
+            <h2 className="text-xl font-bold text-stone-900 mb-4">Account session inactive</h2>
+            <p className="text-stone-500 mb-6">Please log in to continue managing your profile.</p>
+            <p className="text-xs text-stone-400 mb-6 italic">{details}</p>
             <button 
               onClick={() => navigate('/login')}
-              className="px-6 py-2 bg-amber-500 text-white rounded-full font-bold"
+              className="px-6 py-2 bg-amber-500 text-white rounded-full font-bold shadow-lg hover:shadow-xl transition-all"
             >
-              Go to Login
+              Sign In
             </button>
         </div>
       </div>
     );
   }
 
-  // Defensive check with safe fallbacks. We do not block rendering of Profile screen if some fields are empty, as that prevents the user from being able to configure them.
-  const displayUserName = user.name || user.email?.split('@')[0] || 'Dear Customer';
-  const displayUserEmail = user.email || 'No email registered';
+  // Defensive check with safe fallbacks.
+  const displayUserName = user?.name || user?.email?.split('@')[0] || 'Dear Customer';
+  const displayUserEmail = user?.email || 'No email registered';
 
   const menuItems = [
     { icon: Wallet, label: 'My Wallet', value: `₹${user.wallet_balance}`, color: 'text-primary', id: 'wallet' },
@@ -832,9 +909,9 @@ export default function Profile() {
   ];
 
   return (
-    <div className="min-h-screen bg-stone-50/50 py-8 px-4 sm:px-6 lg:px-8 pb-16 relative">
+    <div className="w-full max-w-full min-h-screen bg-stone-50/50 py-8 px-4 sm:px-6 lg:px-8 pb-16 relative overflow-x-hidden">
 
-      <div className="max-w-6xl mx-auto space-y-8 pb-32">
+      <div className="w-full max-w-6xl mx-auto space-y-8 pb-32">
         {/* Profile Header */}
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
@@ -1147,9 +1224,20 @@ export default function Profile() {
             <div className="md:col-span-2 flex justify-end">
               <button 
                 onClick={handleSave}
-                className="btn-primary px-12"
+                disabled={isSavingProfile}
+                className={cn(
+                  "btn-primary px-12 flex items-center justify-center gap-2",
+                  isSavingProfile && "opacity-50 cursor-not-allowed"
+                )}
               >
-                Save Changes
+                {isSavingProfile ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <span>Save Changes</span>
+                )}
               </button>
             </div>
           </motion.div>
@@ -1628,7 +1716,7 @@ export default function Profile() {
                     <RefreshCw size={18} />
                   </button>
                 </div>
-                <div className="divide-y divide-stone-50 max-h-[500px] overflow-y-auto no-scrollbar scroll-smooth">
+                <div className="divide-y divide-stone-50 space-y-6">
                   {loadingOrders ? (
                     <div className="p-6 space-y-4">
                       <OrderSkeleton />
@@ -1707,7 +1795,7 @@ export default function Profile() {
                               )}>
                                 {order.status === 'shipped' && order.delivery_type === 'pickup' 
                                   ? 'READY FOR PICKUP' 
-                                  : (t(order.status) || order.status.toUpperCase())}
+                                  : (t(order.status) || (order.status || 'PENDING').toUpperCase())}
                               </span>
                             </div>
                           </div>
@@ -1716,7 +1804,7 @@ export default function Profile() {
                           {order.items && order.items.length > 0 && (
                             <div className="mb-6 bg-stone-50/50 rounded-2xl p-4 border border-stone-100/50 space-y-3">
                               <p className="text-[10px] font-black text-stone-400 uppercase tracking-wider">Item Details & Prices (Click to Audit)</p>
-                              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1 no-scrollbar col-span-2">
+                              <div className="space-y-2.5 col-span-2">
                                 {order.items.map((item: any, idx: number) => {
                                   const itemKey = `${order.id}-${idx}`;
                                   const isExpanded = !!expandedItems[itemKey];
@@ -2607,21 +2695,30 @@ export default function Profile() {
               <form 
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const data = Object.fromEntries(formData);
-                  
-                  const phone = data.phone as string;
-                  if (!isValidPhone(phone)) {
-                    toast.error('Please enter a valid 10-digit mobile number');
-                    return;
-                  }
+                  if (isSavingAddress) return;
+                  setIsSavingAddress(true);
+                  try {
+                    const formData = new FormData(e.currentTarget);
+                    const data = Object.fromEntries(formData);
+                    
+                    const phone = data.phone as string;
+                    if (!isValidPhone(phone)) {
+                      toast.error('Please enter a valid 10-digit mobile number');
+                      return;
+                    }
 
-                  await saveAddress({
-                    ...data,
-                    id: editingAddress?.id,
-                    is_default: data.is_default === 'on'
-                  } as any);
-                  setShowAddressModal(false);
+                    await saveAddress({
+                      ...data,
+                      id: editingAddress?.id,
+                      is_default: data.is_default === 'on'
+                    } as any);
+                    setShowAddressModal(false);
+                  } catch (err: any) {
+                    console.error('[CRITICAL] Address save error:', err);
+                    toast.error(err?.message || 'Failed to save address');
+                  } finally {
+                    setIsSavingAddress(false);
+                  }
                 }}
                 className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar"
               >
@@ -2760,9 +2857,20 @@ export default function Profile() {
                 <div className="pt-4">
                   <button 
                     type="submit"
-                    className="w-full bg-primary text-white py-4 rounded-2xl font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-[0.2em] text-xs"
+                    disabled={isSavingAddress}
+                    className={cn(
+                      "w-full bg-primary text-white py-4 rounded-2xl font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2",
+                      isSavingAddress && "opacity-50 cursor-not-allowed"
+                    )}
                   >
-                    Confirm & Save Address
+                    {isSavingAddress ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <span>Confirm & Save Address</span>
+                    )}
                   </button>
                 </div>
               </form>

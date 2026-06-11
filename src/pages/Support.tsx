@@ -18,7 +18,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function Support() {
   const { user, logout, refreshUser, config = [], fetchConfig, simulatedRole } = useStore();
-  const isUserAdmin = user && (user.role === 'admin' || user.email?.toLowerCase().includes('parthgulyani7960@gmail.com') || simulatedRole === 'admin');
+  const isUserAdmin = user && (user.role === 'admin' || (user.email ? user.email.toLowerCase().includes('parthgulyani7960@gmail.com') : false) || simulatedRole === 'admin');
   const [orders, setOrders] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
   const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '', image: null as File | null });

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { errorService, ErrorType } from '@/lib/errorReporting';
 
 export class ErrorBoundary extends React.Component<
   { children: React.ReactNode; fallback?: React.ReactNode },
@@ -13,8 +14,14 @@ export class ErrorBoundary extends React.Component<
     return { hasError: true };
   }
 
-  public componentDidCatch(error: React.ErrorInfo | any, errorInfo: React.ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    errorService.report({
+      type: ErrorType.RENDER_ERROR,
+      message: error.message || 'Rendering error',
+      stack: errorInfo.componentStack,
+      component: 'ErrorBoundary'
+    });
   }
 
   public render() {
