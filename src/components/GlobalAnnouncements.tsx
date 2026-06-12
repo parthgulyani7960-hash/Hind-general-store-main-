@@ -14,22 +14,15 @@ interface Announcement {
 }
 
 export default function GlobalAnnouncements() {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [dismissedIds, setDismissedIds] = useState<number[]>(() => {
-    const saved = localStorage.getItem('hgs_dismissed_announcements');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('hgs_dismissed_announcements');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
   });
-  const { fetchWithHandling, user } = useStore();
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await fetchWithHandling<Announcement[]>('/api/announcements');
-        if (data) setAnnouncements(data);
-      } catch (err) {}
-    };
-    load();
-  }, [fetchWithHandling]);
+  const { announcements, user } = useStore();
 
   const handleDismiss = (id: number) => {
     const newDismissed = [...dismissedIds, id];

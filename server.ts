@@ -525,7 +525,7 @@ async function performInitialization(): Promise<void> {
     // Fast verification
     await Promise.race([
       db.collection('_health_').limit(1).get(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection timed out during initialization verification')), 15000))
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore connection timed out during initialization verification')), 30000))
     ]);
 
     isFirebaseReady = true;
@@ -551,10 +551,25 @@ async function performInitialization(): Promise<void> {
   }
 }
 
+async function performInitializationWithRetry(maxRetries = 3, delay = 1000): Promise<void> {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            await performInitialization();
+            return;
+        } catch (err: any) {
+            lastError = err;
+            logger.warn(`[FIREBASE_INIT] attempt ${i+1} failed, retrying in ${delay * Math.pow(2, i)}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+        }
+    }
+    throw lastError;
+}
+
 async function initializeFirebase() {
-  console.log('[BOOT STEP 3] Starting Firebase initialization sequence...');
   if (initPromise) return initPromise;
-  initPromise = performInitialization().catch(err => {
+  console.log('[BOOT STEP 3] Starting Firebase initialization sequence...');
+  initPromise = performInitializationWithRetry().catch(err => {
     initPromise = null;
     throw err;
   });
@@ -599,7 +614,7 @@ const ensureFirebaseReady = async (req: express.Request, res: express.Response, 
       return next();
     }
     
-    await appReady;
+    await initializeFirebase();
     next();
   } catch (err: any) {
     logger.error(`[CRITICAL] Request blocked - Firebase failed: ${err.message}`, {
@@ -2250,7 +2265,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     const isAdmin = ['admin', 'owner', 'manager'].includes(req.session.role || '');
     
     try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
+      if (!admin.apps.length) {
+        console.error('API 500: Firebase Admin not initialized.');
+        return res.status(500).json({ success: false, message: 'Internal server error: Firebase not ready' });
+      }
       
       const orderRef = getFirestoreInstance().collection('orders').doc(String(id));
       const orderDoc = await orderRef.get();

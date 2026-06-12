@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { logger } from '@/lib/logger';
 
-export default function AuthErrorReloader() {
+export default function AuthIssueReloader() {
   const [showError, setShowError] = useState(false);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -13,17 +13,17 @@ export default function AuthErrorReloader() {
   const { logout, user } = useStore();
 
   useEffect(() => {
-    const handleAuthError = (event: any) => {
+    const handleAuthIssue = (event: any) => {
       // Don't show if we're already on the login page
       if (window.location.pathname === '/login') return;
       
-      logger.warn('[AUTH ERROR RELOADER] Caught auth error event');
+      logger.warn('[AUTH ISSUE RELOADER] Caught auth error event');
       setErrorDetails('Unauthorized access detected');
       setShowError(true);
     };
 
-    window.addEventListener('auth_error', handleAuthError);
-    return () => window.removeEventListener('auth_error', handleAuthError);
+    window.addEventListener('auth_error', handleAuthIssue);
+    return () => window.removeEventListener('auth_error', handleAuthIssue);
   }, []);
 
   // Automatically redirect users to their dashboard/intended target if session has been successfully restored

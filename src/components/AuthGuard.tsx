@@ -42,7 +42,11 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
           }
         })
         .catch((err) => {
-          logger.error('[AuthGuard] Error checking admin whitelist');
+          logger.error('[AuthGuard] Error checking admin whitelist', {
+            error: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+            email: cleanEmail
+          });
           if (active) {
             setIsAdminWhitelisted(false);
           }
@@ -61,7 +65,7 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   // Determine if user has the required role
   const isAuthorized = !!user && (!allowedRoles || (
     allowedRoles.includes(userRole || '') &&
-    (!allowedRoles.includes('admin') || isAdminWhitelisted === true)
+    (userRole !== 'admin' || !allowedRoles.includes('admin') || isAdminWhitelisted === true)
   ));
 
   useEffect(() => {
@@ -93,14 +97,17 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isVerifyingWhitelist, isAdminWhitelisted, isAuthChecking, isRevalidating]);
 
   if (isAuthChecking || (isCheckingWhitelistNeeded && (isVerifyingWhitelist || isAdminWhitelisted === null))) {
+    logger.info('[AuthGuard] Blocking render: checking auth/whitelist', { isAuthChecking, isVerifyingWhitelist, isAdminWhitelisted });
     return <LoadingFallback message="Verifying administrative access..." />;
   }
 
   if (isRevalidating && !user) {
+    logger.info('[AuthGuard] Blocking render: revalidating');
     return <LoadingFallback message="Re-authenticating..." />;
   }
 
   if (isInitialAuthPerformed && !user) {
+    logger.info('[AuthGuard] Blocking render: No user, redirecting to login');
     return (
       <>
         <LoadingFallback message="Redirecting to login..." />
@@ -110,8 +117,10 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }
 
   if (allowedRoles && !isAuthorized) {
+    logger.warn('[AuthGuard] Blocking render: Not authorized:', { userRole, allowedRoles });
     return <Navigate to="/" replace />;
   }
 
+  logger.info('[AuthGuard] Allowing render for:', location.pathname);
   return <>{children}</>;
 }

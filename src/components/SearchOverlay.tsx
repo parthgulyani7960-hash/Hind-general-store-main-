@@ -4,6 +4,7 @@ import { Search, X, Star, Zap, ShoppingCart, Minus, Plus, Camera, Filter, Maximi
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { cn, Product } from '@/types';
+import { fetchWithHandling } from '@/lib/api';
 
 export default function SearchOverlay({
   isOpen,
@@ -36,10 +37,9 @@ export default function SearchOverlay({
   useEffect(() => {
     if (isOpen && products.length === 0) {
       setLoading(true);
-      fetch('/api/products')
-        .then(res => res.json())
+      fetchWithHandling<Product[]>('/api/products')
         .then(data => {
-            setProducts(data);
+            if (data) setProducts(data);
             setLoading(false);
         })
         .catch(err => {

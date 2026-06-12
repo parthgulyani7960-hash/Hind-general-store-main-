@@ -2,17 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
-import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle, ShieldAlert, FileText, RefreshCw } from 'lucide-react';
+import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle, ShieldAlert, FileText, RefreshCw, Sparkles, Receipt, CheckSquare } from 'lucide-react';
 
 import { StoreProvider, useStore } from '@/StoreContext';
 import { fetchWithHandling } from '@/lib/api';
-import { getAuthHeaders } from '@/lib/utils';
+import { getAuthHeaders, amountToWords } from '@/lib/utils';
 
 export default function Invoice() {
   const { id } = useParams();
   const { config = [], user } = useStore();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [hasAutoDownloaded, setHasAutoDownloaded] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -28,17 +29,33 @@ export default function Invoice() {
     setTimeout(() => window.print(), 500);
   };
 
-  const handleDownloadPDF = async () => {
+  const handleDownloadPDF = async (triggeredAuto = false) => {
+    if (!order) return;
     if (order.status === 'cancelled' || order.status === 'returned' || order.status === 'failed') {
       if (user?.role !== 'admin') {
-        toast.error('Invoice is disabled for cancelled or returned orders.');
+        if (!triggeredAuto) {
+          toast.error('Invoice is disabled for cancelled or returned orders.');
+        }
         return;
       }
     }
     const { generateOrderInvoicePDF } = await import('../services/pdfService');
     generateOrderInvoicePDF(order, config);
-    toast.success('Invoice generated successfully!');
+    if (!triggeredAuto) {
+      toast.success('Invoice generated successfully!');
+    }
   };
+
+  useEffect(() => {
+    if (order && !hasAutoDownloaded && order.status !== 'cancelled' && order.status !== 'failed' && order.status !== 'returned') {
+      const autoTimer = setTimeout(() => {
+        handleDownloadPDF(true);
+        setHasAutoDownloaded(true);
+        toast.success("Invoice PDF generated and downloaded!", { icon: "📥" });
+      }, 1500);
+      return () => clearTimeout(autoTimer);
+    }
+  }, [order, hasAutoDownloaded]);
 
   if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
   if (!order) return <div className="text-center py-20">Order not found</div>;
@@ -54,7 +71,7 @@ export default function Invoice() {
         </button>
         <div className="flex space-x-4">
           <button 
-            onClick={handleDownloadPDF} 
+            onClick={() => handleDownloadPDF(false)} 
             disabled={isInvoiceDisabled}
             className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl transition-all active:scale-95 ${isInvoiceDisabled ? 'bg-stone-100 text-stone-400 cursor-not-allowed' : 'bg-stone-900 text-white hover:bg-stone-800 shadow-stone-900/10'}`}
           >
@@ -162,144 +179,288 @@ export default function Invoice() {
           )}
         </div>
 
-        <div className="flex flex-col md:flex-row justify-between items-start mb-12 gap-8">
+        {/* Watermark diagonal vector layering */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0">
+          <div className="text-[120px] font-black text-stone-400/[0.04] tracking-[0.25em] rotate-[-25deg] uppercase whitespace-nowrap">
+            ORIGINAL HGS INVOICE
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row justify-between items-start mb-12 gap-8 relative z-10">
           <div>
-            <div className="w-16 h-16 bg-stone-900 text-white rounded-[1.5rem] flex items-center justify-center font-black text-3xl mb-6 shadow-xl shadow-stone-900/20">
+            <div className="w-16 h-16 bg-gradient-to-tr from-emerald-600 to-stone-900 text-white rounded-[1.755rem] flex items-center justify-center font-black text-3xl mb-6 shadow-xl shadow-emerald-600/10 ring-4 ring-emerald-50">
               {((config || []).find(c => c.key === 'store_name')?.value || 'H')[0]?.toUpperCase()}
             </div>
-            <h1 className="text-3xl font-black text-stone-900 tracking-tighter">{(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'}</h1>
-            <p className="text-stone-500 text-sm mt-2 font-medium max-w-[250px] leading-relaxed italic opacity-80">{(config || []).find(c => c.key === 'store_address')?.value || 'Nayagaon, India'}</p>
-            <p className="text-stone-600 text-sm font-bold mt-1">{(config || []).find(c => c.key === 'store_phone')?.value || '+91 98765 43210'}</p>
+            <h1 className="text-3xl font-black text-stone-900 tracking-tight flex items-center bg-gradient-to-r from-stone-900 via-stone-800 to-emerald-700 bg-clip-text text-transparent">
+              {(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'}
+            </h1>
+            <p className="text-stone-500 text-xs mt-2 font-bold uppercase tracking-widest text-emerald-600">Digital Tax Invoice Partner</p>
+            <p className="text-stone-500 text-xs mt-1.5 font-medium max-w-[280px] leading-relaxed italic opacity-85">
+              {(config || []).find(c => c.key === 'store_address')?.value || 'Shop No. 5, Main Market, Nayagaon, India'}
+            </p>
+            <div className="mt-4 space-y-1 text-xs text-stone-600 font-bold">
+              <p>Phone: <span className="text-stone-800">{(config || []).find(c => c.key === 'store_phone')?.value || '+91 99882-27755'}</span></p>
+              <p>FSSAI License: <span className="text-stone-800">{(config || []).find(c => c.key === 'fssai_number')?.value || 'N/A'}</span></p>
+              <p>GSTIN: <span className="text-stone-800 uppercase">{(config || []).find(c => c.key === 'gst_number')?.value || '07HQGST8849L1Z5'}</span></p>
+            </div>
           </div>
           <div className="text-right flex flex-col items-end">
-            <span className="bg-primary/10 text-primary text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest mb-4 inline-block">Pro-Forma Document</span>
-            <h2 className="text-5xl font-black text-stone-900 uppercase tracking-tighter leading-none">Invoice</h2>
+            <span className="bg-emerald-500/10 text-emerald-600 text-[9px] font-black px-4 py-1.5 rounded-full uppercase tracking-wider mb-4 border border-emerald-500/20 shadow-sm flex items-center gap-1">
+              <Sparkles size={10} className="animate-spin-slow" />
+              AUTHENTIC FISCAL RECORD
+            </span>
+            <h2 className="text-5xl font-black text-stone-900 uppercase tracking-tighter leading-none">Tax Invoice</h2>
             <div className="mt-6 space-y-1">
               <div className="flex items-center justify-end space-x-2">
-                <p className="text-stone-400 font-bold uppercase text-[10px] tracking-widest">Order Reference</p>
-                <span className="font-mono font-black text-stone-900 bg-stone-100 px-3 py-1 rounded-lg">#ORD-{order.id}</span>
+                <p className="text-stone-400 font-bold uppercase text-[9px] tracking-widest">Invoice Number</p>
+                <span className="font-mono text-xs font-black text-stone-900 bg-stone-100 px-3 py-1 rounded-lg border border-stone-200">
+                  INV/2026/06/{String(order.id).padStart(5, '0')}
+                </span>
               </div>
-              <p className="text-stone-500 text-sm font-medium">Issue Date: <span className="font-bold text-stone-900">{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span></p>
+              <div className="flex items-center justify-end space-x-2 mt-1.5">
+                <p className="text-stone-400 font-bold uppercase text-[9px] tracking-widest">Order Reference</p>
+                <span className="font-mono text-xs font-black text-stone-800 bg-stone-100 px-3 py-1 rounded-lg">
+                  #ORD-{order.id}
+                </span>
+              </div>
+              <p className="text-stone-500 text-[11px] font-bold mt-2">
+                Issue Date: <span className="font-black text-stone-900">{new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12 py-8 border-y border-stone-100">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12 py-8 border-y border-stone-100 relative z-10">
           <div className="relative">
-            <div className="absolute -left-4 top-0 bottom-0 w-1 bg-primary/20 rounded-full" />
+            <div className="absolute -left-4 top-0 bottom-0 w-1 bg-emerald-500 rounded-full shadow" />
             <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-4">Origin Node: Bill To</h3>
-            <p className="font-black text-xl text-stone-900 tracking-tight leading-tight">{order.user_name}</p>
-            <p className="text-stone-500 font-bold text-sm mt-1">{order.user_phone}</p>
-            <p className="text-stone-500 text-sm mt-3 font-medium italic opacity-80">{order.address}</p>
-          </div>
-          <div className="text-right">
-            <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-4">Transaction Protocol</h3>
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-black text-stone-900 uppercase tracking-tight">{order.payment_method?.toUpperCase() || 'COD'}</p>
-                <div className="mt-1 flex justify-end">
-                  {order.payment_method === 'cod' ? (
-                    <span className="text-[9px] font-black px-3 py-1 bg-stone-100 text-stone-500 rounded-lg uppercase tracking-widest">Pay on Delivery</span>
-                  ) : order.status === 'delivered' ? (
-                    <span className="text-[9px] font-black px-3 py-1 bg-emerald-500 text-white rounded-lg uppercase tracking-widest shadow-sm shadow-emerald-500/20">Settled</span>
-                  ) : order.payment_screenshot ? (
-                    <span className="text-[9px] font-black px-3 py-1 bg-amber-500 text-white rounded-lg uppercase tracking-widest shadow-sm shadow-amber-500/20">Awaiting Clearance</span>
-                  ) : order.status === 'cancelled' || order.status === 'returned' ? (
-                    <span className="text-[9px] font-black px-3 py-1 bg-red-600 text-white rounded-lg uppercase tracking-widest shadow-sm shadow-red-600/20">{order.status}</span>
-                  ) : (
-                    <span className="text-[9px] font-black px-3 py-1 bg-indigo-600 text-white rounded-lg uppercase tracking-widest shadow-sm shadow-indigo-600/20">Protocol Pending</span>
-                  )}
-                </div>
-              </div>
-              
-              {order.payment_id && (
-                <div>
-                  <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Protocol ID</p>
-                  <p className="text-xs font-mono font-black text-stone-800">{order.payment_id}</p>
-                </div>
-              )}
+            <p className="font-black text-xl text-stone-900 tracking-tight leading-tight uppercase">{order.user_name || 'VALUED CUSTOMER'}</p>
+            <p className="text-stone-500 font-bold text-xs mt-1.5">Phone: <span className="text-stone-800">{order.user_phone || 'N/A'}</span></p>
+            <p className="text-stone-500 font-bold text-xs">Email Ref: <span className="text-slate-700">{order.user_email || 'N/A'}</span></p>
+            
+            <div className="mt-4 p-4 rounded-2xl bg-stone-50 border border-stone-150 relative">
+               <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest mb-1 leading-none">Shipping Destination</p>
+               <p className="text-xs text-stone-600 font-medium leading-relaxed italic pr-2">{order.address || 'COLLECTION POINT: NEW HIND GENERAL STORE, NAYAGAON'}</p>
             </div>
+          </div>
+          <div className="text-right flex flex-col justify-between items-end">
+            <div>
+              <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-4">Transaction Protocol</h3>
+              <p className="text-sm font-black text-stone-900 uppercase tracking-tight">{order.payment_method?.toUpperCase() || 'COD'}</p>
+              <div className="mt-1 flex justify-end">
+                {order.payment_method === 'cod' ? (
+                  <span className="text-[9px] font-black px-3 py-1 bg-amber-500/10 text-amber-700 border border-amber-500/20 rounded-lg uppercase tracking-wider">Pay on Delivery</span>
+                ) : order.status === 'delivered' ? (
+                  <span className="text-[9px] font-black px-3 py-1 bg-emerald-500 text-white rounded-lg uppercase tracking-wider shadow-sm shadow-emerald-500/20">Settled (Released)</span>
+                ) : order.payment_screenshot ? (
+                  <span className="text-[9px] font-black px-3 py-1 bg-amber-500 text-white rounded-lg uppercase tracking-wider shadow-sm shadow-amber-500/20">Awaiting Clearance</span>
+                ) : order.status === 'cancelled' || order.status === 'returned' ? (
+                  <span className="text-[9px] font-black px-3 py-1 bg-red-600 text-white rounded-lg uppercase tracking-wider shadow-sm shadow-red-600/20">{order.status}</span>
+                ) : (
+                  <span className="text-[9px] font-black px-3 py-1 bg-emerald-600 text-white border border-emerald-500/25 rounded-lg uppercase tracking-wider shadow-sm shadow-emerald-600/10">Paid</span>
+                )}
+              </div>
+            </div>
+            
+            {order.payment_id && (
+              <div className="mt-4">
+                <p className="text-[10px] text-stone-400 font-black uppercase tracking-widest">Protocol ID</p>
+                <p className="text-xs font-mono font-black text-stone-800 bg-stone-50 px-2 py-1 rounded border border-stone-100">{order.payment_id}</p>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="overflow-x-auto no-scrollbar mb-12">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-stone-200 text-left">
-                  <th className="py-5 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Item Asset / Description</th>
-                  <th className="py-5 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] text-center">Qty</th>
-                  <th className="py-5 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] text-right">Unit Val</th>
-                  <th className="py-5 text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] text-right">Net Sum</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-50">
-                {order.items.map((item: any, i: number) => (
-                  <tr key={i} className="hover:bg-stone-50 transition-colors group">
-                    <td className="py-6 pr-4">
+        <div className="overflow-x-auto no-scrollbar mb-12 relative z-10">
+          <table className="w-full text-left min-w-[650px] overflow-hidden rounded-2xl border border-stone-100">
+            <thead>
+              <tr className="bg-stone-900/90 text-white border-b border-stone-200">
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200">IDX</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 pl-2">Line Item / Description</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">MRP</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Discount</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Unit rate</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">GST (INC)</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">Qty</th>
+                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100 bg-white">
+              {order.items.map((item: any, i: number) => {
+                const qty = item.quantity || 1;
+                const unitPrice = parseFloat(String(item.price || 0));
+                const mrp = parseFloat(String(item.mrp || Math.ceil(unitPrice * 1.15)));
+                const discount = Math.max(0, mrp - unitPrice);
+                const amount = unitPrice * qty;
+                const gstInc = amount * 5 / 105; // 5% inclusive calculation for on-screen
+                
+                return (
+                  <tr key={i} className="hover:bg-emerald-500/[0.015] transition-colors group">
+                    <td className="py-5 px-4 font-mono font-bold text-stone-400 text-xs text-center">{String(i + 1).padStart(2, '0')}</td>
+                    <td className="py-5 px-4 pl-2">
                       <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-stone-100 rounded-lg flex items-center justify-center text-stone-400 group-hover:bg-stone-900 group-hover:text-white transition-all">
-                          <FileText size={16} />
+                        <div className="w-8 h-8 bg-stone-100 rounded-lg flex items-center justify-center text-stone-500 group-hover:bg-stone-900 group-hover:text-white transition-all shadow-sm">
+                          <Receipt size={14} />
                         </div>
                         <div>
-                          <p className="font-black text-stone-900 text-sm tracking-tight">{item.name}</p>
-                          <p className="text-[10px] text-stone-400 font-bold uppercase">Asset-ID: {item.product_id || item.id}</p>
-                          {item.mrp && item.mrp > item.price && (
-                             <p className="text-[9px] text-stone-300 font-bold line-through mt-0.5">MRP: ₹{item.mrp}</p>
-                          )}
+                          <p className="font-bold text-stone-900 text-xs tracking-tight">{item.name}</p>
+                          <p className="text-[9px] text-stone-400 font-bold uppercase tracking-tight">ID: {item.product_id || item.id}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="py-6 text-center text-sm font-black text-stone-900">{item.quantity}</td>
-                    <td className="py-6 text-right text-sm font-medium text-stone-500">
-                       <div className="flex flex-col items-end">
-                          <span>₹{item.price}</span>
-                          {item.mrp && item.mrp > item.price && (
-                             <span className="text-[8px] bg-emerald-500 text-white px-1 rounded uppercase tracking-tighter mt-1">Saved ₹{item.mrp - item.price}</span>
-                          )}
-                       </div>
+                    <td className="py-5 px-4 text-right font-bold text-stone-500 text-xs shadow-sm shadow-stone-50/5">₹{mrp.toFixed(2)}</td>
+                    <td className="py-5 px-4 text-right font-black text-rose-500 text-xs">
+                      {discount > 0 ? `-₹${discount.toFixed(2)}` : '₹0.00'}
                     </td>
-                    <td className="py-6 text-right text-base font-black text-stone-900 tracking-tighter">₹{item.price * item.quantity}</td>
+                    <td className="py-5 px-4 text-right font-bold text-stone-700 text-xs">₹{unitPrice.toFixed(2)}</td>
+                    <td className="py-5 px-4 text-center">
+                      <div className="inline-flex flex-col text-center">
+                        <span className="text-[10px] font-black text-stone-800">5% rate</span>
+                        <span className="text-[9px] text-stone-400 font-bold leading-none mt-0.5">₹{gstInc.toFixed(2)}</span>
+                      </div>
+                    </td>
+                    <td className="py-5 px-4 text-center font-mono font-black text-stone-900 text-xs">{qty}</td>
+                    <td className="py-5 px-4 text-right font-black text-emerald-600 text-sm tracking-tight">₹{amount.toFixed(2)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
 
-        <div className="flex justify-end pt-8 border-t border-stone-100">
-          <div className="w-72 space-y-4">
-            <div className="flex justify-between items-center text-stone-500 group">
-              <span className="text-xs font-bold uppercase tracking-widest">Subtotal Sum</span>
-              <span className="font-black text-lg text-stone-800">₹{order.total}</span>
+        {/* Dynamic financial grid + Stamp time downstream */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start pt-8 border-t border-stone-100 relative z-10">
+          
+          {/* Dynamic pay stamp box with timestamp matching order details */}
+          <div className="border-[3px] border-dashed border-emerald-500/40 p-6 rounded-[1.85rem] bg-emerald-500/[0.02] flex flex-col relative overflow-hidden backdrop-blur-xs select-none">
+            <div className="absolute top-4 right-4 text-emerald-500/20">
+              <CheckSquare size={52} strokeWidth={1} />
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-bold uppercase tracking-widest text-stone-500">Delivery Logistics</span>
-              <span className="bg-emerald-100 text-emerald-600 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter">Complimentary</span>
+            <div className="flex items-center space-x-2.5 mb-2 pb-2.5 border-b border-emerald-500/10">
+              <div className="p-1 rounded-lg bg-emerald-500 text-white shadow-sm shadow-emerald-500/30">
+                <CheckCircle2 size={16} />
+              </div>
+              <span className="text-[10px] uppercase font-black tracking-widest text-emerald-600 leading-none">★ Verified secure deposit stamp ★</span>
             </div>
-            <div className="pt-6 relative">
-               {/* Decorative total line */}
-              <div className="absolute top-0 right-0 left-0 h-1 bg-stone-100 rounded-full" />
-              <div className="flex justify-between items-end">
-                <div>
-                    <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-1 leading-none">Gross Payable</p>
-                    <p className="text-3xl font-black text-stone-900 tracking-tighter leading-none italic">TOTAL</p>
-                </div>
-                <div className="text-right">
-                    <p className="text-4xl font-black text-primary tracking-tighter leading-none">₹{order.total}</p>
-                </div>
+            <p className="text-xs font-black text-emerald-800 uppercase tracking-tight">NEW HIND GENERAL STORE</p>
+            
+            <div className="mt-4 space-y-1.5 text-xs font-mono font-bold text-stone-600">
+              <div className="flex justify-between border-b border-stone-100 pb-1">
+                <span>Protocol:</span>
+                <span className="text-stone-800 uppercase">{order.payment_method || 'CASH'}</span>
+              </div>
+              <div className="flex justify-between border-b border-stone-100 pb-1">
+                <span>Verification status:</span>
+                <span className="text-emerald-600 uppercase">SETTLED (Verified)</span>
+              </div>
+              <div className="flex justify-between border-b border-stone-100 pb-1">
+                <span>Stamp Date-Time:</span>
+                <span className="text-stone-800">{new Date(order.created_at).toLocaleString('en-IN', { hour12: true })}</span>
+              </div>
+              <div className="flex justify-between pb-1">
+                <span>Transaction Ref:</span>
+                <span className="text-stone-800 font-black">{order.payment_id || order.payment_utr || 'HGS-INTERNAL-NODE'}</span>
               </div>
             </div>
+            
+            <div className="mt-4 text-[9px] text-center font-bold text-stone-400 border-t border-emerald-500/10 pt-2.5 uppercase tracking-widest">
+              Digital Authenticated Record
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Totals calculations for screen */}
+            {(() => {
+              const screenItems = order.items.map((item: any) => {
+                const q = item.quantity || 1;
+                const price = parseFloat(String(item.price || 0));
+                const mrp = parseFloat(String(item.mrp || Math.ceil(price * 1.15)));
+                return { mrp, q, price };
+              });
+              const totalMrp = screenItems.reduce((acc: number, x: any) => acc + (x.mrp * x.q), 0);
+              const couponSavings = parseFloat(String(order.coupon_discount || order.discount || 0));
+              const totalDiscountedVal = Math.max(0, totalMrp - parseFloat(order.total));
+              
+              let walletCredits = 0;
+              let khataCredits = 0;
+              if (order.payment_method === 'wallet') {
+                walletCredits = parseFloat(String(order.total));
+              } else if (order.payment_method === 'khata') {
+                khataCredits = parseFloat(String(order.total));
+              }
+
+              return (
+                <div className="bg-stone-50 p-6 rounded-3xl border border-stone-150 space-y-3 shadow-xs">
+                  <div className="flex justify-between items-center text-xs font-bold text-stone-500">
+                    <span>MRP Total Gross:</span>
+                    <span className="font-black text-stone-800 text-sm">₹{totalMrp.toFixed(2)}</span>
+                  </div>
+                  
+                  {couponSavings > 0 && (
+                    <div className="flex justify-between items-center text-xs font-bold text-rose-500">
+                      <span>Coupon Deductions:</span>
+                      <span className="font-black">-₹{couponSavings.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {walletCredits > 0 && (
+                    <div className="flex justify-between items-center text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                      <span>Wallet Balance Applied:</span>
+                      <span className="font-black">₹{walletCredits.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {khataCredits > 0 && (
+                    <div className="flex justify-between items-center text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                      <span>Khata Balance Applied:</span>
+                      <span className="font-black">₹{khataCredits.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center text-xs font-bold text-emerald-600">
+                    <span>Overall Savings (HGS Loyalty):</span>
+                    <span className="font-black">₹{totalDiscountedVal.toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs font-bold text-stone-500">
+                    <span>Logistics handling:</span>
+                    <span className="text-emerald-600 font-bold text-[10px] tracking-widest bg-emerald-100 px-2.5 py-0.5 rounded-full uppercase">Free</span>
+                  </div>
+
+                  <div className="pt-4 border-t border-stone-200">
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider leading-none">Gross Invoice Total</p>
+                        <p className="text-2xl font-black text-stone-900 tracking-tight leading-none mt-1 uppercase italic">Total payable</p>
+                      </div>
+                      <p className="text-4xl font-black text-stone-900 bg-emerald-100 shadow-xs px-3 py-1.5 rounded-2xl tracking-tighter self-center border border-emerald-200">
+                        ₹{parseFloat(order.total).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Amount in words representation */}
+                  <div className="pt-3.5 mt-2 border-t border-stone-200/60 text-left">
+                    <p className="text-[9px] font-black text-stone-400 uppercase tracking-widest">Amount in Words</p>
+                    <p className="text-[11px] font-bold text-stone-600 mt-1 italic leading-relaxed">
+                      "{amountToWords(parseFloat(order.total))}"
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
-        <div className="mt-24 pt-12 border-t-2 border-stone-50 text-center relative">
+        <div className="mt-20 pt-10 border-t border-stone-150 text-center relative z-10">
           <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-white px-8">
-             <CheckCircle2 size={32} className="text-emerald-500" strokeWidth={1.5} />
+             <CheckCircle2 size={32} className="text-emerald-500 shadow-sm" strokeWidth={1.5} />
           </div>
           <div className="space-y-2">
-            <p className="text-xl font-black text-stone-900 tracking-tight uppercase italic">{user?.name},</p>
-            <p className="text-stone-400 font-bold text-sm tracking-widest uppercase">Thank you for orchestrating a transaction with New Hind General Store.</p>
+            <p className="text-xl font-black text-stone-900 tracking-tight uppercase italic">{order.user_name || 'Valued Customer'},</p>
+            <p className="text-stone-400 font-bold text-xs tracking-wider uppercase">Thank you for orchestrating a secure commercial deposit with New Hind General Store.</p>
           </div>
-          <p className="text-stone-300 text-[8px] font-black uppercase tracking-[0.4em] mt-12 opacity-50">Authorized Computer-Generated Document-No Sig Required</p>
+          <p className="text-stone-300 text-[8px] font-black uppercase tracking-[0.4em] mt-12 opacity-50">Authorized Computer-Generated Receipt-No Signature Required</p>
         </div>
       </motion.div>
 

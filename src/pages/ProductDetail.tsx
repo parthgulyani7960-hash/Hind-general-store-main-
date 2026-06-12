@@ -13,9 +13,9 @@ import { Product, Review, cn } from '@/types';
 import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
 import { triggerFeedback } from '@/App';
-import { handleAppError } from '@/lib/errorUtils';
+import { handleAppError } from '@/lib/incidentUtils';
 import { fetchWithHandling } from '@/lib/api';
-import ErrorBoundary from '@/components/ErrorBoundary';
+import AppCrashBoundary from '@/components/AppCrashBoundary';
 import LoadingFallback from '@/components/LoadingFallback';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { getAuthHeaders } from '@/lib/utils';
@@ -379,7 +379,7 @@ export default function ProductDetail() {
   if (!product) return <div className="text-center py-20">Product not found</div>;
 
   return (
-    <ErrorBoundary>
+    <AppCrashBoundary>
       <div className="product-view product-detail-view max-w-5xl lg:max-w-7xl mx-auto px-4 py-8 pb-32">
         <button onClick={() => navigate(-1)} className="group flex items-center space-x-2 text-stone-400 hover:text-primary mb-8 transition-all active:scale-95">
           <div className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-primary group-hover:text-white transition-all">
@@ -1162,6 +1162,6 @@ export default function ProductDetail() {
             )}
           </AnimatePresence>
         </div>
-    </ErrorBoundary>
+    </AppCrashBoundary>
   );
 }

@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import { errorService, ErrorType } from './errorReporting';
+import { errorService, ErrorType } from './incidentReporting';
 import { logger } from './logger';
 
 export interface ApiResponse<T> {
@@ -271,7 +271,7 @@ const fetchWithHandlingInternal = async <T>(
 
 const apiCache: Record<string, { data: any; timestamp: number }> = {};
 const apiPendingPromises: Record<string, Promise<any>> = {};
-const API_CACHE_TIME = 15000; // 15 seconds
+const API_CACHE_TIME = 30000; // 30 seconds
 
 export const fetchWithHandling = async <T>(
   url: string,

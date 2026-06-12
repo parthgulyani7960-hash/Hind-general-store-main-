@@ -23,9 +23,11 @@ export const useNetwork = () => {
         // /favicon.ico is a good choice as it's usually small and cached by CDNs but still requires a roundtrip
         await fetch('/favicon.ico', { method: 'HEAD', cache: 'no-store' });
         const end = performance.now();
-        setStatus(prev => ({ ...prev, latency: Math.round(end - start), isOnline: true }));
+        setStatus(prev => ({ ...prev, latency: Math.round(end - start), isOnline: navigator.onLine }));
       } catch (err) {
-        setStatus(prev => ({ ...prev, latency: null, isOnline: false }));
+        // If ping fails, we don't necessarily want to mark as offline if navigator says we are online
+        // but we clear the latency
+        setStatus(prev => ({ ...prev, latency: null, isOnline: navigator.onLine }));
       }
     };
 
@@ -46,17 +48,9 @@ export const useNetwork = () => {
       measureLatency();
     }
 
-    // Measure periodically (every 30 seconds) if the page is visible
-    intervalId = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        measureLatency();
-      }
-    }, 30000);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      clearInterval(intervalId);
     };
   }, []);
 

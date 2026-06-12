@@ -147,13 +147,6 @@ export default function Navbar() {
 
   return (
     <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-indigo-50 shadow-sm relative font-sans">
-      {!isApiUp && (
-        <div className="bg-amber-500 text-stone-950 px-4 py-2 text-xs font-bold font-mono tracking-wider flex items-center justify-center gap-2 text-center relative z-50 ring-1 ring-amber-600/25">
-          <div className="w-2 h-2 bg-stone-950 rounded-full animate-ping shrink-0" />
-          <span><b>API CONNECTIVITY ALERT:</b> The backend server is currently offline or unreachable. Some real-time services may be disabled.</span>
-        </div>
-      )}
-
       {/* Glow Rainbow Accent strip at the top */}
       <div className="h-[4px] bg-gradient-to-r from-teal-400 via-indigo-500 to-pink-500 w-full relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-teal-400 via-indigo-500 to-pink-500 mix-blend-overlay blur-sm animate-pulse opacity-85" />

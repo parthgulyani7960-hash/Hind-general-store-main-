@@ -15,8 +15,269 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      console.log('Index.html loaded, starting scripts...');
-      window.addEventListener('load', () => console.log('Window load event fired'));
+      // 1. Initial State for Early Boot Tracking
+      window.__bootErrors = [];
+      window.__isAppLoaded = false;
+
+      // Handle Early Errors (before React initializes)
+      function handleEarlyError(event) {
+        const error = event.error || { message: event.message || 'Script Load Error or Syntax Error', stack: 'No stack trace available' };
+        window.__bootErrors.push(error);
+        console.error('[EARLY BOOT ERROR DETECTED]', error);
+        
+        // Schedule fallback UI check
+        setTimeout(checkAndRenderFallbackUI, 50);
+      }
+
+      function handleEarlyRejection(event) {
+        const error = event.reason || new Error(String(event.reason || 'Unhandled rejection'));
+        window.__bootErrors.push(error);
+        console.error('[EARLY REJECTION DETECTED]', error);
+        
+        // Schedule fallback UI check
+        setTimeout(checkAndRenderFallbackUI, 50);
+      }
+
+      window.addEventListener('error', handleEarlyError);
+      window.addEventListener('unhandledrejection', handleEarlyRejection);
+
+      // Simple relative API reporter
+      async function reportEarlyBootCrash(error, context = 'html-bootstrap') {
+        try {
+          const deviceInfo = `${navigator.platform} | ${navigator.vendor} | ${navigator.userAgent}`;
+          const screenRes = `${window.screen.width}x${window.screen.height} (${window.innerWidth}x${window.innerHeight})`;
+          const token = localStorage.getItem('hgs_token');
+          
+          let userId = null;
+          let userName = 'Guest User';
+          let userEmail = 'anonymous';
+          let userRole = 'customer';
+          try {
+            const storedUser = localStorage.getItem('hgs_user');
+            if (storedUser) {
+              const parsed = JSON.parse(storedUser);
+              userId = parsed.id || null;
+              userName = parsed.name || 'User';
+              userEmail = parsed.email || 'anonymous';
+              userRole = parsed.role || 'customer';
+            }
+          } catch (err) {}
+
+          const localTime = new Date().toLocaleString();
+          const isoTime = new Date().toISOString();
+
+          await fetch('/api/bugs/report', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              user_id: userId,
+              reporter_name: `${userName} (${userEmail} / ${userRole})`,
+              message: `[BOOTSTRAP-CRASH] ${error.message || 'Unknown initialization error'}`,
+              why: `Type: Bootstrap / Bundle Load Failure\nReason: ${error.stack || error.message || String(error)}\n\nTime of Crash: ${localTime} (${isoTime})`,
+              path: window.location.pathname + window.location.search,
+              type: 'SYSTEM_ERROR',
+              component: context,
+              device_info: deviceInfo,
+              screen_resolution: screenRes,
+              network_status: navigator.onLine ? 'Online' : 'Offline',
+              action_log: `Captured by early HTML root hook during app hydration. User was on page ${window.location.pathname} at ${localTime}`,
+            })
+          });
+          console.log('[EARLY BOOT ERROR] Automatically dispatched comprehensive error details to administrators.');
+        } catch (e) {
+          console.warn('[EARLY BOOT LOG] Failed to report crash to server:', e);
+        }
+      }
+
+      // Check if root element is empty after a delay to detect blank screen
+      window.__markAppAsLoaded = function() {
+        window.__isAppLoaded = true;
+        console.log('[BOOTSTRAP MONITOR] App marked as loaded successfully.');
+        const overlay = document.getElementById('bootstrap-crash-overlay');
+        if (overlay) {
+          console.log('[BOOTSTRAP MONITOR] Removing diagnostic overlay since app successfully booted.');
+          overlay.remove();
+        }
+      };
+
+      window.addEventListener('load', () => {
+        console.log('Window load event fired. Verifying hydration...');
+        if (window.__isAppLoaded) {
+          console.log('[BOOTSTRAP MONITOR] App already marked as loaded ahead of timeout.');
+          return;
+        }
+        setTimeout(() => {
+          if (window.__isAppLoaded) {
+            console.log('[BOOTSTRAP MONITOR] App loaded successfully prior to safety check.');
+            return;
+          }
+          const rootEl = document.getElementById('root');
+          const isEmpty = !rootEl || rootEl.innerHTML.trim() === '';
+          
+          if (isEmpty) {
+            console.warn('[BOOTSTRAP MONITOR] #root element is empty 25 seconds after load. Force-assessing errors.');
+            if (window.__bootErrors.length === 0) {
+              window.__bootErrors.push(new Error('Vite scripts completed but React root did not hydrate (Blank screen detected).'));
+            }
+            checkAndRenderFallbackUI(true);
+          } else {
+            console.log('[BOOTSTRAP MONITOR] Screen content has loaded successfully during backup sweep.');
+            window.__markAppAsLoaded();
+          }
+        }, 25000);
+      });
+
+      // Renders a high-fidelity diagnostic screen if React is dead
+      function checkAndRenderFallbackUI(force = false) {
+        const rootEl = document.getElementById('root');
+        if (window.__isAppLoaded) return;
+        if (!force && window.__bootErrors.length === 0) return;
+
+        // Prevent double rendering
+        if (document.getElementById('bootstrap-crash-overlay')) return;
+
+        const mainError = window.__bootErrors[0] || new Error('Unspecified script execution blockage.');
+        
+        // Report it immediately to backend admin
+        reportEarlyBootCrash(mainError);
+
+        // Render self-contained gorgeous UI
+        const overlay = document.createElement('div');
+        overlay.id = 'bootstrap-crash-overlay';
+        overlay.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: radial-gradient(ellipse at top, #f5f5f4, #fafaf9, #f5f5f4);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          box-sizing: border-box;
+          z-index: 9999999;
+          overflow-y: auto;
+          user-select: none;
+        `;
+
+        overlay.innerHTML = `
+          <div style="background: #ffffff; border: 1px solid #f5f5f4; max-width: 500px; width: 100%; border-radius: 40px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1); padding: 40px; box-sizing: border-box; text-align: center; position: relative; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            
+            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 6px; background: linear-gradient(to right, #f59e0b, #ef4444, #6366f1); border-top-left-radius: 40px; border-top-right-radius: 40px;"></div>
+            
+            <!-- Alert Triangle Icon -->
+            <div style="width: 80px; height: 80px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 24px; display: flex; align-items: center; justify-content: center; margin: 0 auto 32px auto; color: #d97706; animation: htmlPulse 2s infinite;">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </div>
+
+            <h1 style="font-size: 26px; font-weight: 900; color: #1c1917; margin: 0 0 12px 0; tracking: -0.025em; line-height: 1.2;">
+              Temporarily Unavailable
+            </h1>
+            
+            <p style="font-size: 13px; color: #78716c; font-weight: 500; margin: 0 0 32px 0; line-height: 1.6;">
+              The store is experiencing a brief technical interruption. We've automatically sent a diagnostic report to our team so they can resolve this for you immediately.
+            </p>
+
+            <!-- Diagnostic Card -->
+            <div style="background: rgba(240, 253, 244, 0.7); border: 1px solid rgba(187, 247, 208, 0.8); border-radius: 16px; padding: 20px; margin-bottom: 32px; text-align: left;">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: bold; color: #166534; margin-bottom: 6px;">
+                <div style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%; box-shadow: 0 0 8px #22c55e;"></div>
+                <span>Unified Crash Sentinel Status</span>
+              </div>
+              <p style="font-size: 11px; font-weight: 600; color: #15803d; line-height: 1.5; margin: 0 0 12px 0;">
+                An immediate diagnostic snapshot containing chronological trace logs, user authentication context, error indicators, and stack execution parameters was securely logged.
+              </p>
+              
+              <div style="border-top: 1px solid rgba(187, 247, 208, 0.3); padding-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 10px; font-family: monospace; color: #166534;">
+                <div>
+                  <span style="font-weight: bold; color: #166534; text-transform: uppercase; font-size: 8px; display: block; margin-bottom: 2px;">Timestamp</span>
+                  <span style="font-weight: bold;">${new Date().toLocaleString()}</span>
+                </div>
+                <div>
+                  <span style="font-weight: bold; color: #166534; text-transform: uppercase; font-size: 8px; display: block; margin-bottom: 2px;">Active Screen</span>
+                  <span style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">${window.location.pathname}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Copy Parameters Button -->
+            <div style="margin-bottom: 32px;">
+              <button id="btn-copy-error" style="width: 100%; border: 1px solid rgba(120, 113, 108, 0.2); background: #fafaf9; border-radius: 12px; color: #57534e; padding: 10px 14px; font-size: 10px; font-weight: bold; font-family: monospace; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.15s;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span id="copy-text">Copy Diagnostic Parameters (if requested by support)</span>
+              </button>
+            </div>
+
+            <!-- Reload Button -->
+            <button id="btn-reload" style="width: 100%; background: #1c1917; border: none; font-weight: bold; font-family: inherit; padding: 16px; border-radius: 16px; color: #ffffff; cursor: pointer; border-radius: 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+              </svg>
+              <span>Reload Hind Store</span>
+            </button>
+
+            <!-- Bottom Visual Assurance -->
+            <div style="margin-top: 32px; border-top: 1px solid #f5f5f4; padding-top: 24px; display: flex; justify-content: center; gap: 16px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 900; color: #a8a29e;">
+              <span style="display: flex; align-items: center; gap: 4px;">✓ Automated Tracking Active</span>
+              <span>•</span>
+              <span>No user action required</span>
+            </div>
+
+          </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Add CSS keyframe animation for pulses
+        const style = document.createElement('style');
+        style.innerHTML = `
+          @keyframes htmlPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .9; transform: scale(1.02); }
+          }
+        `;
+        document.head.appendChild(style);
+
+        // Attach interactive operations
+        document.getElementById('btn-reload').addEventListener('click', () => {
+          window.location.reload();
+        });
+
+        document.getElementById('btn-copy-error').addEventListener('click', async () => {
+          const info = {
+            errorMessage: mainError.message || String(mainError),
+            errorStack: mainError.stack || 'No JS stack trace available for syntax or asset-load failures.',
+            location: window.location.href,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString()
+          };
+          
+          try {
+            await navigator.clipboard.writeText(JSON.stringify(info, null, 2));
+            const iconSpan = document.getElementById('copy-text');
+            iconSpan.innerText = 'Diagnostic Parameters Copied!';
+            iconSpan.style.color = '#16a34a';
+            setTimeout(() => {
+              iconSpan.innerText = 'Copy Diagnostic Parameters (if requested by support)';
+              iconSpan.style.color = '';
+            }, 3000);
+          } catch (e) {
+            console.error(e);
+          }
+        });
+      }
+
       // Prevent double-tap to zoom
       let lastTouchEnd = 0;
       document.addEventListener('touchend', function (event) {

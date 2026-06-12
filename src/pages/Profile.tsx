@@ -28,9 +28,10 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 
-const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
+const GOOGLE_MAPS_KEY = (typeof process !== 'undefined' && process.env?.GOOGLE_MAPS_PLATFORM_KEY) || '';
 
 export default function Profile() {
+  console.log('[PROFILE] Rendering component');
   const { 
     user, 
     setUser,
@@ -217,8 +218,6 @@ export default function Profile() {
   }, []);
 
   const handleDataRequest = async (type: 'export' | 'delete') => {
-    if (!window.confirm(t('confirm_action'))) return;
-
     if (type === 'export') {
       try {
         const data = await fetchWithHandling<any>('/api/user/export-data', { 
@@ -235,7 +234,7 @@ export default function Profile() {
         console.error('Failed to request export:', err);
       }
     } else {
-      const reason = window.prompt("Optional: Please tell us why you wish to delete your account:");
+      const reason = "Direct customer request via profile";
       try {
         const data = await fetchWithHandling<any>('/api/user/deletion-request', { 
           method: 'POST',
@@ -647,7 +646,6 @@ export default function Profile() {
 
   const handleNewsletterSubscribe = async () => {
     if (!newsletterEmail) return;
-    if (!window.confirm('Are you sure you want to subscribe to our newsletter?')) return;
     try {
       await subscribeNewsletter(newsletterEmail);
       toast.success('Subscribed to newsletter!');
@@ -2468,87 +2466,85 @@ export default function Profile() {
             <span>Logout Account</span>
           </button>
 
-          {/* Privacy & Data Section (Admin Only) */}
-          {isUserAdmin && (
-            <div className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden mt-6">
-              <div className="p-6 border-b border-stone-100 bg-stone-50/50">
-                <h3 className="font-bold text-lg flex items-center space-x-2">
-                  <Shield size={20} className="text-emerald-600" />
-                  <span>Privacy & Data</span>
-                </h3>
-                <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mt-1">Manage your personal information</p>
-              </div>
-              <div className="divide-y divide-stone-50">
-                <div className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className={cn(
-                        "p-3 rounded-2xl transition-colors",
-                        isExporting ? "bg-amber-100 text-amber-600 animate-pulse" : "bg-stone-100 text-stone-500"
-                      )}>
-                        <Download size={20} />
-                      </div>
-                      <div>
-                        <p className="font-bold text-stone-700">Export My Data Archive</p>
-                        <p className="text-[10px] text-stone-400 font-medium">Download a structured copy of your profile and history</p>
-                      </div>
-                    </div>
-                    <div className="flex space-x-2">
-                      <button 
-                        disabled={isExporting}
-                        onClick={() => handleExportData('pdf')} 
-                        className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50"
-                      >
-                        {isExporting ? 'Compiling...' : 'PDF'}
-                      </button>
-                      <button 
-                        disabled={isExporting}
-                        onClick={() => handleExportData('json')} 
-                        className="px-4 py-2 bg-stone-100 text-stone-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-200 transition-all disabled:opacity-50"
-                      >
-                        JSON
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-red-50 group-hover:text-red-600 transition-colors">
-                        <Trash2 size={20} />
-                      </div>
-                      <div>
-                        <p className="font-bold text-stone-700">Permanent Account Deletion</p>
-                        <p className="text-[10px] text-stone-400 font-medium">Request removal of all your data</p>
-                      </div>
+          {/* Privacy & Data Section */}
+          <div className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden mt-6">
+            <div className="p-6 border-b border-stone-100 bg-stone-50/50">
+              <h3 className="font-bold text-lg flex items-center space-x-2">
+                <Shield size={20} className="text-emerald-600" />
+                <span>Privacy & Data</span>
+              </h3>
+              <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mt-1">Manage your personal information</p>
+            </div>
+            <div className="divide-y divide-stone-50">
+              <div className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className={cn(
+                      "p-3 rounded-2xl transition-colors",
+                      isExporting ? "bg-amber-100 text-amber-600 animate-pulse" : "bg-stone-100 text-stone-500"
+                    )}>
+                      <Download size={20} />
                     </div>
                     <div>
-                      { (!deletionStatus || deletionStatus.status === 'NONE') ? (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); handleDataRequest('delete'); }} 
-                          className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
-                        >
-                          Request Deletion
-                        </button>
-                      ) : (
-                        <div className="flex flex-col items-end">
-                          <span className={cn(
-                            "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                            deletionStatus.status === 'PENDING' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                          )}>
-                            {deletionStatus.status}
-                          </span>
-                          {deletionStatus.scheduled_for && (
-                            <p className="text-[8px] text-stone-400 mt-1">Scheduled: {new Date(deletionStatus.scheduled_for).toLocaleDateString()}</p>
-                          )}
-                        </div>
-                      )}
+                      <p className="font-bold text-stone-700">Export My Data Archive</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Download a structured copy of your profile and history</p>
                     </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button 
+                      disabled={isExporting}
+                      onClick={() => handleExportData('pdf')} 
+                      className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50"
+                    >
+                      {isExporting ? 'Compiling...' : 'PDF'}
+                    </button>
+                    <button 
+                      disabled={isExporting}
+                      onClick={() => handleExportData('json')} 
+                      className="px-4 py-2 bg-stone-100 text-stone-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-200 transition-all disabled:opacity-50"
+                    >
+                      JSON
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-red-50 group-hover:text-red-600 transition-colors">
+                      <Trash2 size={20} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-stone-700">Permanent Account Deletion</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Request removal of all your data</p>
+                    </div>
+                  </div>
+                  <div>
+                    { (!deletionStatus || deletionStatus.status === 'NONE') ? (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDataRequest('delete'); }} 
+                        className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
+                      >
+                        Request Deletion
+                      </button>
+                    ) : (
+                      <div className="flex flex-col items-end">
+                        <span className={cn(
+                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
+                          deletionStatus.status === 'PENDING' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                        )}>
+                          {deletionStatus.status}
+                        </span>
+                        {deletionStatus.scheduled_for && (
+                          <p className="text-[8px] text-stone-400 mt-1">Scheduled: {new Date(deletionStatus.scheduled_for).toLocaleDateString()}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 

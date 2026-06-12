@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { OrderStatusTimeline } from '@/components/admin/OrderStatusTimeline';
 import { cn } from '@/types';
-import { handleAppError } from '@/lib/errorUtils';
+import { handleAppError } from '@/lib/incidentUtils';
 import { useStore } from '@/StoreContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { fetchWithHandling } from '@/lib/api';

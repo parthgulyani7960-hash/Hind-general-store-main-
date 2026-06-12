@@ -32,10 +32,10 @@ import React, { useState, Suspense, lazy, useEffect, useRef } from 'react';
 import toast, { useToasterStore } from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
 import { cn } from './types';
-import { errorService, ErrorType } from './lib/errorReporting';
+import { errorService, ErrorType } from './lib/incidentReporting';
 import LoadingFallback from './components/LoadingFallback';
-import ErrorBoundary from './components/ErrorBoundary';
-import { DatabaseConnectionError } from './components/DatabaseConnectionError';
+import AppCrashBoundary from './components/AppCrashBoundary';
+import { DbConnectionIssue } from './components/DbConnectionIssue';
 
 
 function ToastManager() {
@@ -160,8 +160,11 @@ function AnimatedRoutes() {
     setNewsletterEmail('');
   };
 
+  console.log('[ANIMATED_ROUTES] Rendering routes for path:', location.pathname, { isAuthChecking, isInitialAuthPerformed });
+
   if (isAuthChecking && !isInitialAuthPerformed) {
-    return <LoadingFallback message="Initializing..." />;
+    console.log('[ANIMATED_ROUTES] Showing initial loading screen');
+    return <LoadingFallback message="Initializing store..." />;
   }
 
   if (isMaintenance && !isAdmin) {
@@ -178,34 +181,36 @@ function AnimatedRoutes() {
     <Suspense fallback={<LoadingFallback message="Loading..." />}>
       <div id="application-content-root" className="min-h-full flex flex-col relative bg-white">
         <div className="flex-1 flex flex-col">
-          <AnimatePresence mode="wait">
-            <Routes location={location} key={location.pathname}>
-              <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
-              <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
-              <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
-              <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
-              <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
-              <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
-              <Route path="/checkout" element={<AuthGuard><PageWrapper><Checkout /></PageWrapper></AuthGuard>} />
-              <Route path="/invoice/:id" element={<AuthGuard><PageWrapper><Invoice /></PageWrapper></AuthGuard>} />
-              <Route path="/wishlist" element={<AuthGuard><PageWrapper><Wishlist /></PageWrapper></AuthGuard>} />
-              <Route path="/profile" element={<AuthGuard><PageWrapper><Profile /></PageWrapper></AuthGuard>} />
-              <Route path="/add-money" element={<AuthGuard><PageWrapper><AddMoney /></PageWrapper></AuthGuard>} />
-              <Route path="/admin/activity-logs" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><ActivityLogs /></PageWrapper></AuthGuard>} />
-              <Route path="/admin" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminDashboard /></PageWrapper></AuthGuard>} />
-              <Route path="/admin/payments" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminPayments /></PageWrapper></AuthGuard>} />
-              <Route path="/runner" element={<AuthGuard allowedRoles={['delivery', 'runner', 'admin']}><PageWrapper><DeliveryDashboard /></PageWrapper></AuthGuard>} />
-              <Route path="/history" element={<AuthGuard><PageWrapper><UserActivity /></PageWrapper></AuthGuard>} />
-              <Route path="/track-order" element={<AuthGuard><PageWrapper><TrackOrder /></PageWrapper></AuthGuard>} />
-              <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
-              <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
-              <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
-              <Route path="/privacy-policy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
-              <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
-              <Route path="/legal" element={<PageWrapper><LegalPage title="Legal Information" type="privacy" /></PageWrapper>} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </AnimatePresence>
+          <AppCrashBoundary fallback={<div className="p-20 text-center"><h1>Application Error</h1><p>We encountered a critical crash. Please reload.</p><button onClick={() => window.location.reload()} className="btn-primary mt-4">Reload App</button></div>}>
+            <AnimatePresence mode="wait" initial={false}>
+              <Routes location={location} key={location.pathname}>
+                <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
+                <Route path="/products" element={<PageWrapper><Products /></PageWrapper>} />
+                <Route path="/product/:id" element={<PageWrapper><ProductDetail /></PageWrapper>} />
+                <Route path="/cart" element={<PageWrapper><Cart /></PageWrapper>} />
+                <Route path="/promotions" element={<PageWrapper><Promotions /></PageWrapper>} />
+                <Route path="/about" element={<PageWrapper><AboutUs /></PageWrapper>} />
+                <Route path="/checkout" element={<AuthGuard><PageWrapper><Checkout /></PageWrapper></AuthGuard>} />
+                <Route path="/invoice/:id" element={<AuthGuard><PageWrapper><Invoice /></PageWrapper></AuthGuard>} />
+                <Route path="/wishlist" element={<AuthGuard><PageWrapper><Wishlist /></PageWrapper></AuthGuard>} />
+                <Route path="/profile" element={<AuthGuard><PageWrapper><Profile /></PageWrapper></AuthGuard>} />
+                <Route path="/add-money" element={<AuthGuard><PageWrapper><AddMoney /></PageWrapper></AuthGuard>} />
+                <Route path="/admin/activity-logs" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><ActivityLogs /></PageWrapper></AuthGuard>} />
+                <Route path="/admin" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminDashboard /></PageWrapper></AuthGuard>} />
+                <Route path="/admin/payments" element={<AuthGuard allowedRoles={['admin']}><PageWrapper><AdminPayments /></PageWrapper></AuthGuard>} />
+                <Route path="/runner" element={<AuthGuard allowedRoles={['delivery', 'runner', 'admin']}><PageWrapper><DeliveryDashboard /></PageWrapper></AuthGuard>} />
+                <Route path="/history" element={<AuthGuard><PageWrapper><UserActivity /></PageWrapper></AuthGuard>} />
+                <Route path="/track-order" element={<AuthGuard><PageWrapper><TrackOrder /></PageWrapper></AuthGuard>} />
+                <Route path="/support" element={<PageWrapper><Support /></PageWrapper>} />
+                <Route path="/contact" element={<PageWrapper><Support /></PageWrapper>} />
+                <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
+                <Route path="/privacy-policy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
+                <Route path="/terms-and-conditions" element={<PageWrapper><TermsAndConditions /></PageWrapper>} />
+                <Route path="/legal" element={<PageWrapper><LegalPage title="Legal Information" type="privacy" /></PageWrapper>} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </AnimatePresence>
+          </AppCrashBoundary>
         </div>
         
         {showFooter && (
@@ -222,13 +227,18 @@ function AnimatedRoutes() {
 }
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  useEffect(() => {
+    console.log(`[PAGE_WRAPPER] Mounted for path: ${location.pathname}`);
+  }, [location.pathname]);
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2, ease: "easeInOut" }}
-      className="page-transition-wrapper origin-top flex-1 flex flex-col relative"
+      exit={{ opacity: 0, y: -15 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="flex-1 flex flex-col relative"
     >
       <Suspense fallback={<LoadingFallback message="Loading content..." fullScreen={false} />}>
          {children}
@@ -242,6 +252,11 @@ export default function App() {
   const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout } = store;
 
   useEffect(() => {
+    // Notify the bootstrap monitor that the React application is mounting successfully
+    if (typeof window !== 'undefined') {
+      (window as any).__markAppAsLoaded?.();
+    }
+
     // Global error handler
     const handleGlobalError = (event: ErrorEvent) => {
       errorService.report({
@@ -277,7 +292,7 @@ export default function App() {
   }, []);
 
   if (dbError) {
-    return <DatabaseConnectionError />;
+    return <DbConnectionIssue />;
   }
 
   return (
@@ -287,7 +302,6 @@ export default function App() {
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <OfflineIndicator />
-        <NetworkBanner />
         <GlobalProgressBar />
         <GlobalAnnouncements />
         <ToastManager />
@@ -300,12 +314,11 @@ export default function App() {
         />
         <main className="flex-1 pb-24 md:pb-0 relative">
           <AdminDiagnosticPanel />
-          <ErrorBoundary>
-            <AnimatedRoutes />
-          </ErrorBoundary>
+          <AnimatedRoutes />
         </main>
         <MobileBottomNav />
         <FloatingCart />
+        <BackToTop />
       </div>
     </Router>
   );

@@ -207,3 +207,12 @@ export interface Expense {
   category: string;
   date: string;
 }
+
+export interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+  type: 'info' | 'warning' | 'error' | 'success' | 'maintenance' | 'promo';
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  is_dismissible: boolean | number;
+}

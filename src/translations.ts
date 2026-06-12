@@ -103,6 +103,7 @@ export const translations = {
     business_days: "Business Days",
     wallet_tracking: "Wallet Tracking",
     no_items: "No items",
+    profile_updated: "Profile updated successfully!",
   },
   hi: {
     home: "होम",
@@ -186,6 +187,8 @@ export const translations = {
     start_shopping: "खरीदारी शुरू करें",
     shopping_cart: "शॉपिंग कार्ट",
     proceed_to_checkout: "चेकआउट के लिए आगे बढ़ें",
+    no_items: "कोई आइटम नहीं",
+    profile_updated: "प्रोफ़ाइल सफलतापूर्वक अपडेट की गई!",
   },
   pa: {
     home: "ਹੋਮ",
@@ -269,5 +272,7 @@ export const translations = {
     start_shopping: "ਖਰੀਦਦਾਰੀ ਸ਼ੁਰੂ ਕਰੋ",
     shopping_cart: "ਸ਼ਾਪਿੰਗ ਕਾਰਟ",
     proceed_to_checkout: "ਚੈੱਕਆਉਟ ਲਈ ਅੱਗੇ ਵਧੋ",
+    no_items: "ਕੋਈ ਆਈਟਮ ਨਹੀਂ",
+    profile_updated: "ਪ੍ਰੋਫਾਈਲ ਸਫਲਤਾਪੂਰਵਕ ਅਪਡੇਟ ਕੀਤੀ ਗਈ!",
   }
 };

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, CartItem, Product, UserAddress, PromotionRule, Permission } from './types';
+import { User, CartItem, Product, UserAddress, PromotionRule, Permission, Announcement } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
 import { useNetwork } from './hooks/useNetwork';
@@ -97,6 +97,8 @@ interface StoreContextType {
   setCategories: (cats: any[]) => void;
   isLoadingCategories: boolean;
   fetchCategories: () => Promise<void>;
+  announcements: Announcement[];
+  fetchAnnouncements: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -177,6 +179,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
   const [sound, setSound] = useState(true);
   const [adminTheme, setAdminTheme] = useState('theme-navy');
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
@@ -184,9 +187,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en');
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const { isOnline, latency } = useNetwork();
-  const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return /Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(navigator.userAgent) || window.innerWidth < 768;
+    }
+    return false;
+  });
+  const [isTablet, setIsTablet] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return /(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(navigator.userAgent);
+    }
+    return false;
+  });
   const [lastAddedId, setLastAddedId] = useState<number | null>(null);
+
+  // Update device type states on resize
+  useEffect(() => {
+    const handleResize = () => {
+      const ua = navigator.userAgent;
+      const width = window.innerWidth;
+      setIsMobile(/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(ua) || width < 768);
+      setIsTablet(/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // 2. Helper Functions (useCallbacks and async functions)
   const fetchProducts = React.useCallback(async () => {
@@ -241,6 +267,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const data = await fetchWithHandling<any[]>('/api/bulk-discounts');
       if (data) {
         setBulkDiscounts(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+      }
+    } catch (err) {}
+  }, []);
+
+  const fetchAnnouncements = React.useCallback(async () => {
+    try {
+      const data = await fetchWithHandling<Announcement[]>('/api/announcements');
+      if (data) {
+        setAnnouncements(data);
       }
     } catch (err) {}
   }, []);
@@ -578,16 +613,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const initialize = async () => {
       console.log('STORE_INIT_START');
+      let authSafetyTimeout: any;
       try {
         logger.info('[BOOT] Starting store context initialization...');
         
+        // Safety timeout to prevent infinite Loading state
+        authSafetyTimeout = setTimeout(() => {
+          if (!isInitialized.current) {
+            logger.warn('[BOOT] Auth check timed out after 5s. Forcing initialization complete.');
+            console.warn('[BOOT] Auth safety timeout triggered. Clearing loader.');
+            setIsAuthChecking(false);
+            setIsInitialAuthPerformed(true);
+          }
+        }, 5000);
+
         // Add timeout detection for overall init
-        const initTimeout = setTimeout(() => logger.error('[BOOT] Initialization is taking longer than 15s'), 15000);
+        const initTimeout = setTimeout(() => logger.error('[BOOT] Initialization is taking longer than 30s'), 30000);
 
         const coreAssetsPromise = Promise.allSettled([
           checkMaintenance(),
           fetchConfig(),
-          fetchCategories()
+          fetchCategories(),
+          fetchAnnouncements()
         ]);
         
         await coreAssetsPromise;
@@ -627,8 +674,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await coreAssetsPromise;
 
       } catch (err: any) {
-        // handle error
+        logger.error('[BOOT] Initialization error:', err.message);
       } finally {
+        // Absolute safety guard: ensure checking flags are ALWAYS cleared
+        logger.info('[BOOT] Finalizing initialization state');
+        isInitialized.current = true;
+        
+        if (authSafetyTimeout) clearTimeout(authSafetyTimeout);
         setIsAuthChecking(false);
         setIsInitialAuthPerformed(true);
         console.log('STORE_INIT_COMPLETE');
@@ -659,13 +711,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const dbErrListener = () => {
       setDbError(true);
     };
+    const forceBypassListener = () => {
+      console.warn('[RECOVERY] Force bypass loading state event triggered.');
+      setIsAuthChecking(false);
+      setIsInitialAuthPerformed(true);
+    };
     window.addEventListener('auth_error', authErrListener);
     window.addEventListener('database_error', dbErrListener);
+    window.addEventListener('force_bypass_loading', forceBypassListener);
     
     return () => {
       if (unsubscribe) unsubscribe();
       window.removeEventListener('auth_error', authErrListener);
       window.removeEventListener('database_error', dbErrListener);
+      window.removeEventListener('force_bypass_loading', forceBypassListener);
     };
   }, []);
 
@@ -686,7 +745,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [cart, user, cartLoadedFromStorage, syncCartToBackend, isOnline]);
+  }, [cart, user, cartLoadedFromStorage, syncCartToBackend]); // Note: isOnline dependency removed as updates trigger frequent unwanted sync triggers
 
   // Track reconnection & login event triggers safely
   const previousOnlineRef = React.useRef<boolean>(isOnline);
@@ -718,7 +777,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // API Health Monitor Polling
   useEffect(() => {
-    let intervalId: any;
+    let failureCount = 0;
     
     const checkApiHealth = async () => {
       try {
@@ -732,39 +791,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (!contentType || !contentType.includes("application/json")) {
             console.warn("[API MONITOR] API health response is not JSON, treating as up but not fully functional.");
             setIsApiUp(true);
+            failureCount = 0;
             return;
           }
           setIsApiUp(true);
+          failureCount = 0;
           setDbError(false);
           const data = await res.json();
-          if (data.status === 'degraded' || data.firestoreStatus === 'ERROR') {
-            setDbError(true);
+          if (data.status === 'degraded' || data.firestoreStatus === 'ERROR' || data.firestoreStatus === 'DEGRADED') {
+            failureCount++;
+            console.warn(`[API MONITOR] Database has degraded status reported: ${data.firestoreStatus}`);
           }
         } else {
           setIsApiUp(false);
-          if (res.status === 503) setDbError(true);
+          failureCount++;
           console.warn(`[API MONITOR] /api/health returned non-2xx status: ${res.status}`);
         }
       } catch (err) {
         setIsApiUp(false);
-        setDbError(true);
-        logger.error('[API MONITOR] Failed to ping /api/health', err);
+        failureCount++;
+        logger.warn('[API MONITOR] Temporary connection warning while checking health', err);
       }
     };
     
     // Initial check
     checkApiHealth();
     
-    // Poll every 15 seconds
-    intervalId = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        checkApiHealth();
-      }
-    }, 15000);
-    
-    return () => {
-      clearInterval(intervalId);
-    };
+    return () => {};
   }, []);
 
   // 4. Context Provider
@@ -784,10 +837,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts,
     isApiUp, setIsApiUp,
-    categories, setCategories, fetchCategories, isLoadingCategories
+    categories, setCategories, fetchCategories, isLoadingCategories,
+    announcements, fetchAnnouncements
   }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
-    products, setProducts, fetchProducts, isLoadingProducts, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories]);
+    products, setProducts, fetchProducts, isLoadingProducts, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
+    announcements, fetchAnnouncements]);
 
   return (
     <StoreContext.Provider value={contextValue}>

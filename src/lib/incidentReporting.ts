@@ -25,14 +25,79 @@ class ErrorReportingService {
   private static instance: ErrorReportingService;
   private queue: ErrorReport[] = [];
   private isProcessing = false;
+  private breadcrumbs: Array<{ action: string; timestamp: string }> = [];
 
-  private constructor() {}
+  private constructor() {
+    this.setupListeners();
+  }
 
   public static getInstance(): ErrorReportingService {
     if (!ErrorReportingService.instance) {
       ErrorReportingService.instance = new ErrorReportingService();
     }
     return ErrorReportingService.instance;
+  }
+
+  public addBreadcrumb(action: string): void {
+    const timestamp = new Date().toISOString();
+    this.breadcrumbs.push({ action, timestamp });
+    if (this.breadcrumbs.length > 10) {
+      this.breadcrumbs.shift();
+    }
+    console.log(`[Breadcrumb] ${action}`);
+  }
+
+  private setupListeners() {
+    if (typeof window === 'undefined') return;
+
+    // Record initial load/path
+    this.addBreadcrumb(`Initial Pathname: ${window.location.pathname}`);
+
+    // Track clicks on interactive elements
+    window.addEventListener('click', (event) => {
+      try {
+        const target = event.target as HTMLElement;
+        if (!target) return;
+        const interactive = target.closest('button, a, input, select, textarea');
+        if (interactive) {
+          const tagName = interactive.tagName.toLowerCase();
+          const text = interactive.textContent?.trim().slice(0, 50) || '';
+          const idStr = interactive.id ? `#${interactive.id}` : '';
+          const label = `Click: <${tagName}${idStr}> ${text ? `"${text}"` : ''}`;
+          this.addBreadcrumb(label);
+        }
+      } catch (err) {
+        // Silently ignore tracing failures
+      }
+    }, { capture: true, passive: true });
+
+    // Track popstate
+    window.addEventListener('popstate', () => {
+      this.addBreadcrumb(`Navigate (popstate): ${window.location.pathname}`);
+    });
+
+    // Track state pushes/replacements in router (monkeypatch)
+    try {
+      const originalPushState = window.history.pushState;
+      const originalReplaceState = window.history.replaceState;
+      const self = this;
+
+      window.history.pushState = function(state, ...args) {
+        const result = originalPushState.apply(this, [state, ...args]);
+        try {
+          self.addBreadcrumb(`Navigate (pushState): ${window.location.pathname}`);
+        } catch (e) {}
+        return result;
+      };
+
+      window.history.replaceState = function(state, ...args) {
+        const result = originalReplaceState.apply(this, [state, ...args]);
+        try {
+          self.addBreadcrumb(`Navigate (replaceState): ${window.location.pathname}`);
+        } catch (e) {}
+        return result;
+      };
+    } catch (e) {}
   }
 
   public report(reportData: Omit<ErrorReport, 'timestamp' | 'browser' | 'path'>): void {
@@ -46,7 +111,11 @@ class ErrorReportingService {
       ...reportData,
       path: window.location.pathname,
       timestamp: new Date().toISOString(),
-      browser: navigator.userAgent
+      browser: navigator.userAgent,
+      metadata: {
+        ...(reportData.metadata || {}),
+        breadcrumbs: this.breadcrumbs
+      }
     };
 
     console.error(`[ErrorService] [${report.type}] ${report.message}`, report);

@@ -3,7 +3,7 @@ import { useDropzone, FileRejection } from 'react-dropzone';
 import { Trash2, Star, Camera, Upload, Loader, ChevronLeft, ChevronRight } from 'lucide-react';
 import { uploadFile } from '@/services/storageService';
 import toast from 'react-hot-toast';
-import { handleAppError } from '@/lib/errorUtils';
+import { handleAppError } from '@/lib/incidentUtils';
 
 interface Props {
   allImages: string[];

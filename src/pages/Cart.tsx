@@ -9,14 +9,24 @@ import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
 
 export default function Cart() {
-  const { t, cart, updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [], isOnline } = useStore();
+  console.log('[CART] Rendering component');
+  const { t, cart = [], updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [], isOnline } = useStore();
+  
+  const safeCart = Array.isArray(cart) ? cart : [];
   
   useEffect(() => {
-    if (isOnline) {
-      if (user) fetchCart(user.id);
-      fetchBulkDiscounts();
-    }
-  }, [fetchBulkDiscounts, isOnline, user]);
+    const initCart = async () => {
+      try {
+        if (isOnline) {
+          if (user?.id) await fetchCart(user.id);
+          await fetchBulkDiscounts();
+        }
+      } catch (err) {
+        console.error('[CART_INIT] Error:', err);
+      }
+    };
+    initCart();
+  }, [fetchBulkDiscounts, isOnline, user?.id, fetchCart]);
 
   const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const [couponCode, setCouponCode] = useState(appliedCoupon?.code || '');
@@ -37,7 +47,7 @@ export default function Cart() {
     }
   };
 
-  const cartWithDiscounts = cart.map(item => {
+  const cartWithDiscounts = safeCart.map(item => {
     // The 'price' field in the cart item is already adjusted for the user role in StoreContext
     const basePrice = item.price;
     const bulkDiscountAmount = calculateBulkDiscount(item, item.quantity, bulkDiscounts);

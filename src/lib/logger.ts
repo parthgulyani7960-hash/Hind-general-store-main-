@@ -1,5 +1,7 @@
 
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = 
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') ||
+  (typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env?.MODE === 'production');
 
 /**
  * Standardized Redaction Utility

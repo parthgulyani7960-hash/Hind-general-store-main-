@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import LoadingFallback from '@/components/LoadingFallback';
 
-import ErrorBoundary from '@/components/ErrorBoundary';
+import AppCrashBoundary from '@/components/AppCrashBoundary';
 
 function HomeInner() {
   const { user, simulatedRole, t, config = [], categories: globalCategories, fetchCategories, isLoadingCategories } = useStore();
@@ -279,8 +279,8 @@ function HomeInner() {
 
 export default function Home() {
   return (
-    <ErrorBoundary>
+    <AppCrashBoundary>
       <HomeInner />
-    </ErrorBoundary>
+    </AppCrashBoundary>
   );
 }

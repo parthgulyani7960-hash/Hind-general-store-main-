@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Heart, ShoppingCart, Trash2, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Product } from '@/types';
@@ -71,52 +71,56 @@ export default function Wishlist() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {products.map((product) => (
-              <motion.div 
-                key={product.id}
-                layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 group"
-              >
-                <div className="relative h-64 overflow-hidden">
-                  <img 
-                    src={product.image_url} 
-                    alt={product.name}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                  <button 
-                    onClick={() => toggleWishlist(product.id)}
-                    className="absolute top-4 right-4 p-2 bg-white/90 backdrop-blur rounded-xl text-red-500 shadow-sm hover:bg-red-500 hover:text-white transition-all"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-                
-                <div className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <span className="text-[10px] uppercase tracking-wider font-bold text-stone-400">{product.category}</span>
-                      <h3 className="text-xl font-bold text-stone-900">{product.name}</h3>
-                    </div>
-                    <span className="text-lg font-bold text-primary">₹{product.price}</span>
+            <AnimatePresence mode="popLayout">
+              {products.map((product) => (
+                <motion.div 
+                  key={product.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                  className="bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-100 group"
+                >
+                  <div className="relative h-64 overflow-hidden">
+                    <img 
+                      src={product.image_url} 
+                      alt={product.name}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <button 
+                      onClick={() => toggleWishlist(product.id)}
+                      className="absolute top-4 right-4 p-2 bg-white/90 backdrop-blur rounded-xl text-red-500 shadow-sm hover:bg-red-500 hover:text-white transition-all"
+                    >
+                      <Trash2 size={20} />
+                    </button>
                   </div>
                   
-                  <button 
-                    onClick={() => {
-                      addToCart(product);
-                      toast.success('Added to cart');
-                    }}
-                    className="w-full btn-primary py-4 flex items-center justify-center space-x-2"
-                  >
-                    <ShoppingCart size={20} />
-                    <span>Move to Cart</span>
-                  </button>
-                </div>
-              </motion.div>
-            ))}
+                  <div className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-stone-400">{product.category}</span>
+                        <h3 className="text-xl font-bold text-stone-900">{product.name}</h3>
+                      </div>
+                      <span className="text-lg font-bold text-primary">₹{product.price}</span>
+                    </div>
+                    
+                    <button 
+                      onClick={() => {
+                        addToCart(product);
+                        toast.success('Added to cart');
+                      }}
+                      className="w-full btn-primary py-4 flex items-center justify-center space-x-2"
+                    >
+                      <ShoppingCart size={20} />
+                      <span>Move to Cart</span>
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         )}
       </div>

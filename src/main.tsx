@@ -4,102 +4,13 @@ import App from './App.tsx';
 import { StoreProvider } from './StoreContext';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
-import ErrorBoundary from './components/ErrorBoundary';
+import AppCrashBoundary from './components/AppCrashBoundary';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
 import { getOrRefreshToken } from './lib/authInterceptor';
 
-// Privacy / Security Console Redaction
-// Implements strict production logging policy: only log errors, redact all sensitive data.
+// Privacy / Security Console Redaction disabled for debugging
 function redactConsole() {
-  const originalLog = console.log;
-  const originalWarn = console.warn;
-  const originalError = console.error;
-  const originalInfo = console.info;
-
-  const isProduction = import.meta.env.PROD;
-
-  function redact(data: any): any {
-    if (typeof data !== 'object' || data === null) {
-      if (typeof data === 'string') {
-        const emailRegex = /[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}/g;
-        let redacted = data.replace(emailRegex, '[REDACTED_IDENTITY]');
-        
-        if (isProduction) {
-          if (data.length > 25 && /^[a-zA-Z0-9-_]+$/.test(data)) return '[REDACTED_HASH]';
-          
-          const sensitivePatterns = [
-            /role\s*[:=]\s*\w+/gi,
-            /(is|user)admin\s*[:=]\s*\w+/gi,
-            /permission\s*[:=]\s*\w+/gi,
-            /uid\s*[:=]\s*[a-zA-Z0-9_-]+/gi,
-            /userid\s*[:=]\s*[a-zA-Z0-9_-]+/gi,
-            /password\s*[:=]\s*[^\s,{}]+/gi,
-            /secret\s*[:=]\s*[^\s,{}]+/gi,
-            /token\s*[:=]\s*[^\s,{}]+/gi,
-            /authDecision\s*[:=]\s*\w+/gi,
-            /verificationResults\s*[:=]\s*\w+/gi
-          ];
-          
-          sensitivePatterns.forEach(pattern => {
-            redacted = redacted.replace(pattern, (match) => match.split(/[:=]/)[0] + ': [REDACTED_SENSITIVE]');
-          });
-        }
-        return redacted;
-      }
-      return data;
-    }
-
-    if (Array.isArray(data)) {
-      return data.map(item => redact(item));
-    }
-
-    const redacted: Record<string, any> = {};
-    for (const key in data) {
-      const value = data[key];
-      const lowKey = key.toLowerCase();
-      
-      const isSensitiveKey = 
-        lowKey.includes('email') || 
-        lowKey.includes('uid') || 
-        lowKey.includes('phone') ||
-        lowKey.includes('password') || 
-        lowKey.includes('token') ||
-        lowKey.includes('role') ||
-        lowKey.includes('permission') ||
-        lowKey.includes('isadmin') ||
-        lowKey.includes('secret') ||
-        lowKey.includes('key') ||
-        lowKey.includes('auth') ||
-        lowKey.includes('idtoken') ||
-        lowKey.includes('credential') ||
-        lowKey.includes('decision');
-
-      if (isSensitiveKey && isProduction) {
-        redacted[key] = '[REDACTED_PROTECTED]';
-      } else if (typeof value === 'object') {
-        redacted[key] = redact(value);
-      } else {
-        redacted[key] = value;
-      }
-    }
-    return redacted;
-  }
-
-  const wrapLog = (orig: (...args: any[]) => void, level: 'log' | 'warn' | 'info' | 'error') => {
-    return (...args: any[]) => {
-      if (isProduction && level !== 'error') {
-        // Strict Policy: Remove all debug/console/warn logs in production.
-        return;
-      }
-      const redactedArgs = args.map(arg => redact(arg));
-      orig(...redactedArgs);
-    };
-  };
-
-  console.log = wrapLog(originalLog, 'log');
-  console.warn = wrapLog(originalWarn, 'warn');
-  console.info = wrapLog(originalInfo, 'info');
-  console.error = wrapLog(originalError, 'error');
+  return; // Disabled
 }
 
 try {
@@ -294,14 +205,19 @@ setTimeout(() => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
+    <AppCrashBoundary>
       <StoreProvider>
         <App />
       </StoreProvider>
-    </ErrorBoundary>
+    </AppCrashBoundary>
   </StrictMode>,
 );
 
+if (typeof window !== 'undefined' && (window as any).__markAppAsLoaded) {
+  (window as any).__markAppAsLoaded();
+}
+
+/* Disabling ServiceWorker for preview stability
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((registration) => {
@@ -311,4 +227,5 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+*/
 

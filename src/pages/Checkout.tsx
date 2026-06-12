@@ -8,10 +8,10 @@ import {
 } from 'lucide-react';
 import { OrderSummary } from '@/components/OrderSummary';
 import { useStore } from '@/StoreContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { cn, calculateBulkDiscount, formatPhoneNumber } from '@/lib/utils';
-import { handleAppError } from '@/lib/errorUtils';
+import { handleAppError } from '@/lib/incidentUtils';
 import { QRCodeCanvas } from 'qrcode.react';
 import InfoButton from '@/components/InfoButton';
 import { fetchWithHandling } from '@/lib/api';
@@ -20,7 +20,7 @@ import { autofillLocation } from '@/lib/geocoding';
 
 type Step = 'address' | 'payment_method' | 'review' | 'awaiting_payment' | 'confirmation';
 
-const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
+const GOOGLE_MAPS_KEY = (typeof process !== 'undefined' && process.env?.GOOGLE_MAPS_PLATFORM_KEY) || '';
 
 export default function Checkout() {
   const { 
@@ -32,6 +32,17 @@ export default function Checkout() {
     t
   } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.state?.tncCameBack) {
+      toast('Reminder: Please ensure your shipping address or pickup information is accurate.', {
+        icon: '📍',
+        duration: 5000,
+      });
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location, navigate]);
 
   // Full Screen Mode state
   const [fullscreen, setFullscreen] = useState(true);
@@ -105,6 +116,7 @@ export default function Checkout() {
   // Address State
   const [useCustomAddress, setUseCustomAddress] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
 
   // Payment State
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cod' | 'wallet' | 'upi' | 'khata' | null>(null);
@@ -118,7 +130,9 @@ export default function Checkout() {
     state: user?.state || '',
     zip_code: user?.zip_code || '',
     pin_code: user?.pin_code || '',
-    delivery_area: ''
+    delivery_area: '',
+    lat: '',
+    lng: ''
   });
 
   const handlePhoneChange = (val: string) => {
@@ -140,7 +154,9 @@ export default function Checkout() {
           state: defaultAddr.state,
           zip_code: defaultAddr.zip_code,
           pin_code: defaultAddr.pin_code,
-          delivery_area: defaultAddr.delivery_area
+          delivery_area: defaultAddr.delivery_area,
+          lat: defaultAddr.lat || '',
+          lng: defaultAddr.lng || ''
         });
       }
     } else {
@@ -164,15 +180,22 @@ export default function Checkout() {
   const [termsConfirmed, setTermsConfirmed] = useState(false);
 
   const validateAddress = () => {
-    if (deliveryMethod === 'pickup') return true; // No address needed for pickup primarily
-    if (isCurrentLocationMode) return addressData.name && addressData.phone && addressConfirmed;
-    return addressData.name && addressData.phone && addressData.address && addressData.city && addressData.pin_code && addressData.delivery_area && addressConfirmed;
+    if (deliveryMethod === 'pickup') {
+      return !!(addressData.name && addressData.phone && addressData.phone.length === 10);
+    }
+    if (isCurrentLocationMode) return !!(addressData.name && addressData.phone && addressConfirmed);
+    return !!(addressData.name && addressData.phone && addressData.address && addressData.city && addressData.pin_code && addressData.delivery_area && addressConfirmed);
   };
 
   const selectedArea = deliveryAreas.find(a => a.name === addressData.delivery_area);
 
-    const handleNextStep = async () => {
-    if (deliveryMethod === 'delivery') {
+  const handleNextStep = async () => {
+    if (deliveryMethod === 'pickup') {
+      if (!validateAddress()) {
+        toast.error('Please enter your Name and a valid 10-digit mobile number for Store Pickup.');
+        return;
+      }
+    } else if (deliveryMethod === 'delivery') {
       if (!validateAddress()) {
         toast.error('Please fill all address fields, select a delivery zone, and confirm accuracy.');
         return;
@@ -318,7 +341,7 @@ export default function Checkout() {
           delivery_fee: deliveryFee,
           delivery_type: deliveryMethod,
           payment_method: method,
-          address: deliveryMethod === 'pickup' ? JSON.stringify({ name: user?.name, phone: user?.phone, address: 'STORE_PICKUP_SELECTED' }) : JSON.stringify(addressData), 
+          address: deliveryMethod === 'pickup' ? JSON.stringify({ name: addressData.name, phone: addressData.phone, address: 'STORE_PICKUP_SELECTED' }) : JSON.stringify(addressData), 
           coupon_code: appliedCoupon?.code
         })
       });
@@ -368,6 +391,22 @@ export default function Checkout() {
     }
     return () => clearInterval(interval);
   }, [step, pendingOrder]);
+
+  const handleSelectPayment = (method: 'cod' | 'wallet' | 'upi' | 'khata') => {
+    if (!termsConfirmed) {
+      setShowValidationErrors(true);
+      toast.error('Please read and agree to the Terms & Conditions before selecting a payment method.');
+      return;
+    }
+    
+    if (method === 'wallet' && (!isLoggedIn || (user?.wallet_balance || 0) < total)) {
+      toast.error('Insufficient wallet balance.');
+      return;
+    }
+    
+    setSelectedPaymentMethod(method);
+    setStep('review');
+  };
 
   const [checkoutMode, setCheckoutMode] = useState(true);
 
@@ -498,6 +537,62 @@ export default function Checkout() {
                   </div>
 
                   {deliveryMethod === 'pickup' ? (
+                     <div className="space-y-6 animate-fadeIn">
+                       <motion.div 
+                         initial={{ opacity: 0, y: 10 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         className="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl space-y-3"
+                       >
+                          <h3 className="text-emerald-900 font-bold flex items-center gap-2 text-lg">
+                             <CheckCircle2 size={20} />
+                             Store Pickup Selected
+                          </h3>
+                          <p className="text-emerald-700 text-sm leading-relaxed">
+                             You can pick up your order from our store once it's confirmed. 
+                             <br />
+                             <strong>Location:</strong> Near Main Market, Sector 12, Chandigarh.
+                             <br />
+                             <strong>Timing:</strong> 9:00 AM - 9:00 PM (Mon-Sat)
+                          </p>
+                          <div className="pt-2">
+                             <span className="px-3 py-1.5 bg-white text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-100">Zero Delivery Fee</span>
+                          </div>
+                       </motion.div>
+
+                       <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 space-y-4">
+                          <h3 className="text-sm font-bold text-stone-600 uppercase tracking-wider">Your Pickup Information</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div className="space-y-1">
+                                <label className={cn("text-[10px] font-bold uppercase tracking-widest pl-1", showValidationErrors && !addressData.name ? "text-red-500 font-extrabold" : "text-stone-400")}>Full Name</label>
+                                <input 
+                                  type="text" 
+                                  className={cn(
+                                    "w-full px-4 py-3 bg-white border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700",
+                                    showValidationErrors && !addressData.name ? "border-red-500 bg-red-50/20 shadow-[0_0_0_1px_rgba(239,68,68,0.3)]" : "border-stone-200"
+                                  )}
+                                  value={addressData.name}
+                                  onChange={(e) => setAddressData({...addressData, name: e.target.value})}
+                                  placeholder="Who is picking up?"
+                                />
+                             </div>
+                             <div className="space-y-1">
+                                <label className={cn("text-[10px] font-bold uppercase tracking-widest pl-1", showValidationErrors && (!addressData.phone || addressData.phone.length !== 10) ? "text-red-500 font-extrabold" : "text-stone-400")}>Contact Mobile Number</label>
+                                <input 
+                                  type="text" 
+                                  className={cn(
+                                    "w-full px-4 py-3 bg-white border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700",
+                                    showValidationErrors && (!addressData.phone || addressData.phone.length !== 10) ? "border-red-500 bg-red-50/20 shadow-[0_0_0_1px_rgba(239,68,68,0.3)]" : "border-stone-200"
+                                  )}
+                                  value={addressData.phone}
+                                  onChange={(e) => handlePhoneChange(e.target.value)}
+                                  placeholder="10-digit mobile number"
+                                  maxLength={10}
+                                />
+                             </div>
+                          </div>
+                       </div>
+                     </div>
+                  ) : false ? (
                      <motion.div 
                        initial={{ opacity: 0, y: 10 }}
                        animate={{ opacity: 1, y: 0 }}
@@ -556,7 +651,9 @@ export default function Checkout() {
                                     state: addr.state,
                                     zip_code: addr.zip_code,
                                     pin_code: addr.pin_code,
-                                    delivery_area: addr.delivery_area
+                                    delivery_area: addr.delivery_area,
+                                    lat: addr.lat || '',
+                                    lng: addr.lng || ''
                                   });
                                 }}
                                 className={cn(
@@ -614,7 +711,9 @@ export default function Checkout() {
                                      address: data.address,
                                      city: data.city,
                                      state: data.state,
-                                     pin_code: data.pin_code
+                                     pin_code: data.pin_code,
+                                     lat: String(data.latitude),
+                                     lng: String(data.longitude)
                                    }));
                                  }
                                }}
@@ -634,22 +733,25 @@ export default function Checkout() {
                              </div>
 
                             <div className="space-y-1">
-                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Full Name</label>
+                              <label className={cn("text-[10px] font-bold uppercase tracking-widest pl-1", showValidationErrors && !addressData.name ? "text-red-500 font-extrabold" : "text-stone-400")}>Full Name</label>
                               <input 
                                 type="text" 
-                                className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                                className={cn(
+                                  "w-full px-4 py-3 bg-stone-50 border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700",
+                                  showValidationErrors && !addressData.name ? "border-red-500 bg-red-50/20 shadow-[0_0_0_1px_rgba(239,68,68,0.3)] animate-shake" : "border-stone-200"
+                                )}
                                 value={addressData.name}
                                 onChange={(e) => setAddressData({...addressData, name: e.target.value})}
                               />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Phone Number</label>
+                             <div className="space-y-1">
+                               <label className={cn("text-[10px] font-bold uppercase tracking-widest pl-1", showValidationErrors && (!addressData.phone || addressData.phone.length !== 10) ? "text-red-500 font-extrabold" : "text-stone-400")}>Phone Number</label>
                               <div className="relative">
                                 <input 
                                   type="tel" 
                                   placeholder="10-digit mobile number"
                                   className={cn(
                                     "w-full px-4 py-3 bg-stone-50 border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700",
+                                    (showValidationErrors && (!addressData.phone || addressData.phone.length !== 10)) ? "border-red-500 bg-red-50/20 shadow-[0_0_0_1px_rgba(239,68,68,0.3)] animate-shake" :
                                     addressData.phone && addressData.phone.length !== 10 ? "border-amber-300 shadow-[0_0_0_1px_rgba(252,211,77,0.5)]" : "border-stone-200"
                                   )}
                                   value={addressData.phone}
@@ -709,17 +811,23 @@ export default function Checkout() {
                                   />
                                 </div>
                                 <div className="md:col-span-2 space-y-1">
-                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Street Address</label>
+                                  <label className={cn("text-[10px] font-bold uppercase tracking-widest pl-1", showValidationErrors && !addressData.address ? "text-red-500 font-extrabold" : "text-stone-400")}>Street Address</label>
                                   <textarea 
-                                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[80px]"
+                                    className={cn(
+                                      "w-full px-4 py-3 bg-stone-50 border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700 min-h-[80px]",
+                                      showValidationErrors && !addressData.address ? "border-red-500 bg-red-50/20 shadow-[0_0_0_1px_rgba(239,68,68,0.3)] animate-shake" : "border-stone-200"
+                                    )}
                                     value={addressData.address}
                                     onChange={(e) => setAddressData({...addressData, address: e.target.value})}
                                   />
                                 </div>
                                 <div className="col-span-2 space-y-1">
-                                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest pl-1">Delivery Area</label>
+                                  <label className={cn("text-[10px] font-bold uppercase tracking-widest pl-1", showValidationErrors && !addressData.delivery_area ? "text-red-500 font-extrabold" : "text-stone-400")}>Delivery Area</label>
                                   <select 
-                                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700"
+                                    className={cn(
+                                      "w-full px-4 py-3 bg-stone-50 border rounded-2xl outline-none focus:border-primary transition-colors font-bold text-stone-700",
+                                      showValidationErrors && !addressData.delivery_area ? "border-red-500 bg-red-50/20 shadow-[0_0_0_1px_rgba(239,68,68,0.3)] animate-shake" : "border-stone-200"
+                                    )}
                                     value={addressData.delivery_area}
                                     onChange={(e) => setAddressData({...addressData, delivery_area: e.target.value})}
                                   >
@@ -739,19 +847,28 @@ export default function Checkout() {
                     </>
                   )}
                   {deliveryMethod === 'delivery' && (
-                  <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
-                    <input 
-                      type="checkbox" 
-                      id="address-confirm" 
-                      className="rounded text-primary" 
-                      checked={addressConfirmed}
-                      onChange={(e) => setAddressConfirmed(e.target.checked)}
-                    />
-                    <label htmlFor="address-confirm" className="text-sm font-bold text-stone-700">
-                      Shipping address details are accurate.
-                    </label>
-                  </div>
-                )}
+                    <div className={cn(
+                      "flex items-center space-x-2 pt-4 border-t border-stone-100 px-3 py-2 rounded-xl transition-all",
+                      showValidationErrors && !addressConfirmed ? "bg-red-50 border border-red-200 shadow-sm shadow-red-50 animate-bounce" : ""
+                    )}>
+                      <input 
+                        type="checkbox" 
+                        id="address-confirm" 
+                        className={cn(
+                          "rounded text-primary",
+                          showValidationErrors && !addressConfirmed ? "border-red-400 focus:ring-red-400" : ""
+                        )}
+                        checked={addressConfirmed}
+                        onChange={(e) => {
+                          setAddressConfirmed(e.target.checked);
+                          if (e.target.checked) setShowValidationErrors(false);
+                        }}
+                      />
+                      <label htmlFor="address-confirm" className={cn("text-sm font-bold", showValidationErrors && !addressConfirmed ? "text-red-700 font-extrabold" : "text-stone-700")}>
+                        Shipping address details are accurate.
+                      </label>
+                    </div>
+                  )}
 
                   <motion.button 
                     whileHover={{ scale: 1.01 }}
@@ -784,7 +901,7 @@ export default function Checkout() {
                           <motion.button 
                             whileHover={{ scale: 1.01 }}
                             whileTap={{ scale: 0.98 }}
-                            onClick={() => { isLoggedIn && setSelectedPaymentMethod('upi'); isLoggedIn && setStep('review'); }}
+                            onClick={() => { isLoggedIn && handleSelectPayment('upi'); }}
                             disabled={isProcessing || !isLoggedIn}
                             className={cn(
                               "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
@@ -827,7 +944,7 @@ export default function Checkout() {
                           <motion.button 
                             whileHover={{ scale: 1.01 }}
                             whileTap={{ scale: 0.98 }}
-                            onClick={() => { setSelectedPaymentMethod('khata'); setStep('review'); }}
+                            onClick={() => { handleSelectPayment('khata'); }}
                             disabled={isProcessing}
                             className={cn(
                               "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
@@ -853,7 +970,7 @@ export default function Checkout() {
                         <motion.button 
                           whileHover={{ scale: 1.01 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => { isLoggedIn && setSelectedPaymentMethod('wallet'); isLoggedIn && setStep('review'); }}
+                          onClick={() => { isLoggedIn && handleSelectPayment('wallet'); }}
                           disabled={isProcessing || !isLoggedIn || (user?.wallet_balance || 0) < total}
                           className={cn(
                             "w-full p-5 rounded-2xl border-2 transition-all flex items-center justify-between",
@@ -893,7 +1010,7 @@ export default function Checkout() {
                         <motion.button 
                           whileHover={{ scale: 1.01 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => { setSelectedPaymentMethod('cod'); setStep('review'); }}
+                          onClick={() => { handleSelectPayment('cod'); }}
                           disabled={isProcessing}
                           className="w-full p-5 rounded-2xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all flex items-center justify-between group shadow-sm"
                         >
@@ -911,16 +1028,25 @@ export default function Checkout() {
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 pt-4 border-t border-stone-100">
+                    <div className={cn(
+                      "flex items-center space-x-2 pt-4 border-t border-stone-100 px-3 py-2 rounded-xl transition-all",
+                      showValidationErrors && !termsConfirmed ? "bg-red-50 border border-red-200 shadow-sm shadow-red-50 animate-bounce" : ""
+                    )}>
                       <input 
                         type="checkbox" 
                         id="terms" 
-                        className="rounded text-primary" 
+                        className={cn(
+                          "rounded text-primary",
+                          showValidationErrors && !termsConfirmed ? "border-red-400 focus:ring-red-400" : ""
+                        )}
                         checked={termsConfirmed}
-                        onChange={(e) => setTermsConfirmed(e.target.checked)}
+                        onChange={(e) => {
+                          setTermsConfirmed(e.target.checked);
+                          if (e.target.checked) setShowValidationErrors(false);
+                        }}
                       />
-                      <label htmlFor="terms" className="text-xs text-stone-500">
-                        I agree to the <Link to="/terms-and-conditions" className="text-primary hover:underline">Terms & Conditions</Link>
+                      <label htmlFor="terms" className={cn("text-xs font-bold", showValidationErrors && !termsConfirmed ? "text-red-700" : "text-stone-500")}>
+                        I agree to the <Link to="/terms-and-conditions" state={{ fromCheckout: true }} className="text-primary hover:underline font-black decoration-2">Terms & Conditions</Link>
                       </label>
                     </div>
                   </div>

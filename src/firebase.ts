@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer, orderBy } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { errorService, ErrorType } from './lib/errorReporting';
+import { errorService, ErrorType } from './lib/incidentReporting';
 
 import firebaseConfig from '@config/firebase-applet-config.json';
 
@@ -56,7 +56,9 @@ const isBackend = typeof process !== 'undefined' && process.env != null;
     if (isBackend) {
         return process.env[key] || process.env[key.replace('VITE_', '')];
     }
-    return import.meta.env?.[key];
+    return (typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env) 
+      ? (import.meta as any).env[key] 
+      : undefined;
   };
 
   const envConfig: any = {};
@@ -101,7 +103,9 @@ const activeDatabaseId = validConfig.firestoreDatabaseId && validConfig.firestor
   ? validConfig.firestoreDatabaseId 
   : '(default)';
 
-if (process.env.NODE_ENV !== 'production') {
+const isDevMode = typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env?.DEV;
+
+if (isDevMode) {
   console.log('--- FRONTEND FIREBASE DIAGNOSTICS ---');
   console.log('FRONTEND DATABASE ID:', activeDatabaseId);
   console.log('FIREBASE PROJECT ID:', validConfig.projectId);

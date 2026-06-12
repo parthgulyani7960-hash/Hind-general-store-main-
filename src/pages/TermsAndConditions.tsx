@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { FileText, ChevronLeft } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithHandling } from '@/lib/api';
 import { useStore } from '@/StoreContext';
 
@@ -9,6 +9,9 @@ export default function TermsAndConditions() {
   const { config = [] } = useStore();
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const fromCheckout = location.state?.fromCheckout || false;
 
   useEffect(() => {
     fetchWithHandling<any>('/api/settings')
@@ -26,13 +29,19 @@ export default function TermsAndConditions() {
       
       <main className="pt-24 pb-32 md:pb-20 px-4">
         <div className="max-w-4xl mx-auto">
-          <Link 
-            to="/" 
+          <button 
+            onClick={() => {
+              if (fromCheckout) {
+                navigate('/checkout', { state: { tncCameBack: true } });
+              } else {
+                navigate(-1);
+              }
+            }}
             className="inline-flex items-center space-x-2 text-stone-500 hover:text-primary transition-colors mb-8 group"
           >
             <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            <span className="font-bold">Back to Home</span>
-          </Link>
+            <span className="font-bold">{fromCheckout ? "Back to Checkout" : "Back to Home"}</span>
+          </button>
 
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
