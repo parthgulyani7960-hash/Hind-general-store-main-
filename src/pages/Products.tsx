@@ -15,8 +15,8 @@ import { useDeviceType } from '@/lib/device';
 import toast from 'react-hot-toast';
 import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '@/firebase';
 import { fetchWithHandling } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
 import { ProductSkeleton } from '@/components/ui/Skeleton';
-
 import { io } from 'socket.io-client';
 
 export default function Products() {
@@ -34,7 +34,17 @@ export default function Products() {
     categories: globalCategories, fetchCategories
   } = useStore();
   
+  const [loadingButtons, setLoadingButtons] = useState<Record<number, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
+
+  const handleAddToCart = async (product: Product) => {
+    setLoadingButtons(prev => ({ ...prev, [product.id]: true }));
+    try {
+      await addToCart(product);
+    } finally {
+      setLoadingButtons(prev => ({ ...prev, [product.id]: false }));
+    }
+  };
   
   const loading = isLoadingProducts;
   const showSkeleton = isLoadingProducts && products.length === 0;
@@ -898,14 +908,14 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                         <button onClick={() => updateQuantity(product.id, 1)} className="p-2 px-3 hover:bg-white/10 rounded-xl transition-all active:scale-90"><Plus size={18} strokeWidth={4} /></button>
                      </div>
                   ) : (
-                    <motion.button 
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => addToCart(product)}
-                      className="bg-stone-950 text-white p-4 rounded-[1.25rem] shadow-2xl shadow-stone-900/20 transition-all flex items-center justify-center group/btn border border-stone-800"
+                    <Button 
+                      onClick={() => handleAddToCart(product)}
+                      isLoading={loadingButtons[product.id]}
+                      variant="primary"
+                      className="bg-stone-900 text-white p-4 rounded-[1.25rem] shadow-xl hover:bg-emerald-600 border-none sm:min-h-0 sm:py-3.5"
                     >
-                      <Plus size={20} strokeWidth={4} className="group-hover/btn:scale-110 transition-transform" />
-                    </motion.button>
+                      <Plus size={18} strokeWidth={4} />
+                    </Button>
                   )}
                 </div>
               </div>

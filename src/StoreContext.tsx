@@ -699,8 +699,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const savedToken = localStorage.getItem('hgs_token');
         logger.info(`[BOOT] Checking saved token: ${savedToken ? 'exists' : 'missing'}`);
         if (savedToken && savedToken !== 'null' && savedToken.split('.').length === 3) {
-          checkAuth(savedToken);
-          console.log('USER_CONTEXT_SET_ASYNC');
+          await checkAuth(savedToken);
+          console.log('USER_CONTEXT_SET_SYNC');
         } else {
           setUser(null);
         }

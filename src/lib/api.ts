@@ -162,7 +162,7 @@ const fetchWithHandlingInternal = async <T>(
             return fetchWithHandling(url, options, retries - 1);
           }
  
-          errorMessage = res.status === 429 ? "Too many requests. Please try again in 10 minutes." : "Server error. Please try again later.";
+          errorMessage = res.status === 429 ? "Access required due to rate limiting. Please try again after 10 minutes." : "Server error. Please try again later.";
           
           // Centralized Error Boundary Categorization for Firebase backend unreachable
           const isFirebaseUnreachable = 
@@ -191,7 +191,7 @@ const fetchWithHandlingInternal = async <T>(
           }
 
           throw new ApiError(errorMessage, res.status, detailedError);
-
+        }
     }
     
     const successText = await res.text().catch(() => '');
@@ -212,8 +212,7 @@ const fetchWithHandlingInternal = async <T>(
       }
     }
     return null;
-  }
-} catch (err: any) {
+  } catch (err: any) {
     window.dispatchEvent(new CustomEvent('api_loading_stop'));
     if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
       const attemptNumber = 3 - retries;
@@ -256,6 +255,8 @@ const fetchWithHandlingInternal = async <T>(
     const isPassiveGet = options.method === 'GET' || !options.method;
     const isBackground = isNetworkError || 
                        url.includes('/api/auth/me') || 
+                       url.includes('/api/products') ||
+                       url.includes('/api/cart') ||
                        url.includes('/api/alerts') || 
                        url.includes('/api/notifications') ||
                        url.includes('/runner-location') ||

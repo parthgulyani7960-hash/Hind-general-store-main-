@@ -6,6 +6,7 @@ import { ShoppingBag, MapPin, CreditCard, CheckCircle2, ShieldCheck, AlertTriang
 import { cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { Button } from '@/components/ui/Button';
 
 export default function Checkout() {
   const { cart, t, user, clearCart } = useStore();
@@ -132,12 +133,13 @@ export default function Checkout() {
            <h3 className="text-lg font-black text-stone-900 capitalize">System Interruption</h3>
            <p className="text-stone-500 font-medium text-sm leading-relaxed">{errorHeader}</p>
         </div>
-        <button 
+        <Button 
           className="w-full p-4 rounded-2xl bg-stone-900 text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-stone-900/10" 
           onClick={() => setErrorHeader(null)}
+          variant="primary"
         >
           Return to Checkout
-        </button>
+        </Button>
       </motion.div>
     );
 
@@ -181,13 +183,14 @@ export default function Checkout() {
           </motion.div>
         )}
 
-        <button 
+        <Button 
+          variant="primary"
           className="w-full p-5 rounded-2xl bg-stone-900 text-white disabled:opacity-30 disabled:grayscale font-black uppercase tracking-widest shadow-xl shadow-stone-900/10 active:scale-95 transition-all group" 
           disabled={!addressData.name || !addressData.phone || !addressData.address} 
           onClick={() => setStep(2)}
         >
           <span>Continue to Payment</span>
-        </button>
+        </Button>
       </div>;
 
       case 2: return <div className="space-y-6">
@@ -221,25 +224,24 @@ export default function Checkout() {
           </label>
         </div>
 
-        <button 
+        <Button 
+          variant="primary"
           className="w-full p-6 bg-stone-900 text-white disabled:opacity-50 font-black text-lg uppercase tracking-[0.2em] rounded-[2.5rem] shadow-2xl shadow-stone-900/30 active:scale-[0.98] transition-all relative overflow-hidden group" 
           disabled={isProcessing || !tnc} 
+          isLoading={isProcessing}
           onClick={placeOrder}
         >
-            <span className={cn(isProcessing && "opacity-0")}>Authorize Payment</span>
-            {isProcessing && (
-              <div className="absolute inset-0 flex items-center justify-center space-x-2">
-                <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce" />
-              </div>
-            )}
-        </button>
+          Authorize Payment
+        </Button>
         
         {!isProcessing && (
-          <button className="w-full py-4 text-stone-400 font-extrabold uppercase text-[10px] tracking-widest hover:text-stone-900" onClick={() => setStep(1)}>
+          <Button 
+            variant="ghost"
+            className="w-full py-4 text-stone-400 font-extrabold uppercase text-[10px] tracking-widest hover:text-stone-900" 
+            onClick={() => setStep(1)}
+          >
             Modify Details
-          </button>
+          </Button>
         )}
       </div>;
 

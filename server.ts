@@ -163,10 +163,10 @@ console.log('[BOOT] Initializing Rate Limiters...');
 console.log('--- Bootstrapping Core Instances ---');
 console.log('[BOOT STEP 2.1] Constants and Rate Limiters initialized');
 const limits = {
-  admin: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
-  auth: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
-  guest: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
-  sensitive: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
+  admin: rateLimiter({ limit: 50000, windowMs: 60 * 1000 }),
+  auth: rateLimiter({ limit: 50000, windowMs: 60 * 1000 }),
+  guest: rateLimiter({ limit: 50000, windowMs: 60 * 1000 }),
+  sensitive: rateLimiter({ limit: 50000, windowMs: 60 * 1000 }),
 };
 
 const logServerError = async (err: any, context: string, req?: any, logToFirestore?: any): Promise<void> => {
@@ -368,7 +368,8 @@ async function auditAndRecoverCollections() {
 
   const db = getFirestoreInstance();
 
-  for (const col of targetCollections) {
+  // Run initial probes in parallel to speed up boot
+  await Promise.all(targetCollections.map(async (col) => {
     try {
       // 1. Perform limit(1).get() probe to verify connection/existence
       const snap = await db.collection(col).limit(1).get();
@@ -416,7 +417,7 @@ async function auditAndRecoverCollections() {
           });
           await batch.commit();
           console.log(`[COLLECTION CHECK] settings: RECOVERED`);
-          continue;
+          return;
         } else if (col === 'users') {
           defaultData = { email: "system_admin@hindstore.com", role: "admin", name: "System Admin", created_at: new Date().toISOString() };
         } else if (col === 'wallet_transactions') {
@@ -438,7 +439,7 @@ async function auditAndRecoverCollections() {
       console.log(`[COLLECTION CHECK] ${col}: FAILED_PROBE`);
       console.error(`[AUDIT ERROR] Details for "${col}": ${err.message}`);
     }
-  }
+  }));
 
   console.log('================================================================');
   console.log('🏁 FIRESTORE CORES AUDIT & RECOVERY COMPLETED.');
@@ -3435,8 +3436,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       }
       
       console.log('[STEP 4] Calling safeVerifyIdToken...');
-      const decodedToken = await safeVerifyIdToken(idToken);
-      console.log('[STEP 5] Token verified. UID:', decodedToken.uid);
+      let decodedToken;
+      try {
+        decodedToken = await safeVerifyIdToken(idToken);
+        console.log('[STEP 5] Token verified successfully via Firebase Admin API. UID:', decodedToken.uid);
+      } catch (verifyErr: any) {
+        console.error('[STEP 5.ERROR] Token verification failed:', verifyErr.message);
+        logSuspicious(null, 'JWT_VERIFY_FAILED', `Token verification failed: ${verifyErr.message}. IP: ${req.ip}`);
+        return res.status(401).json({ success: false, message: 'Invalid or expired session token.' });
+      }
+      
       const email = sanitizeEmail(decodedToken.email);
       
       if (!email) {

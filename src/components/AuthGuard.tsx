@@ -85,8 +85,13 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
     if (isInitialAuthPerformed && !user) {
       logger.warn('[AuthGuard] Access denied: User not authenticated');
       if (!hasShownToast.current) {
-        toast.error('Please log in to continue');
-        hasShownToast.current = true;
+        // Use a short delay to ensure toast is visible after navigation
+        setTimeout(() => {
+          if (!hasShownToast.current) {
+             toast.error('Logging into Hind Store...', { id: 'auth-redirect-toast' });
+             hasShownToast.current = true;
+          }
+        }, 100);
       }
     } else if (isInitialAuthPerformed && user && allowedRoles && !isAuthorized && !isVerifyingWhitelist && isAdminWhitelisted !== null) {
       logger.warn('[AuthGuard] Access denied: Insufficient privileges');

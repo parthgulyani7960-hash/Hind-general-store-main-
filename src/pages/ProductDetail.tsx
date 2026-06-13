@@ -12,6 +12,7 @@ import { ReviewSection } from '@/components/ReviewSection';
 import { Product, Review, cn } from '@/types';
 import { useStore } from '@/StoreContext';
 import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
+import { getAuthHeaders } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { triggerFeedback } from '@/App';
 import { handleAppError } from '@/lib/incidentUtils';
@@ -19,7 +20,7 @@ import { fetchWithHandling } from '@/lib/api';
 import AppCrashBoundary from '@/components/AppCrashBoundary';
 import LoadingFallback from '@/components/LoadingFallback';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { getAuthHeaders } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -382,12 +383,16 @@ export default function ProductDetail() {
   return (
     <AppCrashBoundary>
       <div className="product-view product-detail-view max-w-5xl lg:max-w-7xl mx-auto px-4 py-8 pb-32">
-        <button onClick={() => navigate(-1)} className="group flex items-center space-x-2 text-stone-400 hover:text-primary mb-8 transition-all active:scale-95">
+        <Button 
+          variant="ghost"
+          onClick={() => navigate(-1)} 
+          className="group flex items-center space-x-2 text-stone-400 hover:text-stone-900 mb-8 transition-all active:scale-95 px-0"
+        >
           <div className="w-10 h-10 bg-white border border-stone-100 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-primary group-hover:text-white transition-all">
             <ArrowLeft size={20} />
           </div>
           <span className="text-sm font-black uppercase tracking-widest">Back to Store</span>
-        </button>
+        </Button>
 
       <div className="product-main-grid grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
         {/* Image Gallery */}
@@ -687,33 +692,33 @@ export default function ProductDetail() {
               </div>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
-                <button 
+                <Button 
                   disabled={addingToCart || isSyncingCart}
+                  isLoading={addingToCart || isSyncingCart}
                   onClick={async () => {
                     setAddingToCart(true);
                     addToCart(product, selectedVariant, quantity);
                     await new Promise(resolve => setTimeout(resolve, 600));
                     setAddingToCart(false);
                   }}
-                  className="cta-button flex-1 bg-white border-2 border-primary text-primary py-5 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all shadow-lg shadow-primary/10 mobile-active-state disabled:opacity-70"
+                  variant="primary"
+                  className="flex-1 bg-white border-2 border-primary text-primary py-7 rounded-[2rem] text-lg font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all shadow-lg shadow-primary/10"
                 >
-                  {addingToCart || isSyncingCart ? (
-                      <Loader2 className="animate-spin" size={24} />
-                  ) : (
-                      <ShoppingCart size={24} strokeWidth={2.5} />
-                  )}
-                  <span>{addingToCart ? 'Adding to cart...' : isSyncingCart ? 'Securing Item...' : 'Add to Cart'}</span>
-                </button>
-                <button 
+                  <ShoppingCart size={24} strokeWidth={2.5} />
+                  <span>Add to Cart</span>
+                </Button>
+                
+                <Button 
                   onClick={() => {
                     addToCart(product, selectedVariant, quantity);
                     navigate('/cart');
                   }}
-                  className="cta-button flex-1 bg-primary text-white py-5 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-xl shadow-primary/30 mobile-active-state"
+                  variant="primary"
+                  className="flex-1 py-7 rounded-[2rem] text-lg font-black uppercase tracking-widest hover:bg-stone-900 transition-all shadow-xl shadow-stone-900/30"
                 >
                   <ShoppingBag size={24} strokeWidth={2.5} />
                   <span>Buy Now</span>
-                </button>
+                </Button>
               </div>
             </div>
             
@@ -930,7 +935,10 @@ export default function ProductDetail() {
                             <button
                               key={num}
                               type="button"
-                              onClick={() => setRating(num)}
+                              onClick={() => {
+                                triggerFeedback('light');
+                                setRating(num);
+                              }}
                               className={cn(
                                 "p-1.5 transition-all",
                                 rating >= num ? "text-amber-400" : "text-stone-200"
@@ -951,9 +959,9 @@ export default function ProductDetail() {
                           onChange={(e) => setComment(e.target.value)}
                         />
                       </div>
-                      <button type="submit" className="w-full btn-primary py-4 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20">
+                      <Button type="submit" variant="primary" className="w-full py-5 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 rounded-2xl">
                         Submit Feedback
-                      </button>
+                      </Button>
                     </form>
                   </div>
                 </div>

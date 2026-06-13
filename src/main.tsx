@@ -7,7 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import AppCrashBoundary from './components/AppCrashBoundary';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
 import { getOrRefreshToken } from './lib/authInterceptor';
-import { errorService } from './lib/incidentReporting';
+import { errorService, ErrorType } from './lib/incidentReporting';
 
 // Privacy / Security Console Redaction disabled for debugging
 function redactConsole() {
@@ -93,94 +93,46 @@ try {
           
           if (token && !headers.has('Authorization')) {
             headers.set('Authorization', `Bearer ${token}`);
-          } else if (headers.has('Authorization')) {
-          } else {
           }
 
-          const isRelative = typeof input === 'string' && input.startsWith('/');
-          const wasCorrected = inputUrl && (typeof input === 'string' ? input !== inputUrl : true);
-          const finalInput = wasCorrected ? inputUrl : input;
+          const finalInput = (inputUrl && (typeof input === 'string' ? input !== inputUrl : true)) ? inputUrl : input;
           const finalInit = { ...requestInit, headers };
 
           return await originalFetch(finalInput, finalInit);
         };
 
-        const logFailedRequest = (url: string, status: number | string, isException = false, errorDetail?: any) => {
-          const lowerUrl = url.toLowerCase();
-          const isRelated = lowerUrl.includes('/profile') || 
-                            lowerUrl.includes('/user') || 
-                            lowerUrl.includes('/auth') || 
-                            lowerUrl.includes('me') ||
-                            lowerUrl.includes('/khata') ||
-                            lowerUrl.includes('/wallet');
-          
-          if (isRelated) {
-            console.error(`[DIAGNOSTIC CRITICAL] Failed API request to user/profile related endpoint:`, {
-              url,
-              status,
-              isException,
-              errorDetail,
-              timestamp: new Date().toISOString()
-            });
-          } else {
-            console.warn(`[Fetch Interceptor] Failed API request: ${url} (Status: ${status})`, errorDetail);
-          }
-        };
-
-        // 5. Initial attempt
-        const initialToken = localStorage.getItem('hgs_token');
-        let response: Response;
         try {
-          response = await executeFetch(initialToken);
-        } catch (fetchErr: any) {
-          logFailedRequest(inputUrl, 'Network-Error', true, fetchErr.message || fetchErr);
-          throw fetchErr;
-        }
+          const currentToken = localStorage.getItem('hgs_token');
+          let response = await executeFetch(currentToken);
 
-        // 6. Handle 401 unauthorized (Token Refresh Logic)
-        const isAuthMe = inputUrl.includes('/api/auth/me');
-        const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
+          // Handle 401 unauthorized (Token Refresh Logic)
+          const isAuthMe = inputUrl.includes('/api/auth/me');
+          const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
 
-        if (response.status === 401 && !isAuthMe && !isAuthLogin) {
-          console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
-          
-          if (!refreshPromise) {
-            refreshPromise = performRefresh();
-          }
-
-          try {
-            const newToken = await refreshPromise;
-            if (newToken) {
-              try {
-                response = await executeFetch(newToken);
-              } catch (fetchErr: any) {
-                logFailedRequest(inputUrl, 'Network-Error-Post-Refresh', true, fetchErr.message || fetchErr);
-                throw fetchErr;
-              }
+          if (response.status === 401 && !isAuthMe && !isAuthLogin) {
+            console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
+            
+            if (!refreshPromise) {
+              refreshPromise = performRefresh();
             }
-          } catch (refreshErr) {
-            console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
-            window.dispatchEvent(new CustomEvent('session_expired'));
-          }
-        }
 
-        // Check if response is not ok
-        if (!response.ok) {
-          const status = response.status;
-          const statusText = response.statusText;
-          try {
-            const clone = response.clone();
-            clone.text().then(text => {
-              logFailedRequest(inputUrl, status, false, { statusText, responseBody: text });
-            }).catch(err => {
-              logFailedRequest(inputUrl, status, false, { statusText, parseError: err.message });
-            });
-          } catch (cloneErr: any) {
-            logFailedRequest(inputUrl, status, false, { statusText, cloneError: cloneErr.message });
+            try {
+              const newToken = await refreshPromise;
+              if (newToken) {
+                response = await executeFetch(newToken);
+              }
+            } catch (refreshErr) {
+              console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
+              window.dispatchEvent(new CustomEvent('session_expired'));
+            } finally {
+              refreshPromise = null;
+            }
           }
-        }
 
-        return response;
+          return response;
+        } catch (err: any) {
+          throw err;
+        }
       },
       configurable: true,
       writable: true

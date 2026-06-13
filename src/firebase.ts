@@ -251,7 +251,8 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
 };
 
 export const handleAuthError = (error: any): string => {
-  if (error.name === 'ApiError') return error.message;
+  if (error.name === 'ApiError' || error.name === 'RateLimitError') return error.message;
+  if (error.status === 429) return "Access required due to rate limiting. Please try again after 10 minutes.";
   const errorCode = error?.code || error?.originalError?.code || '';
   return getFirebaseErrorMessage(errorCode) || error?.message || 'Authentication failed.';
 };

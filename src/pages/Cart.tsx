@@ -1,15 +1,16 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Plus, Minus, ShoppingBag, ArrowRight, Truck, MapPin, Tag, X, RefreshCw, CheckCircle2, Clock, Camera, WifiOff } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { calculateBulkDiscount, cn } from '@/lib/utils';
+import { calculateBulkDiscount, cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
-import { getAuthHeaders } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
 
 export default function Cart() {
   console.log('[CART] Rendering component');
+  const navigate = useNavigate();
   const { t, cart = [], updateQuantity, removeFromCart, user, fetchCart, appliedCoupon, setAppliedCoupon, bulkDiscounts, fetchBulkDiscounts, config = [], isOnline } = useStore();
   
   const safeCart = Array.isArray(cart) ? cart : [];
@@ -171,14 +172,15 @@ export default function Cart() {
         </div>
 
         {user && isOnline && (
-          <button
+          <Button
             onClick={handleManualRefresh}
-            disabled={isRefreshing}
-            className="self-start sm:self-center flex items-center space-x-2 px-5 py-2.5 bg-white border border-stone-100 hover:bg-stone-50 text-stone-700 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+            isLoading={isRefreshing}
+            variant="secondary"
+            className="self-start sm:self-center px-5 py-2.5 bg-white border border-stone-100 hover:bg-stone-50 text-stone-700 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm active:scale-95"
           >
             <RefreshCw size={14} className={cn(isRefreshing && "animate-spin")} />
-            <span>{isRefreshing ? 'Syncing...' : 'Sync Bag'}</span>
-          </button>
+            <span>Sync Bag</span>
+          </Button>
         )}
       </div>
 
@@ -384,20 +386,23 @@ export default function Cart() {
                       disabled={!!appliedCoupon}
                     />
                     {appliedCoupon ? (
-                      <button 
+                      <Button 
                         onClick={removeCoupon}
-                        className="bg-emerald-500 text-white p-2 rounded-xl hover:bg-red-500 transition-colors"
+                        variant="danger"
+                        className="p-2 rounded-xl"
                       >
                         <X size={16} />
-                      </button>
+                      </Button>
                     ) : (
-                      <button 
+                      <Button 
                         onClick={handleApplyCoupon}
+                        isLoading={isValidating}
                         disabled={isValidating || !couponCode}
-                        className="bg-stone-900 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-stone-800 disabled:opacity-30 transition-all flex items-center"
+                        variant="primary"
+                        className="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest"
                       >
-                        {isValidating ? <RefreshCw size={14} className="animate-spin" /> : 'Apply'}
-                      </button>
+                        Apply
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -445,21 +450,23 @@ export default function Cart() {
                 </div>
                 
                 {!isOnline ? (
-                  <button 
+                  <Button 
                     disabled
-                    className="w-full bg-stone-100 text-stone-400 py-6 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest cursor-not-allowed border border-stone-200"
+                    variant="secondary"
+                    className="w-full py-6 rounded-[2rem] text-lg font-black uppercase tracking-widest cursor-not-allowed border border-stone-200"
                   >
                     <span>Connect to Checkout</span>
                     <WifiOff size={20} />
-                  </button>
+                  </Button>
                 ) : (
-                  <Link 
-                    to="/checkout" 
-                    className="w-full bg-stone-900 text-white py-6 rounded-[2rem] flex items-center justify-center space-x-3 text-lg font-black uppercase tracking-widest hover:bg-stone-800 transition-all hover:shadow-2xl hover:shadow-stone-900/30 active:scale-[0.98] group/btn"
+                  <Button 
+                    onClick={() => navigate('/checkout')} 
+                    variant="primary"
+                    className="w-full py-6 rounded-[2rem] text-lg font-black uppercase tracking-widest transition-all hover:shadow-2xl hover:shadow-stone-900/30 group/btn"
                   >
                     <span>Checkout</span>
                     <ArrowRight size={20} className="group-hover/btn:translate-x-1 transition-transform" />
-                  </Link>
+                  </Button>
                 )}
               </div>
             </div>
