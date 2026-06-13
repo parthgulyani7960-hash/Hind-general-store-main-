@@ -935,7 +935,36 @@ app.use((req, res, next) => {
 // Basic Rate Limiting to prevent automated misuse
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 2000; // per minute per IP (increased to prevent 429 spam)
+const MAX_REQUESTS = 5000; // per minute per IP (increased to prevent 429 spam)
+
+app.use((req, res, next) => {
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  const limit = rateLimits.get(ip);
+
+  if (limit) {
+    if (now > limit.resetTime) {
+      rateLimits.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    } else {
+      limit.count++;
+      if (limit.count > MAX_REQUESTS) {
+        console.warn(`[RATE_LIMIT] Exceeded for IP: ${ip} (${limit.count} > ${MAX_REQUESTS})`);
+        return res.status(429).json({ success: false, message: 'Too many requests. Please try again later.' });
+      }
+    }
+  } else {
+    rateLimits.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+  }
+  next();
+});
+
+// Periodic cleanup for rate limits Map to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, limit] of rateLimits.entries()) {
+    if (now > limit.resetTime) rateLimits.delete(ip);
+  }
+}, 5 * 60 * 1000);
 
 // --- GLOBAL UTILITIES & TRACING ---
 const generateRequestId = () => Math.random().toString(36).substring(2, 11);
@@ -3229,6 +3258,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       console.log('[STEP 1] Checking Firebase status...');
       if (!isFirebaseReady) {
         console.log('[STEP 1.1] Database not ready, returning partial status');
+        // If we have a session, we shouldn't force logout just because DB is initializing
+        if (req.session && req.session.userId) {
+           return res.status(200).json({ 
+             success: true, 
+             user: { id: req.session.userId, role: req.session.role || 'customer', is_shadow: true, loading: true }, 
+             message: 'Database initializing...', 
+             dbOffline: true 
+           });
+        }
         return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
       }
 
@@ -3420,10 +3458,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const attemptsDoc = await attemptsRef.get();
       if (attemptsDoc.exists) {
         const data = attemptsDoc.data();
-        if (data && data.count >= 5 && Date.now() < data.lockedUntil) {
+        if (data && data.count >= 15 && Date.now() < data.lockedUntil) {
            return res.status(429).json({ success: false, message: 'Too many attempts. Please try again later.' });
         }
-        if (data && data.count >= 5 && Date.now() >= data.lockedUntil) {
+        if (data && data.count >= 15 && Date.now() >= data.lockedUntil) {
            // Reset lock
            await attemptsRef.update({ count: 0, lockedUntil: 0 });
         }

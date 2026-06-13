@@ -72,7 +72,7 @@ try {
         }
 
         // 4. Wrap the request to inject Authorization header
-        const executeFetch = async (token: string | null) => {
+        const executeFetch = async (token: string | null, retryCount = 1): Promise<Response> => {
           let requestInit = (init || {}) as any;
           requestInit.credentials = 'include'; // Ensure cookies are sent
           
@@ -80,7 +80,7 @@ try {
             requestInit = {
               method: input.method,
               body: input.body,
-              credentials: 'include', // Ensure cookies are sent
+              credentials: 'include',
               cache: input.cache,
               redirect: input.redirect,
               referrer: input.referrer,
@@ -98,38 +98,46 @@ try {
           const finalInput = (inputUrl && (typeof input === 'string' ? input !== inputUrl : true)) ? inputUrl : input;
           const finalInit = { ...requestInit, headers };
 
-          return await originalFetch(finalInput, finalInit);
+          try {
+            const res = await originalFetch(finalInput, finalInit);
+            
+            // Handle 401 unauthorized (Token Refresh Logic)
+            const isAuthMe = inputUrl.includes('/api/auth/me');
+            const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
+
+            if (res.status === 401 && !isAuthMe && !isAuthLogin && retryCount > 0) {
+              console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
+              
+              if (!refreshPromise) {
+                refreshPromise = performRefresh();
+              }
+
+              try {
+                const newToken = await refreshPromise;
+                if (newToken) {
+                  return await executeFetch(newToken, retryCount - 1);
+                }
+              } catch (refreshErr) {
+                console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
+                window.dispatchEvent(new CustomEvent('session_expired'));
+              } finally {
+                refreshPromise = null;
+              }
+            }
+            return res;
+          } catch (fetchErr: any) {
+            if (retryCount > 0 && (fetchErr.name === 'TypeError' || fetchErr.message?.includes('fetch') || fetchErr.message?.includes('network'))) {
+               console.warn(`[FETCH_RETRY] Network error on ${inputUrl}, retrying...`);
+               await new Promise(r => setTimeout(r, 1000));
+               return await executeFetch(token, retryCount - 1);
+            }
+            throw fetchErr;
+          }
         };
 
         try {
           const currentToken = localStorage.getItem('hgs_token');
-          let response = await executeFetch(currentToken);
-
-          // Handle 401 unauthorized (Token Refresh Logic)
-          const isAuthMe = inputUrl.includes('/api/auth/me');
-          const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
-
-          if (response.status === 401 && !isAuthMe && !isAuthLogin) {
-            console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
-            
-            if (!refreshPromise) {
-              refreshPromise = performRefresh();
-            }
-
-            try {
-              const newToken = await refreshPromise;
-              if (newToken) {
-                response = await executeFetch(newToken);
-              }
-            } catch (refreshErr) {
-              console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
-              window.dispatchEvent(new CustomEvent('session_expired'));
-            } finally {
-              refreshPromise = null;
-            }
-          }
-
-          return response;
+          return await executeFetch(currentToken);
         } catch (err: any) {
           throw err;
         }

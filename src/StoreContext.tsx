@@ -325,7 +325,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const data = await fetchWithHandling<{user: User}>('/api/auth/me', {
+      const data = await fetchWithHandling<{user: User; dbOffline?: boolean}>('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (data && data.user) {
@@ -338,6 +338,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (isNewLogin) {
           securityService.trackAuth('login', data.user);
         }
+      } else if (data && (data as any).dbOffline) {
+        console.warn('[AUTH] Database offline, maintaining existing session state');
+        // Do nothing, don't clear session
       } else {
         setUser(null);
         localStorage.removeItem('hgs_user');
@@ -351,6 +354,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     } finally {
       authRunningRef.current = false;
+      setIsAuthChecking(false);
     }
   }, []);
 
