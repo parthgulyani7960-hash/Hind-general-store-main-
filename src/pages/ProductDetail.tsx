@@ -156,11 +156,11 @@ export default function ProductDetail() {
     : [];
 
   const getDeliveryEstimate = () => {
-    if (!user?.pin_code) return "3-5 business days";
+    if (!user?.pin_code) return "1-2 Business Days";
     const pinPrefix = user.pin_code.substring(0, 2);
     if (pinPrefix === '14') return "2-4 hours (Local Delivery)"; // Ludhiana/Punjab
-    if (['11', '12', '13', '15', '16'].includes(pinPrefix)) return "1-2 business days";
-    return "3-5 business days";
+    if (['11', '12', '13', '15', '16'].includes(pinPrefix)) return "1-2 Business Days";
+    return "1-2 Business Days";
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

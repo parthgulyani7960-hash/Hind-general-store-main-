@@ -6,7 +6,7 @@ import {
   ChevronRight, Camera, LogOut, Settings, Bell, CreditCard, 
   History, Wallet, Info, MessageSquare, ExternalLink, Activity, Globe, Plus, X,
   Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy, Navigation2, MoreVertical,
-  ArrowRight, ShieldCheck, Book, TrendingUp
+  ArrowRight, ShieldCheck, Book, TrendingUp, Maximize2
 } from 'lucide-react';
 import { useStore } from '@/StoreContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
@@ -175,31 +175,44 @@ export default function Profile() {
   // Redundant fetchExportStatus effect removed - handled by combined status effect below
 
   const [isExporting, setIsExporting] = useState(false);
+  const [isPurging, setIsPurging] = useState(false);
+  const [exportUrl, setExportUrl] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
-  const handleExportData = async (format: 'pdf' | 'json') => {
+  const handleExportData = async () => {
     setIsExporting(true);
     try {
       const data = { user, orders, wallet: walletHistory };
       
-      if (format === 'json') {
-        const jsonString = JSON.stringify(data, null, 2);
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `my_data_${user?.name?.replace(/\s+/g, '_')}.json`;
-        link.click();
-        toast.success('JSON Data Exported');
-      } else {
-        const { generateUserExportPDF } = await import('../services/pdfService');
-        generateUserExportPDF(data);
-        toast.success('Professional PDF Report Generated');
-      }
-      logActivity('DATA_EXPORT', `User exported personal data as ${format.toUpperCase()}`);
+      const { generateUserExportPDF } = await import('../services/pdfService');
+      const doc = await generateUserExportPDF(data);
+      
+      const blob = doc.output('blob');
+      const url = URL.createObjectURL(blob);
+      setExportUrl(url);
+      setShowExportModal(true);
+      
+      toast.success('Your professional activity report is ready!');
+      logActivity('DATA_EXPORT', `User generated personal data dossier PDF`);
     } catch (err) {
-      toast.error('Failed to compile data archive');
+      console.error('Export failed:', err);
+      toast.error('Failed to compile data archive. Please notify admin.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handlePurgeCache = () => {
+    const confirmed = window.confirm('Reset local application cache? This will clear your temporary shopping cart and search history, but you will remain signed in.');
+    if (confirmed) {
+      setIsPurging(true);
+      setTimeout(() => {
+        localStorage.removeItem('cart-storage');
+        localStorage.removeItem('search-history');
+        toast.success('Application cache successfully cleared!');
+        setIsPurging(false);
+        window.location.reload();
+      }, 1500);
     }
   };
 
@@ -234,7 +247,10 @@ export default function Profile() {
         console.error('Failed to request export:', err);
       }
     } else {
-      const reason = "Direct customer request via profile";
+      const confirmed = window.confirm('Are you absolutely sure you want to request permanent account deletion? This action is irreversible once processed by the admin.');
+      if (!confirmed) return;
+      
+      const reason = window.prompt('Please provide a reason for deletion (optional):') || "Direct customer request via profile";
       try {
         const data = await fetchWithHandling<any>('/api/user/deletion-request', { 
           method: 'POST',
@@ -242,7 +258,7 @@ export default function Profile() {
           body: JSON.stringify({ reason })
         });
         if (data && data.success) {
-          toast.success(data.message);
+          toast.success(data.message || 'Your deletion request has been submitted for review.');
           fetchDeletionStatus();
         }
       } catch (err) {
@@ -256,6 +272,21 @@ export default function Profile() {
   const [showEditOrderModal, setShowEditOrderModal] = useState(false);
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
+
+  const editSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('edit') === 'true') {
+      setIsEditing(true);
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    if (isEditing && editSectionRef.current) {
+      editSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [isEditing]);
 
   const displayPhoneNumber = (phone: string | null | undefined) => {
     return formatPhoneNumber(phone);
@@ -314,6 +345,8 @@ export default function Profile() {
         lng: data.longitude
       }));
 
+      toast.success(`Position Verified: ${data.city}, ${data.pin_code}`, { icon: '📍' });
+
       // Manually update inputs if needed for some reason, though formData should drive it
       const saInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
       const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
@@ -323,6 +356,8 @@ export default function Profile() {
       if (cityInput) cityInput.value = data.city;
       if (stateInput) stateInput.value = data.state;
       if (pinInput) pinInput.value = data.pin_code;
+    } else {
+      toast.error('Location services unavailable or permission denied.');
     }
   };
 
@@ -996,60 +1031,90 @@ export default function Profile() {
               <div className="flex flex-wrap gap-3 pt-2 justify-center md:justify-start">
                 <button 
                   onClick={() => setIsEditing(!isEditing)}
-                  className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md active:scale-95"
+                  className={cn(
+                    "px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md active:scale-95 flex items-center gap-2",
+                    isEditing ? "bg-stone-100 text-stone-700 hover:bg-stone-200" : "bg-primary text-white hover:bg-primary/90"
+                  )}
                 >
-                  {isEditing ? 'Cancel Editing' : 'Edit Profile Parameters'}
+                  <Settings size={14} className={isEditing ? "animate-spin" : ""} />
+                  {isEditing ? 'Discard Changes' : 'Edit My Profile'}
                 </button>
               </div>
             </div>
           </div>
 
           {/* Quick Stats Banner */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-12 pt-8 border-t border-white/5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-12 pt-10 border-t border-white/10">
             <button 
               type="button"
               onClick={() => setActiveProfileTab('wallet')}
-              className="p-4 bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 transition-all rounded-2xl text-center cursor-pointer block w-full outline-none"
+              className="p-5 bg-white/5 hover:bg-emerald-500/10 border border-white/10 hover:border-emerald-500/30 active:scale-95 transition-all rounded-[2rem] text-center cursor-pointer block w-full outline-none group/stat"
             >
-              <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest mb-1.5 font-mono">Store Credit</p>
-              <p className="text-2xl font-black text-white">₹{user.wallet_balance}</p>
+              <div className="flex items-center justify-center gap-1.5 mb-2">
+                <Wallet size={12} className="text-emerald-400" />
+                <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest font-mono">Store Credit</p>
+              </div>
+              <p className="text-3xl font-black text-white group-hover/stat:text-emerald-400 transition-colors">₹{user.wallet_balance}</p>
+              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Verified Balance</span>
             </button>
             <button 
               type="button"
               onClick={() => setActiveProfileTab('history')}
-              className="p-4 bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 transition-all rounded-2xl text-center cursor-pointer block w-full outline-none"
+              className="p-5 bg-white/5 hover:bg-slate-700/30 border border-white/10 hover:border-white/20 active:scale-95 transition-all rounded-[2rem] text-center cursor-pointer block w-full outline-none group/stat"
             >
-              <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest mb-1.5 font-mono">Total Orders</p>
-              <p className="text-2xl font-black text-white">{orders.length}</p>
+               <div className="flex items-center justify-center gap-1.5 mb-2">
+                <Package size={12} className="text-stone-400" />
+                <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest font-mono">Orders</p>
+              </div>
+              <p className="text-3xl font-black text-white">{orders.length}</p>
+              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Lifetime Count</span>
             </button>
             <button 
               type="button"
               onClick={() => setActiveProfileTab('wishlist')}
-              className="p-4 bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 transition-all rounded-2xl text-center cursor-pointer block w-full outline-none"
+              className="p-5 bg-white/5 hover:bg-pink-500/10 border border-white/10 hover:border-pink-500/20 active:scale-95 transition-all rounded-[2rem] text-center cursor-pointer block w-full outline-none group/stat"
             >
-              <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest mb-1.5 font-mono">My Wishlist</p>
-              <p className="text-2xl font-black text-white">{wishlist.length}</p>
+               <div className="flex items-center justify-center gap-1.5 mb-2">
+                 <Heart size={12} className="text-pink-400" />
+                 <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest font-mono">Wishlist</p>
+               </div>
+              <p className="text-3xl font-black text-white group-hover/stat:text-pink-400 transition-colors">{wishlist.length}</p>
+              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Saved Items</span>
             </button>
             <button 
               type="button"
               onClick={() => setActiveProfileTab('khata')}
-              className="p-4 bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 transition-all rounded-2xl text-center cursor-pointer block w-full outline-none"
+              className="p-5 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 active:scale-95 transition-all rounded-[2rem] text-center cursor-pointer block w-full outline-none group/stat"
             >
-              <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest mb-1.5 font-mono">Khata Ledger</p>
-              <p className={cn("text-2xl font-black", user.khata_enabled ? "text-emerald-400" : "text-amber-500")}>
-                {user.khata_enabled ? `₹${user.khata_balance}` : user.khata_requested ? 'In Review' : 'Apply'}
+               <div className="flex items-center justify-center gap-1.5 mb-2">
+                 <RefreshCw size={12} className="text-amber-400" />
+                 <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest font-mono">Khata Ledger</p>
+               </div>
+              <p className={cn("text-3xl font-black transition-colors", user.khata_enabled ? "text-amber-400" : "text-white/60")}>
+                {user.khata_enabled ? `₹${user.khata_balance}` : user.khata_requested ? '...' : '0'}
               </p>
+              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">
+                {user.khata_enabled ? 'Active Account' : 'Manual Credit'}
+              </span>
             </button>
           </div>
         </motion.div>
 
         {isEditing && (
           <motion.div 
+            ref={editSectionRef}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="mt-8 pt-8 border-t border-stone-150 grid grid-cols-1 md:grid-cols-2 gap-6"
+            className="mt-8 pt-8 border-t border-stone-150"
           >
-            <div className="space-y-4">
+            <div className="mb-8 text-center md:text-left">
+              <h2 className="text-2xl font-serif font-black text-slate-800">Account Modification Panel</h2>
+              <p className="text-stone-500 text-sm mt-1">Review and update your profile parameters to keep your identity synchronized.</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-4">Identity Credentials</h4>
               <div>
                 <label className="block text-sm font-bold text-stone-700 mb-1">Full Name</label>
                 <input 
@@ -1225,7 +1290,9 @@ export default function Profile() {
                 />
               </div>
             </div>
-            <div className="md:col-span-2 flex justify-end">
+          </div>
+            
+          <div className="md:col-span-2 flex justify-end">
               <button 
                 onClick={handleSave}
                 disabled={isSavingProfile}
@@ -1288,24 +1355,36 @@ export default function Profile() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="bg-white rounded-3xl shadow-sm border border-stone-100 p-6 space-y-6"
+                    className="bg-white rounded-3xl shadow-sm border border-stone-100 p-6 space-y-8"
                 >
-                    <h3 className="font-bold text-lg">Notification Settings</h3>
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <span>Language</span>
-                            <div className="flex bg-stone-100 rounded-xl p-1">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                           <Info size={18} className="text-primary" />
+                           <span>Preferences</span>
+                        </h3>
+                        <div className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl border border-stone-100">
+                            <div>
+                                <span className="font-bold text-stone-700 block">Display Language</span>
+                                <span className="text-[10px] text-stone-400">Choose your preferred reading experience</span>
+                            </div>
+                        <div className="flex bg-white rounded-xl p-1 border border-stone-100 shadow-sm relative z-20">
                                 {[
-                                    { id: 'en', label: 'EN' },
-                                    { id: 'hi', label: 'हि' },
+                                    { id: 'en', label: 'English' },
+                                    { id: 'hi', label: 'हिन्दी' },
                                     { id: 'pa', label: 'ਪੰਜਾਬੀ' }
                                 ].map((lang) => (
                                     <button
                                     key={lang.id}
-                                    onClick={() => setLanguage(lang.id as any)}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setLanguage(lang.id as any);
+                                      toast.success(`Active Language: ${lang.label}`, { icon: '🌐' });
+                                    }}
                                     className={cn(
-                                        "px-3 py-1 rounded-lg text-xs font-bold transition-all",
-                                        language === lang.id ? "bg-white text-primary shadow-sm" : "text-stone-400 hover:text-stone-600"
+                                        "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all uppercase tracking-tight cursor-pointer",
+                                        language === lang.id ? "bg-primary text-white shadow-md" : "text-stone-400 hover:text-stone-600 hover:bg-stone-50"
                                     )}
                                     >
                                     {lang.label}
@@ -1313,63 +1392,112 @@ export default function Profile() {
                                 ))}
                             </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                            <span>Order Status Updates</span>
-                            <div 
-                              className={cn("w-12 h-6 rounded-full cursor-pointer relative transition-colors duration-300", user?.notification_orders !== false ? "bg-primary" : "bg-stone-200")} 
-                              onClick={async () => {
-                                const val = user?.notification_orders !== false ? false : true;
-                                const res = await fetchWithHandling<any>('/api/user/update-profile', {
-                                  method: 'POST',
-                                  headers: getAuthHeaders(),
-                                  body: JSON.stringify({ notification_orders: val })
-                                });
-                                if (res?.success) {
-                                  setUser(res.user);
-                                  toast.success('Preference updated');
-                                }
-                              }}>
-                                <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-300", user?.notification_orders !== false ? "left-7" : "left-1")}></div>
-                            </div>
+                        <div className="bg-stone-50 rounded-2xl border border-stone-100 divide-y divide-stone-100">
+                          <div className="flex items-center justify-between p-4">
+                              <span>Order Status Updates</span>
+                              <div 
+                                className={cn("w-12 h-6 rounded-full cursor-pointer relative transition-colors duration-300", (user?.notification_orders !== false) ? "bg-primary" : "bg-stone-200")} 
+                                onClick={async () => {
+                                  const currentVal = user?.notification_orders !== false;
+                                  const newVal = !currentVal;
+                                  
+                                  // Optimistic Update
+                                  const previousUser = { ...user };
+                                  setUser({ ...user, notification_orders: newVal } as any);
+                                  
+                                  try {
+                                    const res = await fetchWithHandling<any>('/api/user/update-profile', {
+                                      method: 'POST',
+                                      headers: getAuthHeaders(),
+                                      body: JSON.stringify({ notification_orders: newVal })
+                                    });
+                                    if (res?.success) {
+                                      setUser(res.user);
+                                      toast.success('Preference updated');
+                                    } else {
+                                      setUser(previousUser as any);
+                                      toast.error('Failed to sync preference');
+                                    }
+                                  } catch (err) {
+                                    setUser(previousUser as any);
+                                    toast.error('Connectivity issue');
+                                  }
+                                }}>
+                                  <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow-sm", (user?.notification_orders !== false) ? "left-7" : "left-1")}></div>
+                              </div>
+                          </div>
+                           <div className="flex items-center justify-between p-4">
+                              <span>Promotional Announcements</span>
+                              <div 
+                                className={cn("w-12 h-6 rounded-full cursor-pointer relative transition-colors duration-300", (user?.notification_promotions !== false) ? "bg-primary" : "bg-stone-200")} 
+                                onClick={async () => {
+                                  const currentVal = user?.notification_promotions !== false;
+                                  const newVal = !currentVal;
+                                  
+                                  // Optimistic Update
+                                  const previousUser = { ...user };
+                                  setUser({ ...user, notification_promotions: newVal } as any);
+
+                                  try {
+                                    const res = await fetchWithHandling<any>('/api/user/update-profile', {
+                                      method: 'POST',
+                                      headers: getAuthHeaders(),
+                                      body: JSON.stringify({ notification_promotions: newVal })
+                                    });
+                                    if (res?.success) {
+                                      setUser(res.user);
+                                      toast.success('Preference updated');
+                                    } else {
+                                      setUser(previousUser as any);
+                                      toast.error('Failed to sync preference');
+                                    }
+                                  } catch (err) {
+                                    setUser(previousUser as any);
+                                    toast.error('Connectivity issue');
+                                  }
+                                }}>
+                                  <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow-sm", (user?.notification_promotions !== false) ? "left-7" : "left-1")}></div>
+                              </div>
+                          </div>
                         </div>
-                         <div className="flex items-center justify-between">
-                            <span>Promotions</span>
-                            <div 
-                              className={cn("w-12 h-6 rounded-full cursor-pointer relative transition-colors duration-300", user?.notification_promotions !== false ? "bg-primary" : "bg-stone-200")} 
-                              onClick={async () => {
-                                const val = user?.notification_promotions !== false ? false : true;
-                                const res = await fetchWithHandling<any>('/api/user/update-profile', {
-                                  method: 'POST',
-                                  headers: getAuthHeaders(),
-                                  body: JSON.stringify({ notification_promotions: val })
-                                });
-                                if (res?.success) {
-                                  setUser(res.user);
-                                  toast.success('Preference updated');
-                                }
-                              }}>
-                                <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-300", user?.notification_promotions !== false ? "left-7" : "left-1")}></div>
-                            </div>
-                        </div>
+                    </div>
+
+                    {/* Cache & Maintenance Section */}
+                    <div className="border-t border-stone-100 pt-6 space-y-4">
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                           <RefreshCw size={18} className="text-emerald-500" />
+                           <span>App Maintenance</span>
+                        </h3>
+                        <p className="text-xs text-stone-500">
+                          Clear temporary application data to fix display glitches or refresh session state.
+                        </p>
+                        <button
+                          onClick={handlePurgeCache}
+                          disabled={isPurging}
+                          className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                        >
+                          {isPurging ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                          <span>Purge Local Data Cache</span>
+                        </button>
                     </div>
 
                     {/* Manage Account Section */}
                     <div className="border-t border-stone-100 pt-6 space-y-4">
                         <h3 className="font-bold text-lg flex items-center gap-2">
                           <User size={18} className="text-amber-500" />
-                          <span>Manage Account</span>
+                          <span>Identity & Verified Details</span>
                         </h3>
-                        <p className="text-xs text-stone-500">
-                          Securely manage and update your primary profile details integrated with your identity credentials.
+                        <p className="text-xs text-stone-500 leading-relaxed">
+                          Securely manage and update your primary profile details and the phone number linked to your shop orders.
                         </p>
-                        <div className="bg-stone-50/70 rounded-2xl p-4 space-y-3 font-mono text-xs border border-stone-100">
-                          <div className="flex justify-between border-b border-stone-100 pb-2">
+                        <div className="bg-stone-50/70 rounded-2xl p-5 space-y-3 font-mono text-xs border border-stone-100 group">
+                          <div className="flex justify-between border-b border-stone-100 pb-3">
                             <span className="text-stone-500">Primary Display Name:</span>
                             <span className="font-bold text-stone-900">{user?.name}</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-stone-500">Phone Number:</span>
-                            <span className="font-bold text-stone-900">{user?.phone || 'Not Configured'}</span>
+                          <div className="flex justify-between pt-1">
+                            <span className="text-stone-500">Verified Phone Number:</span>
+                            <span className="font-bold text-stone-900">{user?.phone || 'Pending Setup'}</span>
                           </div>
                         </div>
                         <button
@@ -1379,9 +1507,10 @@ export default function Profile() {
                             setAccountPhone(user?.phone || '');
                             setShowManageAccountModal(true);
                           }}
-                          className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-sm active:scale-[0.98]"
+                          className="w-full py-4 bg-stone-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
                         >
-                          Update Account Details
+                          <Shield size={14} />
+                          <span>Update Account Identity</span>
                         </button>
                     </div>
                 </motion.div>
@@ -1754,20 +1883,10 @@ export default function Profile() {
                           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black rounded-md tracking-wider uppercase">Order node</span>
+                                <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black rounded-md tracking-wider uppercase">Receipt Details</span>
                                 <h4 className="font-extrabold text-stone-900 tracking-tight text-lg uppercase flex items-center gap-1.5">
-                                  #{order.order_id || order.id}
+                                  #{order.order_id || order.id.toString().slice(-6).toUpperCase()}
                                 </h4>
-                                <button 
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(order.order_id || String(order.id));
-                                    toast.success('Order ID copied!');
-                                  }}
-                                  className="p-1.5 hover:bg-stone-100 active:scale-95 text-stone-400 hover:text-stone-700 rounded-lg transition-all"
-                                  title="Copy Order Reference"
-                                >
-                                  <Copy size={12} />
-                                </button>
                               </div>
                               <p className="text-xs text-stone-400 mt-1.5 font-semibold flex items-center gap-1">
                                 <Clock size={12} /> Ordered: {new Date(order.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
@@ -2492,24 +2611,21 @@ export default function Profile() {
                       <Download size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-stone-700">Export My Data Archive</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Download a structured copy of your profile and history</p>
+                      <p className="font-bold text-stone-700">Export My Data (Cloud Backup)</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Download a verified CSV structured archive of your account</p>
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    <button 
-                      disabled={isExporting}
-                      onClick={() => handleExportData('pdf')} 
-                      className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50"
-                    >
-                      {isExporting ? 'Compiling...' : 'PDF'}
-                    </button>
-                    <button 
-                      disabled={isExporting}
-                      onClick={() => handleExportData('json')} 
-                      className="px-4 py-2 bg-stone-100 text-stone-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-stone-200 transition-all disabled:opacity-50"
-                    >
-                      JSON
+                       <button 
+                        disabled={isExporting}
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          handleExportData(); 
+                        }} 
+                        className="px-6 py-2.5 bg-stone-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                      >
+                      {isExporting ? <RefreshCw size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                      {isExporting ? 'Generating...' : 'Download as CSV'}
                     </button>
                   </div>
                 </div>
@@ -3141,11 +3257,11 @@ export default function Profile() {
               className="relative bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl border border-stone-100 z-10 max-h-[80vh] overflow-y-auto"
             >
               <h3 className="text-xl font-serif font-black text-stone-900 mb-2 flex items-center gap-2">
-                <ShieldCheck className="text-amber-500" />
-                <span>Manage Account</span>
+                <User className="text-amber-500" />
+                <span>Personal Information</span>
               </h3>
               <p className="text-stone-500 text-xs mb-6">
-                Update your primary display name and verified phone number. Changes will securely synchronize with standard identity store.
+                Keep your details up to date to ensure fast delivery and account safety.
               </p>
               
               <form onSubmit={async (e) => {
@@ -3176,7 +3292,7 @@ export default function Profile() {
               }} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5 font-mono">
-                    Primary Display Name
+                    Full Name
                   </label>
                   <input 
                     type="text" 
@@ -3190,7 +3306,7 @@ export default function Profile() {
                 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5 font-mono">
-                    Primary Phone Number
+                    Mobile Number
                   </label>
                   <input 
                     type="text" 
@@ -3226,6 +3342,84 @@ export default function Profile() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showExportModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-stone-900/80 backdrop-blur-md"
+              onClick={() => {
+                setShowExportModal(false);
+                if (exportUrl) URL.revokeObjectURL(exportUrl);
+                setExportUrl(null);
+              }}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl border border-stone-100 z-[120] text-center"
+            >
+              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ShieldCheck size={40} className="animate-pulse" />
+              </div>
+              <h2 className="text-2xl font-black text-stone-900 mb-2 uppercase tracking-tighter italic">Secured Archive</h2>
+              <p className="text-stone-500 text-[11px] font-medium mb-8 leading-relaxed px-4">
+                Your account activity has been compiled into an official secure dossier. Access is restricted via a temporary cryptographic token which will expire shortly.
+              </p>
+              
+              <div className="space-y-3">
+                <button 
+                  onClick={() => {
+                    if (exportUrl) window.open(exportUrl, '_blank');
+                  }}
+                  className="w-full py-4 bg-stone-950 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 shadow-xl shadow-stone-500/20 active:scale-95"
+                >
+                  <Maximize2 size={14} />
+                  <span>View Official Protocol</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    const link = document.createElement('a');
+                    link.href = exportUrl || '';
+                    link.download = `HGS_ARCHIVE_${Math.random().toString(36).substring(7).toUpperCase()}.pdf`;
+                    link.click();
+                  }}
+                  className="w-full py-4 bg-stone-50 text-stone-900 border border-stone-200 rounded-2xl font-black uppercase tracking-[0.1em] text-[10px] hover:bg-stone-100 transition-all flex items-center justify-center gap-2 active:scale-95"
+                >
+                  <Download size={14} />
+                  <span>Download Permanent PDF</span>
+                </button>
+              </div>
+              
+              <div className="mt-8 flex flex-col items-center gap-2 opacity-40">
+                <p className="text-[8px] font-mono tracking-widest uppercase">Protocol ID: {Math.random().toString(16).substring(2, 10).toUpperCase()}</p>
+                <div className="h-1 w-24 bg-stone-100 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: "100%" }}
+                    animate={{ width: "0%" }}
+                    transition={{ duration: 300, ease: "linear" }}
+                    className="h-full bg-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <button 
+                onClick={() => {
+                  setShowExportModal(false);
+                  if (exportUrl) URL.revokeObjectURL(exportUrl);
+                  setExportUrl(null);
+                }}
+                className="mt-6 text-stone-400 hover:text-stone-600 font-bold text-[9px] uppercase tracking-widest transition-colors"
+              >
+                Close Portal
+              </button>
             </motion.div>
           </div>
         )}

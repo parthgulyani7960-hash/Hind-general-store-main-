@@ -118,11 +118,11 @@ export default function Cart() {
   };
 
   const getDeliveryEstimate = () => {
-    if (!user?.pin_code) return "3-5 business days";
+    if (!user?.pin_code) return "1-2 Business Days";
     const pinPrefix = user.pin_code.substring(0, 2);
     if (pinPrefix === '14') return "2-4 hours (Local Delivery)"; // Ludhiana/Punjab
-    if (['11', '12', '13', '15', '16'].includes(pinPrefix)) return "1-2 business days";
-    return "3-5 business days";
+    if (['11', '12', '13', '15', '16'].includes(pinPrefix)) return "1-2 Business Days";
+    return "1-2 Business Days";
   };
 
   if (cart.length === 0) {
@@ -243,7 +243,7 @@ export default function Cart() {
                 }}
                 className="bg-white p-2 sm:p-2.5 rounded-2xl border border-stone-100 flex items-center gap-2.5 sm:gap-3 hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/50 transition-all duration-300 group/item"
               >
-                <div className="relative shrink-0 overflow-hidden rounded-xl">
+                <Link to={`/product/${item.id}`} className="relative shrink-0 overflow-hidden rounded-xl cursor-pointer">
                   {showImages ? (
                     <motion.img 
                       whileHover={{ scale: 1.05 }}
@@ -264,11 +264,11 @@ export default function Cart() {
                       {item.discount}% OFF
                     </div>
                   )}
-                </div>
+                </Link>
                 
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-col md:flex-row md:items-start justify-between gap-1">
-                    <div className="space-y-0.5">
+                    <Link to={`/product/${item.id}`} className="space-y-0.5 cursor-pointer block">
                       <h3 className="font-black text-xs sm:text-sm text-stone-900 group-hover/item:text-primary transition-colors line-clamp-2 leading-tight uppercase tracking-tight">{item.name}</h3>
                       <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                         {item.selectedVariant && (
@@ -278,7 +278,7 @@ export default function Cart() {
                         )}
                         <span className="text-[10px] font-black text-stone-400 italic">₹{item.finalPrice} / {item.unit}</span>
                       </div>
-                    </div>
+                    </Link>
                     
                     <div className="text-right">
                       <div className="flex flex-col items-end">

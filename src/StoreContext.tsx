@@ -184,7 +184,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
-  const [language, setLanguage] = useState<Language>('en');
+  const [language, setLanguage] = useState<Language>(() => {
+    return (localStorage.getItem('hgs_lang') as Language) || 'en';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hgs_lang', language);
+  }, [language]);
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const { isOnline, latency } = useNetwork();
   const [isMobile, setIsMobile] = useState(() => {

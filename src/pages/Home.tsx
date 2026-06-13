@@ -70,7 +70,7 @@ function HomeInner() {
   return (
     <div className="bg-stone-50 min-h-screen pb-20 relative">
       {/* Aesthetic Hero Carousel */}
-      <section className="relative w-full h-[600px] bg-white overflow-hidden">
+      <section className="relative w-full min-h-[550px] md:min-h-[650px] bg-white overflow-hidden flex items-center">
         {heroBanners.length > 0 ? (
           heroBanners.slice(0, 2).map((banner, index) => (
             <motion.div 
@@ -78,14 +78,14 @@ function HomeInner() {
               initial={{ opacity: 0 }}
               animate={{ opacity: index === currentHeroIndex ? 1 : 0 }}
               transition={{ duration: 0.8 }}
-              className="absolute inset-0"
+              className="absolute inset-0 flex items-center"
             >
-               <div className="h-full flex flex-col md:flex-row items-center justify-between px-8 lg:px-24">
-                  <div className="flex-1 space-y-6">
+               <div className="w-full flex flex-col md:flex-row items-center justify-center md:justify-between px-6 md:px-8 lg:px-24 py-16 md:py-0 gap-8">
+                  <div className="flex-1 space-y-6 md:space-y-8 text-center md:text-left z-10 w-full">
                     <motion.h1 
                       initial={{ y: 20, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
-                      className="text-6xl lg:text-8xl font-black text-stone-950 tracking-tighter leading-none"
+                      className="text-4xl sm:text-5xl lg:text-7xl xl:text-8xl font-black text-stone-950 tracking-tighter leading-[0.95]"
                     >
                       {banner.title}
                     </motion.h1>
@@ -93,7 +93,7 @@ function HomeInner() {
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
-                className="text-xl text-stone-600 max-w-lg font-medium leading-relaxed"
+                className="text-base sm:text-lg lg:text-xl text-stone-600 max-w-lg font-medium leading-relaxed mx-auto md:mx-0"
               >
                 {banner.description}
               </motion.p>
@@ -103,15 +103,14 @@ function HomeInner() {
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
-                className="relative max-w-md group"
+                className="relative max-w-md mx-auto md:mx-0 group"
               >
-                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-emerald-500 transition-colors" size={20} />
+                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
                  <input 
                    type="text"
-                   placeholder="Search for spices, grains, honey..."
-                   className="w-full bg-stone-50 border-2 border-stone-100 rounded-3xl py-4 pl-14 pr-6 font-bold text-stone-900 outline-none focus:border-emerald-500/20 focus:ring-8 focus:ring-emerald-500/5 transition-all shadow-sm group-hover:shadow-md"
+                   placeholder="Search for essentials..."
+                   className="w-full bg-stone-50 border-2 border-stone-100 rounded-3xl py-3.5 pl-12 pr-6 font-bold text-stone-900 outline-none focus:border-emerald-500/20 focus:ring-8 focus:ring-emerald-500/5 transition-all shadow-sm group-hover:shadow-md text-sm"
                    onFocus={() => {
-                     // Trigger the SearchOverlay by causing a search modal open event or using a prop
                      const event = new CustomEvent('open-search-overlay');
                      window.dispatchEvent(event);
                    }}
@@ -122,10 +121,10 @@ function HomeInner() {
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.4 }}
-                className="pt-4 flex items-center gap-4"
+                className="pt-2 flex items-center justify-center md:justify-start gap-4"
               >
-                <Link to={banner.link || '/products'} onClick={() => handleBannerClick(banner.id)} className="bg-emerald-500 text-white rounded-full px-10 py-4 font-bold text-lg hover:bg-emerald-600 transition-all transform hover:scale-105 inline-flex items-center gap-2 shadow-lg shadow-emerald-500/20">
-                    {banner.button_text || 'Explore'} <ArrowRight size={20} />
+                <Link to={banner.link || '/products'} onClick={() => handleBannerClick(banner.id)} className="bg-emerald-500 text-white rounded-full px-8 md:px-10 py-3 md:py-4 font-bold text-base md:text-lg hover:bg-emerald-600 transition-all transform hover:scale-105 inline-flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                    {banner.button_text || 'Explore'} <ArrowRight size={18} />
                 </Link>
               </motion.div>
                   </div>
@@ -133,32 +132,32 @@ function HomeInner() {
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.3 }}
-                    className="flex-1 w-full md:w-auto relative rounded-[3rem] overflow-hidden shadow-2xl"
+                    className="flex-1 w-full md:w-auto relative rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl mt-8 md:mt-0 hidden sm:block"
                   >
-                     <ProgressiveImage src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="w-full h-[500px]" alt="Banner" />
+                     <ProgressiveImage src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="w-full h-[300px] md:h-[500px]" alt="Banner" />
                   </motion.div>
                </div>
             </motion.div>
           ))
         ) : (
-          /* Default Static Hero - also colorful */
-          <div className="h-full flex flex-col md:flex-row items-center justify-between px-8 lg:px-24">
-            <div className="flex-1 space-y-6">
-              <h1 className="text-6xl lg:text-8xl font-black text-stone-950 tracking-tighter leading-none">
+          /* Default Static Hero */
+          <div className="w-full flex flex-col md:flex-row items-center justify-center md:justify-between px-6 md:px-8 lg:px-24 py-16 md:py-0 gap-8">
+            <div className="flex-1 space-y-6 md:space-y-8 text-center md:text-left z-10 w-full">
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-black text-stone-950 tracking-tighter leading-[0.95]">
                 Fresh Daily,<br/>
                 <span className="text-emerald-500">Delivered Fast.</span>
               </h1>
-              <p className="text-xl text-stone-600 max-w-lg font-medium leading-relaxed">
+              <p className="text-base sm:text-lg lg:text-xl text-stone-600 max-w-lg font-medium leading-relaxed mx-auto md:mx-0">
                 Choose from a curated selection of grains, spices, and daily essentials.
               </p>
 
               {/* Integrated Search Bar */}
-              <div className="relative max-w-md group">
-                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-emerald-500 transition-colors" size={20} />
+              <div className="relative max-w-md mx-auto md:mx-0 group">
+                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
                  <input 
                    type="text"
                    placeholder="Search for products..."
-                   className="w-full bg-stone-50 border-2 border-stone-100 rounded-3xl py-4 pl-14 pr-6 font-bold text-stone-900 outline-none focus:border-emerald-500/20 focus:ring-8 focus:ring-emerald-500/5 transition-all shadow-sm group-hover:shadow-md"
+                   className="w-full bg-stone-50 border-2 border-stone-100 rounded-3xl py-3.5 pl-12 pr-6 font-bold text-stone-900 outline-none focus:border-emerald-500/20 focus:ring-8 focus:ring-emerald-500/5 transition-all shadow-sm group-hover:shadow-md text-sm"
                    onFocus={() => {
                      const event = new CustomEvent('open-search-overlay');
                      window.dispatchEvent(event);
@@ -166,21 +165,21 @@ function HomeInner() {
                  />
               </div>
 
-              <div className="pt-4 flex items-center gap-4">
-                <Link to="/products" className="bg-emerald-500 text-white rounded-full px-10 py-4 font-bold text-lg hover:bg-emerald-600 transition-all transform hover:scale-105 inline-flex items-center gap-2 shadow-lg shadow-emerald-500/20">
-                    Start Shopping <ArrowRight size={20} />
+              <div className="pt-2 flex items-center justify-center md:justify-start gap-4">
+                <Link to="/products" className="bg-emerald-500 text-white rounded-full px-8 md:px-10 py-3 md:py-4 font-bold text-base md:text-lg hover:bg-emerald-600 transition-all transform hover:scale-105 inline-flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                    Start Shopping <ArrowRight size={18} />
                 </Link>
               </div>
             </div>
-            <div className="flex-1 w-full md:w-auto relative rounded-[3rem] overflow-hidden shadow-2xl">
-               <ProgressiveImage src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800" className="w-full h-[500px]" alt="Fresh Groceries" />
+            <div className="flex-1 w-full md:w-auto relative rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl mt-8 md:mt-0 hidden sm:block">
+               <ProgressiveImage src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800" className="w-full h-[300px] md:h-[500px]" alt="Fresh Groceries" />
             </div>
          </div>
         )}
       </section>
 
       {/* Quick Utilities Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-12 relative z-30">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 md:-mt-12 relative z-30">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <motion.div 
             whileHover={{ y: -5 }}

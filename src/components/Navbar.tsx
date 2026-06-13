@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star, Camera, Store, ChevronDown, LogOut, ArrowRight, Wallet, Sparkles, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, Search, Phone, Heart, Clock, ShoppingBag, Languages, Trash2, Star, Camera, Store, ChevronDown, LogOut, ArrowRight, Wallet, Sparkles, ShieldCheck, Settings } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, NavLink, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
@@ -306,9 +306,14 @@ export default function Navbar() {
                     </div>
                     <div className="h-px bg-slate-100 mx-2" />
                     
-                    <Link to="/profile" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all">
+                    <Link to="/profile" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
                       <User size={14} className="text-slate-400" />
                       <span>My Profile</span>
+                    </Link>
+
+                    <Link to="/profile?edit=true" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
+                      <Settings size={14} className="text-slate-400" />
+                      <span>Account Settings</span>
                     </Link>
                     
                     <Link to="/history?tab=orders" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all">

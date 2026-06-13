@@ -167,7 +167,7 @@ export default function Support() {
       q: [
         { q: "What is the Store Wallet and how does it work?", a: "The Wallet is our integrated digital payment system. You can pre-load balance for faster checkouts. All refunds are instantly credited to this wallet and can be used for your next purchase." },
         { q: "Who is eligible for the 'Khata' credit system?", a: "Khata (Credit) is exclusively for our regular verified customers. After 10 successful delivered orders, you can apply for a Khata limit. This allows you to order now and pay later at the end of the month." },
-        { q: "Why did my payment fail but money was deducted?", a: "If your order status is 'Failed', the amount will be automatically refunded to your source account by your bank within 3-5 business days. For UPI, modern apps usually refund within 24 hours." },
+        { q: "Why did my payment fail but money was deducted?", a: "If your order status is 'Failed', the amount will be automatically refunded to your source account by your bank within 1-2 business days. For UPI, modern apps usually refund within 24 hours." },
         { q: "Can I withdraw my wallet balance back to my bank?", a: "Currently, wallet balance is restricted for store purchases only. However, if you are closing your account, you can contact support for a manual refund processing." }
       ]
     },

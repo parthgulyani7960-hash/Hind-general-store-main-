@@ -379,14 +379,28 @@ export const generateUserExportPDF = (data: any) => {
   const header = (title: string) => {
     doc.setFillColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
     doc.rect(0, 0, pageWidth, 40, 'F');
+    
+    // Gradient accent at top
+    doc.setFillColor(COLORS.PRIMARY[0], COLORS.PRIMARY[1], COLORS.PRIMARY[2]);
+    doc.rect(0, 0, pageWidth, 4, 'F');
+
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
+    doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
-    doc.text(title, margin, 20);
-    doc.setFontSize(10);
+    doc.text(title, margin, 22);
+    
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(COLORS.PRIMARY[0], COLORS.PRIMARY[1], COLORS.PRIMARY[2]);
+    doc.text('OFFICIAL ACCOUNT DOSSIER ● HIND GENERAL STORE', margin, 32);
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text(`DATA ARCHIVE FOR: ${String(data.user?.name || 'USER').toUpperCase()}`, margin, 30);
-    doc.text(`EXPORTED ON: ${format(new Date(), 'dd MMMM yyyy, HH:mm')}`, pageWidth - margin, 30, { align: 'right' });
+    doc.text(`ARCHIVE REF: HGS-USR-${Math.random().toString(36).substring(7).toUpperCase()}`, pageWidth - margin, 18, { align: 'right' });
+    doc.text(`EXPORTED: ${format(new Date(), 'dd MMM yyyy, HH:mm')}`, pageWidth - margin, 24, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.text('www.hindstore.in', pageWidth - margin, 32, { align: 'right' });
   };
 
   header('ACCOUNT DATA EXPORT');
@@ -397,32 +411,45 @@ export const generateUserExportPDF = (data: any) => {
   doc.setFont('helvetica', 'bold');
   doc.text('1. PROFILE INFRASTRUCTURE', margin, 55);
 
-  const totalSpent = data.orders?.reduce((acc: number, o: any) => o.status === 'delivered' ? acc + parseFloat(o.total) : acc, 0) || 0;
+  const totalSpent = (data.orders || []).reduce((acc: number, o: any) => {
+    const total = parseFloat(String(o.total || 0));
+    return (o.status === 'delivered' || o.status === 'completed') ? acc + total : acc;
+  }, 0);
   const totalOrders = data.orders?.length || 0;
 
   (doc as any).autoTable({
-    startY: 60,
+    startY: 62,
     margin: { left: margin, right: margin },
-    head: [['Attribute', 'Data Point']],
+    head: [['Attribute Node', 'Verified Data Endpoint']],
     body: [
-      ['Full Legal Name', data.user?.name || 'UNKNOWN'],
-      ['Primary Contact', data.user?.phone || 'UNKNOWN'],
-      ['Email Address', data.user?.email || 'NOT REGISTERED'],
+      ['Full Legal Name', data.user?.name || 'NOT SPECIFIED'],
+      ['Primary Contact', data.user?.phone || 'NOT LINKED'],
+      ['Email Address', data.user?.email || 'OFFLINE_ACCOUNT'],
       ['Account Status', (data.user?.status || 'ACTIVE').toUpperCase()],
-      ['Wallet Liquidity', `₹${data.user?.wallet_balance || 0}`],
-      ['Khata Eligibility', data.user?.khata_enabled ? 'AUTHORIZED' : 'RESTRICTED'],
-      ['Lifecycle Total Spent', `₹${totalSpent.toFixed(2)}`],
-      ['Historical Volume', `${totalOrders} orders matched`],
-      ['Primary Node (Address)', data.user?.address || 'N/A']
+      ['Wallet Liquidity', `INR ${parseFloat(data.user?.wallet_balance || 0).toFixed(2)}`],
+      ['Khata System', data.user?.khata_enabled ? 'AUTHORIZED_USER' : 'INACTIVE'],
+      ['Lifecycle Total Value', `INR ${totalSpent.toFixed(2)}`],
+      ['Historical Volume', `${totalOrders} orders processed`],
+      ['Primary Delivery Node', (data.user?.address || 'N/A').toUpperCase()]
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.SECONDARY, fontSize: 9 },
-    bodyStyles: { fontSize: 8, cellPadding: 3 },
-    columnStyles: { 0: { fontStyle: 'bold', width: 60 } }
+    headStyles: { 
+      fillColor: COLORS.SECONDARY, 
+      fontSize: 8,
+      halign: 'center'
+    },
+    bodyStyles: { 
+      fontSize: 8, 
+      cellPadding: 4,
+      textColor: COLORS.SECONDARY
+    },
+    columnStyles: { 
+      0: { fontStyle: 'bold', fillColor: [250, 250, 249], width: 60 } 
+    }
   });
 
   // --- OPERATIONAL SUMMARY DASHBOARD ---
-  const summaryY = (doc as any).lastAutoTable.finalY + 15;
+  const summaryY = (doc as any).lastAutoTable.finalY + 18;
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
@@ -538,6 +565,7 @@ export const generateUserExportPDF = (data: any) => {
   }
 
   doc.save(`HindStore_Export_${(data.user?.name || 'User').replace(/\s+/g, '_')}.pdf`);
+  return doc;
 };
 
 /**

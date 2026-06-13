@@ -13,6 +13,7 @@ import BackToTop from './components/BackToTop';
 import FullScreenAlert from './components/FullScreenAlert';
 import AuthGuard from './components/AuthGuard';
 import ReviewPromptNotification from './components/ReviewPromptNotification';
+import { TopPromotionTicker } from './components/TopPromotionTicker';
 import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
 import { AdminDiagnosticPanel } from './components/AdminDiagnosticPanel';
 
@@ -296,6 +297,7 @@ export default function App() {
       <FullScreenAlert />
       <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
         <OfflineIndicator />
+        <TopPromotionTicker />
         <GlobalProgressBar />
         <GlobalAnnouncements />
         <ToastManager />

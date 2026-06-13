@@ -225,17 +225,6 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
               </div>
             </div>
 
-            {/* Diagnostic Copy (Support Use) */}
-            <div className="mb-8">
-              <button
-                onClick={this.handleCopyDiagnostics}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-stone-50 hover:bg-stone-100 active:scale-[0.99] border border-stone-200/60 rounded-2xl text-[10px] font-bold text-stone-400 transition-all cursor-pointer uppercase tracking-widest"
-              >
-                {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={12} />}
-                <span>{copied ? 'Reference Code Copied!' : 'Copy Reference Code (for support)'}</span>
-              </button>
-            </div>
-
             {/* Reload Action */}
             <button
               onClick={() => window.location.reload()}

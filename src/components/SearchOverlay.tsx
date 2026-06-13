@@ -60,27 +60,35 @@ export default function SearchOverlay({
   const categories = useMemo(() => ['All', ...new Set(products.map(p => p.category))], [products]);
 
   useEffect(() => {
-    if (searchQuery) {
-        setLoading(true);
-        const timer = setTimeout(() => setLoading(false), 500);
-        return () => clearTimeout(timer);
+    // Clear results immediately if query is empty
+    if (!searchQuery.trim()) {
+      setLoading(false);
+      return;
     }
+    
+    setLoading(true);
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 300); // Faster debounce
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
   const filteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-
     const query = searchQuery.toLowerCase().trim();
+    if (!query) return [];
+
     // Improved regex for words including support for many scripts (Hindi included)
-    const searchTerms = query.split(/[\s,]+/).filter(Boolean);
+    const searchTerms = query.split(/[\s,]+/).filter(term => term.length > 0);
 
     const baseFiltered = products.filter(p => {
       const activePrice = getProductPrice(p, user?.role);
       
       const specText = Object.values(p.specifications || {}).join(' ').toLowerCase();
+      // Added more searchable fields
       const searchableText = `${p.name} ${p.description || ''} ${p.category} ${p.unit || ''} ${specText}`.toLowerCase();
       
-      // Match if all search terms are found in searchable text
+      // Match if at least one search term is found (OR matching) or all (AND matching)
+      // Usually users want AND matching for specific queries
       const matchesSearch = searchTerms.every(term => searchableText.includes(term));
 
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
@@ -96,43 +104,48 @@ export default function SearchOverlay({
         let score = 0;
         const name = (product.name || '').toLowerCase();
         
-        // Boost exact matches or prefix matches in name
-        if (name === query) score += 5000;
-        else if (name.startsWith(query)) score += 2000;
-        else if (name.includes(query)) score += 1000;
-
-        // Word-based scoring
+        // Exact matches get highest priority
+        if (name === query) score += 10000;
+        else if (name.startsWith(query)) score += 5000;
+        
+        // Hindi/English Multilingual boost: check if query is in name or description
         searchTerms.forEach(term => {
-            if (name.includes(term)) score += 500;
+          if (name.includes(term)) score += 1000;
+          if (product.category.toLowerCase().includes(term)) score += 500;
         });
 
+        // Recent items boost could be added here
         return score;
       };
       return getScore(b) - getScore(a);
     });
   }, [products, searchQuery, selectedCategory, minPrice, maxPrice, selectedRating, getProductPrice, user?.role]);
 
-  // Highlight matches function
+  // Highlight matches function with robust multilingual support
   const highlightMatch = (text: string, query: string) => {
-    if (!query.trim()) return <span>{text}</span>;
+    if (!query.trim() || !text) return <span>{text}</span>;
     
-    // Split by multiple terms if necessary
-    const terms = query.toLowerCase().trim().split(' ').filter(Boolean);
+    const terms = query.toLowerCase().trim().split(/[\s,]+/).filter(Boolean);
     if (terms.length === 0) return <span>{text}</span>;
 
-    // Use the first term for simple highlighting or implement regex for multiple
-    const regex = new RegExp(`(${terms.join('|')})`, 'gi');
-    const parts = text.split(regex);
-    
-    return (
-      <span>
-        {parts.map((part, i) => 
-          terms.includes(part.toLowerCase()) 
-            ? <mark key={i} className="bg-primary/20 text-primary font-black rounded px-0.5">{part}</mark> 
-            : part
-        )}
-      </span>
-    );
+    try {
+      // Escape terms for regex safety
+      const escapedTerms = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const regex = new RegExp(`(${escapedTerms.join('|')})`, 'gi');
+      const parts = text.split(regex);
+      
+      return (
+        <span>
+          {parts.map((part, i) => 
+            terms.some(t => part.toLowerCase() === t) 
+              ? <mark key={i} className="bg-emerald-100 text-emerald-800 font-bold rounded px-0.5">{part}</mark> 
+              : part
+          )}
+        </span>
+      );
+    } catch (e) {
+      return <span>{text}</span>;
+    }
   };
 
   return (
