@@ -308,7 +308,10 @@ export default function Navbar() {
                 
                 {/* Custom popup card menu */}
                 {isAvatarMenuOpen && (
-                  <div className="absolute right-0 top-full pt-3.5 w-56 z-50 transform">
+                  <div 
+                    onClick={(e) => e.stopPropagation()} 
+                    className="absolute right-0 top-full pt-3.5 w-56 z-50 transform"
+                  >
                     <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl shadow-slate-200/80 border border-slate-100 p-2.5 space-y-1">
                       <div className="px-3.5 py-2">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Signed in as</p>

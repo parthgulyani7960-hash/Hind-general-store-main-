@@ -69,8 +69,8 @@ function HomeInner() {
 
   return (
     <div className="bg-stone-50 min-h-screen pb-20 relative">
-      {/* Aesthetic Hero Carousel */}
-      <section className="relative w-full min-h-[550px] md:min-h-[650px] bg-white overflow-hidden flex items-center">
+      {/* Aesthetic Hero Hero */}
+      <section className="relative w-full bg-white overflow-hidden flex items-center min-h-[50vh] sm:min-h-[60vh]">
         {heroBanners.length > 0 ? (
           heroBanners.slice(0, 2).map((banner, index) => (
             <motion.div 
@@ -80,12 +80,12 @@ function HomeInner() {
               transition={{ duration: 0.8 }}
               className="absolute inset-0 flex items-center"
             >
-               <div className="w-full flex flex-col md:flex-row items-center justify-center md:justify-between px-6 md:px-8 lg:px-24 py-16 md:py-0 gap-8">
-                  <div className="flex-1 space-y-6 md:space-y-8 text-center md:text-left z-10 w-full">
+               <div className="w-full max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-center md:justify-between px-4 sm:px-6 lg:px-8 py-10 md:py-20 gap-8">
+                  <div className="flex-1 space-y-4 md:space-y-6 text-center md:text-left z-10 w-full">
                     <motion.h1 
                       initial={{ y: 20, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
-                      className="text-4xl sm:text-5xl lg:text-7xl xl:text-8xl font-black text-stone-950 tracking-tighter leading-[0.95]"
+                      className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-black text-stone-950 tracking-tighter leading-[0.95]"
                     >
                       {banner.title}
                     </motion.h1>
@@ -93,7 +93,7 @@ function HomeInner() {
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
-                className="text-base sm:text-lg lg:text-xl text-stone-600 max-w-lg font-medium leading-relaxed mx-auto md:mx-0"
+                className="text-sm sm:text-base lg:text-lg text-stone-600 max-w-lg font-medium leading-relaxed mx-auto md:mx-0"
               >
                 {banner.description}
               </motion.p>
@@ -179,7 +179,7 @@ function HomeInner() {
       </section>
 
       {/* Quick Utilities Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 md:-mt-12 relative z-30">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 md:mt-4 relative z-30">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <motion.div 
             whileHover={{ y: -5 }}

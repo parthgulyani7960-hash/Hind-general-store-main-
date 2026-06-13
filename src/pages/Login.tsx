@@ -198,15 +198,15 @@ export default function Login() {
                     <div id="login_required_alert" className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 text-left">
                       <Lock className="text-amber-600 shrink-0 mt-0.5" size={18} />
                       <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-amber-900">Please log in to continue</p>
-                        <p className="text-xs text-amber-700">Account login is required to view your profile settings.</p>
+                        <p className="text-sm font-bold text-amber-900">Sign-in Required</p>
+                        <p className="text-xs text-amber-700">Please log in to continue to your profile settings.</p>
                       </div>
                     </div>
                   ) : (
                     <div className="text-center space-y-1">
-                      <h3 className="text-lg font-bold text-stone-950">Welcome Back</h3>
-                      <p className="text-stone-500 text-xs">
-                        Sign in to manage your purchases, addresses, and account balance.
+                      <h3 className="text-xl font-black text-stone-950">Welcome Back</h3>
+                      <p className="text-stone-500 text-sm">
+                        Sign in to securely access your shopping dashboard.
                       </p>
                     </div>
                   )}
@@ -221,7 +221,7 @@ export default function Login() {
                           onClick={handleGoogleLogin}
                           className="text-xs font-bold text-red-600 hover:underline flex items-center gap-1.5 transition-all"
                         >
-                          Try Again <ArrowRight size={12} />
+                          Retry Login <ArrowRight size={12} />
                         </button>
                       </div>
                     </div>

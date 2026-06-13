@@ -8881,7 +8881,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const data = snap.docs.map(d => ({id: d.id, ...d.data()}));
       
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=${entity}_export_${new Date().toISOString().split('T')[0]}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=${entity}_export_${new Date().toISOString().split('T')[0]}_${Math.random().toString(36).substring(7)}.csv`);
       
       if (data.length === 0) {
         return res.send('No Data Available');

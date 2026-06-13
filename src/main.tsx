@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import AppCrashBoundary from './components/AppCrashBoundary';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
 import { getOrRefreshToken } from './lib/authInterceptor';
+import { errorService } from './lib/incidentReporting';
 
 // Privacy / Security Console Redaction disabled for debugging
 function redactConsole() {

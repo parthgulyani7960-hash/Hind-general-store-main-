@@ -136,27 +136,31 @@ const DataExportsTab: React.FC<DataExportsTabProps> = ({ setExportProgress }) =>
                  <p className="text-stone-500 mb-8 relative z-10">Scalable backend CSV generation for large datasets. Safe for 10,000+ records.</p>
                  
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-                    {['orders', 'users', 'products', 'wallet_transactions', 'system_logs', 'audit_logs'].map((ent) => (
-                        <div key={ent} className="flex flex-col gap-2">
-                          <button 
-                              onClick={() => setExportFormatSelection(ent)}
-                              disabled={isExporting !== null}
-                              className="p-6 border border-stone-200 rounded-2xl hover:border-primary hover:bg-stone-50 transition-all text-left group"
-                          >
-                               <div className="w-12 h-12 bg-stone-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
-                                   {isExporting?.startsWith(ent) ? <RefreshCw className="animate-spin text-primary" /> : <Download className="group-hover:text-primary transition-colors text-stone-600" />}
+                    {['orders', 'users', 'products', 'wallet_transactions', 'system_logs', 'audit_logs'].map((ent) => {
+                        const friendlyName = ent === 'wallet_transactions' ? 'Financial Hub' : ent === 'system_logs' ? 'System Intel' : ent === 'audit_logs' ? 'Governance Records' : ent;
+
+                        return (
+                          <div key={ent} className="flex flex-col gap-2">
+                            <button 
+                                onClick={() => setExportFormatSelection(ent)}
+                                disabled={isExporting !== null}
+                                className="p-6 border border-stone-200 rounded-2xl hover:border-primary hover:bg-stone-50 transition-all text-left group"
+                            >
+                                 <div className="w-12 h-12 bg-stone-100 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
+                                     {isExporting?.startsWith(ent) ? <RefreshCw className="animate-spin text-primary" /> : <Download className="group-hover:text-primary transition-colors text-stone-600" />}
+                                 </div>
+                                 <h3 className="font-bold text-lg text-stone-900 capitalize mb-1">{friendlyName.replace('_', ' ')}</h3>
+                                 <p className="text-xs text-stone-400">Export as...</p>
+                            </button>
+                            {exportFormatSelection === ent && (
+                               <div className="flex gap-2">
+                                  <button onClick={() => {handleSystemExport(ent, 'csv'); setExportFormatSelection(null);}} className="flex-1 bg-stone-100 text-stone-700 py-2 rounded-xl text-xs font-bold hover:bg-stone-200">CSV</button>
+                                  <button onClick={() => {handleSystemExport(ent, 'pdf'); setExportFormatSelection(null);}} className="flex-1 bg-stone-100 text-stone-700 py-2 rounded-xl text-xs font-bold hover:bg-stone-200">PDF</button>
                                </div>
-                               <h3 className="font-bold text-lg text-stone-900 capitalize mb-1">{ent?.replace('_', ' ')}</h3>
-                               <p className="text-xs text-stone-400">Export as...</p>
-                          </button>
-                          {exportFormatSelection === ent && (
-                             <div className="flex gap-2">
-                                <button onClick={() => {handleSystemExport(ent, 'csv'); setExportFormatSelection(null);}} className="flex-1 bg-stone-100 text-stone-700 py-2 rounded-xl text-xs font-bold hover:bg-stone-200">CSV</button>
-                                <button onClick={() => {handleSystemExport(ent, 'pdf'); setExportFormatSelection(null);}} className="flex-1 bg-stone-100 text-stone-700 py-2 rounded-xl text-xs font-bold hover:bg-stone-200">PDF</button>
-                             </div>
-                          )}
-                        </div>
-                    ))}
+                            )}
+                          </div>
+                      );
+                    })}
                  </div>
             </div>
 
