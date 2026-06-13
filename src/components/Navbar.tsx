@@ -33,38 +33,38 @@ const MiniCart = ({ cart, isOpen, showImages }: { cart: any[], isOpen: boolean, 
             <span className="text-[10px] font-black text-white bg-gradient-to-r from-indigo-500 to-purple-600 px-2.5 py-0.5 rounded-full uppercase tracking-wider">{cart.length}</span>
           </div>
           
-          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1 no-scrollbar">
+          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 no-scrollbar text-[12px]">
             {cart.length === 0 ? (
-              <div className="text-center py-8 text-stone-400">
-                <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <ShoppingBag size={20} className="text-indigo-400" />
+              <div className="text-center py-6 text-stone-400">
+                <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-2">
+                  <ShoppingBag size={18} className="text-indigo-400" />
                 </div>
-                <p className="text-xs font-bold uppercase tracking-widest">{t('no_items') || 'Your cart is empty'}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest">{t('no_items') || 'Your bag is empty'}</p>
               </div>
             ) : (
               itemsToShow.map((item) => (
-                <div key={item.id} className="flex items-center space-x-3 group/item">
+                <div key={item.id} className="flex items-center space-x-2.5 group/item py-0.5">
                   {showImages ? (
-                    <div className="w-12 h-12 bg-stone-50 rounded-xl overflow-hidden shrink-0 border border-stone-100">
+                    <div className="w-10 h-10 bg-stone-50 rounded-lg overflow-hidden shrink-0 border border-stone-100">
                       <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover/item:scale-110 transition-transform duration-500" />
                     </div>
                   ) : (
-                    <div className="w-12 h-12 flex items-center justify-center bg-stone-50 rounded-xl border border-stone-100 text-stone-400 shrink-0">
-                      <Camera size={16} />
+                    <div className="w-10 h-10 flex items-center justify-center bg-stone-50 rounded-lg border border-stone-100 text-stone-400 shrink-0">
+                      <Camera size={14} />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-stone-800 truncate">{item.name}</p>
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">{item.quantity} x ₹{item.price}</p>
+                    <p className="text-[11px] font-bold text-stone-800 line-clamp-2 leading-tight pr-2">{item.name}</p>
+                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">{item.quantity} x ₹{item.price}</p>
                   </div>
-                  <p className="font-extrabold text-xs text-stone-900">₹{item.price * item.quantity}</p>
+                  <p className="font-black text-[11px] text-stone-900 shrink-0">₹{item.price * item.quantity}</p>
                 </div>
               ))
             )}
             {cart.length > 5 && (
-              <p className="text-[10px] text-center font-bold text-indigo-500 uppercase tracking-widest pt-2 flex items-center justify-center gap-1">
+              <p className="text-[9px] text-center font-black text-indigo-500 uppercase tracking-widest pt-1 flex items-center justify-center gap-1">
                 <span>+ {cart.length - 5} more items</span>
-                <ArrowRight size={10} />
+                <ArrowRight size={8} />
               </p>
             )}
           </div>

@@ -160,12 +160,10 @@ function AnimatedRoutes() {
     setNewsletterEmail('');
   };
 
-  console.log('[ANIMATED_ROUTES] Rendering routes for path:', location.pathname, { isAuthChecking, isInitialAuthPerformed });
-
   if (isAuthChecking && !isInitialAuthPerformed) {
-    console.log('[ANIMATED_ROUTES] Showing initial loading screen');
     return <LoadingFallback message="Initializing store..." />;
   }
+
 
   if (isMaintenance && !isAdmin) {
     return (
@@ -228,10 +226,6 @@ function AnimatedRoutes() {
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  useEffect(() => {
-    console.log(`[PAGE_WRAPPER] Mounted for path: ${location.pathname}`);
-  }, [location.pathname]);
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 15 }}
@@ -313,7 +307,6 @@ export default function App() {
           onConfirm={performLogout} 
         />
         <main className="flex-1 pb-24 md:pb-0 relative">
-          <AdminDiagnosticPanel />
           <AnimatedRoutes />
         </main>
         <MobileBottomNav />

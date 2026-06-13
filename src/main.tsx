@@ -38,17 +38,14 @@ try {
           inputUrl = input.url;
         }
 
-        // 1. Auto-correct hardcoded localhost URLs to relative
+        // Auto-correct hardcoded localhost URLs to relative
         if (inputUrl && inputUrl.includes('localhost:3000')) {
-          console.warn('[Fetch Interceptor] Auto-correcting localhost:', inputUrl);
           inputUrl = inputUrl.replace(/https?:\/\/localhost:3000/, '');
           if (inputUrl === '') inputUrl = '/';
         }
         
-        // 1b. Support spaces / URL-encoded spaces and absolute url transformations
         if (inputUrl) {
           if (inputUrl.includes(' ') || inputUrl.includes('%20')) {
-            console.warn('[Fetch Interceptor] Auto-correcting malformed concatenated URL:', inputUrl);
             const decoded = decodeURIComponent(inputUrl);
             const parts = decoded.split(/\s+/).map(p => p.trim()).filter(Boolean);
             if (parts.length > 0) {

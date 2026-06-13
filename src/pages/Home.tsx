@@ -7,6 +7,7 @@ import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
+import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
 import LoadingFallback from '@/components/LoadingFallback';
 
 import AppCrashBoundary from '@/components/AppCrashBoundary';
@@ -132,9 +133,9 @@ function HomeInner() {
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.3 }}
-                    className="flex-1 w-full md:w-auto relative"
+                    className="flex-1 w-full md:w-auto relative rounded-[3rem] overflow-hidden shadow-2xl"
                   >
-                     <img src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="rounded-[3rem] shadow-2xl w-full h-[500px] object-cover" alt="Banner" />
+                     <ProgressiveImage src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="w-full h-[500px]" alt="Banner" />
                   </motion.div>
                </div>
             </motion.div>
@@ -171,8 +172,8 @@ function HomeInner() {
                 </Link>
               </div>
             </div>
-            <div className="flex-1 w-full md:w-auto relative">
-               <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800" className="rounded-[3rem] shadow-2xl w-full h-[500px] object-cover" alt="Fresh Groceries" />
+            <div className="flex-1 w-full md:w-auto relative rounded-[3rem] overflow-hidden shadow-2xl">
+               <ProgressiveImage src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800" className="w-full h-[500px]" alt="Fresh Groceries" />
             </div>
          </div>
         )}

@@ -10,6 +10,7 @@ import {
 import { Link, useLocation } from 'react-router-dom';
 import { Product, cn } from '@/types';
 import { useStore } from '@/StoreContext';
+import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
 import { useDeviceType } from '@/lib/device';
 import toast from 'react-hot-toast';
 import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '@/firebase';
@@ -346,11 +347,10 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
               <div className="flex flex-col md:flex-row max-h-[90vh] md:max-h-none overflow-y-auto md:overflow-visible no-scrollbar">
                 <div className="md:w-1/2 h-[300px] md:h-[600px] relative">
                   {showImages ? (
-                    <img 
+                    <ProgressiveImage 
                       src={quickViewProduct.image_url || `https://picsum.photos/seed/${quickViewProduct.id}/800/800`} 
                       alt={quickViewProduct.name}
-                      className="w-full h-full object-cover bg-stone-100"
-                      referrerPolicy="no-referrer"
+                      className="w-full h-full"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
@@ -836,14 +836,10 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                 className="relative aspect-[4/3] w-[calc(100%+1.5rem)] overflow-hidden block group/image mb-2 -mx-3 -mt-3 rounded-t-2xl bg-stone-50"
               >
                 {showImages ? (
-                  <motion.img 
+                  <ProgressiveImage 
                     src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
                     alt={product.name}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    whileHover={{ scale: 1.1 }}
-                    transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-                    className="w-full h-full object-cover bg-stone-100 animate-fade-in"
+                    className="w-full h-full"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">

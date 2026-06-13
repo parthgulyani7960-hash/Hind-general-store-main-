@@ -82,6 +82,10 @@ export default function Login() {
       const { token } = result;
       
       toast.loading('Registering session and setting up your dashboard...', { id: 'auth-loader' });
+      
+      // Artificial delay to simulate identity handshake and security parameter synchronization (User Request: "Add some delay and lag")
+      await new Promise(resolve => setTimeout(resolve, 2400));
+
       const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

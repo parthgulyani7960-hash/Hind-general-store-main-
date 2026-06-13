@@ -799,8 +799,14 @@ export default function Profile() {
     }
 
     setIsSavingProfile(true);
+    const toastId = toast.loading('Synchronizing profile parameters with secure cloud vault...', { id: 'profile-save-pulse' });
+    
     try {
+      // Artificial delay to simulate profile security validation (User Request: "Add some delay and lag")
+      await new Promise(resolve => setTimeout(resolve, 2800));
+
       await updateProfile(formData);
+      toast.success('Your profile has been securely updated.', { id: toastId });
       setIsEditing(false);
     } catch (err: any) {
       console.error('[CRITICAL] Profile update error:', err);

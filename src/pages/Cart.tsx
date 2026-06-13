@@ -160,7 +160,7 @@ export default function Cart() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 pb-32">
+    <div className="max-w-7xl mx-auto px-4 py-8 pb-32 no-scrollbar">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-8 border-b border-stone-100 pb-6">
         <div>
           <h1 className="text-4xl font-black text-stone-900 tracking-tighter">My Bag</h1>
@@ -227,7 +227,7 @@ export default function Cart() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
-        <div className="lg:col-span-8 space-y-4">
+        <div className="lg:col-span-8 space-y-2 no-scrollbar">
           <AnimatePresence mode="popLayout">
             {cartWithDiscounts.map((item, index) => (
               <motion.div 
@@ -241,55 +241,55 @@ export default function Cart() {
                   delay: index * 0.05,
                   ease: [0.22, 1, 0.36, 1]
                 }}
-                className="bg-white p-4 rounded-2xl border border-stone-100 flex items-center gap-4 hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/50 transition-all duration-300 group/item"
+                className="bg-white p-2 sm:p-2.5 rounded-2xl border border-stone-100 flex items-center gap-2.5 sm:gap-3 hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/50 transition-all duration-300 group/item"
               >
-                <div className="relative shrink-0 overflow-hidden rounded-2xl">
+                <div className="relative shrink-0 overflow-hidden rounded-xl">
                   {showImages ? (
                     <motion.img 
-                      whileHover={{ scale: 1.1 }}
+                      whileHover={{ scale: 1.05 }}
                       transition={{ duration: 0.6 }}
                       src={item.image_url} 
-                      className="w-28 h-28 object-cover" 
+                      className="w-14 h-14 sm:w-16 sm:h-16 object-cover" 
                       alt={item.name} 
                       loading="lazy"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="w-28 h-28 flex items-center justify-center bg-stone-100 text-stone-400">
-                      <Camera size={32} />
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center bg-stone-100 text-stone-400">
+                      <Camera size={18} />
                     </div>
                   )}
                   {item.discount > 0 && (
-                    <div className="absolute top-2 left-2 bg-red-500 text-white text-[8px] font-black uppercase px-2 py-1 rounded-lg shadow-lg">
+                    <div className="absolute top-1 left-1 bg-red-500 text-white text-[6px] font-black uppercase px-1 py-0.5 rounded shadow-lg">
                       {item.discount}% OFF
                     </div>
                   )}
                 </div>
                 
                 <div className="flex-1 min-w-0">
-                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <h3 className="font-black text-xl text-stone-900 group-hover/item:text-primary transition-colors truncate">{item.name}</h3>
-                      <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-1">
+                    <div className="space-y-0.5">
+                      <h3 className="font-black text-xs sm:text-sm text-stone-900 group-hover/item:text-primary transition-colors line-clamp-2 leading-tight uppercase tracking-tight">{item.name}</h3>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                         {item.selectedVariant && (
-                          <span className="bg-stone-100 text-stone-600 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg">
+                          <span className="bg-stone-100 text-stone-600 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md">
                             {item.selectedVariant.name}
                           </span>
                         )}
-                        <span className="text-[10px] font-bold text-stone-400">₹{item.finalPrice} / {item.unit}</span>
+                        <span className="text-[10px] font-black text-stone-400 italic">₹{item.finalPrice} / {item.unit}</span>
                       </div>
                     </div>
                     
                     <div className="text-right">
                       <div className="flex flex-col items-end">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-1.5">
                           {(item.basePrice !== item.finalPrice) && (
-                            <span className="text-stone-300 text-sm line-through font-medium italic">₹{item.basePrice * item.quantity}</span>
+                            <span className="text-stone-300 text-[9px] line-through font-medium italic">₹{item.basePrice * item.quantity}</span>
                           )}
-                          <span className="font-black text-2xl text-stone-900 tracking-tighter italic">₹{item.finalPrice * item.quantity}</span>
+                          <span className="font-black text-base sm:text-lg text-stone-900 tracking-tighter italic">₹{item.finalPrice * item.quantity}</span>
                         </div>
                         {item.bulkDiscountAmount > 0 && (
-                          <span className="bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-tighter px-2 py-0.5 rounded-md mt-1">
+                          <span className="bg-emerald-50 text-emerald-600 text-[8px] font-extrabold uppercase tracking-tighter px-1 rounded-md mt-0.5">
                             Save ₹{item.bulkDiscountAmount * item.quantity}
                           </span>
                         )}
@@ -297,43 +297,52 @@ export default function Cart() {
                     </div>
                   </div>
 
-                  <div className="mt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center space-x-2 bg-stone-50 rounded-2xl p-1.5 border border-stone-100">
+                  <div className="mt-2 flex flex-row items-center justify-between gap-2">
+                    <div className="flex items-center space-x-1 bg-stone-50 rounded-lg p-0.5 border border-stone-100">
                       <button 
-                        onClick={() => updateQuantity(item.id, -1, item.selectedVariant?.id)} 
-                        className="w-10 h-10 flex items-center justify-center hover:bg-white hover:text-primary active:scale-90 rounded-xl transition-all shadow-sm"
+                        onClick={async () => {
+                          if (item.quantity === 1) {
+                            removeFromCart(item.id, item.selectedVariant?.id);
+                          } else {
+                            updateQuantity(item.id, -1, item.selectedVariant?.id);
+                          }
+                        }}
+                        className="w-5 h-5 flex items-center justify-center hover:bg-white hover:text-primary active:scale-90 rounded-md transition-all shadow-sm"
                       >
-                        <Minus size={16} strokeWidth={3} />
+                        <Minus size={9} strokeWidth={3} />
                       </button>
-                      <span className="font-black text-lg w-12 text-center text-stone-900 select-none">
+                      <span className="font-black text-[10px] w-4 text-center text-stone-900 select-none">
                         {item.quantity}
                       </span>
                       <button 
-                        onClick={() => updateQuantity(item.id, 1, item.selectedVariant?.id)} 
-                        className="w-10 h-10 flex items-center justify-center bg-white text-stone-800 hover:text-primary active:scale-90 rounded-xl transition-all shadow-md shadow-stone-200/50"
+                        onClick={async () => {
+                          updateQuantity(item.id, 1, item.selectedVariant?.id);
+                        }} 
+                        className="w-5 h-5 flex items-center justify-center bg-white text-stone-800 hover:text-primary active:scale-90 rounded-md transition-all shadow-sm"
                       >
-                        <Plus size={16} strokeWidth={3} />
+                        <Plus size={9} strokeWidth={3} />
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5">
+
                       {item.nextTier && (
                         <motion.div 
                           initial={{ opacity: 0, x: 10 }}
                           animate={{ opacity: 1, x: 0 }}
-                          className="hidden md:flex items-center space-x-2 text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-3 py-2 rounded-xl border border-amber-100"
+                          className="hidden md:flex items-center space-x-1.5 text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg border border-amber-100"
                         >
-                          <Tag size={12} className="animate-bounce" />
-                          <span>+ {item.nextTier.min_qty - item.quantity} to save more!</span>
+                          <Tag size={9} className="animate-bounce" />
+                          <span>+ {item.nextTier.min_qty - item.quantity} to save</span>
                         </motion.div>
                       )}
                       
                       <button 
                         onClick={() => removeFromCart(item.id, item.selectedVariant?.id)}
-                        className="p-3 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all group/del"
+                        className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                         title="Remove Item"
                       >
-                        <Trash2 size={20} className="group-hover/del:scale-110 transition-transform" />
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </div>

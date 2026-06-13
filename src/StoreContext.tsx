@@ -466,8 +466,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const addToCart = (product: Product, variant?: any, quantity: number = 1) => {
+  const addToCart = async (product: Product, variant?: any, quantity: number = 1) => {
     isCartCacheDirtyRef.current = true;
+    
+    // Artificial delay to simulate cloud inventory lock (User Request: "Add some delay and lag")
+    await new Promise(resolve => setTimeout(resolve, 350));
+    
     setCart(prev => {
         const existing = prev.find(item => item.id === product.id && (variant ? item.variantId === variant.id : !item.variantId));
         if (existing) {

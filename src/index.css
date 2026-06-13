@@ -79,6 +79,14 @@ textarea {
     );
   }
 
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
   /* Responsive Table Wrapper */
   .responsive-table-container {
     @apply w-full overflow-x-auto rounded-3xl border border-stone-100 bg-white;

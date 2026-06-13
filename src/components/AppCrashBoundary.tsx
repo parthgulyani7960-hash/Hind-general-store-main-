@@ -190,71 +190,70 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
           <div className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl border border-stone-100 p-8 md:p-10 relative overflow-hidden text-center z-10 transition-all font-sans">
             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-500 via-red-500 to-indigo-500" />
             
-            {/* Soft pulsing yellow/red badge */}
-            <div className="w-20 h-20 bg-amber-50 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-amber-100/50 text-amber-600 animate-pulse">
+            {/* Warning Badge */}
+            <div className="w-20 h-20 bg-amber-50 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-amber-100/50 text-amber-600">
               <AlertTriangle size={36} strokeWidth={2} />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-black text-stone-900 tracking-tight leading-tight mb-3 text-center">
+            <h1 className="text-3xl font-black text-stone-900 tracking-tight leading-tight mb-3 text-center">
               Temporarily Unavailable
             </h1>
             
-            <p className="text-stone-500 text-xs font-medium leading-relaxed mb-8 max-w-sm mx-auto text-center">
+            <p className="text-stone-500 text-sm font-medium leading-relaxed mb-10 max-w-sm mx-auto text-center">
               The store is experiencing a brief technical interruption. We've automatically sent a diagnostic report to our team so they can resolve this for you immediately.
             </p>
 
-            {/* Diagnostic Box - Fully Submitted */}
-            <div className="bg-emerald-50/70 border border-emerald-100/80 rounded-2xl p-5 mb-8 text-left space-y-3">
-              <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+            {/* System Status Box (User Friendly) */}
+            <div className="bg-emerald-50/70 border border-emerald-100/80 rounded-2xl p-6 mb-8 text-left space-y-4">
+              <div className="flex items-center gap-2 text-emerald-800 font-black text-[10px] uppercase tracking-[0.2em]">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Unified Crash Sentinel Status</span>
+                <span>Automated Status Monitor</span>
               </div>
-              <p className="text-[11px] font-semibold text-emerald-700/90 leading-snug">
-                An immediate diagnostic snapshot containing chronological trace logs, user authentication context, error indicators, and stack execution parameters was securely logged.
+              <p className="text-[12px] font-bold text-emerald-700/90 leading-snug">
+                Our monitoring system detected an unusual pattern. A secure snapshot was logged to help our maintenance team restore full service.
               </p>
               
-              <div className="pt-2.5 border-t border-emerald-100/20 grid grid-cols-2 gap-3 text-[10px] font-mono text-emerald-800">
-                <div className="text-left">
-                  <span className="text-emerald-600 font-bold block uppercase tracking-wider text-[8px] mb-0.5">Timestamp</span>
-                  <span className="font-bold">{new Date().toLocaleString()}</span>
+              <div className="pt-3 border-t border-emerald-100/30 flex justify-between gap-4 text-[10px] font-bold text-emerald-800/60 uppercase tracking-widest">
+                <div>
+                  <span className="block opacity-50 mb-1">Logged At</span>
+                  <span className="font-black text-emerald-800">{new Date().toLocaleTimeString()}</span>
                 </div>
-                <div className="text-left">
-                  <span className="text-emerald-600 font-bold block uppercase tracking-wider text-[8px] mb-0.5">Active Screen</span>
-                  <span className="font-bold truncate block">{window.location.pathname}</span>
+                <div className="text-right">
+                  <span className="block opacity-50 mb-1">Active View</span>
+                  <span className="font-black text-emerald-800">{window.location.pathname}</span>
                 </div>
               </div>
             </div>
 
-            {/* Copy Diagnostics option */}
-            <div className="flex flex-col gap-3 mb-8">
+            {/* Diagnostic Copy (Support Use) */}
+            <div className="mb-8">
               <button
                 onClick={this.handleCopyDiagnostics}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-stone-50 hover:bg-stone-100 active:scale-[0.99] border border-stone-200/60 rounded-xl text-[10px] font-bold font-mono text-stone-600 transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-stone-50 hover:bg-stone-100 active:scale-[0.99] border border-stone-200/60 rounded-2xl text-[10px] font-bold text-stone-400 transition-all cursor-pointer uppercase tracking-widest"
               >
-                {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-                <span>{copied ? 'Diagnostic Parameters Copied!' : 'Copy Diagnostic Parameters (if requested by support)'}</span>
+                {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={12} />}
+                <span>{copied ? 'Reference Code Copied!' : 'Copy Reference Code (for support)'}</span>
               </button>
             </div>
 
-            {/* Main Action Resolvers */}
-            <div className="space-y-4">
-              <button
-                onClick={() => window.location.reload()}
-                className="w-full bg-stone-900 hover:bg-slate-800 text-white font-bold py-4 px-6 rounded-2xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer text-xs uppercase tracking-widest"
-              >
-                <RefreshCw size={14} className="animate-spin animate-duration-1000" />
-                <span>Reload Hind Store</span>
-              </button>
-            </div>
+            {/* Reload Action */}
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-stone-900 hover:bg-slate-800 text-white font-black py-5 px-6 rounded-[2rem] shadow-xl shadow-stone-900/10 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm uppercase tracking-[0.2em]"
+            >
+              <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-700" />
+              <span>Reload Hind Store</span>
+            </button>
             
-            {/* Visual assurance block */}
-            <div className="mt-8 pt-6 border-t border-stone-100 flex justify-center gap-4 items-center text-[9px] text-stone-400 font-black uppercase tracking-widest">
-              <span className="flex items-center gap-1 select-none">
-                ✓ Automated Tracking Active
+            {/* Minimalist Footnotes */}
+            <div className="mt-10 pt-6 border-t border-stone-100 flex justify-center gap-6 items-center text-[9px] text-stone-300 font-black uppercase tracking-[0.3em]">
+              <span className="flex items-center gap-1.5">
+                <div className="w-1 h-1 rounded-full bg-stone-200" />
+                Tracking Active
               </span>
-              <span className="text-stone-300">•</span>
-              <span className="flex items-center gap-1 select-none">
-                No user action required
+              <span className="flex items-center gap-1.5">
+                <div className="w-1 h-1 rounded-full bg-stone-200" />
+                No User Action Required
               </span>
             </div>
           </div>

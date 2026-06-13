@@ -4,6 +4,7 @@ import { Search, X, Star, Zap, ShoppingCart, Minus, Plus, Camera, Filter, Maximi
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { cn, Product } from '@/types';
+import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
 import { fetchWithHandling } from '@/lib/api';
 
 export default function SearchOverlay({
@@ -27,7 +28,7 @@ export default function SearchOverlay({
   const [maxPrice, setMaxPrice] = useState<string>('');
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
 
-  // Automatically close search overlay on any route change!
+  // Close on route change
   useEffect(() => {
     onClose();
   }, [location.pathname]);
@@ -58,18 +59,28 @@ export default function SearchOverlay({
 
   const categories = useMemo(() => ['All', ...new Set(products.map(p => p.category))], [products]);
 
-  const filteredProducts = useMemo(() => {
-    const searchTerms = searchQuery.toLowerCase().trim().split(' ').filter(Boolean);
-    const fullSearch = searchQuery.toLowerCase().trim();
-
-    if (searchTerms.length === 0) {
-      return [];
+  useEffect(() => {
+    if (searchQuery) {
+        setLoading(true);
+        const timer = setTimeout(() => setLoading(false), 500);
+        return () => clearTimeout(timer);
     }
+  }, [searchQuery]);
+
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+
+    const query = searchQuery.toLowerCase().trim();
+    // Improved regex for words including support for many scripts (Hindi included)
+    const searchTerms = query.split(/[\s,]+/).filter(Boolean);
 
     const baseFiltered = products.filter(p => {
       const activePrice = getProductPrice(p, user?.role);
       
-      const searchableText = `${p.name} ${p.description} ${p.category}`.toLowerCase();
+      const specText = Object.values(p.specifications || {}).join(' ').toLowerCase();
+      const searchableText = `${p.name} ${p.description || ''} ${p.category} ${p.unit || ''} ${specText}`.toLowerCase();
+      
+      // Match if all search terms are found in searchable text
       const matchesSearch = searchTerms.every(term => searchableText.includes(term));
 
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
@@ -84,33 +95,19 @@ export default function SearchOverlay({
       const getScore = (product: Product) => {
         let score = 0;
         const name = (product.name || '').toLowerCase();
-        const desc = (product.description || '').toLowerCase();
-        const cat = (product.category || '').toLowerCase();
-
-        // Exact match
-        if (name === fullSearch) score += 2000;
-        else if (name.startsWith(fullSearch)) score += 1000;
         
-        // Exact name word matches
-        const nameWords = name.split(' ');
+        // Boost exact matches or prefix matches in name
+        if (name === query) score += 5000;
+        else if (name.startsWith(query)) score += 2000;
+        else if (name.includes(query)) score += 1000;
+
+        // Word-based scoring
         searchTerms.forEach(term => {
-          if (nameWords.includes(term)) score += 500;
-          if (name.includes(term)) score += 200;
+            if (name.includes(term)) score += 500;
         });
-
-        // Category boosts
-        if (cat === fullSearch) score += 300;
-        if (cat.includes(fullSearch)) score += 100;
-
-        // Sentiment/Description boosts
-        if (desc.includes(fullSearch)) score += 50;
-
-        // Popularity boost
-        score += ((product as any).sales_count || 0) * 0.1;
 
         return score;
       };
-
       return getScore(b) - getScore(a);
     });
   }, [products, searchQuery, selectedCategory, minPrice, maxPrice, selectedRating, getProductPrice, user?.role]);
@@ -274,7 +271,7 @@ export default function SearchOverlay({
             </div>
 
             {/* Results Grid */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-stone-50/30">
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-stone-50/30 no-scrollbar">
                {loading ? (
                  <div className="flex items-center justify-center h-full">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -326,7 +323,7 @@ export default function SearchOverlay({
                                   {product.discount > 0 && <div className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 rounded-[0.5rem] text-[10px] font-black uppercase tracking-widest shadow-xl shadow-red-500/20 animate-pulse">{product.discount}% OFF</div>}
                                   <div className="aspect-square relative overflow-hidden bg-stone-100 shrink-0">
                                     {isFeatureImages ? (
-                                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                      <ProgressiveImage src={product.image_url} alt={product.name} className="w-full h-full" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-stone-300"><Camera size={32} /></div>
                                     )}

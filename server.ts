@@ -1,4 +1,4 @@
-console.log('[BOOT STEP 1] Starting server.ts execution');
+console.log('--- System Core Initialization Starting ---');
 process.on('warning', (warning) => console.warn('[NODE_WARNING]', warning));
 
 // Privacy & Security Logger Redactor
@@ -109,7 +109,7 @@ import { logger } from './src/lib/logger';
 
 console.log('[BOOT] Dotenv loaded');
 validateEnvCheck();
-logger.info('Environment validation completed.');
+logger.info('Secure environment validation engaged.');
 import cron from 'node-cron';
 import 'express-session';
 
@@ -160,7 +160,7 @@ const rateLimiter = (options: { limit: number, windowMs: number }) => rateLimit(
 });
 
 console.log('[BOOT] Initializing Rate Limiters...');
-console.log('[BOOT STEP 2] Configuring Express instances and middleware...');
+console.log('--- Bootstrapping Core Instances ---');
 console.log('[BOOT STEP 2.1] Constants and Rate Limiters initialized');
 const limits = {
   admin: rateLimiter({ limit: 5000, windowMs: 60 * 1000 }),
@@ -201,7 +201,7 @@ function validateEnvironment() {
 }
 
 // Initialize Firebase Admin (rest of code)
-console.log('[BOOT 1] Firebase initialization started');
+console.log('--- Establishing Secure Connectivity ---');
 const STATIC_BASELINE_CONFIG = {
   projectId: "studio-8565200409-a3bd2",
   appId: "1:998402666181:web:a2e3847085e9ec08394aac",
@@ -942,7 +942,7 @@ const generateRequestId = () => Math.random().toString(36).substring(2, 11);
 
 
 
-console.log('[BOOT] Setting up global error handlers');
+console.log('--- Request Logic Pipeline Active ---');
 // --- GLOBAL PROCESS ERROR HANDLERS ---
 process.on('uncaughtException', (err) => {
   console.error('FATAL: Uncaught Exception:', err);

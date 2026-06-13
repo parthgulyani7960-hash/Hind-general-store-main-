@@ -11,6 +11,7 @@ import { ImageGalleryModal } from '@/components/ImageGalleryModal';
 import { ReviewSection } from '@/components/ReviewSection';
 import { Product, Review, cn } from '@/types';
 import { useStore } from '@/StoreContext';
+import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
 import toast from 'react-hot-toast';
 import { triggerFeedback } from '@/App';
 import { handleAppError } from '@/lib/incidentUtils';
@@ -405,25 +406,14 @@ export default function ProductDetail() {
             </button>
             <AnimatePresence mode="wait">
               {showImages ? (
-                <motion.img 
-                  key={activeImage}
-                  initial={{ opacity: 0, x: 100 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -100 }}
-                  src={allImages[activeImage]} 
-                  alt={product.name} 
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover cursor-grab active:cursor-grabbing" 
-                  drag="x"
-                  dragConstraints={{ left: 0, right: 0 }}
-                  dragElastic={1}
-                  onDragEnd={(e, { offset, velocity }) => {
-                    const swipe = Math.abs(offset.x) * velocity.x;
-                    if (swipe < -10000) setActiveImage((prev) => (prev === allImages.length - 1 ? 0 : prev + 1));
-                    else if (swipe > 10000) setActiveImage((prev) => (prev === 0 ? allImages.length - 1 : prev - 1));
-                  }}
-                />
+                <div className="w-full h-full">
+                  <ProgressiveImage
+                    src={allImages[activeImage]} 
+                    alt={product.name}
+                    className="w-full h-full"
+                  />
+                  {/* Note: Drag functionality removed for better LCP, navigation via arrows is preserved */}
+                </div>
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
                   <Camera size={64} />
@@ -482,7 +472,7 @@ export default function ProductDetail() {
                   )}
                 >
                   {showImages ? (
-                    <img src={img} className="w-full h-full object-cover" alt={`Thumbnail ${i}`} loading="lazy" referrerPolicy="no-referrer" />
+                    <ProgressiveImage src={img} className="w-full h-full" alt={`Thumbnail ${i}`} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
                       <Camera size={20} />
