@@ -97,6 +97,7 @@ export default function Navbar() {
   }, [user, isUserAdmin]);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
   const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,9 +105,14 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Close menus when clicking outside
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    const handleOutsideClick = () => {
+      setIsAvatarMenuOpen(false);
+      setIsMiniCartOpen(false);
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
 
   useEffect(() => {
@@ -288,57 +294,62 @@ export default function Navbar() {
 
             {/* Custom Interactive Avatar Dropdown Menu */}
             {user ? (
-              <div className="hidden md:block group relative">
-                <button className="flex items-center space-x-2 bg-slate-50 hover:bg-indigo-50/50 px-3.5 py-1.75 rounded-full border border-slate-200/60 transition-all outline-none focus:ring-4 focus:ring-indigo-100 shrink-0">
+              <div className="hidden md:block relative">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsAvatarMenuOpen(!isAvatarMenuOpen); }}
+                  className="flex items-center space-x-2 bg-slate-50 hover:bg-indigo-50/50 px-3.5 py-1.75 rounded-full border border-slate-200/60 transition-all outline-none focus:ring-4 focus:ring-indigo-100 shrink-0"
+                >
                   <UserAvatar user={user} size="sm" />
                   <span className="text-xs font-bold text-slate-700 truncate max-w-[85px] leading-tight">
                     {user.name && user.name !== 'undefined' ? user.name : 'Account'}
                   </span>
-                  <ChevronDown size={13} className="text-slate-400 transition-transform duration-300 group-hover:rotate-180" />
+                  <ChevronDown size={13} className={cn("text-slate-400 transition-transform duration-300", isAvatarMenuOpen && "rotate-180")} />
                 </button>
                 
                 {/* Custom popup card menu */}
-                <div className="absolute right-0 top-full pt-3.5 w-56 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 transform group-hover:translate-y-0 translate-y-1.5">
-                  <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl shadow-slate-200/80 border border-slate-100 p-2.5 space-y-1">
-                    <div className="px-3.5 py-2">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Signed in as</p>
-                      <p className="text-xs font-black text-slate-800 truncate select-all">{user.email}</p>
-                    </div>
-                    <div className="h-px bg-slate-100 mx-2" />
-                    
-                    <Link to="/profile" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
-                      <User size={14} className="text-slate-400" />
-                      <span>My Profile</span>
-                    </Link>
-
-                    <Link to="/profile?edit=true" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
-                      <Settings size={14} className="text-slate-400" />
-                      <span>Account Settings</span>
-                    </Link>
-                    
-                    <Link to="/history?tab=orders" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all">
-                      <Clock size={14} className="text-slate-400" />
-                      <span>My Orders</span>
-                    </Link>
-
-                    {isUserAdmin && (
-                      <Link to="/admin" className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50/80 rounded-xl transition-all">
-                        <ShieldCheck size={14} className="text-indigo-500" />
-                        <span>Admin Panel</span>
+                {isAvatarMenuOpen && (
+                  <div className="absolute right-0 top-full pt-3.5 w-56 z-50 transform">
+                    <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl shadow-slate-200/80 border border-slate-100 p-2.5 space-y-1">
+                      <div className="px-3.5 py-2">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Signed in as</p>
+                        <p className="text-xs font-black text-slate-800 truncate select-all">{user.email}</p>
+                      </div>
+                      <div className="h-px bg-slate-100 mx-2" />
+                      
+                      <Link to="/profile" onClick={() => setIsAvatarMenuOpen(false)} className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
+                        <User size={14} className="text-slate-400" />
+                        <span>My Profile</span>
                       </Link>
-                    )}
 
-                    <div className="h-px bg-slate-100 my-1 mx-2" />
-                    
-                    <button 
-                      onClick={logout} 
-                      className="w-full flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      <LogOut size={14} className="text-red-400" />
-                      <span>Logout</span>
-                    </button>
+                      <Link to="/profile?edit=true" onClick={() => setIsAvatarMenuOpen(false)} className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all">
+                        <Settings size={14} className="text-slate-400" />
+                        <span>Account Settings</span>
+                      </Link>
+                      
+                      <Link to="/history?tab=orders" onClick={() => setIsAvatarMenuOpen(false)} className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all">
+                        <Clock size={14} className="text-slate-400" />
+                        <span>My Orders</span>
+                      </Link>
+
+                      {isUserAdmin && (
+                        <Link to="/admin" onClick={() => setIsAvatarMenuOpen(false)} className="flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50/80 rounded-xl transition-all">
+                          <ShieldCheck size={14} className="text-indigo-500" />
+                          <span>Admin Panel</span>
+                        </Link>
+                      )}
+
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      
+                      <button 
+                        onClick={() => { logout(); setIsAvatarMenuOpen(false); }}
+                        className="w-full flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer"
+                      >
+                        <LogOut size={14} className="text-red-400" />
+                        <span>Logout</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             ) : (
               <Link 

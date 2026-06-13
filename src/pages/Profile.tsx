@@ -6,7 +6,7 @@ import {
   ChevronRight, Camera, LogOut, Settings, Bell, CreditCard, 
   History, Wallet, Info, MessageSquare, ExternalLink, Activity, Globe, Plus, X,
   Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy, Navigation2, MoreVertical,
-  ArrowRight, ShieldCheck, Book, TrendingUp, Maximize2
+  ArrowRight, ShieldCheck, Book, TrendingUp, Maximize2, Lock
 } from 'lucide-react';
 import { useStore } from '@/StoreContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
@@ -178,6 +178,32 @@ export default function Profile() {
   const [isPurging, setIsPurging] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [exportTimeLeft, setExportTimeLeft] = useState(60);
+
+  useEffect(() => {
+    let timer: any;
+    if (showExportModal && exportUrl) {
+      setExportTimeLeft(60);
+      timer = setInterval(() => {
+        setExportTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setShowExportModal(false);
+            if (exportUrl) {
+              URL.revokeObjectURL(exportUrl);
+            }
+            setExportUrl(null);
+            toast.error('The secure viewing session has expired for your privacy.');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [showExportModal, exportUrl]);
 
   const handleExportData = async () => {
     setIsExporting(true);
@@ -187,13 +213,14 @@ export default function Profile() {
       const { generateUserExportPDF } = await import('../services/pdfService');
       const doc = await generateUserExportPDF(data);
       
+      // Output as blob URL for secure, temporary previewing
       const blob = doc.output('blob');
       const url = URL.createObjectURL(blob);
       setExportUrl(url);
       setShowExportModal(true);
       
-      toast.success('Your professional activity report is ready!');
-      logActivity('DATA_EXPORT', `User generated personal data dossier PDF`);
+      toast.success('Your secure account data archive has been compiled!');
+      logActivity('DATA_EXPORT', `User generated personal data archive CSV and PDF dossier`);
     } catch (err) {
       console.error('Export failed:', err);
       toast.error('Failed to compile data archive. Please notify admin.');
@@ -907,16 +934,19 @@ export default function Profile() {
   // If user object is missing, redirect/show login.
   if (!user) {
     return (
-      <div className="flex h-screen items-center justify-center p-4">
-        <div className="p-8 bg-white rounded-2xl shadow-xl text-center border border-stone-100">
-            <h2 className="text-xl font-bold text-stone-900 mb-4">Account session inactive</h2>
-            <p className="text-stone-500 mb-6">Please log in to continue managing your profile.</p>
+      <div className="flex h-screen items-center justify-center p-4 bg-stone-50">
+        <div className="p-8 bg-white rounded-3xl shadow-xl text-center border border-stone-200/50 max-w-sm w-full">
+            <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 text-emerald-600">
+              <Lock size={24} />
+            </div>
+            <h2 className="text-xl font-bold text-stone-900 mb-2 font-sans">Please log in to continue</h2>
+            <p className="text-stone-500 mb-6 text-xs">Account login is required to view your profile settings.</p>
             <p className="text-xs text-stone-400 mb-6 italic">{details}</p>
             <button 
               onClick={() => navigate('/login')}
-              className="px-6 py-2 bg-amber-500 text-white rounded-full font-bold shadow-lg hover:shadow-xl transition-all"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-semibold shadow-md shadow-emerald-600/10 hover:shadow-lg transition-all"
             >
-              Sign In
+              Sign In with Google
             </button>
         </div>
       </div>
@@ -3363,63 +3393,85 @@ export default function Profile() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl border border-stone-100 z-[120] text-center"
+              className="relative bg-white rounded-[2.5rem] p-8 w-full max-w-2xl shadow-2xl border border-stone-100 z-[120] text-center flex flex-col md:flex-row gap-6 items-center"
             >
-              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <ShieldCheck size={40} className="animate-pulse" />
-              </div>
-              <h2 className="text-2xl font-black text-stone-900 mb-2 uppercase tracking-tighter italic">Secured Archive</h2>
-              <p className="text-stone-500 text-[11px] font-medium mb-8 leading-relaxed px-4">
-                Your account activity has been compiled into an official secure dossier. Access is restricted via a temporary cryptographic token which will expire shortly.
-              </p>
-              
-              <div className="space-y-3">
-                <button 
-                  onClick={() => {
-                    if (exportUrl) window.open(exportUrl, '_blank');
-                  }}
-                  className="w-full py-4 bg-stone-950 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 shadow-xl shadow-stone-500/20 active:scale-95"
-                >
-                  <Maximize2 size={14} />
-                  <span>View Official Protocol</span>
-                </button>
-                
-                <button 
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = exportUrl || '';
-                    link.download = `HGS_ARCHIVE_${Math.random().toString(36).substring(7).toUpperCase()}.pdf`;
-                    link.click();
-                  }}
-                  className="w-full py-4 bg-stone-50 text-stone-900 border border-stone-200 rounded-2xl font-black uppercase tracking-[0.1em] text-[10px] hover:bg-stone-100 transition-all flex items-center justify-center gap-2 active:scale-95"
-                >
-                  <Download size={14} />
-                  <span>Download Permanent PDF</span>
-                </button>
-              </div>
-              
-              <div className="mt-8 flex flex-col items-center gap-2 opacity-40">
-                <p className="text-[8px] font-mono tracking-widest uppercase">Protocol ID: {Math.random().toString(16).substring(2, 10).toUpperCase()}</p>
-                <div className="h-1 w-24 bg-stone-100 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: "100%" }}
-                    animate={{ width: "0%" }}
-                    transition={{ duration: 300, ease: "linear" }}
-                    className="h-full bg-emerald-500"
-                  />
+              {/* Left Column: Details & Controls */}
+              <div className="flex-1 text-center md:text-left space-y-4">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto md:mx-0 border border-emerald-100/50">
+                  <ShieldCheck size={32} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 justify-center md:justify-start">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest font-mono">Secure Session Authorized</span>
+                  </div>
+                  <h2 className="text-2xl font-black text-stone-900 mt-1 mb-2 uppercase tracking-tight italic">Verified Data Dossier</h2>
+                  <p className="text-stone-500 text-[11px] font-medium leading-relaxed">
+                    Your platform activity record has been generated. View the embedded document below. Access is restricted under a local, temporary secure environment.
+                  </p>
+                </div>
+
+                {/* Session countdown timer */}
+                <div className="bg-stone-50 border border-stone-150 rounded-2xl p-4 text-left">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-wider">Session Remaining</span>
+                    <span className="text-xs font-mono font-black text-emerald-600">{exportTimeLeft}s</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-stone-200/50 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-500 rounded-full transition-all duration-1000 ease-linear"
+                      style={{ width: `${(exportTimeLeft / 60) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-[9px] font-medium text-stone-400 mt-2">
+                    For your information security, this session and temporary URL automatically expires when the countdown is complete.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button 
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = exportUrl || '';
+                      link.download = `HGS_Account_Data_Archive.pdf`;
+                      link.click();
+                      toast.success('Your data archive has been downloaded successfully!');
+                    }}
+                    className="flex-1 py-3.5 bg-stone-900 hover:bg-slate-800 text-white rounded-xl font-black uppercase tracking-[0.1em] text-[10px] transition-all flex items-center justify-center gap-2 hover:shadow-lg shadow-stone-900/10 active:scale-95 cursor-pointer"
+                  >
+                    <Download size={14} />
+                    <span>Download PDF</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowExportModal(false);
+                      if (exportUrl) URL.revokeObjectURL(exportUrl);
+                      setExportUrl(null);
+                    }}
+                    className="flex-1 py-3.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-black uppercase tracking-[0.1em] text-[10px] transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                  >
+                    Close Session
+                  </button>
                 </div>
               </div>
 
-              <button 
-                onClick={() => {
-                  setShowExportModal(false);
-                  if (exportUrl) URL.revokeObjectURL(exportUrl);
-                  setExportUrl(null);
-                }}
-                className="mt-6 text-stone-400 hover:text-stone-600 font-bold text-[9px] uppercase tracking-widest transition-colors"
-              >
-                Close Portal
-              </button>
+              {/* Right Column: Embedded PDF Viewer */}
+              <div className="w-full md:w-[320px] flex flex-col space-y-2">
+                <div className="text-[9px] font-bold text-stone-400 uppercase tracking-wider text-left pl-1 font-mono">
+                  Embedded Presentation
+                </div>
+                <div className="w-full h-[280px] bg-stone-50 rounded-2xl overflow-hidden border border-stone-200 shadow-inner relative flex items-center justify-center text-center">
+                  {exportUrl ? (
+                    <iframe 
+                      src={exportUrl} 
+                      className="w-full h-full border-none rounded-2xl" 
+                      title="Data Dossier Preview"
+                    />
+                  ) : (
+                    <div className="text-stone-400 text-xs p-4">Loading cryptographic data stream...</div>
+                  )}
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

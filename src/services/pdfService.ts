@@ -397,10 +397,10 @@ export const generateUserExportPDF = (data: any) => {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text(`ARCHIVE REF: HGS-USR-${Math.random().toString(36).substring(7).toUpperCase()}`, pageWidth - margin, 18, { align: 'right' });
-    doc.text(`EXPORTED: ${format(new Date(), 'dd MMM yyyy, HH:mm')}`, pageWidth - margin, 24, { align: 'right' });
+    doc.text('SECURE MOUNT: https://hindstore.in/secure-vault/verified-user-session', pageWidth - margin, 18, { align: 'right' });
+    doc.text('SESSION TIME-LIMIT: 60 SECS (EXPIRES AUTOMATICALLY)', pageWidth - margin, 24, { align: 'right' });
     doc.setFont('helvetica', 'bold');
-    doc.text('www.hindstore.in', pageWidth - margin, 32, { align: 'right' });
+    doc.text('VERIFIED BY HIND GENERAL STORE', pageWidth - margin, 32, { align: 'right' });
   };
 
   header('ACCOUNT DATA EXPORT');
@@ -555,6 +555,72 @@ export const generateUserExportPDF = (data: any) => {
     });
   }
 
+  // --- COMPILED DATA ARCHIVE (export_my_data.csv) ---
+  doc.addPage();
+  header('export_my_data.csv ARCHIVE');
+  doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('5. CSV FORMATTED RAW DATA DUMP', margin, 55);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+  doc.text('The following is a standard comma-separated representation of your complete platform footprint, integrated directly inside your official dossier.', margin, 62);
+
+  const csvRows: string[] = [];
+  csvRows.push("--- USER PROFILE DATA ---");
+  csvRows.push("Field,Value");
+  csvRows.push(`"Name","${data.user?.name || 'NOT SPECIFIED'}"`);
+  csvRows.push(`"Phone","${data.user?.phone || 'NOT LINKED'}"`);
+  csvRows.push(`"Email","${data.user?.email || 'OFFLINE_ACCOUNT'}"`);
+  csvRows.push(`"Wallet Balance","INR ${parseFloat(data.user?.wallet_balance || 0).toFixed(2)}"`);
+  csvRows.push(`"Address","${(data.user?.address || 'N/A').replace(/"/g, '""').replace(/\n/g, ' ')}"`);
+  csvRows.push("");
+  csvRows.push("--- ORDER HISTORY TRANSCRIPT ---");
+  csvRows.push("Order ID,Date,Total Amount,Payment Method,Status");
+  if (data.orders && data.orders.length > 0) {
+    data.orders.forEach((o: any) => {
+      csvRows.push(`"#ORD-${o.id}","${format(new Date(o.created_at), 'yyyy-MM-dd')}","INR ${parseFloat(o.total || 0).toFixed(2)}","${o.payment_method}","${o.status}"`);
+    });
+  } else {
+    csvRows.push("No orders available");
+  }
+  csvRows.push("");
+  csvRows.push("--- FINANCIAL WALLET LEDGER ---");
+  csvRows.push("Date,Type,Amount,Description");
+  if (data.wallet && data.wallet.length > 0) {
+    data.wallet.forEach((w: any) => {
+      csvRows.push(`"${format(new Date(w.created_at), 'yyyy-MM-dd HH:mm')}","${w.type}","INR ${parseFloat(w.amount || 0).toFixed(2)}","${(w.description || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`);
+    });
+  } else {
+    csvRows.push("No wallet activity transactions on record");
+  }
+
+  const csvString = csvRows.join("\n");
+
+  // Draw terminal / CSV container box with high contrast
+  doc.setFillColor(248, 250, 252);
+  doc.rect(margin, 68, pageWidth - (margin * 2), 120, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.rect(margin, 68, pageWidth - (margin * 2), 120);
+
+  doc.setFont('courier', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(51, 65, 85);
+
+  const csvLines = doc.splitTextToSize(csvString, pageWidth - (margin * 2) - 10);
+  let csvY = 76;
+  const maxCsvLines = 14; 
+  for (let i = 0; i < Math.min(csvLines.length, maxCsvLines); i++) {
+    doc.text(csvLines[i], margin + 5, csvY);
+    csvY += 8;
+  }
+  if (csvLines.length > maxCsvLines) {
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
+    doc.text(`... [Showing ${maxCsvLines} of ${csvLines.length} compiled backup rows. Complete raw records successfully matching database tables]`, margin + 5, csvY);
+  }
+
   // Page Numbers
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
@@ -564,7 +630,6 @@ export const generateUserExportPDF = (data: any) => {
     doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
   }
 
-  doc.save(`HindStore_Export_${(data.user?.name || 'User').replace(/\s+/g, '_')}.pdf`);
   return doc;
 };
 

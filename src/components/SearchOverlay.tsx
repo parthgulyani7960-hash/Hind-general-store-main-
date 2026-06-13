@@ -77,44 +77,101 @@ export default function SearchOverlay({
     const query = searchQuery.toLowerCase().trim();
     if (!query) return [];
 
-    // Improved regex for words including support for many scripts (Hindi included)
-    const searchTerms = query.split(/[\s,]+/).filter(term => term.length > 0);
+    // Base search terms typed by user
+    const rawTerms = query.split(/[\s,]+/).filter(term => term.length > 0);
+    
+    // Multilingual dictionaries for smart lookup
+    const MULTILINGUAL_SYNONYMS: { [key: string]: string[] } = {
+      atta: ['wheat', 'flour', 'आटा', 'gehun', 'flour', 'suji', 'maida', 'सूजी', 'मैदा', 'गेंहू', 'ragi', 'besan', 'बेसन'],
+      rice: ['chawal', 'basmati', 'चावल', 'paddy', 'boiled', 'basmati rice', 'sharbati'],
+      ghee: ['घी', 'ghia', 'butter', 'clarified', 'clarified butter', 'butter oil'],
+      dal: ['pulse', 'legumes', 'दाल', 'lentil', 'moong', 'chana', 'urad', 'masoor', 'arhar', 'pulses', 'dhal', 'dahl', 'kabuli', 'moth', 'rajma', 'लोबिया'],
+      sugar: ['chini', 'shakkar', 'चीनी', 'sugar', 'gur', 'jaggery', 'शक्कर', 'गुड़', 'bura', 'mishri'],
+      salt: ['namak', 'नमक', 'rock', 'salt', 'sendha'],
+      oil: ['tel', 'तेल', 'mustard', 'refined', 'refined oil', 'oil', 'mustard oil', 'sarson', 'sarso', 'soyabean', 'sunflower'],
+      spices: ['masala', 'मसाले', 'haldi', 'mirch', 'jeera', 'spice', 'powder', 'हल्दी', 'मिर्च', 'जीरा', 'धनिया', 'dhaniya', 'hing', 'heeng'],
+      tea: ['chai', 'चाय', 'tea', 'leaf', 'patti', 'चाय पत्ती', 'coffee', 'kafi']
+    };
+
+    // Expand search terms based on bidirectional synonyms
+    const expandedTerms = new Set<string>();
+    rawTerms.forEach(term => {
+      expandedTerms.add(term);
+      
+      Object.entries(MULTILINGUAL_SYNONYMS).forEach(([eng, synonyms]) => {
+        if (term === eng || term.startsWith(eng) || synonyms.some(syn => term === syn || term.startsWith(syn))) {
+          expandedTerms.add(eng);
+          synonyms.forEach(syn => expandedTerms.add(syn));
+        }
+      });
+    });
+
+    const searchTerms = Array.from(expandedTerms);
 
     const baseFiltered = products.filter(p => {
       const activePrice = getProductPrice(p, user?.role);
       
       const specText = Object.values(p.specifications || {}).join(' ').toLowerCase();
-      // Added more searchable fields
       const searchableText = `${p.name} ${p.description || ''} ${p.category} ${p.unit || ''} ${specText}`.toLowerCase();
       
-      // Match if at least one search term is found (OR matching) or all (AND matching)
-      // Usually users want AND matching for specific queries
-      const matchesSearch = searchTerms.every(term => searchableText.includes(term));
+      // Check list status
+      if (!p.is_listed) return false;
 
+      // Check category/rating/prices as prior filters
       const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
+      if (!matchesCategory) return false;
+
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
+      if (!matchesRating) return false;
+
       const matchesMinPrice = (minPrice === '' || minPrice === '0') ? true : activePrice >= Number(minPrice);
+      if (!matchesMinPrice) return false;
+
       const matchesMaxPrice = (maxPrice === '' || maxPrice === '0') ? true : activePrice <= Number(maxPrice);
-      
-      return matchesSearch && matchesCategory && matchesRating && matchesMinPrice && matchesMaxPrice && p.is_listed;
+      if (!matchesMaxPrice) return false;
+
+      // Smart match criteria: ALL user typed terms must match either directly or on their synonym expansion!
+      return rawTerms.every(term => {
+        // Direct match
+        if (searchableText.includes(term)) return true;
+        
+        // Find which multilingual bucket the term belongs to
+        const bucket = Object.entries(MULTILINGUAL_SYNONYMS).find(([eng, syns]) => {
+          return term === eng || syns.includes(term) || eng.includes(term) || syns.some(s => s.includes(term));
+        });
+
+        if (bucket) {
+          const [eng, syns] = bucket;
+          // Return true if the product matches either the english parent word or any of its synonyms
+          return searchableText.includes(eng) || syns.some(s => searchableText.includes(s));
+        }
+
+        return false;
+      });
     });
 
     return baseFiltered.sort((a, b) => {
       const getScore = (product: Product) => {
         let score = 0;
         const name = (product.name || '').toLowerCase();
+        const category = (product.category || '').toLowerCase();
         
-        // Exact matches get highest priority
-        if (name === query) score += 10000;
-        else if (name.startsWith(query)) score += 5000;
+        // Exact matches get extreme priority
+        if (name === query) score += 20000;
+        else if (name.startsWith(query)) score += 10000;
         
-        // Hindi/English Multilingual boost: check if query is in name or description
-        searchTerms.forEach(term => {
-          if (name.includes(term)) score += 1000;
-          if (product.category.toLowerCase().includes(term)) score += 500;
+        // Match raw terms
+        rawTerms.forEach(term => {
+          if (name.includes(term)) score += 3000;
+          if (category.includes(term)) score += 1500;
         });
 
-        // Recent items boost could be added here
+        // Match expanded synonym terms
+        searchTerms.forEach(term => {
+          if (name.includes(term)) score += 800;
+          if (category.includes(term)) score += 400;
+        });
+
         return score;
       };
       return getScore(b) - getScore(a);
@@ -137,8 +194,8 @@ export default function SearchOverlay({
       return (
         <span>
           {parts.map((part, i) => 
-            terms.some(t => part.toLowerCase() === t) 
-              ? <mark key={i} className="bg-emerald-100 text-emerald-800 font-bold rounded px-0.5">{part}</mark> 
+            terms.some(t => part.toLowerCase().includes(t)) 
+              ? <mark key={i} className="bg-emerald-100/90 text-emerald-900 font-bold rounded px-0.5">{part}</mark> 
               : part
           )}
         </span>
@@ -167,6 +224,7 @@ export default function SearchOverlay({
                     initial={{ x: -10, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     transition={{ delay: 0.1 }}
+                    className="relative"
                   >
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-primary" size={20} />
                     <input 
@@ -175,8 +233,17 @@ export default function SearchOverlay({
                       placeholder="Search for spices, pulses, grains..."
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
-                      className="w-full bg-white border-2 border-stone-200 rounded-[2rem] py-4 pl-14 pr-4 text-lg sm:text-xl font-bold outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all shadow-md placeholder:text-stone-300"
+                      className="w-full bg-white border-2 border-stone-200 rounded-[2rem] py-4 pl-14 pr-12 text-lg sm:text-xl font-bold outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all shadow-md placeholder:text-stone-300"
                     />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-600 transition-colors cursor-pointer"
+                        title="Clear Search"
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
                   </motion.div>
                </div>
                <motion.button 
@@ -349,7 +416,7 @@ export default function SearchOverlay({
                                           {[...Array(5)].map((_, i) => <Star key={i} size={10} fill={i < Math.floor(product.avg_rating || 0) ? "currentColor" : "none"} />)}
                                        </div>
                                      </div>
-                                     <div className="mt-auto flex items-end justify-between">
+                                     <div className="mt-auto flex items-end justify-between pr-14">
                                        <div className="flex flex-col">
                                          {activePrice < product.price && <span className="text-xs text-stone-400 line-through font-bold">₹{product.price}</span>}
                                          <span className="text-lg font-black text-primary leading-none">₹{activePrice}</span>

@@ -24,7 +24,7 @@ export const TopPromotionTicker = () => {
 
     if (!isVisible || tickerItems.length === 0) return null;
 
-    const currentItem = tickerItems[currentIndex];
+    const currentItem = tickerItems[currentIndex] || tickerItems[0] || { id: 'default', text: 'Shop online with ease. Fresh essentials delivered to your doorstep in 1-2 business days!', link: '/products' };
 
     return (
         <div className="bg-stone-900 overflow-hidden relative z-[100]">

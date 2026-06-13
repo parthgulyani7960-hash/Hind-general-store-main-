@@ -2490,6 +2490,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
       
+      const cached = responseCache.get('public_settings');
+      if (cached) {
+        console.log('[SETTINGS] Cache hit, returning cached settings');
+        return res.json(cached);
+      }
+
       console.log('[STEP 1] Checking Firebase status...');
       if (!checkDbReady()) {
         console.warn('[SETTINGS] Database not ready');
@@ -2519,14 +2525,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const whatsappNumber = publicSettings.find((s: any) => s.key === 'whatsapp_number')?.value || '';
       
       console.log('[ROUTE SUCCESS] /api/settings');
-      res.json({ 
+      const payload = { 
         maintenance, 
         authMode,
         storePhone,
         whatsappNumber,
         config: publicSettings,
         dbConnected: true
-      });
+      };
+      responseCache.set('public_settings', payload, 300); // cache for 5 mins
+      res.json(payload);
     } catch (err: any) {
       console.error('[ROUTE FAILURE] /api/settings', {
         message: err.message,
@@ -3534,6 +3542,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         { id: "cat_3", name: "Oils & Ghee" }
       ];
 
+      const cached = responseCache.get('all_categories');
+      if (cached) {
+        return res.json(cached);
+      }
+
       if ((admin.apps || []).length === 0 || !isFirebaseReady) {
         console.warn('[CATEGORIES] Database not ready, returning fallback categories');
         return res.json(initialCats);
@@ -3548,12 +3561,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         initialCats.forEach(c => {
            const ref = getFirestoreInstance().collection('categories').doc(c.id);
            batch.set(ref, { ...c, created_at: new Date().toISOString() });
-        });
+         });
         await batch.commit();
+        responseCache.set('all_categories', initialCats, 300);
         return res.json(initialCats);
       }
 
       const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      responseCache.set('all_categories', categories, 300);
       return res.json(categories);
     } catch (e: any) {
       console.error('[CATEGORIES] Database fetch failed, returning fallback:', e.message);
@@ -3572,6 +3587,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         const newDocRef = await getFirestoreInstance().collection('categories').add({
            name, icon, image_url, is_out_of_stock: is_out_of_stock ? 1 : 0
         });
+        
+        responseCache.del('all_categories');
+        
         return res.json({ success: true, id: newDocRef.id });
       }
       res.status(500).json({ success: false, message: 'Firebase not connected' });
@@ -3589,6 +3607,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         await getFirestoreInstance().collection('categories').doc(String(id)).set({
            name, icon, image_url, is_out_of_stock: is_out_of_stock ? 1 : 0
         }, { merge: true });
+        
+        responseCache.del('all_categories');
+        
         return res.json({ success: true });
       } catch(e) { console.error('Firebase category put failed', e); }
     }
@@ -3602,6 +3623,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (admin.apps.length > 0) {
       try {
         await getFirestoreInstance().collection('categories').doc(String(id)).delete();
+        
+        responseCache.del('all_categories');
+        
         return res.json({ success: true });
       } catch(e) { console.error('Firebase category delete failed', e); }
     }
@@ -4613,13 +4637,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
     const isAdmin = req.query.admin === 'true';
     try {
-      const snapshot = await getFirestoreInstance().collection('promotions').get();
-      let promotions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      let promotions: any[] | undefined = responseCache.get('all_promotions_raw');
+      if (!promotions) {
+        const snapshot = await getFirestoreInstance().collection('promotions').get();
+        promotions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        responseCache.set('all_promotions_raw', promotions, 300); // 5 minutes cache
+      }
       
+      let filtered = [...promotions];
       if (!isAdmin) {
         const userRole = (req.session as any)?.role || 'customer';
         const now = new Date().toISOString();
-        promotions = promotions.filter(p => {
+        filtered = filtered.filter(p => {
           if (!p.active) return false;
           if (p.target_role !== 'all' && p.target_role !== userRole) return false;
           if (p.start_time && p.start_time > now) return false;
@@ -4627,11 +4656,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           if (p.banner_type === 'hidden') return false;
           return true;
         });
-        promotions.sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
+        filtered.sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
       } else {
-        promotions.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        filtered.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
       }
-      res.json(promotions);
+      res.json(filtered);
     } catch (e: any) {
       console.error('[PROMOTIONS] Fetch failed, returning fallback:', e.message);
       res.json(fallbackPromos);
@@ -4679,6 +4708,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         const ref = await getFirestoreInstance().collection('promotions').add({
           title, description, image_url, link, target_role: target_role || 'all', start_time: start_time || null, end_time: end_time || null, banner_type: banner_type || 'standard', is_default: is_default ? 1 : 0, active: active === undefined ? 1 : (active ? 1 : 0), created_at: new Date().toISOString(), views: 0, clicks: 0
         });
+        
+        responseCache.del('all_promotions_raw');
+        
         return res.json({ success: true, id: ref.id });
       }
       res.status(500).json({ success: false, message: 'Firebase not connected' });
@@ -4697,6 +4729,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         await getFirestoreInstance().collection('promotions').doc(String(id)).set({
           title, description, image_url, link, active: active ? 1 : 0, target_role: target_role || 'all', start_time: start_time || null, end_time: end_time || null, banner_type: banner_type || 'standard', is_default: is_default ? 1 : 0
         }, { merge: true });
+        
+        responseCache.del('all_promotions_raw');
+        
         return res.json({ success: true });
       } catch(e) {
         console.error('Firebase promo put failed', e);
@@ -4712,6 +4747,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     if (admin.apps.length > 0) {
       try {
         await getFirestoreInstance().collection('promotions').doc(String(id)).delete();
+        
+        responseCache.del('all_promotions_raw');
+        
         return res.json({ success: true });
       } catch(e) {
         console.error('Firebase promo delete failed', e);
@@ -4731,6 +4769,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         if (pdoc.exists) {
           const act = pdoc.data()?.active;
           await promoRef.update({ active: act ? 0 : 1 });
+          
+          responseCache.del('all_promotions_raw');
+          
           return res.json({ success: true });
         }
       } catch(e) {
@@ -7561,6 +7602,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         batch.set(ref, { value: valToStore }, { merge: true });
       }
       await batch.commit();
+      
+      // Invalidate settings cache
+      responseCache.del('public_settings');
+      
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });

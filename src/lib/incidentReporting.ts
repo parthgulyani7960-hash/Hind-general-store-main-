@@ -21,7 +21,7 @@ export interface ErrorReport {
   browser: string;
 }
 
-class ErrorReportingService {
+export class ErrorReportingService {
   private static instance: ErrorReportingService;
   private queue: ErrorReport[] = [];
   private isProcessing = false;
@@ -52,6 +52,46 @@ class ErrorReportingService {
 
     // Record initial load/path
     this.addBreadcrumb(`Initial Pathname: ${window.location.pathname}`);
+
+    // Global uncaught JS exceptions (Component-level / render exceptions that escape boundaries)
+    window.addEventListener('error', (event) => {
+      try {
+        if (event.message?.includes('ResizeObserver') || event.message?.includes('Extension')) {
+          return; // Ignore benign/extension warnings
+        }
+        
+        this.report({
+          type: ErrorType.SYSTEM_ERROR,
+          message: `[Uncaught Exception] ${event.message || 'Unknown Global Error'}`,
+          stack: event.error?.stack || 'No stack trace available',
+          component: 'GlobalWindowOnError',
+          metadata: {
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno
+          }
+        });
+      } catch (err) {}
+    }, { capture: true });
+
+    // Global unhandled promise rejections (automatic tracking of async/fetch/network failures)
+    window.addEventListener('unhandledrejection', (event) => {
+      try {
+        const reason = event.reason;
+        const message = reason instanceof Error ? reason.message : String(reason);
+        const stack = reason instanceof Error ? reason.stack : undefined;
+
+        this.report({
+          type: ErrorType.NETWORK_ERROR,
+          message: `[Unhandled Promise Rejection / Network Failure] ${message}`,
+          stack: stack || 'No stack trace available',
+          component: 'GlobalUnhandledRejection',
+          metadata: {
+            reason: String(reason)
+          }
+        });
+      } catch (err) {}
+    });
 
     // Track clicks on interactive elements
     window.addEventListener('click', (event) => {

@@ -272,4 +272,32 @@ export const ProductCrashBoundary: React.FC<{ children: React.ReactNode }> = ({ 
   );
 };
 
+export const ComponentCrashBoundary: React.FC<{ children: React.ReactNode; name?: string }> = ({ children, name = "Component" }) => {
+  const crashBoundaryRef = React.useRef<AppCrashBoundary>(null);
+  return (
+    <AppCrashBoundary 
+      ref={crashBoundaryRef}
+      fallback={
+        <div className="p-6 bg-stone-50 border border-stone-200/60 rounded-3xl text-left font-sans flex flex-col justify-center items-center min-h-[100px] text-center">
+          <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-3 border border-amber-100/50">
+            <AlertTriangle size={18} />
+          </div>
+          <p className="text-stone-800 text-xs font-black uppercase tracking-[0.1em]">{name} Connection Idle</p>
+          <p className="text-stone-400 text-[10px] font-medium leading-relaxed max-w-xs mt-1 mb-3">
+            An isolated exception occurred during presentation of this module. The error has been captured and dispatched automatically.
+          </p>
+          <button 
+            onClick={() => crashBoundaryRef.current?.resetError()} 
+            className="px-4 py-1.5 bg-stone-900 text-white text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-stone-800 transition-colors active:scale-95"
+          >
+            Retry Section
+          </button>
+        </div>
+      }
+    >
+      {children}
+    </AppCrashBoundary>
+  );
+};
+
 export default AppCrashBoundary;

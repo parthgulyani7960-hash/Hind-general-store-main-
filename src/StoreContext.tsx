@@ -106,8 +106,26 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 1. State and Refs
   const [isMaintenance, setIsMaintenance] = useState(false);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(() => {
+    try {
+      const hasToken = !!localStorage.getItem('hgs_token');
+      const hasUser = !!localStorage.getItem('hgs_user');
+      if ((hasToken && hasUser) || !hasToken) {
+        return false;
+      }
+    } catch (e) {}
+    return true;
+  });
+  const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(() => {
+    try {
+      const hasToken = !!localStorage.getItem('hgs_token');
+      const hasUser = !!localStorage.getItem('hgs_user');
+      if ((hasToken && hasUser) || !hasToken) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  });
   const [dbError, setDbError] = useState(false);
   const [isApiUp, setIsApiUp] = useState(true);
   const [categories, setCategories] = useState<any[]>([]);
@@ -630,58 +648,56 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // Safety timeout to prevent infinite Loading state
         authSafetyTimeout = setTimeout(() => {
           if (!isInitialized.current) {
-            logger.warn('[BOOT] Auth check timed out after 5s. Forcing initialization complete.');
+            logger.warn('[BOOT] Auth check timed out after 3s. Forcing initialization complete.');
             console.warn('[BOOT] Auth safety timeout triggered. Clearing loader.');
             setIsAuthChecking(false);
             setIsInitialAuthPerformed(true);
           }
-        }, 5000);
+        }, 3000);
 
         // Add timeout detection for overall init
-        const initTimeout = setTimeout(() => logger.error('[BOOT] Initialization is taking longer than 30s'), 30000);
+        const initTimeout = setTimeout(() => logger.error('[BOOT] Initialization is taking longer than 15s'), 15000);
 
-        const coreAssetsPromise = Promise.allSettled([
+        // Fire all asset loadings concurrently in the background; do NOT block initial render with them!
+        Promise.allSettled([
           checkMaintenance(),
           fetchConfig(),
           fetchCategories(),
           fetchAnnouncements()
-        ]);
-        
-        await coreAssetsPromise;
-        clearTimeout(initTimeout);
+        ]).then(() => {
+          logger.info('[BOOT] Background core assets fetching completed');
+          clearTimeout(initTimeout);
+        }).catch((err) => {
+          logger.warn('[BOOT] Background core assets fetching encountered minor rejection', err);
+          clearTimeout(initTimeout);
+        });
 
         if (auth && typeof auth.authStateReady === 'function') {
-          try {
-            logger.info('[BOOT] Checking Firebase auth state...');
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Auth state timeout')), 5000));
-            await Promise.race([auth.authStateReady(), timeoutPromise]);
-            console.log('AUTH_STATE_RECEIVED');
-            logger.info('[BOOT] Firebase auth state ready.');
-          } catch (e: any) {
-            logger.warn('[BOOT] Auth state check failed or timed out:', e.message);
-          }
+          // Check in the background to avoid blocking initial render
+          auth.authStateReady()
+            .then(async () => {
+              console.log('AUTH_STATE_RECEIVED');
+              const firebaseUser = auth?.currentUser;
+              if (firebaseUser) {
+                const token = await firebaseUser.getIdToken();
+                localStorage.setItem('hgs_token', token);
+                checkAuth(token);
+              }
+            })
+            .catch((e: any) => {
+              logger.warn('[BOOT] Auth state ready check errored:', e.message);
+            });
         }
 
-        const firebaseUser = auth?.currentUser;
-        logger.info(`[BOOT] Initial firebaseUser: ${firebaseUser ? firebaseUser.uid : 'null'}`);
-
-        if (firebaseUser) {
-          const token = await firebaseUser.getIdToken();
-          localStorage.setItem('hgs_token', token);
-          await checkAuth(token);
-          console.log('USER_CONTEXT_SET');
+        // Fast path: if there is a saved token, check/validate it in the background immediately
+        const savedToken = localStorage.getItem('hgs_token');
+        logger.info(`[BOOT] Checking saved token: ${savedToken ? 'exists' : 'missing'}`);
+        if (savedToken && savedToken !== 'null' && savedToken.split('.').length === 3) {
+          checkAuth(savedToken);
+          console.log('USER_CONTEXT_SET_ASYNC');
         } else {
-          const savedToken = localStorage.getItem('hgs_token');
-          logger.info(`[BOOT] No firebaseUser. Checking saved token: ${savedToken ? 'exists' : 'missing'}`);
-          if (savedToken && savedToken !== 'null' && savedToken.split('.').length === 3) {
-            await checkAuth(savedToken);
-            console.log('USER_CONTEXT_SET');
-          } else {
-            setUser(null);
-          }
+          setUser(null);
         }
-
-        await coreAssetsPromise;
 
       } catch (err: any) {
         logger.error('[BOOT] Initialization error:', err.message);
