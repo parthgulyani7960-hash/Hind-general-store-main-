@@ -245,6 +245,7 @@ export default function Login() {
                       id="google_signin_button"
                       isLoading={loading}
                       variant="primary"
+                      className="w-full"
                     >
                       {!loading && (
                         <div className="w-5 h-5 flex items-center justify-center bg-white rounded-full p-1 shrink-0 shadow-sm">
@@ -256,7 +257,7 @@ export default function Login() {
                           </svg>
                         </div>
                       )}
-                      <span className="font-semibold text-sm tracking-wide text-white">
+                      <span className="font-semibold text-sm tracking-wide">
                         {loading ? 'Connecting...' : 'Continue with Google'}
                       </span>
                     </Button>

@@ -9,6 +9,13 @@ export class ApiError extends Error {
   }
 }
 
+export class RateLimitError extends ApiError {
+  constructor(public message: string, public retryAfter: number = 600) {
+    super(message, 429);
+    this.name = 'RateLimitError';
+  }
+}
+
 export interface ApiResponse<T> {
   data: T | null;
   error: string | null;
@@ -155,7 +162,7 @@ const fetchWithHandlingInternal = async <T>(
             return fetchWithHandling(url, options, retries - 1);
           }
  
-          errorMessage = res.status === 429 ? "Too many requests. Please slow down." : "Server error. Please try again later.";
+          errorMessage = res.status === 429 ? "Too many requests. Please try again in 10 minutes." : "Server error. Please try again later.";
           
           // Centralized Error Boundary Categorization for Firebase backend unreachable
           const isFirebaseUnreachable = 
@@ -178,31 +185,35 @@ const fetchWithHandlingInternal = async <T>(
             logger.warn(`Returning null for failed GET ${url} on status ${res.status}`);
             return null;
           }
-        }
- 
-        throw new ApiError(errorMessage, res.status, detailedError);
+
+          if (res.status === 429) {
+            throw new RateLimitError(errorMessage, 600);
+          }
+
+          throw new ApiError(errorMessage, res.status, detailedError);
 
     }
     
-    const rawText = await res.text().catch(() => '');
-    if (rawText) {
+    const successText = await res.text().catch(() => '');
+    if (successText) {
       try {
-        return JSON.parse(rawText);
+        return JSON.parse(successText);
       } catch (parseErr: any) {
-        logger.error(`Non-JSON success payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
+        logger.error(`Non-JSON success payload received from ${url}. Raw content preview: ${successText.slice(0, 200)}`);
         errorService.report({
           type: ErrorType.API_ERROR,
           message: `Non-JSON success payload from ${url}`,
-          metadata: { url, status: res.status, rawContent: rawText.slice(0, 1000), parseError: parseErr.message }
+          metadata: { url, status: res.status, rawContent: successText.slice(0, 1000), parseError: parseErr.message }
         });
         const jsonErr = new Error(`Expected JSON response from ${url} but received non-JSON text.`);
         (jsonErr as any).status = res.status;
-        (jsonErr as any).details = rawText.slice(0, 200);
+        (jsonErr as any).details = successText.slice(0, 200);
         throw jsonErr;
       }
     }
     return null;
-  } catch (err: any) {
+  }
+} catch (err: any) {
     window.dispatchEvent(new CustomEvent('api_loading_stop'));
     if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Failed to fetch') || err.message?.includes('network'))) {
       const attemptNumber = 3 - retries;

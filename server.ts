@@ -1091,6 +1091,8 @@ async function startServer() {
     
     await initializeFirebase();
     console.log("[BOOT STEP 2.8] Firebase initialization finished");
+
+    await auditAndRecoverCollections();
     
     if (admin.apps.length > 0) {
        console.log("[FIRESTORE READY] Connection established");

@@ -36,7 +36,8 @@ export default function Products() {
   
   const [searchTerm, setSearchTerm] = useState('');
   
-  const loading = isLoadingProducts && products.length === 0;
+  const loading = isLoadingProducts;
+  const showSkeleton = isLoadingProducts && products.length === 0;
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -282,7 +283,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
     };
   }, []);
 
-  if (loading) return (
+  if (showSkeleton) return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div className="flex items-center justify-between mb-8">
         <div className="h-10 w-48 bg-stone-100 animate-pulse rounded-xl" />

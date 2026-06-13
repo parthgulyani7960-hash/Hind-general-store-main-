@@ -251,6 +251,7 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
 };
 
 export const handleAuthError = (error: any): string => {
+  if (error.name === 'ApiError') return error.message;
   const errorCode = error?.code || error?.originalError?.code || '';
   return getFirebaseErrorMessage(errorCode) || error?.message || 'Authentication failed.';
 };
