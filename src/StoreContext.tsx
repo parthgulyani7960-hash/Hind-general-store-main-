@@ -91,6 +91,7 @@ interface StoreContextType {
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   fetchProducts: () => Promise<void>;
   isLoadingProducts: boolean;
+  fetchProductsError: string | null;
   isApiUp: boolean;
   setIsApiUp: (val: boolean) => void;
   categories: any[];
@@ -157,6 +158,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   });
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const [fetchProductsError, setFetchProductsError] = useState<string | null>(null);
 
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
@@ -242,6 +244,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const fetchProducts = React.useCallback(async () => {
     if (isLoadingProducts) return;
     setIsLoadingProducts(true);
+    setFetchProductsError(null);
     try {
       if (!isOnline && products.length > 0) {
         setIsLoadingProducts(false);
@@ -253,9 +256,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (data && data.length > 0) {
         setProducts(data);
         localStorage.setItem('hgs_products', JSON.stringify(data));
+      } else if (data === null) {
+          throw new Error('Failed to fetch products');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch products:', err);
+      setFetchProductsError(err.message || 'Failed to fetch products');
     } finally {
       setIsLoadingProducts(false);
     }
@@ -861,13 +867,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isAuthChecking, isRevalidating, setIsRevalidating, isInitialAuthPerformed, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
-    products, setProducts, fetchProducts, isLoadingProducts,
+    products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError,
     isApiUp, setIsApiUp,
     categories, setCategories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements
   }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
-    products, setProducts, fetchProducts, isLoadingProducts, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
+    products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements]);
 
   return (

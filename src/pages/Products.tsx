@@ -30,7 +30,7 @@ export default function Products() {
   const [hoverQuickView, setHoverQuickView] = useState<number | null>(null);
   const { 
     t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, 
-    simulatedRole, config = [], products, setProducts, fetchProducts, isLoadingProducts, isOnline,
+    simulatedRole, config = [], products, setProducts, fetchProducts, isLoadingProducts, isOnline, fetchProductsError,
     categories: globalCategories, fetchCategories
   } = useStore();
   
@@ -46,6 +46,9 @@ export default function Products() {
     }
   }, [location.search]);
   const [loadFailed, setLoadFailed] = useState(false);
+  useEffect(() => {
+      setLoadFailed(!!fetchProductsError);
+  }, [fetchProductsError]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const { isMobile, isTablet } = useDeviceType();
@@ -798,7 +801,13 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
 
         {/* Full-Width Grid Content */}
         <div className="w-full">
-      <motion.div 
+      {loadFailed ? (
+        <div className="py-20 text-center">
+          <h3 className="text-xl font-bold text-stone-900 mb-4">Unable to load products</h3>
+          <button onClick={fetchProducts} className="px-6 py-3 bg-stone-900 text-white rounded-xl font-bold">Retry Connection</button>
+        </div>
+      ) : (
+        <motion.div 
         layout
         initial="hidden"
         animate="visible"
@@ -904,6 +913,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
         })}
         </AnimatePresence>
       </motion.div>
+      )}
 
       {filteredProducts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-4">

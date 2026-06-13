@@ -2,6 +2,13 @@ import toast from 'react-hot-toast';
 import { errorService, ErrorType } from './incidentReporting';
 import { logger } from './logger';
 
+export class ApiError extends Error {
+  constructor(public message: string, public status: number, public details?: any) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export interface ApiResponse<T> {
   data: T | null;
   error: string | null;
@@ -173,10 +180,8 @@ const fetchWithHandlingInternal = async <T>(
           }
         }
  
-        const finalError = new Error(errorMessage);
-        (finalError as any).status = res.status;
-        (finalError as any).details = detailedError;
-        throw finalError;
+        throw new ApiError(errorMessage, res.status, detailedError);
+
     }
     
     const rawText = await res.text().catch(() => '');
