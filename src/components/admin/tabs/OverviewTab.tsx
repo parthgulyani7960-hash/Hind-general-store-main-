@@ -48,7 +48,7 @@ export default function OverviewTab({
   );
 
   return (
-    <div className="h-full overflow-y-auto no-scrollbar pb-10 pr-2">
+    <div className="max-w-full overflow-x-hidden pb-10 pr-2">
       <motion.div 
           initial="hidden"
           animate="show"
@@ -61,7 +61,7 @@ export default function OverviewTab({
             }
           }
         }}
-        className="h-full overflow-y-auto no-scrollbar space-y-10 pb-10"
+        className="max-w-full overflow-x-hidden space-y-10 pb-10"
     >
         <OverviewTabHeader fetchStats={refreshStats} />
 
@@ -164,31 +164,37 @@ export default function OverviewTab({
                 <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Normal Growth</span>
               </div>
             </div>
-            <div className="h-72 w-full min-h-72 min-w-[200px]" style={{ minWidth: "200px", minHeight: "288px" }}>
-              <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
-                <AreaChart data={revenueData}>
-                  <defs>
-                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#1c1917" stopOpacity={0.05}/>
-                      <stop offset="95%" stopColor="#1c1917" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#f5f5f4" />
-                  <XAxis 
-                    dataKey="date" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} 
-                    tickFormatter={(v) => (typeof v === 'string' && v.length >= 5) ? v.slice(5) : v}
-                  />
-                  <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '1rem' }}
-                    itemStyle={{ fontWeight: 900, color: '#1c1917' }}
-                  />
-                  <Area type="monotone" dataKey="revenue" stroke="#1c1917" strokeWidth={4} fillOpacity={1} fill="url(#revenueGradient)" />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="h-72 w-full min-h-[288px] relative">
+              {revenueData && revenueData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={288} minWidth={200} minHeight={200}>
+                  <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1c1917" stopOpacity={0.05}/>
+                        <stop offset="95%" stopColor="#1c1917" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="5 5" vertical={false} stroke="#f5f5f4" />
+                    <XAxis 
+                      dataKey="date" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} 
+                      tickFormatter={(v) => (typeof v === 'string' && v.length >= 5) ? v.slice(5) : v}
+                    />
+                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#a8a29e', fontWeight: 900}} />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '1rem' }}
+                      itemStyle={{ fontWeight: 900, color: '#1c1917' }}
+                    />
+                    <Area type="monotone" dataKey="revenue" stroke="#1c1917" strokeWidth={4} fillOpacity={1} fill="url(#revenueGradient)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-stone-50 rounded-2xl border border-dashed border-stone-100">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Awaiting Data Streams...</p>
+                </div>
+              )}
             </div>
           </motion.div>
 

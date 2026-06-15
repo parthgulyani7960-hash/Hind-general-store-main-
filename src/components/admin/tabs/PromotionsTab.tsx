@@ -26,7 +26,7 @@ const PromotionsTab: React.FC<PromotionsTabProps> = ({
     setPromotionRuleFormModal
 }) => {
     return (
-        <div className="h-full overflow-y-auto no-scrollbar space-y-10 animate-in fade-in duration-500 pb-10 pr-2">
+        <div className="max-w-full overflow-x-hidden space-y-10 animate-in fade-in duration-500 pb-10 pr-2">
             {/* Campaign Header */}
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
               <div>

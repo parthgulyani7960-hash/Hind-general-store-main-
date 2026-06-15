@@ -57,7 +57,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     };
 
     return (
-        <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in duration-500 pb-10">
+        <div className="max-w-full overflow-x-hidden space-y-8 animate-in fade-in duration-500 pb-10">
             {/* Intel Dashboard Header */}
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
               <div className="space-y-1">
@@ -172,66 +172,78 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div className="h-80 min-h-[320px] w-full min-w-[200px]" style={{ minWidth: "200px", minHeight: "320px" }}>
-                    <ResponsiveContainer width="99%" height={320} minWidth={200} minHeight={250}>
-                      <AreaChart 
-                        data={showWeeklyComparison ? getWeeklyComparisonData() : salesAnalytics.dailySales} 
-                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                      >
-                        <defs>
-                          <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey={showWeeklyComparison ? "day" : "date"} 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                          dy={10}
-                        />
-                        <YAxis 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                        />
-                        <Tooltip />
-                        <Area 
-                            type="monotone" 
-                            dataKey="revenue" 
-                            stroke="#1c1917" 
-                            strokeWidth={4} 
-                            fillOpacity={1} 
-                            fill="url(#colorTotal)" 
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                  <div className="h-80 min-h-[320px] w-full relative">
+                    {salesAnalytics?.dailySales && salesAnalytics.dailySales.length > 0 ? (
+                      <ResponsiveContainer width="99%" height={320} minWidth={200} minHeight={250}>
+                        <AreaChart 
+                          data={showWeeklyComparison ? getWeeklyComparisonData() : salesAnalytics.dailySales} 
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis 
+                            dataKey={showWeeklyComparison ? "day" : "date"} 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                            dy={10}
+                          />
+                          <YAxis 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                          />
+                          <Tooltip />
+                          <Area 
+                              type="monotone" 
+                              dataKey="revenue" 
+                              stroke="#1c1917" 
+                              strokeWidth={4} 
+                              fillOpacity={1} 
+                              fill="url(#colorTotal)" 
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center bg-stone-50 rounded-[2rem] border border-dashed border-stone-100">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Synchronizing Sales Manifest...</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
                     <h3 className="text-xl font-black text-stone-900 tracking-tight mb-8">Category Mix</h3>
-                    <div className="h-80 w-full min-w-[200px]" style={{ minWidth: "200px", minHeight: "320px" }}>
-                         <ResponsiveContainer width="99%" height={320} minWidth={200} minHeight={250}>
-                            <PieChart>
-                                <Pie
-                                    data={analyticsData?.categorySales || []}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {(analyticsData?.categorySales || []).map((entry: any, index: number) => (
-                                        <Cell key={`cell-${index}`} fill={['#1c1917', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 5]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip />
-                            </PieChart>
-                         </ResponsiveContainer>
+                    <div className="h-80 w-full relative">
+                         {analyticsData?.categorySales && analyticsData.categorySales.length > 0 ? (
+                           <ResponsiveContainer width="99%" height={320} minWidth={200} minHeight={250}>
+                              <PieChart>
+                                  <Pie
+                                      data={analyticsData.categorySales}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius={60}
+                                      outerRadius={100}
+                                      paddingAngle={5}
+                                      dataKey="value"
+                                  >
+                                      {analyticsData.categorySales.map((entry: any, index: number) => (
+                                          <Cell key={`cell-${index}`} fill={['#1c1917', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 5]} />
+                                      ))}
+                                  </Pie>
+                                  <Tooltip />
+                              </PieChart>
+                           </ResponsiveContainer>
+                         ) : (
+                            <div className="absolute inset-0 flex items-center justify-center bg-stone-50 rounded-[2rem] border border-dashed border-stone-100">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Compiling Category Mix...</p>
+                            </div>
+                         )}
                     </div>
                 </div>
               </div>

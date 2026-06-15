@@ -43,7 +43,7 @@ export default function OrderBatchingTab() {
   };
 
   return (
-    <div className="h-full overflow-y-auto no-scrollbar space-y-6 pb-10 pr-2">
+    <div className="max-w-full overflow-x-hidden space-y-6 pb-10 pr-2">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-black text-stone-900 tracking-tighter">Order Batching</h2>
         <button 

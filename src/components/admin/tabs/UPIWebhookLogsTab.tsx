@@ -33,7 +33,7 @@ const UPIWebhookLogsTab: React.FC = () => {
     });
 
     return (
-      <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 pr-2">
+    <div className="max-w-full overflow-x-hidden space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 pr-2">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-4xl font-black tracking-tighter text-stone-900 flex items-center gap-3">

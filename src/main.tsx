@@ -102,10 +102,9 @@ try {
             const res = await originalFetch(finalInput, finalInit);
             
             // Handle 401 unauthorized (Token Refresh Logic)
-            const isAuthMe = inputUrl.includes('/api/auth/me');
             const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
 
-            if (res.status === 401 && !isAuthMe && !isAuthLogin && retryCount > 0) {
+            if (res.status === 401 && !isAuthLogin && retryCount > 0) {
               console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
               
               if (!refreshPromise) {
@@ -163,11 +162,7 @@ setTimeout(() => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppCrashBoundary>
-      <StoreProvider>
-        <App />
-      </StoreProvider>
-    </AppCrashBoundary>
+    <App />
   </StrictMode>,
 );
 

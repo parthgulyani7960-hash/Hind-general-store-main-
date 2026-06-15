@@ -60,15 +60,26 @@ export class ErrorReportingService {
           return; // Ignore benign/extension warnings
         }
         
+        // Extract diagnostic info from ErrorEvent
+        const error = event.error || {};
+        const message = event.message || error.message || 'Unknown Global Runtime Error';
+        const stack = error.stack || 'No stack trace available';
+        const filename = event.filename || 'unknown_file';
+        const lineno = event.lineno || 0;
+        const colno = event.colno || 0;
+        const route = window.location.pathname;
+
         this.report({
           type: ErrorType.SYSTEM_ERROR,
-          message: `[Uncaught Exception] ${event.message || 'Unknown Global Error'}`,
-          stack: event.error?.stack || 'No stack trace available',
+          message: `[GlobalCrash] ${message}`,
+          stack: stack,
           component: 'GlobalWindowOnError',
           metadata: {
-            filename: event.filename,
-            lineno: event.lineno,
-            colno: event.colno
+            filename,
+            lineno,
+            colno,
+            route,
+            timestamp: new Date().toISOString()
           }
         });
       } catch (err) {}

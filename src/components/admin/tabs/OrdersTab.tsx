@@ -96,7 +96,7 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
     });
 
     return (
-        <div className="h-full overflow-y-auto no-scrollbar space-y-6 animate-in fade-in duration-500 pb-10 pr-2">
+        <div className="max-w-full overflow-x-hidden space-y-6 animate-in fade-in duration-500 pb-10 pr-2">
             {/* Orders Header */}
             <header className="shrink-0 flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2">
               <div>
@@ -144,7 +144,7 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                 <ExportTriggerButton type="orders" onClick={asyncExportData} />
             </div>
 
-            <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-10">
+            <div className="flex-1 space-y-6 pb-10">
               {/* Order Metrics Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[

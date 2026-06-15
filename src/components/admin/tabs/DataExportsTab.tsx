@@ -127,7 +127,7 @@ const DataExportsTab: React.FC<DataExportsTabProps> = ({ setExportProgress }) =>
     };
 
     return (
-        <div className="h-full overflow-y-auto no-scrollbar space-y-8 pb-10 pr-2">
+        <div className="max-w-full overflow-x-hidden space-y-8 pb-10 pr-2">
             <div className="bg-white rounded-[2.5rem] p-8 border border-stone-100 shadow-sm relative overflow-hidden">
                  <div className="absolute top-0 right-0 p-8 opacity-5">
                     <Database size={200} />

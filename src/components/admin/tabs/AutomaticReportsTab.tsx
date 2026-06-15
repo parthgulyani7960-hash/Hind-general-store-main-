@@ -21,7 +21,7 @@ export default function AutomaticReportsTab({
   toast,
 }: AutomaticReportsTabProps) {
   return (
-    <div className="h-full overflow-y-auto no-scrollbar space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
+    <div className="max-w-full overflow-x-hidden space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
        <header className="flex flex-col md:flex-row md:items-end justify-between gap-8">
         <div className="space-y-1">
           <div className="flex items-center space-x-3">

@@ -21,10 +21,19 @@ service cloud.firestore {
       ); 
     }
     
+    // Enhanced Admin check: prioritized and cached-friendly
     function isAdmin() { 
       return isSignedIn() && (
-        request.auth.token.email == 'parthgulyani7960@gmail.com' || 
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        // Part 1: Fast Token Check
+        request.auth.token.email == 'parthgulyani7960@gmail.com' ||
+        request.auth.token.admin == true ||
+        
+        // Part 2: Role Document Check
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+         
+        // Part 3: Whitelist Check
+        exists(/databases/$(database)/documents/admin_whitelist/$(request.auth.token.email))
       ); 
     }
 

@@ -127,7 +127,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
     };
 
     return (
-      <div className="h-full overflow-y-auto no-scrollbar space-y-8 animate-in fade-in duration-500 pb-10 pr-2">
+      <div className="max-w-full overflow-x-hidden space-y-8 animate-in fade-in duration-500 pb-10 pr-2">
         {/* Inventory Control Center Header */}
         <div className="shrink-0 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="space-y-1">
@@ -181,7 +181,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
             <ExportTriggerButton type="products" onClick={() => {}} />
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar space-y-8 pb-10">
+        <div className="flex-1 space-y-8 pb-10">
           {/* Intelligence Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <AdminStatCard 

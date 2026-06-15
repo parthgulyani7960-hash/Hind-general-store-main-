@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone, Bell,
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
   Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus,
-  Terminal, ShieldCheck
+  Terminal, ShieldCheck, Sparkles
 } from 'lucide-react';
 import { cn } from '@/types';
 
@@ -15,7 +15,7 @@ const menuGroups = [
       { name: 'Overview', label: 'Dashboard', icon: LayoutDashboard },
       { name: 'Analytics', label: 'Sales Reports', icon: TrendingUp },
       { name: 'Announcements', label: 'Announcements', icon: Megaphone },
-      { name: 'Notifications', label: 'Notifications', icon: Bell },
+      { name: 'Promotions', label: 'Campaigns', icon: Sparkles },
     ]
   },
   {
@@ -39,6 +39,7 @@ const menuGroups = [
       { name: 'Coupons', label: 'Coupons', icon: Ticket },
       { name: 'Bulk Discounts', label: 'Bulk Pricing', icon: Percent },
       { name: 'Expenses', label: 'Expenses', icon: DollarSign },
+      { name: 'Payment Settings', label: 'Gateway Config', icon: Settings },
     ]
   },
   {
@@ -54,14 +55,15 @@ const menuGroups = [
     label: 'System',
     items: [
       { name: 'Admin Management', label: 'Admin Ops', icon: Shield },
+      { name: 'Roles', label: 'Role Manager', icon: UserCog },
       { name: 'Store Settings', label: 'Settings', icon: Settings },
+      { name: 'Feature Toggles', label: 'Feature Toggles', icon: ToggleLeft },
       { name: 'System Status', label: 'System Health', icon: Activity },
-      { name: 'Suspicious Activities', label: 'Risk Manager', icon: ShieldAlert },
-      { name: 'Audit Logs', label: 'Activity Logs', icon: ClipboardList },
-      { name: 'Security & Data', label: 'Security & Data', icon: Shield },
+      { name: 'System Logs', label: 'Dev Logs', icon: Terminal },
+      { name: 'Audit Logs', label: 'Audit Trail', icon: ClipboardList },
+      { name: 'Data Exports', label: 'Data Warehouse', icon: PackagePlus },
       { name: 'Security Audit', label: 'Security Audit', icon: ShieldCheck },
       { name: 'Automatic Reports', label: 'Anomalies', icon: Bug },
-      { name: 'Diagnostic Console', label: 'Diagnostic Panel', icon: Terminal },
     ]
   }
 ];

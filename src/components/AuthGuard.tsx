@@ -26,6 +26,14 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
 
   useEffect(() => {
     let active = true;
+    
+    // If the user already has the 'admin' role in their profile, skip the whitelist check
+    // as the source of truth for the session already confirmed their identity.
+    if (userRole === 'admin') {
+      setIsAdminWhitelisted(true);
+      return;
+    }
+
     if (isCheckingWhitelistNeeded && userEmail && isAdminWhitelisted === null && !isVerifyingWhitelist) {
       setIsVerifyingWhitelist(true);
       const cleanEmail = userEmail.replace(/\s+/g, '').trim().toLowerCase();
@@ -63,10 +71,7 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }, [isCheckingWhitelistNeeded, userEmail, isAdminWhitelisted, isVerifyingWhitelist]);
 
   // Determine if user has the required role
-  const isAuthorized = !!user && (!allowedRoles || (
-    allowedRoles.includes(userRole || '') &&
-    (userRole !== 'admin' || !allowedRoles.includes('admin') || isAdminWhitelisted === true)
-  ));
+  const isAuthorized = !!user && (!allowedRoles || allowedRoles.includes(userRole || ''));
 
   useEffect(() => {
     // Add a grace period to prevent false auth-wall triggers on slow mobile networks
@@ -93,39 +98,32 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
           }
         }, 100);
       }
-    } else if (isInitialAuthPerformed && user && allowedRoles && !isAuthorized && !isVerifyingWhitelist && isAdminWhitelisted !== null) {
+    } else if (isInitialAuthPerformed && user && allowedRoles && !isAuthorized) {
       logger.warn('[AuthGuard] Access denied: Insufficient privileges');
       toast.error('Access denied. Insufficient privileges.');
     }
     
     return () => clearTimeout(gracePeriodTimer);
-  }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isVerifyingWhitelist, isAdminWhitelisted, isAuthChecking, isRevalidating]);
+  }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isAuthChecking, isRevalidating]);
 
-  if (isAuthChecking || (isCheckingWhitelistNeeded && (isVerifyingWhitelist || isAdminWhitelisted === null))) {
-    logger.info('[AuthGuard] Blocking render: checking auth/whitelist', { isAuthChecking, isVerifyingWhitelist, isAdminWhitelisted });
-    return <LoadingFallback message="Verifying administrative access..." />;
+  if (isAuthChecking || (isInitialAuthPerformed && !isAuthChecking && !user)) {
+    // If we're initial boot or we found no user and not revalidating yet
+    if (isAuthChecking) {
+      return <LoadingFallback message="Verifying credentials..." />;
+    }
   }
 
   if (isRevalidating && !user) {
-    logger.info('[AuthGuard] Blocking render: revalidating');
-    return <LoadingFallback message="Re-authenticating..." />;
+    return <LoadingFallback message="Refreshing session..." />;
   }
 
   if (isInitialAuthPerformed && !user) {
-    logger.info('[AuthGuard] Blocking render: No user, redirecting to login');
-    return (
-      <>
-        <LoadingFallback message="Redirecting to login..." />
-        <Navigate to="/login" state={{ from: location }} replace />
-      </>
-    );
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (allowedRoles && !isAuthorized) {
-    logger.warn('[AuthGuard] Blocking render: Not authorized:', { userRole, allowedRoles });
     return <Navigate to="/" replace />;
   }
 
-  logger.info('[AuthGuard] Allowing render for:', location.pathname);
   return <>{children}</>;
 }

@@ -1070,7 +1070,7 @@ export default function Profile() {
                 onClick={() => setShowPhotoSelector(true)}
               >
                 {formData.profile_photo ? (
-                  <img src={formData.profile_photo} alt={user.name} className="w-full h-full object-cover" />
+                  <img src={formData.profile_photo} alt={user?.name || 'User'} className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-5xl font-serif font-black text-amber-400 uppercase">{user?.name?.[0] || 'U'}</span>
                 )}

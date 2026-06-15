@@ -92,30 +92,87 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
+
+import { lazyWithRetry } from '@/lib/lazyLoader';
+import { ComponentCrashBoundary } from '@/components/AppCrashBoundary';
 
 // Lazy loaded admin tabs
-const OrdersTab = lazy(() => import('@/components/admin/tabs/OrdersTab'));
-const PaymentsTab = lazy(() => import('@/components/admin/tabs/PaymentsTab'));
-const ProductsTab = lazy(() => import('@/components/admin/tabs/ProductsTab'));
-const CustomersTab = lazy(() => import('@/components/admin/tabs/CustomersTab'));
-const AnalyticsTab = lazy(() => import('@/components/admin/tabs/AnalyticsTab'));
-const NewsletterTab = lazy(() => import('@/components/admin/tabs/NewsletterTab'));
-const WalletRequestsTab = lazy(() => import('@/components/admin/tabs/WalletRequestsTab'));
-const SystemLogsTab = lazy(() => import('@/components/admin/tabs/SystemLogsTab'));
-const UPIWebhookLogsTab = lazy(() => import('@/components/admin/tabs/UPIWebhookLogsTab'));
-const DataExportsTab = lazy(() => import('@/components/admin/tabs/DataExportsTab'));
-const AnnouncementsTab = lazy(() => import('@/components/admin/tabs/AnnouncementsTab'));
-const PromotionsTab = lazy(() => import('@/components/admin/tabs/PromotionsTab'));
+const OrdersTab = lazyWithRetry(() => import('@/components/admin/tabs/OrdersTab'), 'Orders');
+const PaymentsTab = lazyWithRetry(() => import('@/components/admin/tabs/PaymentsTab'), 'Payments');
+const ProductsTab = lazyWithRetry(() => import('@/components/admin/tabs/ProductsTab'), 'Products');
+const CustomersTab = lazyWithRetry(() => import('@/components/admin/tabs/CustomersTab'), 'Customers');
+const AnalyticsTab = lazyWithRetry(() => import('@/components/admin/tabs/AnalyticsTab'), 'Analytics');
+const NewsletterTab = lazyWithRetry(() => import('@/components/admin/tabs/NewsletterTab'), 'Newsletter');
+const WalletRequestsTab = lazyWithRetry(() => import('@/components/admin/tabs/WalletRequestsTab'), 'Wallet');
+const SystemLogsTab = lazyWithRetry(() => import('@/components/admin/tabs/SystemLogsTab'), 'SystemLogs');
+const UPIWebhookLogsTab = lazyWithRetry(() => import('@/components/admin/tabs/UPIWebhookLogsTab'), 'UPIWebhook');
+const DataExportsTab = lazyWithRetry(() => import('@/components/admin/tabs/DataExportsTab'), 'Exports');
+const AnnouncementsTab = lazyWithRetry(() => import('@/components/admin/tabs/AnnouncementsTab'), 'Announcements');
+const PromotionsTab = lazyWithRetry(() => import('@/components/admin/tabs/PromotionsTab'), 'Promotions');
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('Overview');
+  const [activeTab, setActiveTabState] = useState<Tab>('Overview');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
+  const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Unified Tab Management - Handler that syncs with URL and scrolls to top
+  const setActiveTab = useCallback((newTab: Tab) => {
+    setActiveTabState(newTab);
+    
+    // Update URL for deep linking support
+    const params = new URLSearchParams(location.search);
+    params.set('tab', newTab);
+    navigate({ search: params.toString() }, { replace: true });
+    
+    // Smooth scroll to container top on tab change for UX
+    if (typeof document !== 'undefined') {
+      const container = document.getElementById('admin-main-scroll-container');
+      if (container) {
+        container.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  }, [location.search, navigate]);
+
+  // Centralized event listener for diagnostic console
+  useEffect(() => {
+    const handleOpenDiagnostics = () => {
+      setActiveTab('System Logs');
+    };
+    window.addEventListener('open-diagnostic-console', handleOpenDiagnostics);
+    return () => window.removeEventListener('open-diagnostic-console', handleOpenDiagnostics);
+  }, [setActiveTab]);
+
+  const validTabs: Tab[] = [
+    'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 
+    'Product Catalog', 'Categories', 'Customers', 'Wallet Requests', 
+    'Reviews', 'Coupons', 'Newsletter', 'Roles', 'Support Tickets', 
+    'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 
+    'System Logs', 'Suspicious Activities', 'Promotions', 'Bulk Discounts', 
+    'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
+    'Automatic Reports', 'Admin Management', 'Data Exports', 
+    'Security & Data', 'Security Audit', 'Promotional Rules', 'Purchase Orders', 
+    'Order Batching', 'UPI Webhook Logs', 'Notifications'
+  ];
+
+  // 1. Initial tab from URL
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (tabParam) {
+      const foundMatch = validTabs.find(t => t.toLowerCase() === tabParam.toLowerCase());
+      if (foundMatch && foundMatch !== activeTab) {
+        setActiveTabState(foundMatch);
+      }
+    }
+  }, []); // Only on mount
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -143,39 +200,7 @@ export default function AdminDashboard() {
     }
     return false;
   };
-
-  React.useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const tabParam = params.get('tab');
-    if (tabParam) {
-      const validTabs: Tab[] = [
-        'Overview', 'Analytics', 'Announcements', 'Orders', 'Logistics', 
-        'Product Catalog', 'Categories', 'Customers', 'Wallet Requests', 
-        'Reviews', 'Coupons', 'Newsletter', 'Roles', 'Support Tickets', 
-        'Expenses', 'Store Settings', 'Payment Settings', 'System Status', 
-        'System Logs', 'Suspicious Activities', 'Promotions', 'Bulk Discounts', 
-        'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
-        'Automatic Reports', 'Admin Management', 'Data Exports', 
-        'Security & Data', 'Security Audit', 'Promotional Rules', 'Purchase Orders', 
-        'Order Batching', 'UPI Webhook Logs'
-      ];
-      const foundMatch = validTabs.find(t => t.toLowerCase() === tabParam.toLowerCase());
-      if (foundMatch) {
-        setActiveTab(foundMatch);
-      }
-    }
-  }, [location.search]);
-
-  React.useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const tabParam = params.get('tab');
-    if (!tabParam || tabParam.toLowerCase() !== activeTab.toLowerCase()) {
-      params.set('tab', activeTab);
-      navigate({ search: params.toString() }, { replace: true });
-    }
-  }, [activeTab, navigate, location.search]);
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (activeTab === 'System Status' || activeTab === 'Security & Data' || activeTab === 'Security Audit') {
       runDbDiagnostics();
     }
@@ -538,12 +563,13 @@ export default function AdminDashboard() {
 
   const TabContent = () => {
     return (
-      <Suspense fallback={
-        <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-          <Activity size={40} className="text-stone-300 animate-spin" />
-          <p className="text-stone-400 font-bold uppercase tracking-widest text-xs">Loading Intelligence Tab...</p>
-        </div>
-      }>
+      <ComponentCrashBoundary name={`Tab: ${activeTab}`}>
+        <Suspense fallback={
+          <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+            <Activity size={40} className="text-stone-300 animate-spin" />
+            <p className="text-stone-400 font-bold uppercase tracking-widest text-xs">Loading Intelligence Tab...</p>
+          </div>
+        }>
         {(() => {
           switch (activeTab) {
             case 'Overview': 
@@ -651,6 +677,7 @@ export default function AdminDashboard() {
                 />
               );
             case 'Announcements':
+            case 'Notifications':
               return (
                 <AnnouncementsTab 
                   notifications={notifications}
@@ -931,7 +958,8 @@ export default function AdminDashboard() {
               return <div className="p-8 text-stone-500">Feature {activeTab} not yet fully redesigned.</div>;
           }
         })()}
-      </Suspense>
+        </Suspense>
+      </ComponentCrashBoundary>
     );
   };
 

@@ -167,8 +167,8 @@ export default function AdminDashboardLayout({
               <LoadingFallback fullScreen={false} message="Loading dashboard..." />
             </div>
           ) : (
-            <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-8">
-              <div className="flex-1 max-w-[1600px] mx-auto w-full min-h-0">
+            <div id="admin-main-scroll-container" className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden p-4 md:p-8 scroll-smooth antialiased">
+              <div className="max-w-[1600px] mx-auto w-full min-h-0 pb-20">
                 {children}
               </div>
             </div>

@@ -54,7 +54,7 @@ export default function StoreSettingsTab({
   setAdminTheme,
 }: StoreSettingsTabProps) {
   return (
-    <div className="h-full overflow-y-auto no-scrollbar max-w-5xl space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 font-sans pr-2">
+    <div className="max-w-full overflow-x-hidden space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 font-sans pr-2">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-stone-100 pb-10">
         <div>

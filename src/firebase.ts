@@ -8,7 +8,7 @@ import firebaseConfig from '@config/firebase-applet-config.json';
 
 // Resolve Firebase configuration dynamically from environment, window, or local fallback JSON
 const getResolvedFirebaseConfig = () => {
-  const DEFAULT_DB_ID = '(default)';
+  const DEFAULT_DB_ID = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
   
   // Baseline configuration for this applet
   const BASELINE = {
@@ -56,9 +56,11 @@ const isBackend = typeof process !== 'undefined' && process.env != null;
     if (isBackend) {
         return process.env[key] || process.env[key.replace('VITE_', '')];
     }
-    return (typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env) 
-      ? (import.meta as any).env[key] 
-      : undefined;
+    const viteEnv = (import.meta as any).env;
+    if (viteEnv) {
+      return viteEnv[key];
+    }
+    return undefined;
   };
 
   const envConfig: any = {};
@@ -69,7 +71,8 @@ const isBackend = typeof process !== 'undefined' && process.env != null;
     VITE_FIREBASE_STORAGE_BUCKET: 'storageBucket',
     VITE_FIREBASE_MESSAGING_SENDER_ID: 'messagingSenderId',
     VITE_FIREBASE_APP_ID: 'appId',
-    VITE_FIRESTORE_DATABASE_ID: 'firestoreDatabaseId'
+    VITE_FIRESTORE_DATABASE_ID: 'firestoreDatabaseId',
+    VITE_FIREBASE_DATABASE_ID: 'firestoreDatabaseId'
   };
 
   let hasEnv = false;
@@ -77,14 +80,30 @@ const isBackend = typeof process !== 'undefined' && process.env != null;
     const val = getEnv(envKey);
     // Ignore 'undefined' explicitly stringified
     if (val && val !== 'undefined' && val !== '""') {
+      // If we already have a value for firestoreDatabaseId, don't overwrite if the new one is empty or '(default)'
+       if (configKey === 'firestoreDatabaseId' && envConfig[configKey] && (!val || val === '(default)' || val === 'null' || val === '')) {
+         return;
+       }
       envConfig[configKey] = val;
       hasEnv = true;
     }
   });
 
+  // Explicitly ensure firestoreDatabaseId is set if found in env
+  const directDbId = getEnv('VITE_FIREBASE_DATABASE_ID') || getEnv('VITE_FIRESTORE_DATABASE_ID');
+  if (directDbId && directDbId !== 'undefined') {
+    envConfig.firestoreDatabaseId = directDbId;
+    hasEnv = true;
+  }
+
   if (hasEnv && envConfig.projectId && envConfig.apiKey) {
     console.log('[Firebase] Using environment specific variables');
-    return merge(BASELINE, envConfig);
+    const result = merge(BASELINE, envConfig);
+    // Final safety: ensure it's not empty string or '(default)'
+    if (!result.firestoreDatabaseId || result.firestoreDatabaseId === '(default)' || result.firestoreDatabaseId === 'null') {
+       result.firestoreDatabaseId = DEFAULT_DB_ID;
+    }
+    return result;
   }
 
   // 3. Try local JSON if valid
@@ -99,9 +118,9 @@ const isBackend = typeof process !== 'undefined' && process.env != null;
 
 const validConfig = getResolvedFirebaseConfig();
 
-const activeDatabaseId = validConfig.firestoreDatabaseId && validConfig.firestoreDatabaseId !== '(default)' 
+const activeDatabaseId = (validConfig.firestoreDatabaseId && validConfig.firestoreDatabaseId !== '(default)' && validConfig.firestoreDatabaseId !== 'null') 
   ? validConfig.firestoreDatabaseId 
-  : '(default)';
+  : 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
 
 const isDevMode = typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env?.DEV;
 

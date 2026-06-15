@@ -25,7 +25,7 @@ export default function PromotionalRulesTab({
   handleDeleteRule,
 }: PromotionalRulesTabProps) {
   return (
-    <div className="h-full overflow-y-auto no-scrollbar space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
+    <div className="max-w-full overflow-x-hidden space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 font-sans">
         <div>
           <h2 className="text-4xl font-black text-stone-900 tracking-tight text-left">Promotional Rule Configuration</h2>

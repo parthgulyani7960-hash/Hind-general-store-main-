@@ -744,24 +744,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const initialize = async () => {
       console.log('STORE_INIT_START');
-      let authSafetyTimeout: any;
+      let isInitFinished = false;
+      
+      const finalizeInit = () => {
+        if (isInitFinished) return;
+        isInitFinished = true;
+        isInitialized.current = true;
+        setIsAuthChecking(false);
+        setIsInitialAuthPerformed(true);
+        console.log('STORE_INIT_COMPLETE');
+      };
+
       try {
         logger.info('[BOOT] Starting store context initialization...');
         
-        // Safety timeout to prevent infinite Loading state
-        authSafetyTimeout = setTimeout(() => {
-          if (!isInitialized.current) {
-            logger.warn('[BOOT] Auth check timed out after 3s. Forcing initialization complete.');
-            console.warn('[BOOT] Auth safety timeout triggered. Clearing loader.');
-            setIsAuthChecking(false);
-            setIsInitialAuthPerformed(true);
-          }
-        }, 3000);
+        // Fast path: if there is a saved token, check/validate it immediately
+        const savedToken = localStorage.getItem('hgs_token');
+        const hasSavedUser = !!localStorage.getItem('hgs_user');
+        
+        // If we have token AND user, we can show UI immediately while revalidating in background
+        if (savedToken && hasSavedUser) {
+          finalizeInit();
+        }
 
-        // Add timeout detection for overall init
-        const initTimeout = setTimeout(() => logger.error('[BOOT] Initialization is taking longer than 15s'), 15000);
-
-        // Fire all asset loadings concurrently in the background; do NOT block initial render with them!
+        // Fire all asset loadings concurrently in the background
         Promise.allSettled([
           checkMaintenance(),
           fetchConfig(),
@@ -769,50 +775,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           fetchAnnouncements()
         ]).then(() => {
           logger.info('[BOOT] Background core assets fetching completed');
-          clearTimeout(initTimeout);
-        }).catch((err) => {
-          logger.warn('[BOOT] Background core assets fetching encountered minor rejection', err);
-          clearTimeout(initTimeout);
         });
 
+        // Auth initialization
         if (auth && typeof auth.authStateReady === 'function') {
-          // Check in the background to avoid blocking initial render
           auth.authStateReady()
             .then(async () => {
-              console.log('AUTH_STATE_RECEIVED');
+              console.log('AUTH_STATE_READY');
               const firebaseUser = auth?.currentUser;
               if (firebaseUser) {
                 const token = await firebaseUser.getIdToken();
                 localStorage.setItem('hgs_token', token);
-                checkAuth(token);
+                await checkAuth(token);
               }
+              finalizeInit();
             })
             .catch((e: any) => {
               logger.warn('[BOOT] Auth state ready check errored:', e.message);
+              finalizeInit();
             });
-        }
-
-        // Fast path: if there is a saved token, check/validate it in the background immediately
-        const savedToken = localStorage.getItem('hgs_token');
-        logger.info(`[BOOT] Checking saved token: ${savedToken ? 'exists' : 'missing'}`);
-        if (savedToken && savedToken !== 'null' && savedToken.split('.').length === 3) {
-          await checkAuth(savedToken);
-          console.log('USER_CONTEXT_SET_SYNC');
         } else {
-          setUser(null);
+          // Fallback if authStateReady is not available
+          const token = localStorage.getItem('hgs_token');
+          if (token) await checkAuth(token);
+          finalizeInit();
         }
 
       } catch (err: any) {
         logger.error('[BOOT] Initialization error:', err.message);
-      } finally {
-        // Absolute safety guard: ensure checking flags are ALWAYS cleared
-        logger.info('[BOOT] Finalizing initialization state');
-        isInitialized.current = true;
-        
-        if (authSafetyTimeout) clearTimeout(authSafetyTimeout);
-        setIsAuthChecking(false);
-        setIsInitialAuthPerformed(true);
-        console.log('STORE_INIT_COMPLETE');
+        finalizeInit();
       }
       
       unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {

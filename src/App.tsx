@@ -19,11 +19,12 @@ import { AdminDiagnosticPanel } from './components/AdminDiagnosticPanel';
 
 import { triggerFeedback } from './lib/feedback';
 export { triggerFeedback };
-import { useStore } from './StoreContext';
+import { useStore, StoreProvider } from './StoreContext';
 import React, { useState, Suspense, lazy, useEffect, useRef } from 'react';
 import toast, { useToasterStore } from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
-import { cn } from './types';
+import { cn } from '@/lib/utils';
+import { AlertTriangle } from 'lucide-react';
 import { errorService, ErrorType } from './lib/incidentReporting';
 import LoadingFallback from './components/LoadingFallback';
 import AppCrashBoundary from './components/AppCrashBoundary';
@@ -59,71 +60,35 @@ import Home from './pages/Home';
 import Products from './pages/Products';
 import Login from './pages/Login';
 
-// Helper to retry lazy-loaded modules in case of temporary network dropouts or chunk failures
-function lazyWithRetry<T extends React.ComponentType<any>>(
-  componentImport: () => Promise<{ default: T }>
-): React.LazyExoticComponent<T> {
-  return lazy(async () => {
-    try {
-      return await componentImport();
-    } catch (error) {
-      console.warn('Failed to load dynamic page module, attempting automatic reload retry...', error);
-      try {
-        // Wait 1.5 seconds and attempt once more
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        return await componentImport();
-      } catch (retryError) {
-        console.error('Dynamic module retry load failed:', retryError);
-        // Suppress fatals, return a graceful offline-ready message as a React component
-        return {
-          default: (() => (
-            <div className="flex flex-col items-center justify-center p-8 text-center min-h-[60vh] bg-stone-50 select-text">
-              <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-4 text-amber-500 animate-pulse">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-bold text-stone-800">Connection Interrupted</h3>
-              <p className="text-sm text-stone-500 mt-2 max-w-sm leading-relaxed">
-                We couldn't connect to the server to load this section. Please check your network and try again.
-              </p>
-              <button 
-                onClick={() => window.location.reload()} 
-                className="mt-6 px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-[0.98]"
-              >
-                Reload App
-              </button>
-            </div>
-          )) as unknown as T
-        };
-      }
-    }
-  });
-}
+import { lazyWithRetry } from './lib/lazyLoader';
+
+// Preload helper for admin dashboard
+const preloadAdmin = () => {
+  import('./pages/AdminDashboard').catch(() => {});
+  import('./pages/AdminPayments').catch(() => {});
+};
 
 // Aggressive Route-based Code Splitting to optimize 3.5MB bundle size
-const ProductDetail = lazyWithRetry(() => import('./pages/ProductDetail'));
-const Cart = lazyWithRetry(() => import('./pages/Cart'));
-const Checkout = lazyWithRetry(() => import('./pages/Checkout'));
-const Invoice = lazyWithRetry(() => import('./pages/Invoice'));
-const Support = lazyWithRetry(() => import('./pages/Support'));
-const Wishlist = lazyWithRetry(() => import('./pages/Wishlist'));
-const Profile = lazyWithRetry(() => import('./pages/Profile'));
-const Promotions = lazyWithRetry(() => import('./pages/Promotions'));
-const AboutUs = lazyWithRetry(() => import('./pages/AboutUs'));
-const TermsAndConditions = lazyWithRetry(() => import('./pages/TermsAndConditions'));
-const PrivacyPolicy = lazyWithRetry(() => import('./pages/PrivacyPolicy'));
-const AddMoney = lazyWithRetry(() => import('./pages/AddMoney'));
-const ActivityLogs = lazyWithRetry(() => import('./pages/ActivityLogs'));
-const LegalPage = lazyWithRetry(() => import('./pages/LegalPage'));
-const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
-const AdminPayments = lazyWithRetry(() => import('./pages/AdminPayments'));
-const DeliveryDashboard = lazyWithRetry(() => import('./pages/DeliveryDashboard'));
-const MaintenancePage = lazyWithRetry(() => import('./pages/MaintenancePage'));
-const TrackOrder = lazyWithRetry(() => import('./pages/TrackOrder'));
-const UserActivity = lazyWithRetry(() => import('./pages/UserActivityV2'));
-
-
+const ProductDetail = lazyWithRetry(() => import('./pages/ProductDetail'), 'ProductDetail');
+const Cart = lazyWithRetry(() => import('./pages/Cart'), 'Cart');
+const Checkout = lazyWithRetry(() => import('./pages/Checkout'), 'Checkout');
+const Invoice = lazyWithRetry(() => import('./pages/Invoice'), 'Invoice');
+const Support = lazyWithRetry(() => import('./pages/Support'), 'Support');
+const Wishlist = lazyWithRetry(() => import('./pages/Wishlist'), 'Wishlist');
+const Profile = lazyWithRetry(() => import('./pages/Profile'), 'Profile');
+const Promotions = lazyWithRetry(() => import('./pages/Promotions'), 'Promotions');
+const AboutUs = lazyWithRetry(() => import('./pages/AboutUs'), 'AboutUs');
+const TermsAndConditions = lazyWithRetry(() => import('./pages/TermsAndConditions'), 'Terms');
+const PrivacyPolicy = lazyWithRetry(() => import('./pages/PrivacyPolicy'), 'Privacy');
+const AddMoney = lazyWithRetry(() => import('./pages/AddMoney'), 'Wallet');
+const ActivityLogs = lazyWithRetry(() => import('./pages/ActivityLogs'), 'ActivityLogs');
+const LegalPage = lazyWithRetry(() => import('./pages/LegalPage'), 'Legal');
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'), 'AdminDashboard');
+const AdminPayments = lazyWithRetry(() => import('./pages/AdminPayments'), 'AdminPayments');
+const DeliveryDashboard = lazyWithRetry(() => import('./pages/DeliveryDashboard'), 'Runner');
+const MaintenancePage = lazyWithRetry(() => import('./pages/MaintenancePage'), 'Maintenance');
+const TrackOrder = lazyWithRetry(() => import('./pages/TrackOrder'), 'Tracker');
+const UserActivity = lazyWithRetry(() => import('./pages/UserActivityV2'), 'Activity');
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -141,6 +106,13 @@ function AnimatedRoutes() {
   } = useStore();
   
   const { showHelp, setShowHelp } = useKeyboardShortcuts();
+
+  // Preload admin pages if user is admin
+  useEffect(() => {
+    if (isInitialAuthPerformed && user?.role === 'admin') {
+      preloadAdmin();
+    }
+  }, [isInitialAuthPerformed, user?.role]);
   
   useEffect(() => {
     if (showHelp) {
@@ -331,6 +303,16 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  return (
+    <AppCrashBoundary>
+      <StoreProvider>
+        <AppContent />
+      </StoreProvider>
+    </AppCrashBoundary>
+  );
+}
+
+function AppContent() {
   const store = useStore();
   const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout } = store;
 
@@ -372,7 +354,7 @@ export default function App() {
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
       window.removeEventListener('session_expired', handleSessionExpired);
     };
-  }, []);
+  }, [store.user?.id]);
 
   if (dbError) {
     return <DbConnectionIssue />;

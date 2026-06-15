@@ -23,7 +23,7 @@ export default function AuditLogsTab({
   handleRevertAction,
 }: AuditLogsTabProps) {
   return (
-    <div className="h-full overflow-y-auto no-scrollbar space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <header className="shrink-0 flex flex-col md:flex-row md:items-end justify-between gap-8">
         <div>
           <h2 className="text-4xl font-black text-stone-900 tracking-tight">Security & Audit Cipher</h2>

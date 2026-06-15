@@ -280,9 +280,5 @@ function HomeInner() {
 }
 
 export default function Home() {
-  return (
-    <AppCrashBoundary>
-      <HomeInner />
-    </AppCrashBoundary>
-  );
+  return <HomeInner />;
 }

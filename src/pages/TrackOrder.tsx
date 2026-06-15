@@ -119,10 +119,16 @@ export default function TrackOrder() {
   useEffect(() => {
     const socket = io(); 
     socket.on('data', (data) => {
-        const currentOrder = orderRef.current;
-        if (data.type === 'ORDER_STATUS_UPDATE' && currentOrder && (String(data.payload.id) === String(currentOrder.id) || String(data.payload.order_id) === String(currentOrder.order_id))) {
-            setOrder((prev: any) => ({ ...prev, status: data.payload.status }));
-            toast.success(`Order status updated to ${data.payload.status}`);
+        try {
+            const currentOrder = orderRef.current;
+            if (!data || !data.payload) return;
+            
+            if (data.type === 'ORDER_STATUS_UPDATE' && currentOrder && (String(data.payload.id) === String(currentOrder.id) || String(data.payload.order_id) === String(currentOrder.order_id))) {
+                setOrder((prev: any) => ({ ...prev, status: data.payload.status }));
+                toast.success(`Order status updated to ${data.payload.status}`);
+            }
+        } catch (err) {
+            console.error('[TrackOrder] Socket data processing error:', err);
         }
     });
 
@@ -205,7 +211,10 @@ export default function TrackOrder() {
 
   const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orderId || !phoneNumber) {
+    const cleanOrderId = (orderId || '').trim();
+    const cleanPhone = (phoneNumber || '').trim().replace(/\D/g, '');
+
+    if (!cleanOrderId || !cleanPhone) {
       toast.error('Please enter both Order ID and Phone Number');
       return;
     }
@@ -214,12 +223,12 @@ export default function TrackOrder() {
     const orderIdRegex = /^HGS-\d{8}-[A-Z0-9]{4}$/i;
     const phoneRegex = /^[6-9]\d{9}$/;
 
-    if (!orderIdRegex.test(orderId.trim()) && !/^\d+$/.test(orderId.trim())) {
+    if (!orderIdRegex.test(cleanOrderId) && !/^\d+$/.test(cleanOrderId)) {
       toast.error('Invalid Order ID format. Expected: HGS-YYYYMMDD-XXXX');
       return;
     }
 
-    if (!phoneRegex.test(phoneNumber.trim().replace(/\D/g, ''))) {
+    if (!phoneRegex.test(cleanPhone)) {
       toast.error('Please enter a valid 10-digit mobile number');
       return;
     }
@@ -228,14 +237,10 @@ export default function TrackOrder() {
     setLoading(true);
     setSearchPerformed(false); // Reset to show a fresh state
     try {
-      // Input sanitation/format check
-      const cleanOrderId = orderId.trim();
-      const cleanPhone = phoneNumber.trim().replace(/\D/g, ''); 
-
       const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(cleanOrderId)}?phone=${encodeURIComponent(cleanPhone)}`);
       
       setSearchPerformed(true); // Mark as done for feedback
-      if (data && data.success) {
+      if (data && data.success && data.order) {
         setOrder(data.order);
         toast.success('Order details found successfully.');
       } else {

@@ -60,7 +60,7 @@ export default function SupportTicketsTab({
             {tickets.length}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-stone-50">
+        <div className="max-w-full overflow-x-hidden flex-1 divide-y divide-stone-50">
           {tickets.map((ticket) => (
             <button 
               key={ticket.id}
@@ -137,7 +137,7 @@ export default function SupportTicketsTab({
               </div>
             </header>
             
-            <div className="flex-1 p-10 overflow-y-auto no-scrollbar space-y-8 bg-stone-50/30">
+            <div className="flex-1 p-10 space-y-8 bg-stone-50/30">
               <div className="flex items-start space-x-4 max-w-[85%] group">
                 <div className="w-10 h-10 rounded-xl bg-stone-100 flex items-center justify-center shrink-0 text-stone-400 mt-1 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                   <Users size={18} />

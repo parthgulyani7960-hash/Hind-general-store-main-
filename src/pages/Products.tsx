@@ -956,7 +956,10 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                 <div className="mt-auto flex items-center justify-between pt-2 border-t border-stone-50">
                   <div className="flex flex-col">
                     <span className="text-sm font-black text-primary">
-                      ₹{product.discount > 0 ? Math.round(getProductPrice(product, user?.role) * (1 - product.discount / 100)) : getProductPrice(product, user?.role)}
+                      ₹{(() => {
+                        const price = getProductPrice(product, user?.role);
+                        return product.discount > 0 ? Math.round(price * (1 - product.discount / 100)) : price;
+                      })()}
                     </span>
                     {product.discount > 0 && (
                       <span className="text-[10px] text-stone-400 line-through font-bold">₹{getProductPrice(product, user?.role)}</span>

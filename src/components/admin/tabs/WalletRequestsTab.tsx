@@ -23,7 +23,7 @@ export default function WalletRequestsTab({
         hidden: { opacity: 0 },
         show: { opacity: 1, transition: { staggerChildren: 0.05 } }
       }}
-      className="h-full overflow-y-auto no-scrollbar space-y-10 pb-10 pr-2"
+      className="max-w-full overflow-x-hidden space-y-10 pb-10 pr-2"
     >
        <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-2">
         <div>
