@@ -132,9 +132,11 @@ function HomeInner() {
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.3 }}
-                    className="flex-1 w-full md:w-auto relative rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl mt-8 md:mt-0 hidden sm:block"
+                    className="flex-1 w-full md:w-auto relative rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl mt-8 md:mt-0 hidden sm:block hover:scale-[1.01] transition-transform duration-300 cursor-pointer"
                   >
-                     <ProgressiveImage src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="w-full h-[300px] md:h-[500px]" alt="Banner" />
+                     <Link to={banner.link || '/products'} onClick={() => handleBannerClick(banner.id)}>
+                       <ProgressiveImage src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="w-full h-[300px] md:h-[500px]" alt="Banner" />
+                     </Link>
                   </motion.div>
                </div>
             </motion.div>

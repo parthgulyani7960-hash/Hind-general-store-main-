@@ -238,7 +238,7 @@ export default function Login() {
                   )}
 
                   {/* Core Login Button */}
-                  <div className="space-y-3">
+                    <div className="space-y-3">
                     <Button
                       onClick={handleGoogleLogin}
                       disabled={loading || !isOnline}

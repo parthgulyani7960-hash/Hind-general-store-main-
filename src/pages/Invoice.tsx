@@ -214,13 +214,13 @@ export default function Invoice() {
               <div className="flex items-center justify-end space-x-2">
                 <p className="text-stone-400 font-bold uppercase text-[9px] tracking-widest">Invoice Number</p>
                 <span className="font-mono text-xs font-black text-stone-900 bg-stone-100 px-3 py-1 rounded-lg border border-stone-200">
-                  INV/2026/06/{String(order.id).padStart(5, '0')}
+                  {order.order_id || `INV/2026/06/${String(order.id).padStart(5, '0')}`}
                 </span>
               </div>
               <div className="flex items-center justify-end space-x-2 mt-1.5">
                 <p className="text-stone-400 font-bold uppercase text-[9px] tracking-widest">Order Reference</p>
                 <span className="font-mono text-xs font-black text-stone-800 bg-stone-100 px-3 py-1 rounded-lg">
-                  #ORD-{order.id}
+                  {order.order_id || `#ORD-${order.id}`}
                 </span>
               </div>
               <p className="text-stone-500 text-[11px] font-bold mt-2">

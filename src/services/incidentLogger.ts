@@ -8,21 +8,13 @@ export const logErrorToFirestore = async (error: any, context: string) => {
         context,
         timestamp: new Date().toISOString(),
         userId: auth.currentUser?.uid || 'anonymous',
-        url: window.location.href,
-        userAgent: navigator.userAgent,
+        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
     };
 
-    // 1. Queue immediately
-    const queue = JSON.parse(localStorage.getItem(ERROR_QUEUE_KEY) || '[]');
-    queue.push(errorData);
-    localStorage.setItem(ERROR_QUEUE_KEY, JSON.stringify(queue));
-
-    // 2. Attempt sync
-    syncErrors();
-    
-    // 3. Optional: Direct post to backend bug reports for critical visibility
+    // 1. Attempt direct backend send
     try {
-        fetch('/api/bugs/report', {
+        await fetch('/api/bugs/report', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -31,8 +23,19 @@ export const logErrorToFirestore = async (error: any, context: string) => {
                 path: errorData.url,
                 action_log: `UserAgent: ${errorData.userAgent}`
             })
-        }).catch(() => {});
-    } catch (err) {}
+        });
+        return; // Success
+    } catch (err) {
+        console.error('Direct reporting failed, queuing:', err);
+    }
+
+    // 2. Queue for later if direct report fails
+    const queue = JSON.parse(localStorage.getItem(ERROR_QUEUE_KEY) || '[]');
+    queue.push(errorData);
+    localStorage.setItem(ERROR_QUEUE_KEY, JSON.stringify(queue));
+
+    // 3. Attempt sync
+    syncErrors();
 };
 
 const syncErrors = async () => {

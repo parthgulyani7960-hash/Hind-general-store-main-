@@ -40,7 +40,7 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
           <div className="flex justify-between items-start mb-6">
             <div>
               <div className="flex items-center space-x-3">
-                <h3 className="text-2xl font-bold">Order #ORD-{orderModal.order.id}</h3>
+                <h3 className="text-2xl font-bold">Order #{orderModal.order.order_id || 'ORD-' + orderModal.order.id}</h3>
                 <span className={cn(
                   "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm",
                   orderModal.order.payment_status === 'paid' ? "bg-emerald-500 text-white" :

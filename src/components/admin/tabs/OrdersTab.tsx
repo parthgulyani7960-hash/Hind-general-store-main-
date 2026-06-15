@@ -367,9 +367,7 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                           <td className="px-6 py-6">
                             <div className="flex flex-col">
                                 <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-stone-900 text-white rounded-lg font-mono text-xs font-black tracking-tighter select-text">
-                                  <span>ORD</span>
-                                  <span className="text-stone-400">#</span>
-                                  <span>{order.id}</span>
+                                  <span>{order.order_id || `ORD#${order.id}`}</span>
                                 </span>
                                 {order.delivery_type === 'pickup' && (
                                   <span className="mt-1 bg-stone-100 text-stone-700 text-[8px] px-2 py-0.5 rounded-md font-black uppercase tracking-wider w-fit border border-stone-200/50">Pickup</span>
@@ -493,7 +491,7 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                             onClick={() => fetchOrderDetailsModal(order)}
                           >
                              <div className="flex justify-between items-start mb-3">
-                               <span className="font-mono text-xs font-black text-stone-800 tracking-tighter">#ORD-{order.id}</span>
+                               <span className="font-mono text-xs font-black text-stone-800 tracking-tighter">{order.order_id || `#ORD-${order.id}`}</span>
                                <span className="text-xs font-black text-stone-900 tracking-tight">₹{order.total}</span>
                              </div>
                              <h5 className="text-sm font-black text-stone-850 mb-1 truncate">{order.user_name || 'Anonymous Customer'}</h5>

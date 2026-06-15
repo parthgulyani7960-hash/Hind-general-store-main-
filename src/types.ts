@@ -215,4 +215,6 @@ export interface Announcement {
   type: 'info' | 'warning' | 'error' | 'success' | 'maintenance' | 'promo';
   priority: 'low' | 'medium' | 'high' | 'critical';
   is_dismissible: boolean | number;
+  product_id?: number | string;
+  link?: string;
 }

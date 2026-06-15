@@ -21,13 +21,15 @@ export const ProgressiveImage = ({
   const [currentSrc, setCurrentSrc] = useState(placeholderSrc || src);
 
   useEffect(() => {
+    setIsLoaded(false);
+    setCurrentSrc(placeholderSrc || src);
     const img = new Image();
     img.src = src;
     img.onload = () => {
       setCurrentSrc(src);
       setIsLoaded(true);
     };
-  }, [src]);
+  }, [src, placeholderSrc]);
 
   return (
     <div className={cn("relative overflow-hidden bg-stone-100", className)}>

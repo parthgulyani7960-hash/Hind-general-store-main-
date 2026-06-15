@@ -105,6 +105,14 @@ export default function ProductDetail() {
       .then(data => {
         if (data) {
           setProduct(data);
+          if (window.location.hash === '#reviews') {
+            setTimeout(() => {
+              const el = document.getElementById('reviews');
+              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 300);
+          } else {
+            window.scrollTo({ top: 0, behavior: 'instant' });
+          }
         }
       })
       .catch(err => {
@@ -139,18 +147,15 @@ export default function ProductDetail() {
   };
 
   useEffect(() => {
-    // Only fetch if product is not loaded or product ID does not match current route param
-    if (product && product.id === Number(id)) return;
-
+    setProduct(null);
     setLoading(true);
-    // Standard effect run
     fetchProduct();
     fetchReviews();
     fetchVariants();
     fetchRelatedProducts();
     setQuantity(1);
     window.scrollTo(0, 0);
-  }, [id, product?.id]); // Added product?.id for stability
+  }, [id]);
 
   const allImages = product 
     ? [product.image_url, ...(product.images || []).filter((img: string) => img !== product.image_url)].filter(Boolean)
@@ -382,6 +387,20 @@ export default function ProductDetail() {
 
   return (
     <AppCrashBoundary>
+      {/* Floating Right Notch Share Button */}
+      <div className="fixed right-0 top-1/3 z-50 transform -translate-y-1/2">
+        <motion.button
+          whileHover={{ scale: 1.05, x: -4 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleShare}
+          className="flex items-center gap-2 bg-primary text-white pl-4 pr-5 py-3.5 rounded-l-full shadow-2xl border border-r-0 border-white/20 backdrop-blur-md hover:bg-stone-900 transition-colors"
+          title="Share this product"
+        >
+          <Share2 size={16} className="animate-pulse" />
+          <span className="text-xs font-black uppercase tracking-widest font-mono">Share</span>
+        </motion.button>
+      </div>
+
       <div className="product-view product-detail-view max-w-5xl lg:max-w-7xl mx-auto px-4 py-8 pb-32">
         <Button 
           variant="ghost"
@@ -522,7 +541,7 @@ export default function ProductDetail() {
             </div>
             
             <div className="flex flex-col space-y-1">
-              <div className="flex items-baseline space-x-3 mt-2">
+              <div className="flex items-baseline space-x-3 mt-2 flex-wrap gap-2">
                 <p className={cn(
                   "text-4xl font-black",
                   getActivePrice(product, selectedVariant) < (selectedVariant ? selectedVariant.price : product.price) ? "text-emerald-600" : "text-primary"
@@ -533,6 +552,12 @@ export default function ProductDetail() {
                   <p className="text-xl text-stone-400 line-through font-medium">
                     ₹{selectedVariant ? selectedVariant.price : product.price}
                   </p>
+                )}
+                {product.discount > 0 && (
+                  <span className="bg-red-500 text-white px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider animate-pulse flex items-center gap-1 shadow-md shadow-red-500/10">
+                    <Tag size={10} />
+                    <span>{product.discount}% OFF</span>
+                  </span>
                 )}
                 <span className="text-sm text-stone-400 font-normal">per {selectedVariant ? selectedVariant.name : (product.unit || 'unit')}</span>
               </div>
@@ -634,24 +659,6 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* Pricing Grid */}
-          {(product.wholesale_price || product.retail_price) && (
-            <div className="grid grid-cols-2 gap-4 p-4 bg-stone-50 rounded-2xl border border-stone-100">
-              {product.wholesale_price && (
-                <div>
-                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Wholesale Price</p>
-                  <p className="text-lg font-bold text-stone-700">₹{product.wholesale_price}</p>
-                </div>
-              )}
-              {product.retail_price && (
-                <div>
-                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Retail Price</p>
-                  <p className="text-lg font-bold text-stone-700">₹{product.retail_price}</p>
-                </div>
-              )}
-            </div>
-          )}
-
           <p className="text-stone-600 leading-relaxed text-lg">{product.description}</p>
 
           {product.specifications && Object.keys(product.specifications).length > 0 && (
@@ -671,27 +678,27 @@ export default function ProductDetail() {
             </div>
           )}
 
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 flex-1">
-              <div className="quantity-selector flex items-center justify-between sm:justify-center bg-stone-100/50 rounded-[2rem] p-2 border-2 border-stone-100 shadow-inner">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+              <div className="quantity-selector flex items-center justify-between sm:justify-center bg-stone-100/50 rounded-xl p-1 border border-stone-200">
                 <button 
                   onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
-                  className="p-4 bg-white hover:bg-stone-50 rounded-[1.5rem] transition-all text-primary shadow-md min-w-[56px] min-h-[56px] flex items-center justify-center active:scale-90"
+                  className="p-2 bg-white hover:bg-stone-50 rounded-lg transition-all text-primary shadow-sm min-w-[38px] min-h-[38px] flex items-center justify-center active:scale-90"
                 >
-                  <Minus size={24} strokeWidth={3} />
+                  <Minus size={16} strokeWidth={3} />
                 </button>
-                <div className="flex flex-col items-center px-6">
-                  <span className="text-3xl font-black text-stone-900">{quantity}</span>
+                <div className="flex flex-col items-center px-4">
+                  <span className="text-lg font-black text-stone-900">{quantity}</span>
                 </div>
                 <button 
                   onClick={() => setQuantity(prev => Math.min(selectedVariant ? selectedVariant.stock : product.stock, prev + 1))}
-                  className="p-4 bg-white hover:bg-stone-50 rounded-[1.5rem] transition-all text-primary shadow-md min-w-[56px] min-h-[56px] flex items-center justify-center active:scale-90"
+                  className="p-2 bg-white hover:bg-stone-50 rounded-lg transition-all text-primary shadow-sm min-w-[38px] min-h-[38px] flex items-center justify-center active:scale-90"
                 >
-                  <Plus size={24} strokeWidth={3} />
+                  <Plus size={16} strokeWidth={3} />
                 </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1">
                 <Button 
                   disabled={addingToCart || isSyncingCart}
                   isLoading={addingToCart || isSyncingCart}
@@ -702,9 +709,9 @@ export default function ProductDetail() {
                     setAddingToCart(false);
                   }}
                   variant="primary"
-                  className="flex-1 bg-white border-2 border-primary text-primary py-7 rounded-[2rem] text-lg font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all shadow-lg shadow-primary/10"
+                  className="flex-1 bg-white border-2 border-primary text-primary py-3.5 sm:py-4 rounded-xl text-sm font-black uppercase tracking-wider hover:bg-primary hover:text-white transition-all shadow-md shadow-primary/5"
                 >
-                  <ShoppingCart size={24} strokeWidth={2.5} />
+                  <ShoppingCart size={18} strokeWidth={2.5} />
                   <span>Add to Cart</span>
                 </Button>
                 
@@ -714,9 +721,9 @@ export default function ProductDetail() {
                     navigate('/cart');
                   }}
                   variant="primary"
-                  className="flex-1 py-7 rounded-[2rem] text-lg font-black uppercase tracking-widest hover:bg-stone-900 transition-all shadow-xl shadow-stone-900/30"
+                  className="flex-1 py-3.5 sm:py-4 rounded-xl text-sm font-black uppercase tracking-wider hover:bg-stone-900 transition-all shadow-md shadow-stone-900/10"
                 >
-                  <ShoppingBag size={24} strokeWidth={2.5} />
+                  <ShoppingBag size={18} strokeWidth={2.5} />
                   <span>Buy Now</span>
                 </Button>
               </div>

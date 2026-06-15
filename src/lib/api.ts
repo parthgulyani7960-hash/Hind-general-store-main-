@@ -91,12 +91,16 @@ const fetchWithHandlingInternal = async <T>(
             data = JSON.parse(rawText);
             isJson = true;
           } catch (parseErr: any) {
-            logger.error(`Non-JSON error payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
-            errorService.report({
-              type: ErrorType.API_ERROR,
-              message: `Non-JSON error payload from ${url}`,
-              metadata: { url, status: res.status, rawContent: rawText.slice(0, 1000), parseError: parseErr.message }
-            });
+            if (res.status === 429) {
+                logger.warn(`Rate limit hit: ${rawText.slice(0, 50)}`);
+            } else {
+                logger.error(`Non-JSON error payload received from ${url}. Raw content preview: ${rawText.slice(0, 200)}`);
+                errorService.report({
+                type: ErrorType.API_ERROR,
+                message: `Non-JSON error payload from ${url}`,
+                metadata: { url, status: res.status, rawContent: rawText.slice(0, 1000), parseError: parseErr.message }
+                });
+            }
           }
         }
 
@@ -179,19 +183,19 @@ const fetchWithHandlingInternal = async <T>(
               detail: { url, status: res.status, message: errorMessage } 
             }));
           }
- 
-          // Return null for read operations to prevent blank white page crashes under rate limits or server errors
-          if (options.method === 'GET' || !options.method) {
-            logger.warn(`Returning null for failed GET ${url} on status ${res.status}`);
-            return null;
-          }
-
-          if (res.status === 429) {
-            throw new RateLimitError(errorMessage, 600);
-          }
-
-          throw new ApiError(errorMessage, res.status, detailedError);
         }
+
+        // Return null for read operations to prevent blank white page crashes under rate limits or server errors
+        if ((options.method === 'GET' || !options.method) && !url.includes('/api/auth/me')) {
+          logger.warn(`Returning null for failed GET ${url} on status ${res.status}`);
+          return null;
+        }
+
+        if (res.status === 429) {
+          throw new RateLimitError(errorMessage, 600);
+        }
+
+        throw new ApiError(errorMessage, res.status, detailedError);
     }
     
     const successText = await res.text().catch(() => '');
@@ -282,6 +286,9 @@ const fetchWithHandlingInternal = async <T>(
     
     // We throw to allow specific pages to handle errors if they want, 
     // but we return null for most common use cases.
+    if (url.includes('/api/auth/me')) {
+      throw err;
+    }
     return null;
   }
 };

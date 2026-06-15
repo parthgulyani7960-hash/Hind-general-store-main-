@@ -100,6 +100,7 @@ try {
   redactConsole();
 } catch (e) {}
 
+import { generateOrderId } from './src/lib/orderUtils';
 import express from 'express';
 import crypto from 'crypto';
 console.log('[BOOT] Express module loaded');
@@ -1428,7 +1429,7 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
         }
       }
       
-      const role = shouldBeAdmin ? 'admin' : 'customer';
+      const role = shouldBeAdmin ? 'admin' : (decodedToken.role || 'customer');
 
       if (!snap.empty) {
         const doc = snap.docs[0];
@@ -1436,7 +1437,7 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
         const updates: any = {};
         
         // Auto-upgrade or downgrade role based on admins collection
-        const targetRole = shouldBeAdmin ? 'admin' : 'customer';
+        const targetRole = shouldBeAdmin ? 'admin' : (decodedToken.role || user.role || 'customer');
         if (user.role !== targetRole) {
           updates.role = targetRole;
           user.role = targetRole;
@@ -1473,7 +1474,7 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
       return {
         id: decodedToken.uid || 'token_user',
         email: emailInput,
-        role: (lowercaseEmail === 'parthgulyani7960@gmail.com' || lowercaseEmail === 'admin@hindstore.com') ? 'admin' : 'customer',
+        role: (lowercaseEmail === 'parthgulyani7960@gmail.com' || lowercaseEmail === 'admin@hindstore.com') ? 'admin' : (decodedToken.role || 'customer'),
         name: decodedToken.name || emailInput.split('@')[0],
         is_shadow: true,
         db_error: e.message
@@ -3500,6 +3501,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         console.log('[STEP 5] Token verified successfully via Firebase Admin API. UID:', decodedToken.uid);
       } catch (verifyErr: any) {
         console.error('[STEP 5.ERROR] Token verification failed:', verifyErr.message);
+        
+        // Handle rate limiting from Firebase Auth
+        if (verifyErr.code === 'auth/quota-exceeded' || verifyErr.message.includes('Rate exceeded')) {
+          return res.status(429).json({ success: false, message: 'Too many authentication requests. Please try again in a few minutes.' });
+        }
+
         logSuspicious(null, 'JWT_VERIFY_FAILED', `Token verification failed: ${verifyErr.message}. IP: ${req.ip}`);
         return res.status(401).json({ success: false, message: 'Invalid or expired session token.' });
       }
@@ -3570,6 +3577,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         stack: e.stack,
         requestId: (req as any).id
       });
+      
+      // Handle rate limiting
+      if (e.message?.includes('Rate exceeded') || e.code === 'auth/quota-exceeded') {
+          return res.status(429).json({ success: false, message: 'Too many requests. Please try again later.' });
+      }
+
       // Increment failed attempts (only if firebase is ready)
       if (isFirebaseReady) {
         try {
@@ -7094,10 +7107,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     try {
       if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
 
-      let year = new Date().getFullYear();
-      let month = String(new Date().getMonth() + 1).padStart(2, '0');
-      let day = String(new Date().getDate()).padStart(2, '0');
-      const orderIdStr = `HGS-${year}${month}${day}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      // Generate unique order ID using the utility
+      const orderIdStr = generateOrderId(Date.now(), Math.floor(Math.random() * 10000));
       const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
 
       let orderRecord: any = {

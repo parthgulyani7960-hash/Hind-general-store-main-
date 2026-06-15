@@ -418,7 +418,8 @@ export default function SearchOverlay({
                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 pb-20">
                            {filteredProducts.map(product => {
                              const cartItem = cart.find(c => c.id === product.id);
-                             const activePrice = getProductPrice(product, user?.role);
+                             const basePrice = getProductPrice(product, user?.role);
+                             const activePrice = product.discount > 0 ? Math.round(basePrice * (1 - product.discount / 100)) : basePrice;
                              
                              return (
                                <div key={product.id} className="bg-white rounded-2xl border border-stone-100 overflow-hidden flex flex-col group shadow-sm hover:shadow-xl transition-all h-full relative cursor-pointer" onClick={() => { onClose(); navigate(`/product/${product.id}`); }}>
@@ -440,7 +441,7 @@ export default function SearchOverlay({
                                      </div>
                                      <div className="mt-auto flex items-end justify-between pr-14">
                                        <div className="flex flex-col">
-                                         {activePrice < product.price && <span className="text-xs text-stone-400 line-through font-bold">₹{product.price}</span>}
+                                         {(product.discount > 0 || basePrice < product.price) && <span className="text-xs text-stone-400 line-through font-bold">₹{basePrice}</span>}
                                          <span className="text-lg font-black text-primary leading-none">₹{activePrice}</span>
                                        </div>
                                      </div>

@@ -99,7 +99,7 @@ export default function AdminPayments() {
     const matchesSearch = 
       log.matched_order_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       log.extracted_note?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.body.toLowerCase().includes(searchTerm.toLowerCase());
+      (log.body || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesFilter = filter === 'ALL' || log.match_status === filter;
     

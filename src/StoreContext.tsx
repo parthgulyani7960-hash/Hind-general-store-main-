@@ -33,7 +33,7 @@ interface StoreContextType {
   toggleWishlist: (productId: any) => void;
   config: any[];
   fetchConfig: () => Promise<void>;
-  subscribeNewsletter: (email: string) => Promise<void>;
+  subscribeNewsletter: (email: string) => Promise<boolean>;
   vibration: boolean;
   setVibration: (val: boolean) => void;
   notifications: boolean;
@@ -383,15 +383,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         console.warn('[AUTH] Database offline, maintaining existing session state');
         // Do nothing, don't clear session
       } else {
-        setUser(null);
-        localStorage.removeItem('hgs_user');
-        localStorage.removeItem('hgs_token');
+        // If data is null, check if we had a network error or transient failure that wasn't thrown.
+        // We do not clear credentials to prevent infinite redirect loops under 429 rate limits or transient errors
+        logger.warn('[checkAuth] Auth API returned empty user without throwing. Maintaining existing session to prevent loops.');
       }
     } catch (err: any) {
       if (err.status === 401) {
+        logger.warn('[checkAuth] Unauthorized token (401). Clearing session.', err);
         setUser(null);
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
+      } else {
+        logger.warn('[checkAuth] Transient auth check error. Maintaining existing credentials to prevent loops:', err);
       }
     } finally {
       authRunningRef.current = false;
@@ -651,7 +654,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast.error(err.message || 'Failed to update profile');
     }
   };
-  const subscribeNewsletter = async (email: string) => {};
+  const subscribeNewsletter = async (email: string): Promise<boolean> => {
+    if (!email || !email.includes('@')) {
+      toast.error('Please enter a valid email address.');
+      return false;
+    }
+    try {
+      const res = await fetchWithHandling<any>('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user ? getAuthHeaders() : {}),
+        },
+        body: JSON.stringify({ email }),
+      });
+      if (res && res.success) {
+        toast.success(res.message || 'Successfully subscribed to our newsletter!', { icon: '📧' });
+        return true;
+      } else {
+        toast.error(res?.message || 'Failed to subscribe. Please try again.');
+        return false;
+      }
+    } catch (err: any) {
+      console.error('Newsletter error:', err);
+      toast.error('Network error during subscription.');
+      return false;
+    }
+  };
   const fetchCategories = React.useCallback(async () => {
     if (isLoadingCategoriesRef.current) return;
     isLoadingCategoriesRef.current = true;
@@ -685,6 +714,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const markAlertAsRead = async (id: number) => {};
 
   // 3. Effects
+  const [previousRole, setPreviousRole] = React.useState(user?.role || 'retailer');
+  useEffect(() => {
+    if (user && user.role === 'wholesaler' && previousRole !== 'wholesaler') {
+      const hasSeen = localStorage.getItem(`has_seen_wholesale_alert_${user.id}`);
+      if (!hasSeen) {
+        setCurrentAlert({
+          id: Date.now(),
+          type: 'success',
+          title: 'Congratulations!',
+          message: 'Account converted to wholesale. Congratulations and many more things. Now you can purchase at wholesale prices. And start shopping now.',
+          duration: 7000,
+          is_unskippable: true
+        });
+        localStorage.setItem(`has_seen_wholesale_alert_${user.id}`, 'true');
+      }
+    }
+    setPreviousRole(user?.role || 'retailer');
+  }, [user?.role]);
+
   useEffect(() => {
     if (initialCheckDone.current) {
         logger.debug('StoreProvider was already initialized, skipping');

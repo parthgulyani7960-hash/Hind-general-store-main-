@@ -211,11 +211,11 @@ export default function TrackOrder() {
     }
 
     // New Validations
-    const orderIdRegex = /^HGS-\d{8}-[A-Z0-9]{5}$/i;
+    const orderIdRegex = /^HGS-\d{8}-[A-Z0-9]{4}$/i;
     const phoneRegex = /^[6-9]\d{9}$/;
 
     if (!orderIdRegex.test(orderId.trim()) && !/^\d+$/.test(orderId.trim())) {
-      toast.error('Invalid Order ID format. Expected: HGS-YYYYMMDD-XXXXX');
+      toast.error('Invalid Order ID format. Expected: HGS-YYYYMMDD-XXXX');
       return;
     }
 

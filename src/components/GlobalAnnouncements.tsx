@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, Info, Megaphone, X, ChevronRight, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/types';
 import { useStore } from '@/StoreContext';
 
@@ -11,9 +12,12 @@ interface Announcement {
   type: 'info' | 'warning' | 'error' | 'success' | 'maintenance' | 'promo';
   priority: 'low' | 'medium' | 'high' | 'critical';
   is_dismissible: boolean | number;
+  product_id?: number | string;
+  link?: string;
 }
 
 export default function GlobalAnnouncements() {
+  const navigate = useNavigate();
   const [dismissedIds, setDismissedIds] = useState<number[]>(() => {
     try {
       const saved = localStorage.getItem('hgs_dismissed_announcements');
@@ -67,8 +71,19 @@ export default function GlobalAnnouncements() {
                 {ann.type === 'info' && <Info size={16} />}
                 {(ann.type === 'warning' || ann.type === 'error') && <AlertTriangle size={16} />}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs sm:text-sm font-black uppercase tracking-tight truncate">
+              <div 
+                onClick={() => {
+                  if (ann.product_id) {
+                    navigate(`/product/${ann.product_id}`);
+                  } else if (ann.link) {
+                    navigate(ann.link);
+                  } else {
+                    navigate('/products');
+                  }
+                }}
+                className="flex-1 min-w-0 cursor-pointer hover:underline group"
+              >
+                <p className="text-xs sm:text-sm font-black uppercase tracking-tight truncate group-hover:text-amber-200 transition-colors">
                   {ann.title}
                 </p>
                 <p className="text-[10px] sm:text-xs font-medium opacity-80 line-clamp-1">

@@ -1,7 +1,8 @@
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { amountToWords } from '../lib/utils';
+import { generateOrderId } from '../lib/orderUtils';
 
 // Professional Color Palette
 const COLORS = {
@@ -93,12 +94,13 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
   doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
   doc.text('INVOICE', pageWidth - margin, 20, { align: 'right' });
 
-  const invoiceNumber = `INV/2026/06/${String(order.id).padStart(5, '0')}`;
+  const orderId = order.order_id || generateOrderId(new Date(order.created_at).getTime(), order.id);
+  const invoiceNumber = order.order_id ? `INV/${order.order_id}` : `INV/${generateOrderId(new Date(order.created_at).getTime(), order.id)}`;
   doc.setFontSize(9);
   doc.setFont('helvetica', 'mono');
   doc.setTextColor(COLORS.MUTED[0], COLORS.MUTED[1], COLORS.MUTED[2]);
   doc.text(`Invoice No: ${invoiceNumber}`, pageWidth - margin, 26, { align: 'right' });
-  doc.text(`Order ID: #ORD-${order.id}`, pageWidth - margin, 31, { align: 'right' });
+  doc.text(`Order ID: ${orderId}`, pageWidth - margin, 31, { align: 'right' });
 
   // Status Badge
   const isPaid = ['delivered', 'shipped', 'processing', 'paid', 'PAID'].includes(order.status?.toLowerCase()) || order.payment_method === 'wallet' || order.payment_method === 'khata';
@@ -199,7 +201,7 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
     };
   }) || [];
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 95,
     margin: { left: margin, right: margin },
     head: [['IDX', 'LINE ITEM DESCRIPTION', 'MRP', 'DISCOUNT', 'UNIT PRICE', 'GST (INC)', 'QTY', 'AMOUNT']],
@@ -279,6 +281,10 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
   };
 
   drawResLine('MRP Total Gross:', `₹${totalMrp.toFixed(2)}`);
+  
+  if (order.coupon_code) {
+    drawResLine('Coupon Applied:', order.coupon_code.toUpperCase());
+  }
   
   if (couponSavings > 0) {
     doc.setTextColor(220, 38, 38);
@@ -367,6 +373,17 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
   doc.save(`Invoice_HGS_${order.id}.pdf`);
 };
 
+const safeFormatDate = (dateVal: any, fmt: string) => {
+  if (!dateVal) return 'N/A';
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return 'N/A';
+    return format(d, fmt);
+  } catch (e) {
+    return 'N/A';
+  }
+};
+
 /**
  * Professional User Data Dossier
  */
@@ -404,6 +421,7 @@ export const generateUserExportPDF = (data: any) => {
   };
 
   header('ACCOUNT DATA EXPORT');
+  addWatermark(doc, pageWidth, pageHeight);
 
   // Profile Overview Section
   doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
@@ -417,7 +435,7 @@ export const generateUserExportPDF = (data: any) => {
   }, 0);
   const totalOrders = data.orders?.length || 0;
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 62,
     margin: { left: margin, right: margin },
     head: [['Attribute Node', 'Verified Data Endpoint']],
@@ -444,7 +462,7 @@ export const generateUserExportPDF = (data: any) => {
       textColor: COLORS.SECONDARY
     },
     columnStyles: { 
-      0: { fontStyle: 'bold', fillColor: [250, 250, 249], width: 60 } 
+      0: { fontStyle: 'bold', fillColor: [250, 250, 249], cellWidth: 60 } 
     }
   });
 
@@ -482,19 +500,20 @@ export const generateUserExportPDF = (data: any) => {
   // Order History
   if (data.orders && data.orders.length > 0) {
     doc.addPage();
+    addWatermark(doc, pageWidth, pageHeight);
     header('ORDER HISTORY ARCHIVE');
     doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.text('3. COMMERCIAL TRANSACTIONS', margin, 55);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: 60,
       margin: { left: margin, right: margin },
-      head: [['ID', 'Execution Date', 'Value', 'Method', 'Status', 'Logistics Hash']],
+      head: [['Order ID', 'Execution Date', 'Value', 'Method', 'Status', 'Logistics Hash']],
       body: data.orders.map((o: any) => [
-        `#ORD-${o.id}`,
-        format(new Date(o.created_at), 'dd MMM yyyy'),
+        o.order_id || `#ORD-${o.id}`,
+        safeFormatDate(o.created_at, 'dd MMM yyyy'),
         `₹${parseFloat(o.total).toLocaleString()}`,
         String(o.payment_method).toUpperCase(),
         String(o.status).toUpperCase(),
@@ -515,12 +534,12 @@ export const generateUserExportPDF = (data: any) => {
     doc.setFont('helvetica', 'bold');
     doc.text('4. WALLET OPERATIONS', margin, 55);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: 60,
       margin: { left: margin, right: margin },
       head: [['Execution Context', 'Entry Type', 'Movement', 'Balance Ref']],
       body: data.wallet.map((w: any) => [
-        format(new Date(w.created_at), 'dd MMM yyyy, HH:mm'),
+        safeFormatDate(w.created_at, 'dd MMM yyyy, HH:mm'),
         w.type === 'credit' ? 'INFLOW (+)' : 'OUTFLOW (-)',
         `₹${parseFloat(w.amount).toLocaleString()}`,
         w.description || 'System Adjustment'
@@ -540,12 +559,12 @@ export const generateUserExportPDF = (data: any) => {
     doc.setFont('helvetica', 'bold');
     doc.text('4. SYSTEM INTERACTION LOG', margin, 55);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: 60,
       margin: { left: margin, right: margin },
       head: [['Date/Time', 'Event Type', 'Severity', 'Description / Metadata']],
       body: data.activities.map((act: any) => [
-        format(new Date(act.date), 'dd/MM HH:mm'),
+        safeFormatDate(act.date, 'dd/MM HH:mm'),
         act.type?.toUpperCase(),
         act.severity?.toUpperCase(),
         act.details || 'N/A'
@@ -580,7 +599,7 @@ export const generateUserExportPDF = (data: any) => {
   csvRows.push("Order ID,Date,Total Amount,Payment Method,Status");
   if (data.orders && data.orders.length > 0) {
     data.orders.forEach((o: any) => {
-      csvRows.push(`"#ORD-${o.id}","${format(new Date(o.created_at), 'yyyy-MM-dd')}","INR ${parseFloat(o.total || 0).toFixed(2)}","${o.payment_method}","${o.status}"`);
+      csvRows.push(`"#ORD-${o.id}","${safeFormatDate(o.created_at, 'yyyy-MM-dd')}","INR ${parseFloat(o.total || 0).toFixed(2)}","${o.payment_method}","${o.status}"`);
     });
   } else {
     csvRows.push("No orders available");
@@ -590,7 +609,7 @@ export const generateUserExportPDF = (data: any) => {
   csvRows.push("Date,Type,Amount,Description");
   if (data.wallet && data.wallet.length > 0) {
     data.wallet.forEach((w: any) => {
-      csvRows.push(`"${format(new Date(w.created_at), 'yyyy-MM-dd HH:mm')}","${w.type}","INR ${parseFloat(w.amount || 0).toFixed(2)}","${(w.description || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`);
+      csvRows.push(`"${safeFormatDate(w.created_at, 'yyyy-MM-dd HH:mm')}","${w.type}","INR ${parseFloat(w.amount || 0).toFixed(2)}","${(w.description || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`);
     });
   } else {
     csvRows.push("No wallet activity transactions on record");
@@ -713,7 +732,7 @@ export const generateAdminReportPDF = (
     nextY += 30;
   }
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: nextY,
     margin: { left: margin, right: margin },
     head: [columns.map(c => c.header.toUpperCase())],
@@ -813,7 +832,7 @@ export const generateSystemHealthReportPDF = (healthData: any, logs: any[]) => {
     ['Active Handshakes', String(healthData?.activeConnections || 0), 'NOMINAL']
   ];
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 50,
     margin: { left: margin, right: margin },
     head: [['SubSystem Protocol', 'Observed Metric', 'Current State']],
@@ -829,7 +848,7 @@ export const generateSystemHealthReportPDF = (healthData: any, logs: any[]) => {
     doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
     doc.text('ANOMALY DETECTION TRACE', margin, (doc as any).lastAutoTable.finalY + 15);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: (doc as any).lastAutoTable.finalY + 20,
       margin: { left: margin, right: margin },
       head: [['Timestamp', 'Level', 'Component', 'Exception Data']],

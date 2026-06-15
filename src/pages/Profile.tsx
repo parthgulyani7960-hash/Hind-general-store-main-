@@ -220,7 +220,56 @@ export default function Profile() {
       setExportUrl(url);
       setShowExportModal(true);
       
-      toast.success('Your secure account data archive has been compiled!');
+      // Generate and trigger a direct CSV file download as well
+      const csvRows: string[] = [];
+      csvRows.push("--- USER PROFILE DATA ---");
+      csvRows.push("Field,Value");
+      csvRows.push(`"Name","${user?.name || 'NOT SPECIFIED'}"`);
+      csvRows.push(`"Phone","${user?.phone || 'NOT LINKED'}"`);
+      csvRows.push(`"Email","${user?.email || 'OFFLINE_ACCOUNT'}"`);
+      csvRows.push(`"Wallet Balance","INR ${parseFloat(String(user?.wallet_balance || 0)).toFixed(2)}"`);
+      csvRows.push(`"Address","${(user?.address || 'N/A').replace(/"/g, '""').replace(/\n/g, ' ')}"`);
+      csvRows.push("");
+      csvRows.push("--- ORDER HISTORY ---");
+      csvRows.push("Order ID,Date,Total Amount,Payment Method,Status");
+      if (orders && orders.length > 0) {
+        orders.forEach((o: any) => {
+          let dateStr = 'N/A';
+          try {
+            if (o.created_at) dateStr = new Date(o.created_at).toISOString().split('T')[0];
+          } catch (e) {}
+          csvRows.push(`"#ORD-${o.id}","${dateStr}","INR ${parseFloat(String(o.total || 0)).toFixed(2)}","${o.payment_method}","${o.status}"`);
+        });
+      } else {
+        csvRows.push("No orders available");
+      }
+      csvRows.push("");
+      csvRows.push("--- FINANCIAL WALLET LEDGER ---");
+      csvRows.push("Date,Type,Amount,Description");
+      if (walletHistory && walletHistory.length > 0) {
+        walletHistory.forEach((w: any) => {
+          let dateStr = 'N/A';
+          try {
+            if (w.created_at) dateStr = new Date(w.created_at).toISOString().replace('T', ' ').substring(0, 16);
+          } catch (e) {}
+          csvRows.push(`"${dateStr}","${w.type}","INR ${parseFloat(String(w.amount || 0)).toFixed(2)}","${(w.description || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`);
+        });
+      } else {
+        csvRows.push("No wallet activity transactions on record");
+      }
+
+      const csvContent = csvRows.join("\n");
+      const csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const csvDownloadUrl = URL.createObjectURL(csvBlob);
+      const csvLink = document.createElement("a");
+      csvLink.href = csvDownloadUrl;
+      csvLink.setAttribute("download", `export_my_data_${user?.id || 'user'}.csv`);
+      document.body.appendChild(csvLink);
+      csvLink.click();
+      document.body.removeChild(csvLink);
+      URL.revokeObjectURL(csvDownloadUrl);
+
+      toast.success('Your secure account data archive has been compiled and direct CSV downloaded!');
       logActivity('DATA_EXPORT', `User generated personal data archive CSV and PDF dossier`);
     } catch (err) {
       console.error('Export failed:', err);
@@ -231,12 +280,23 @@ export default function Profile() {
   };
 
   const handlePurgeCache = () => {
-    const confirmed = window.confirm('Reset local application cache? This will clear your temporary shopping cart and search history, but you will remain signed in.');
+    const confirmed = window.confirm('Reset local application cache? This will clear your temporary shopping cart, search history, and saved identifiers, but you will remain signed in.');
     if (confirmed) {
       setIsPurging(true);
       setTimeout(() => {
         localStorage.removeItem('cart-storage');
         localStorage.removeItem('search-history');
+        localStorage.removeItem('selected_language');
+        localStorage.removeItem('user_identifier');
+        localStorage.removeItem('hgs_identifier');
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && !key.startsWith('firebase:')) {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch (e) {}
         toast.success('Application cache successfully cleared!');
         setIsPurging(false);
         window.location.reload();
@@ -710,8 +770,10 @@ export default function Profile() {
   const handleNewsletterSubscribe = async () => {
     if (!newsletterEmail) return;
     try {
-      await subscribeNewsletter(newsletterEmail);
-      toast.success('Subscribed to newsletter!');
+      const success = await subscribeNewsletter(newsletterEmail);
+      if (success) {
+        setNewsletterEmail('');
+      }
     } catch (err) {
       toast.error('Subscription failed');
     }
@@ -1061,7 +1123,16 @@ export default function Profile() {
 
               <div className="flex flex-wrap gap-3 pt-2 justify-center md:justify-start">
                 <button 
-                  onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => {
+                    const nextVal = !isEditing;
+                    setIsEditing(nextVal);
+                    if (nextVal) {
+                      setTimeout(() => {
+                        const el = document.getElementById('edit-profile-section');
+                        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 150);
+                    }
+                  }}
                   className={cn(
                     "px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md active:scale-95 flex items-center gap-2",
                     isEditing ? "bg-stone-100 text-stone-700 hover:bg-stone-200" : "bg-primary text-white hover:bg-primary/90"
@@ -1133,6 +1204,7 @@ export default function Profile() {
 
         {isEditing && (
           <motion.div 
+            id="edit-profile-section"
             ref={editSectionRef}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -1389,40 +1461,6 @@ export default function Profile() {
                     className="bg-white rounded-3xl shadow-sm border border-stone-100 p-6 space-y-8"
                 >
                     <div className="space-y-4">
-                        <h3 className="font-bold text-lg flex items-center gap-2">
-                           <Info size={18} className="text-primary" />
-                           <span>Preferences</span>
-                        </h3>
-                        <div className="flex items-center justify-between p-4 bg-stone-50 rounded-2xl border border-stone-100">
-                            <div>
-                                <span className="font-bold text-stone-700 block">Display Language</span>
-                                <span className="text-[10px] text-stone-400">Choose your preferred reading experience</span>
-                            </div>
-                        <div className="flex bg-white rounded-xl p-1 border border-stone-100 shadow-sm relative z-20">
-                                {[
-                                    { id: 'en', label: 'English' },
-                                    { id: 'hi', label: 'हिन्दी' },
-                                    { id: 'pa', label: 'ਪੰਜਾਬੀ' }
-                                ].map((lang) => (
-                                    <button
-                                    key={lang.id}
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setLanguage(lang.id as any);
-                                      toast.success(`Active Language: ${lang.label}`, { icon: '🌐' });
-                                    }}
-                                    className={cn(
-                                        "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all uppercase tracking-tight cursor-pointer",
-                                        language === lang.id ? "bg-primary text-white shadow-md" : "text-stone-400 hover:text-stone-600 hover:bg-stone-50"
-                                    )}
-                                    >
-                                    {lang.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
                         <div className="bg-stone-50 rounded-2xl border border-stone-100 divide-y divide-stone-100">
                           <div className="flex items-center justify-between p-4">
                               <span>Order Status Updates</span>
@@ -2025,6 +2063,22 @@ export default function Profile() {
                                               <div className="text-[10px] text-amber-800 leading-relaxed italic bg-amber-500/5 p-2.5 rounded-xl flex items-start gap-1.5 border border-amber-500/10">
                                                 <Info size={12} className="shrink-0 mt-0.5 text-amber-600" />
                                                 <span>Dynamic Formula Checklist: Unit Price × Demand Volume. Tax matching is processed at the aggregate payment level as displayed in the checkout math ledger below.</span>
+                                              </div>
+
+                                              <div className="flex gap-2.5 pt-2">
+                                                <Link 
+                                                  to={`/product/${item.product_id || item.id}#reviews`} 
+                                                  className="flex-1 flex items-center justify-center gap-1.5 bg-stone-900 hover:bg-stone-800 text-white text-[10px] font-black uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm"
+                                                >
+                                                  <Star size={11} fill="currentColor" className="text-amber-400" />
+                                                  <span>Leave Product Review</span>
+                                                </Link>
+                                                <Link 
+                                                  to={`/product/${item.product_id || item.id}`} 
+                                                  className="flex-1 flex items-center justify-center bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 text-[10px] font-black uppercase tracking-wider py-2.5 rounded-xl transition-all"
+                                                >
+                                                  <span>View Product Details</span>
+                                                </Link>
                                               </div>
                                             </div>
                                           </motion.div>

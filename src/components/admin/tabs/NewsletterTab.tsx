@@ -159,7 +159,7 @@ const NewsletterTab: React.FC = () => {
     };
 
     const filteredSubs = subs.filter(s => 
-      s.email.toLowerCase().includes(subSearch.toLowerCase()) ||
+      s && (s.email || '').toLowerCase().includes(subSearch.toLowerCase()) ||
       (s.user_name && s.user_name.toLowerCase().includes(subSearch.toLowerCase()))
     );
 

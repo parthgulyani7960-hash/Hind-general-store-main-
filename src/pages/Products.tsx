@@ -179,8 +179,12 @@ export default function Products() {
         if (scoreDiff !== 0) return scoreDiff;
       }
 
-      const priceA = getProductPrice(a, user?.role);
-      const priceB = getProductPrice(b, user?.role);
+      const getFinalPrice = (p: Product) => {
+        const base = getProductPrice(p, user?.role);
+        return p.discount > 0 ? Math.round(base * (1 - p.discount / 100)) : base;
+      };
+      const priceA = getFinalPrice(a);
+      const priceB = getFinalPrice(b);
       
       switch (sortBy) {
         case 'price-low': 
@@ -408,12 +412,6 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                         <span className="text-xl text-stone-300 line-through font-bold">₹{quickViewProduct.price}</span>
                       )}
                     </div>
-                    {user?.role === 'wholesaler' && quickViewProduct.wholesale_price && (
-                       <span className="text-[10px] font-black text-accent uppercase tracking-widest mt-1">Wholesale Account Price</span>
-                    )}
-                    {user?.role === 'retailer' && quickViewProduct.retail_price && (
-                       <span className="text-[10px] font-black text-secondary uppercase tracking-widest mt-1">Retailer Account Price</span>
-                    )}
                   </div>
                   
                   <p className="text-stone-600 leading-relaxed">{quickViewProduct.description}</p>
@@ -425,14 +423,12 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                         </div>
                       ) : (
                         <button 
-                          onClick={() => {
-                            addToCart(quickViewProduct);
-                            setQuickViewProduct(null);
-                          }}
+                          onClick={() => handleAddToCart(quickViewProduct)}
+                          disabled={loadingButtons[quickViewProduct.id]}
                           className="flex-1 btn-primary py-4 flex items-center justify-center space-x-2"
                         >
                           <ShoppingCart size={20} />
-                          <span>{t('add_to_cart')}</span>
+                          <span>{loadingButtons[quickViewProduct.id] ? 'Adding...' : t('add_to_cart')}</span>
                         </button>
                       )}
                       
@@ -919,13 +915,13 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
             >
               <Link 
                 to={`/product/${product.id}`} 
-                className="relative aspect-[4/3] w-[calc(100%+1.5rem)] overflow-hidden block group/image mb-2 -mx-3 -mt-3 rounded-t-2xl bg-stone-50"
+                className="relative aspect-square w-full rounded-2xl overflow-hidden block group/image mb-3 bg-stone-50"
               >
                 {showImages ? (
                   <ProgressiveImage 
                     src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
                     alt={product.name}
-                    className="w-full h-full"
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover/image:scale-110"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
@@ -933,18 +929,18 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                   </div>
                 )}
                 
-                <div className="absolute top-2 left-2 flex flex-col space-y-1 z-20">
+                <div className="absolute top-2 left-2 flex flex-col space-y-1 z-10">
                     {product.discount > 0 && (
-                      <div className="bg-red-600 text-white px-3 py-1.5 rounded-[0.5rem] text-[11px] font-black uppercase tracking-widest shadow-xl shadow-red-500/20 animate-pulse border border-red-400/30">
+                      <div className="bg-red-600 text-white px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest shadow-lg border border-red-400/20">
                         {product.discount}% OFF
                       </div>
                     )}
                 </div>
 
-                <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/10 transition-colors duration-300" />
+                <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/5 transition-colors duration-300" />
                 
                 <button 
-                  onClick={(e) => handleEnlargeImage(e, product.image_url || `https://picsum.photos/seed/${product.id}/800/800`)}
+                  onClick={(e) => { e.preventDefault(); handleEnlargeImage(e, product.image_url || `https://picsum.photos/seed/${product.id}/800/800`); }}
                   className="absolute bottom-4 right-4 p-3 bg-white/80 backdrop-blur-md text-stone-900 rounded-[1.25rem] opacity-0 group-hover/image:opacity-100 transform translate-y-2 group-hover/image:translate-y-0 transition-all duration-300 shadow-xl border border-stone-100 hover:bg-stone-900 hover:text-white"
                   title="Enlarge View"
                 >
@@ -959,9 +955,11 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                 
                 <div className="mt-auto flex items-center justify-between pt-2 border-t border-stone-50">
                   <div className="flex flex-col">
-                    <span className="text-sm font-black text-primary">₹{getProductPrice(product, user?.role)}</span>
+                    <span className="text-sm font-black text-primary">
+                      ₹{product.discount > 0 ? Math.round(getProductPrice(product, user?.role) * (1 - product.discount / 100)) : getProductPrice(product, user?.role)}
+                    </span>
                     {product.discount > 0 && (
-                      <span className="text-[10px] text-stone-400 line-through font-bold">₹{product.price}</span>
+                      <span className="text-[10px] text-stone-400 line-through font-bold">₹{getProductPrice(product, user?.role)}</span>
                     )}
                   </div>
 

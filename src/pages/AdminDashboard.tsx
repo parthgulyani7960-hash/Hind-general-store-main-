@@ -1860,9 +1860,9 @@ export default function AdminDashboard() {
 
   const filteredProducts = allProducts.filter(product => {
     const matchesSearch = !productSearchTerm || 
-      product.name.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-      product.description.toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-      product.category.toLowerCase().includes(productSearchTerm.toLowerCase());
+      (product.name || '').toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+      (product.description || '').toLowerCase().includes(productSearchTerm.toLowerCase()) ||
+      (product.category || '').toLowerCase().includes(productSearchTerm.toLowerCase());
     
     const matchesStock = productStockFilter === 'all' || 
       (productStockFilter === 'low' && Number(product.stock) <= (Number(product.reorder_point) || 5) && Number(product.stock) > 0) ||

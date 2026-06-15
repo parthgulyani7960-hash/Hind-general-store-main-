@@ -163,8 +163,10 @@ function AnimatedRoutes() {
     e.preventDefault();
     if (!newsletterEmail) return;
     if (!window.confirm('Are you sure you want to subscribe to our newsletter?')) return;
-    await subscribeNewsletter(newsletterEmail);
-    setNewsletterEmail('');
+    const success = await subscribeNewsletter(newsletterEmail);
+    if (success) {
+      setNewsletterEmail('');
+    }
   };
 
   if (isAuthChecking && !isInitialAuthPerformed) {
