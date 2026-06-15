@@ -50,12 +50,34 @@ export default function SearchOverlay({
     }
   }, [isOpen]);
 
-  // Lock body scroll
+  // Lock body scroll & handle keyboard/custom close shortcuts
   useEffect(() => {
-    if (isOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = 'unset';
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+
+      const handleCustomClose = () => {
+        onClose();
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('close-all-modals', handleCustomClose);
+
+      return () => {
+        document.body.style.overflow = 'unset';
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('close-all-modals', handleCustomClose);
+      };
+    } else {
+      document.body.style.overflow = 'unset';
+    }
     return () => { document.body.style.overflow = 'unset'; };
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   const categories = useMemo(() => ['All', ...new Set(products.map(p => p.category))], [products]);
 

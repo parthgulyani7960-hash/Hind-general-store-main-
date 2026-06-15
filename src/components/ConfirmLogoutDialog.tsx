@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogOut, AlertTriangle, X } from 'lucide-react';
 
@@ -9,6 +9,28 @@ interface ConfirmLogoutDialogProps {
 }
 
 export default function ConfirmLogoutDialog({ isOpen, onClose, onConfirm }: ConfirmLogoutDialogProps) {
+  useEffect(() => {
+    if (isOpen) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+
+      const handleCustomClose = () => {
+        onClose();
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('close-all-modals', handleCustomClose);
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('close-all-modals', handleCustomClose);
+      };
+    }
+  }, [isOpen, onClose]);
+
   return (
     <AnimatePresence>
       {isOpen && (

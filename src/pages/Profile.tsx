@@ -21,6 +21,7 @@ import WalletModal from '@/components/WalletModal';
 import LoadingFallback from '@/components/LoadingFallback';
 import { useProfileAuthDebug } from '@/hooks/useProfileAuthDebug';
 import { fetchWithHandling } from '@/lib/api';
+import { triggerFeedback } from '@/lib/feedback';
 import { getAuthHeaders, formatPhoneNumber, isValidPhone } from '@/lib/utils';
 import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
 import { autofillLocation } from '@/lib/geocoding';
@@ -2572,7 +2573,7 @@ export default function Profile() {
                   const nextLang = langs[(currentIndex + 1) % langs.length];
                   setLanguage(nextLang);
                   toast.success(`Language set to ${nextLang.toUpperCase()}`);
-                  if(vibration && navigator.vibrate) navigator.vibrate(50);
+                  triggerFeedback('medium');
                 }}
               >
                 <div className="flex items-center justify-between">
@@ -3497,7 +3498,7 @@ function SettingToggle({ icon: Icon, label, desc, enabled, onToggle, color }: an
         </div>
         <div 
           onClick={() => {
-            if (vibration && navigator.vibrate) navigator.vibrate(20);
+            triggerFeedback('light');
             onToggle();
           }}
           className={cn(

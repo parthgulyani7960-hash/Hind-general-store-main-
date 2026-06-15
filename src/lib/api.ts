@@ -118,8 +118,8 @@ const fetchWithHandlingInternal = async <T>(
             return null; // Silent for guests
           }
           
-          // Token is likely invalid/expired, clear it
-          localStorage.removeItem('hgs_token');
+          // Token is likely invalid/expired, don't clear it here, let the StoreContext or Interceptor handle it
+          // localStorage.removeItem('hgs_token');
  
           // 401 is handled by main.tsx fetch wrapper (token refresh). 
           // If it still reaches here, it means refresh failed or was not possible.

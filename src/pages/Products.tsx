@@ -5,7 +5,7 @@ import {
   Search, Filter, ShoppingCart, Plus, Minus, 
   Share2, Heart, Star, Loader2, X, Camera,
   Zap, LayoutGrid, ArrowDownNarrowWide, ArrowUpNarrowWide, Clock,
-  RefreshCw, ShoppingBag, Maximize2
+  RefreshCw, ShoppingBag, Maximize2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Product, cn } from '@/types';
@@ -13,6 +13,7 @@ import { useStore } from '@/StoreContext';
 import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
 import { useDeviceType } from '@/lib/device';
 import toast from 'react-hot-toast';
+import { triggerFeedback } from '@/lib/feedback';
 import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, query, where, limit as limitFb } from '@/firebase';
 import { fetchWithHandling } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -61,6 +62,20 @@ export default function Products() {
       setLoadFailed(!!fetchProductsError);
   }, [fetchProductsError]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(event.target as Node)) {
+        setIsSortDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
   const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const { isMobile, isTablet } = useDeviceType();
   const activeRole = simulatedRole || user?.role;
@@ -496,18 +511,69 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                </motion.button>
                
                
-               <div className="relative w-full">
-                 <select 
-                   value={sortBy}
-                   onChange={(e) => setSortBy(e.target.value)}
-                   className="w-full text-center appearance-none bg-stone-50 border-2 border-stone-100 text-stone-600 px-1 py-3.5 rounded-2xl font-black text-[9px] uppercase tracking-[0.05em] transition-all outline-none focus:border-primary/20"
+               <div ref={sortDropdownRef} className="relative w-full select-none">
+                 <motion.button
+                   whileTap={{ scale: 0.95 }}
+                   onClick={() => {
+                     triggerFeedback('light');
+                     setIsSortDropdownOpen(!isSortDropdownOpen);
+                   }}
+                   className={cn(
+                     "w-full flex items-center justify-between px-3 py-3.5 rounded-2xl font-black text-[9px] uppercase tracking-[0.05em] transition-all whitespace-nowrap border-2 bg-stone-50 border-stone-100 text-stone-600 hover:bg-stone-100 focus:outline-none"
+                   )}
                  >
-                   <option value="relevance">Recommend</option>
-                   <option value="price-low">Price: Low</option>
-                   <option value="price-high">Price: High</option>
-                   <option value="rating">Top Rated</option>
-                   <option value="popularity">Trending</option>
-                 </select>
+                   <span className="truncate">
+                     {sortBy === 'relevance' && 'Recommend'}
+                     {sortBy === 'price-low' && 'Price: Low'}
+                     {sortBy === 'price-high' && 'Price: High'}
+                     {sortBy === 'rating' && 'Top Rated'}
+                     {sortBy === 'popularity' && 'Trending'}
+                     {sortBy === 'newest' && 'Newest'}
+                   </span>
+                   {isSortDropdownOpen ? (
+                     <ChevronUp size={11} className="text-stone-400 shrink-0 ml-1.5" />
+                   ) : (
+                     <ChevronDown size={11} className="text-stone-400 shrink-0 ml-1.5" />
+                   )}
+                 </motion.button>
+
+                 <AnimatePresence>
+                   {isSortDropdownOpen && (
+                     <motion.div
+                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                       animate={{ opacity: 1, y: 0, scale: 1 }}
+                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                       transition={{ duration: 0.15 }}
+                       className="absolute left-0 right-0 mt-2 bg-white border border-stone-100 rounded-2xl shadow-xl z-50 overflow-hidden divide-y divide-stone-50"
+                     >
+                       {[
+                         { id: 'relevance', label: 'Recommend' },
+                         { id: 'price-low', label: 'Price: Low' },
+                         { id: 'price-high', label: 'Price: High' },
+                         { id: 'rating', label: 'Top Rated' },
+                         { id: 'popularity', label: 'Trending' },
+                         { id: 'newest', label: 'Newest' },
+                       ].map((option) => (
+                         <button
+                           key={option.id}
+                           onClick={() => {
+                             triggerFeedback('light');
+                             setSortBy(option.id);
+                             setIsSortDropdownOpen(false);
+                           }}
+                           className={cn(
+                             "w-full text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider transition-colors",
+                             sortBy === option.id 
+                               ? "bg-stone-900 text-white" 
+                               : "text-stone-600 hover:bg-stone-50 hover:text-stone-900"
+                           )}
+                         >
+                           {option.label}
+                         </button>
+                       ))}
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
                </div>
                
                 <motion.button

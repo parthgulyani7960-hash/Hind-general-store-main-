@@ -8,6 +8,7 @@ import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
 import { securityService } from './services/securityService';
 import { logger } from './lib/logger';
+import { triggerFeedback } from './lib/feedback';
 
 interface StoreContextType {
   user: User | null;
@@ -110,12 +111,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
     try {
       const hasToken = !!localStorage.getItem('hgs_token');
+      // If we have a token but no user, we MUST checkauth or we'll render empty/protected routes prematurely
       const hasUser = !!localStorage.getItem('hgs_user');
-      if ((hasToken && hasUser) || !hasToken) {
-        return false;
-      }
-    } catch (e) {}
-    return true;
+      if (hasToken && !hasUser) return true;
+      return false;
+    } catch (e) {
+      return false;
+    }
   });
   const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(() => {
     try {
@@ -186,8 +188,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const isCartCacheDirtyRef = React.useRef<boolean>(true);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [config, setConfig] = useState<any[]>([]);
-  const [vibration, setVibration] = useState(true);
-  const [notifications, setNotifications] = useState(true);
+  const [vibration, setVibration] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hgs_vibration');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hgs_notifications');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
   const [readNotificationIds, setReadNotificationIds] = useState<number[]>(() => {
     try {
@@ -197,7 +213,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return [];
     }
   });
-  const [sound, setSound] = useState(true);
+  const [sound, setSound] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hgs_sound');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
   const [adminTheme, setAdminTheme] = useState('theme-navy');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
@@ -211,6 +234,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('hgs_lang', language);
   }, [language]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hgs_vibration', String(vibration));
+    } catch {}
+  }, [vibration]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hgs_notifications', String(notifications));
+    } catch {}
+  }, [notifications]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hgs_sound', String(sound));
+    } catch {}
+  }, [sound]);
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const { isOnline, latency } = useNetwork();
   const [isMobile, setIsMobile] = useState(() => {
@@ -513,18 +554,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
         return [...prev, { ...product, variantId: variant?.id, quantity }];
     });
+    triggerFeedback('medium');
     toast.success('Added to cart');
   };
 
   const removeFromCart = (productId: number, variantId?: number) => {
     isCartCacheDirtyRef.current = true;
     setCart(prev => prev.filter(item => !(item.id === productId && (variantId ? item.variantId === variantId : !item.variantId))));
+    triggerFeedback('light');
     toast.success('Removed from cart');
   };
 
   const updateQuantity = (productId: number, delta: number, variantId?: number) => {
     isCartCacheDirtyRef.current = true;
     setCart(prev => prev.map(item => item.id === productId && (variantId ? item.variantId === variantId : !item.variantId) ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item));
+    triggerFeedback('light');
   };
 
   const clearCart = () => {
@@ -534,6 +578,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const toggleWishlist = (productId: number) => {
     setWishlist(prev => prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]);
+    triggerFeedback('medium');
     toast.success(wishlist.includes(productId) ? 'Removed from wishlist' : 'Added to wishlist');
   };
 
@@ -839,13 +884,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             console.warn(`[API MONITOR] Database has degraded status reported: ${data.firestoreStatus}`);
           }
         } else {
-          setIsApiUp(false);
+          // Don't immediately mark as down on a single non-2xx check
           failureCount++;
+          if (failureCount > 2) setIsApiUp(false);
           console.warn(`[API MONITOR] /api/health returned non-2xx status: ${res.status}`);
         }
       } catch (err) {
-        setIsApiUp(false);
         failureCount++;
+        if (failureCount > 3) setIsApiUp(false);
         logger.warn('[API MONITOR] Temporary connection warning while checking health', err);
       }
     };
@@ -853,7 +899,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Initial check
     checkApiHealth();
     
-    return () => {};
+    // Poll every 45 seconds
+    const interval = setInterval(checkApiHealth, 45000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // 4. Context Provider

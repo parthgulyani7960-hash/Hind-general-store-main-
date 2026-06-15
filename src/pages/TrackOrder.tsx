@@ -43,8 +43,41 @@ export default function TrackOrder() {
   const [returnQuantity, setReturnQuantity] = useState(1);
   const [returnReason, setReturnReason] = useState('');
   const [isReturning, setIsReturning] = useState(false);
+  const [timelineKey, setTimelineKey] = useState(0);
 
-  // Real-time Firestore subscription for order updates
+  // Real-time backend polling to ensure perfect updates of items, payments, and workflow status
+  useEffect(() => {
+    if (!order) return;
+    const trackingId = order.order_id || order.id;
+    const cleanPhone = String(phoneNumber || order.user_phone || '').trim().replace(/\D/g, '');
+    if (!trackingId || !cleanPhone) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await fetchWithHandling<any>(`/api/public/orders/${encodeURIComponent(trackingId)}?phone=${encodeURIComponent(cleanPhone)}`);
+        if (data && data.success && data.order) {
+          setOrder(prev => {
+            if (!prev) return data.order;
+            if (prev.status !== data.order.status) {
+              toast.success(`Order status updated to ${data.order.status.toUpperCase()}`, { id: 'order-status-toast' });
+              setTimelineKey(k => k + 1);
+            }
+            if (prev.payment_status !== data.order.payment_status) {
+              toast.success(`Payment status updated to ${data.order.payment_status.toUpperCase()}`, { id: 'order-payment-toast' });
+              setTimelineKey(k => k + 1);
+            }
+            return data.order;
+          });
+        }
+      } catch (err) {
+        console.error('[TrackOrder] Dynamic status polling failed:', err);
+      }
+    }, 7000);
+
+    return () => clearInterval(interval);
+  }, [order?.id, order?.order_id, phoneNumber]);
+
+  // Real-time Firestore subscription for backup order updates
   useEffect(() => {
     if (!order?.id) return;
 
@@ -52,6 +85,7 @@ export default function TrackOrder() {
       setOrder(prev => {
         if (prev && updatedData.status && prev.status !== updatedData.status) {
           toast.success(`Order status updated to ${updatedData.status.toUpperCase()}`);
+          setTimelineKey(k => k + 1);
         }
         return prev ? { ...prev, ...updatedData } : updatedData;
       });
@@ -527,7 +561,7 @@ export default function TrackOrder() {
                     );
                   })}
                 </div>
-                <OrderStatusTimeline orderId={order.id} />
+                <OrderStatusTimeline key={timelineKey} orderId={order.id} />
               </div>
 
             {/* Order Items & Summary */}

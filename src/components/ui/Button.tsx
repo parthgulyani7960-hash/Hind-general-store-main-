@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, HTMLMotionProps } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
+import { triggerFeedback } from '@/lib/feedback';
 
 interface ButtonProps extends Omit<HTMLMotionProps<"button">, 'children'> {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -13,9 +14,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', isLoading, children, disabled, onClick, ...props }, ref) => {
     
     const handleVibrate = () => {
-      if (typeof window !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate(10);
-      }
+      triggerFeedback('light');
     };
 
     const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {

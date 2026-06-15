@@ -17,17 +17,8 @@ import { TopPromotionTicker } from './components/TopPromotionTicker';
 import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
 import { AdminDiagnosticPanel } from './components/AdminDiagnosticPanel';
 
-// Shared Vibration Helper for Flash Messages
-export const triggerFeedback = (type: 'light' | 'medium' | 'heavy' = 'light') => {
-  if (typeof window !== 'undefined' && 'vibrate' in navigator) {
-    const patterns = {
-      light: [10],
-      medium: [30],
-      heavy: [50, 30, 50]
-    };
-    navigator.vibrate(patterns[type]);
-  }
-};
+import { triggerFeedback } from './lib/feedback';
+export { triggerFeedback };
 import { useStore } from './StoreContext';
 import React, { useState, Suspense, lazy, useEffect, useRef } from 'react';
 import toast, { useToasterStore } from 'react-hot-toast';
@@ -37,6 +28,7 @@ import { errorService, ErrorType } from './lib/incidentReporting';
 import LoadingFallback from './components/LoadingFallback';
 import AppCrashBoundary from './components/AppCrashBoundary';
 import { DbConnectionIssue } from './components/DbConnectionIssue';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 
 function ToastManager() {
@@ -148,6 +140,20 @@ function AnimatedRoutes() {
     isApiUp
   } = useStore();
   
+  const { showHelp, setShowHelp } = useKeyboardShortcuts();
+  
+  useEffect(() => {
+    if (showHelp) {
+      const handleCloseAll = () => {
+        setShowHelp(false);
+      };
+      window.addEventListener('close-all-modals', handleCloseAll);
+      return () => {
+        window.removeEventListener('close-all-modals', handleCloseAll);
+      };
+    }
+  }, [showHelp, setShowHelp]);
+
   const globalCategories = categories || [];
   
   const [newsletterEmail, setNewsletterEmail] = useState('');
@@ -221,6 +227,86 @@ function AnimatedRoutes() {
           />
         )}
       </div>
+
+      {/* Keyboard Shortcut Help Cheat Sheet Modal */}
+      <AnimatePresence>
+        {showHelp && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.6 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-stone-950 backdrop-blur-sm"
+              onClick={() => setShowHelp(false)}
+            />
+            {/* Dialog body */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="bg-white rounded-[2.5rem] border border-stone-100 p-8 w-full max-w-sm shadow-2xl relative z-10 flex flex-col items-stretch overflow-hidden select-none"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-stone-50 rounded-lg border border-stone-100 text-stone-900 font-mono text-xs font-black shadow-sm">
+                    ⌘
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-stone-900 tracking-tight leading-none">Keyboard Shortcuts</h3>
+                    <p className="text-[9px] text-stone-400 font-bold uppercase tracking-widest mt-1">Universal Navigation</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowHelp(false)}
+                  className="p-2 bg-stone-50 hover:bg-stone-100 border border-stone-100 rounded-full text-stone-400 hover:text-stone-900 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Shortcuts list container */}
+              <div className="space-y-4">
+                <p className="text-[11px] text-stone-500 leading-relaxed bg-stone-50 py-2.5 px-4 rounded-xl border border-stone-100">
+                  Quickly navigate across the shop and manage interfaces with these global developer keys.
+                </p>
+                
+                <div className="divide-y divide-stone-100 text-[13px]">
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="font-medium text-stone-600">Go to Home Page</span>
+                    <kbd className="px-2 py-0.5 bg-stone-50 rounded border border-stone-200 border-b-2 font-mono text-xs font-black shadow-sm text-stone-700">G</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="font-medium text-stone-600">Open Shopping Cart</span>
+                    <kbd className="px-2 py-0.5 bg-stone-50 rounded border border-stone-200 border-b-2 font-mono text-xs font-black shadow-sm text-stone-700">C</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="font-medium text-stone-600">Go to My Profile</span>
+                    <kbd className="px-2 py-0.5 bg-stone-50 rounded border border-stone-200 border-b-2 font-mono text-xs font-black shadow-sm text-stone-700">P</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="font-medium text-stone-600">Close open modals / sheets</span>
+                    <kbd className="px-1.5 py-0.5 bg-stone-50 rounded border border-stone-200 border-b-2 font-mono text-[10px] font-black shadow-sm text-stone-700">Esc</kbd>
+                  </div>
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="font-medium text-stone-600">Toggle Keyboard Guide</span>
+                    <kbd className="px-2 py-0.5 bg-stone-50 rounded border border-stone-200 border-b-2 font-mono text-xs font-black shadow-sm text-stone-700">?</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer info/tip */}
+              <div className="mt-6 pt-4 border-t border-stone-100 flex items-center justify-center text-[10px] text-stone-400 font-bold uppercase tracking-widest gap-1 select-none">
+                <span>💡 Press </span>
+                <kbd className="px-1 bg-stone-50 rounded border border-stone-200 font-mono text-[9px] lowercase text-stone-500">?</kbd>
+                <span> to toggle guide</span>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </Suspense>
   );
 }

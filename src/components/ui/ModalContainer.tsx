@@ -49,11 +49,27 @@ export default function ModalContainer({
     if (isOpen) {
       const originalStyle = window.getComputedStyle(document.body).overflow;
       document.body.style.overflow = 'hidden';
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+
+      const handleCustomClose = () => {
+        onClose();
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('close-all-modals', handleCustomClose);
+
       return () => {
         document.body.style.overflow = originalStyle;
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('close-all-modals', handleCustomClose);
       };
     }
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   return (
     <AnimatePresence>

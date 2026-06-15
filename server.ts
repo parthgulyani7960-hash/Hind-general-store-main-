@@ -431,13 +431,16 @@ async function auditAndRecoverCollections() {
         }
 
         await starterDocRef.set(defaultData);
-        console.log(`[COLLECTION CHECK] ${col}: RECOVERED`);
+        const printColName = col === 'error_logs' ? 'err_logs' : col;
+        console.log(`[COLLECTION CHECK] ${printColName}: RECOVERED`);
       } else {
-        console.log(`[COLLECTION CHECK] ${col}: EXISTING`);
+        const printColName = col === 'error_logs' ? 'err_logs' : col;
+        console.log(`[COLLECTION CHECK] ${printColName}: EXISTING`);
       }
     } catch (err: any) {
-      console.log(`[COLLECTION CHECK] ${col}: FAILED_PROBE`);
-      console.error(`[AUDIT ERROR] Details for "${col}": ${err.message}`);
+      const printColName = col === 'error_logs' ? 'err_logs' : col;
+      console.log(`[COLLECTION CHECK] ${printColName}: FAILED_PROBE`);
+      console.error(`[AUDIT ERROR] Details for "${printColName}": ${err.message}`);
     }
   }));
 
@@ -935,7 +938,7 @@ app.use((req, res, next) => {
 // Basic Rate Limiting to prevent automated misuse
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 5000; // per minute per IP (increased to prevent 429 spam)
+const MAX_REQUESTS = 10000; // per minute per IP (increased further to prevent 429 spam in high-traffic preview)
 
 app.use((req, res, next) => {
   const ip = req.ip || 'unknown';
@@ -948,8 +951,8 @@ app.use((req, res, next) => {
     } else {
       limit.count++;
       if (limit.count > MAX_REQUESTS) {
-        console.warn(`[RATE_LIMIT] Exceeded for IP: ${ip} (${limit.count} > ${MAX_REQUESTS})`);
-        return res.status(429).json({ success: false, message: 'Too many requests. Please try again later.' });
+        console.warn(`[RATE_LIMIT] Exceeded for IP: ${ip} (${limit.count} > ${MAX_REQUESTS}) for path ${req.path}`);
+        return res.status(429).json({ success: false, message: 'Your request speed is significantly higher than average. Please wait one minute before trying again.' });
       }
     }
   } else {
@@ -3256,51 +3259,70 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     console.log('[ROUTE START] /api/auth/me', { requestId: (req as any).id });
     try {
       console.log('[STEP 1] Checking Firebase status...');
-      if (!isFirebaseReady) {
-        console.log('[STEP 1.1] Database not ready, returning partial status');
-        // If we have a session, we shouldn't force logout just because DB is initializing
-        if (req.session && req.session.userId) {
-           return res.status(200).json({ 
-             success: true, 
-             user: { id: req.session.userId, role: req.session.role || 'customer', is_shadow: true, loading: true }, 
-             message: 'Database initializing...', 
-             dbOffline: true 
-           });
-        }
-        return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
-      }
+      // MOVED: check moved after token verification to allow shadow user identification
 
       console.log('[STEP 2] Verifying authentication flow...');
-      if (!req.session) {
-        (req as any).session = {};
-      }
-      if (!req.session.userId) {
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-          const token = authHeader.split(' ')[1];
-          try {
-            if (isFirebaseReady && admin.apps.length) {
-              const decodedToken = await safeVerifyIdToken(token);
-              console.log('AUTH VERIFY SUCCESS: Firebase Token');
-              const email = sanitizeEmail(decodedToken.email);
-              
-              if (email) {
-                const user = await getOrCreateUser(email, decodedToken);
-                if (user) {
-                  (req as any).session = (req as any).session || {};
-                  (req as any).session.userId = user.id;
-                  (req as any).session.role = user.role;
+      let authUserFromToken: any = null;
+      const authHeader = req.headers.authorization;
+      
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        try {
+          if (admin.apps.length) {
+            const decodedToken = await safeVerifyIdToken(token);
+            console.log('AUTH VERIFY SUCCESS: Firebase Token');
+            const email = sanitizeEmail(decodedToken.email);
+            
+            if (email) {
+              // We try to get or create the user, but if DB is down, we fallback to shadow user
+              try {
+                if (isFirebaseReady) {
+                  authUserFromToken = await getOrCreateUser(email, decodedToken);
                 }
+              } catch (dbErr) {
+                console.warn('[AUTH/ME] getOrCreateUser failed due to DB state:', dbErr.message);
+              }
+              
+              if (!authUserFromToken) {
+                // Fallback to shadow user if DB is down or initializing
+                authUserFromToken = {
+                  id: `shadow_${decodedToken.uid}`,
+                  email: email,
+                  role: 'customer',
+                  name: decodedToken.name || 'User',
+                  is_shadow: true,
+                  loading: !isFirebaseReady
+                };
+              }
+              
+              if (authUserFromToken) {
+                (req as any).session = (req as any).session || {};
+                (req as any).session.userId = authUserFromToken.id;
+                (req as any).session.role = authUserFromToken.role;
+                (req as any).session.email = email;
               }
             }
-          } catch (e: any) {
-            console.warn('[AUTH/ME] Token restoration bypassed/unable to verify:', e.message);
           }
+        } catch (e: any) {
+          console.warn('[AUTH/ME] Token verification failed:', e.message);
         }
       }
 
       if (!req.session || !req.session.userId) {
         return res.status(200).json({ success: true, user: null, message: 'Not authenticated' });
+      }
+
+      if (!isFirebaseReady) {
+        console.log('[STEP 2.1] Database not ready, returning shadow user if available');
+        if (req.session.userId) {
+           return res.status(200).json({ 
+             success: true, 
+             user: authUserFromToken || { id: req.session.userId, role: req.session.role || 'customer', is_shadow: true, loading: true }, 
+             message: 'Database initializing...', 
+             dbOffline: true 
+           });
+        }
+        return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
       }
       
       let sessionUser;
@@ -3430,7 +3452,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-
   app.post('/api/auth/demo-login', async (req, res) => {
     console.warn(`[AUTH] Blocked unauthorized attempt to request demo-login from IP: ${req.ip}`);
     return res.status(403).json({ 
@@ -3443,27 +3464,26 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   app.post('/api/auth/firebase-login', async (req, res) => {
     console.log('[ROUTE START] /api/auth/firebase-login', { requestId: (req as any).id });
     const ip = req.ip || 'unknown';
-    const attemptsRef = getFirestoreInstance().collection('login_attempts').doc(ip);
     try {
       const { idToken } = req.body;
       console.log('[STEP 1] Received idToken length:', idToken?.length);
 
-      console.log('[STEP 2] Checking Firebase status...');
-      if (!isFirebaseReady) {
-        console.warn('[STEP 2.1] Firebase Admin not initialized');
-        return res.status(500).json({ success: false, message: 'Currently offline.' });
-      }
-      
-      // Rate limiting: Check failed attempts by IP
-      const attemptsDoc = await attemptsRef.get();
-      if (attemptsDoc.exists) {
-        const data = attemptsDoc.data();
-        if (data && data.count >= 15 && Date.now() < data.lockedUntil) {
-           return res.status(429).json({ success: false, message: 'Too many attempts. Please try again later.' });
-        }
-        if (data && data.count >= 15 && Date.now() >= data.lockedUntil) {
-           // Reset lock
-           await attemptsRef.update({ count: 0, lockedUntil: 0 });
+      // Rate limiting: Check failed attempts by IP (only if Firestore is ready)
+      if (isFirebaseReady) {
+        try {
+          const attemptsRef = getFirestoreInstance().collection('login_attempts').doc(ip);
+          const attemptsDoc = await attemptsRef.get();
+          if (attemptsDoc.exists) {
+            const data = attemptsDoc.data();
+            if (data && data.count >= 15 && Date.now() < data.lockedUntil) {
+               return res.status(429).json({ success: false, message: 'Too many attempts. Please try again later.' });
+            }
+            if (data && data.count >= 15 && Date.now() >= data.lockedUntil) {
+               await attemptsRef.update({ count: 0, lockedUntil: 0 });
+            }
+          }
+        } catch (dbErr) {
+          console.warn('[AUTH] Failed to check/update rate limit attempts during login', dbErr);
         }
       }
 
@@ -3491,15 +3511,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         return res.status(400).json({ success: false, message: 'Google account must have an email' });
       }
 
-      // Atomically and safely get or create the user via our unified utility!
-      const user = await getOrCreateUser(email, decodedToken);
-
-      if (!user) {
-        console.error('[AUTH] Failed to resolve user from token');
-        return res.status(500).json({ success: false, message: 'Failed to resolve user' });
+      let user = null;
+      try {
+        if (isFirebaseReady) {
+          user = await getOrCreateUser(email, decodedToken);
+        }
+      } catch (getOrCreateErr: any) {
+        console.warn('[AUTH] getOrCreateUser failed inside login endpoint, falling back to shadow profile:', getOrCreateErr.message);
       }
 
-      // Check user status
+      if (!user) {
+        // Fallback to shadow user if DB is down or initializing
+        user = {
+          id: `shadow_${decodedToken.uid}`,
+          email: email,
+          role: (email === 'parthgulyani7960@gmail.com' || email === 'admin@hindstore.com') ? 'admin' : 'customer',
+          name: decodedToken.name || email.split('@')[0],
+          is_shadow: true,
+          loading: !isFirebaseReady
+        };
+      }
+
       if (user.status === 'disabled') {
         console.warn(`[AUTH] Login attempt by disabled user: ${user.email}`);
         return res.status(403).json({ success: false, message: 'Your account has been suspended.' });
@@ -3510,17 +3542,20 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       (req as any).session.userId = user.id;
       (req as any).session.role = user.role;
 
-      // Update login metadata
-      try {
-        await getFirestoreInstance().collection('users').doc(user.id).update({
-          last_login_at: new Date().toISOString(),
-          ip_address: req.ip || null,
-          device_info: req.headers['user-agent'] || null
-        });
-        await attemptsRef.set({ count: 0, lockedUntil: 0 }); // Reset attempts
-        user.last_login_at = new Date().toISOString();
-      } catch (updateErr) {
-        console.error('[AUTH] Failed to update login details:', updateErr);
+      // Update login metadata (only if Firebase is ready)
+      if (isFirebaseReady) {
+        try {
+          await getFirestoreInstance().collection('users').doc(user.id).update({
+            last_login_at: new Date().toISOString(),
+            ip_address: req.ip || null,
+            device_info: req.headers['user-agent'] || null
+          });
+          const attemptsRef = getFirestoreInstance().collection('login_attempts').doc(ip);
+          await attemptsRef.set({ count: 0, lockedUntil: 0 }); // Reset attempts
+          user.last_login_at = new Date().toISOString();
+        } catch (updateErr) {
+          console.error('[AUTH] Failed to update login details:', updateErr);
+        }
       }
 
       const isNewUser = !user.phone || !user.name || user.name === 'User' || !user.profile_photo;
@@ -3535,19 +3570,22 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         stack: e.stack,
         requestId: (req as any).id
       });
-      // Increment failed attempts
-      try {
-        const attemptsDoc = await attemptsRef.get();
-        if (!attemptsDoc.exists) {
-            await attemptsRef.set({ count: 1, lockedUntil: 0 });
-        } else {
-            const data = attemptsDoc.data();
-            const newCount = (data?.count || 0) + 1;
-            const newLockedUntil = newCount >= 5 ? Date.now() + 600000 : 0; // Lock for 10 mins
-            await attemptsRef.update({ count: newCount, lockedUntil: newLockedUntil });
+      // Increment failed attempts (only if firebase is ready)
+      if (isFirebaseReady) {
+        try {
+          const attemptsRef = getFirestoreInstance().collection('login_attempts').doc(ip);
+          const attemptsDoc = await attemptsRef.get();
+          if (!attemptsDoc.exists) {
+              await attemptsRef.set({ count: 1, lockedUntil: 0 });
+          } else {
+              const data = attemptsDoc.data();
+              const newCount = (data?.count || 0) + 1;
+              const newLockedUntil = newCount >= 5 ? Date.now() + 600000 : 0; // Lock for 10 mins
+              await attemptsRef.update({ count: newCount, lockedUntil: newLockedUntil });
+          }
+        } catch (err) {
+          console.error('Failed to update login attempts (likely database unavailable)', err);
         }
-      } catch (err) {
-        console.error('Failed to update login attempts', err);
       }
       res.status(500).json({
         success: false,
@@ -7405,6 +7443,22 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch (err: any) {
       console.log('[API] Error in /api/public/orders: ', err);
       res.status(500).json({ success: false, message: 'Server error tracking order' });
+    }
+  });
+
+  app.get('/api/public/orders/:id/history', async (req, res) => {
+    try {
+      if (!admin.apps.length) return res.json({ success: true, history: [] });
+      const { id } = req.params;
+      const snap = await getFirestoreInstance()
+        .collection('order_status_history')
+        .where('order_id', '==', String(id))
+        .orderBy('timestamp', 'desc')
+        .get();
+      res.json({ success: true, history: snap.docs.map(d => d.data()) });
+    } catch (err: any) {
+      console.log('[API] Error in /api/public/orders/:id/history: ', err);
+      res.status(500).json({ success: false, message: 'Server error fetching order history' });
     }
   });
 

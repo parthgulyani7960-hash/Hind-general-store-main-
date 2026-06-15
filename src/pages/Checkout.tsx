@@ -7,6 +7,7 @@ import { cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/Button';
+import { triggerFeedback } from '@/lib/feedback';
 
 export default function Checkout() {
   const { cart, t, user, clearCart } = useStore();
@@ -100,6 +101,7 @@ export default function Checkout() {
         setOrderId(res.order_id || res.id || 'N/A');
         clearCart();
         setStep(3);
+        triggerFeedback('heavy');
         toast.success("Order Placed Successfully!");
       } else {
         throw new Error(res?.message || "Generic failure");
