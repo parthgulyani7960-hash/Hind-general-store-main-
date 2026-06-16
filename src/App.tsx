@@ -56,9 +56,10 @@ function ScrollToTopOnNavigate() {
   return null;
 }
 
-import Home from './pages/Home';
-import Products from './pages/Products';
-import Login from './pages/Login';
+// High-Priority Core Pages
+const Home = lazyWithRetry(() => import('./pages/Home'), 'Home');
+const Products = lazyWithRetry(() => import('./pages/Products'), 'Products');
+const Login = lazyWithRetry(() => import('./pages/Login'), 'Login');
 
 import { lazyWithRetry } from './lib/lazyLoader';
 

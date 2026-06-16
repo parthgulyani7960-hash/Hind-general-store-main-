@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Activity, Sparkles, Bell } from 'lucide-react';
+import { Menu, Activity, Sparkles, Bell, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
@@ -25,6 +25,9 @@ interface AdminDashboardLayoutProps {
   loading?: boolean;
   healthStatus?: 'healthy' | 'warning' | 'critical' | 'offline';
   syncStatus?: 'synced' | 'syncing' | 'offline';
+  onRefresh?: () => void;
+  isAutoRefresh?: boolean;
+  setIsAutoRefresh?: (val: boolean) => void;
 }
 
 /**
@@ -44,16 +47,30 @@ interface AdminDashboardLayoutProps {
  * @param extraHeader - Optional content for the header area.
  * @param loading - Whether the page content is currently loading.
  * @param healthStatus - Current system health status.
+ * @param onRefresh - Optional function to manually refresh dashboard data.
+ * @param isAutoRefresh - Whether automated background polling is active.
+ * @param setIsAutoRefresh - Function to toggle automated background polling.
  */
 export default function AdminDashboardLayout({ 
   children, activeTab, setActiveTab, user, logout, adminTheme, 
   sidebarOpen, setSidebarOpen, getDisplayLabel, stats, pendingOrdersCount = 0, extraHeader, loading,
   healthStatus = 'offline',
-  syncStatus = 'synced'
+  syncStatus = 'synced',
+  onRefresh,
+  isAutoRefresh,
+  setIsAutoRefresh
 }: AdminDashboardLayoutProps) {
 
   const navigate = useNavigate();
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  const handleManualRefresh = async () => {
+    if (!onRefresh) return;
+    setIsRefreshing(true);
+    await onRefresh();
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
   
   useEffect(() => {
     const handleSystemError = (event: any) => {
@@ -119,6 +136,40 @@ export default function AdminDashboardLayout({
           </div>
           
           <div className="flex items-center gap-6">
+            <div className="hidden lg:flex items-center gap-4 bg-stone-50 border border-stone-100 p-1.5 rounded-2xl">
+               <button 
+                 onClick={handleManualRefresh}
+                 disabled={isRefreshing}
+                 className={cn(
+                   "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95",
+                   isRefreshing ? "bg-stone-200 text-stone-400 cursor-not-allowed" : "bg-white text-stone-600 hover:text-stone-950 shadow-sm border border-stone-200"
+                 )}
+               >
+                 <RefreshCw size={12} className={cn(isRefreshing && "animate-spin")} />
+                 <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+               </button>
+               
+               {setIsAutoRefresh && (
+                 <div className="flex items-center gap-3 px-3">
+                   <div 
+                     onClick={() => setIsAutoRefresh(!isAutoRefresh)}
+                     className={cn(
+                       "w-8 h-4 rounded-full relative transition-all cursor-pointer",
+                       isAutoRefresh ? "bg-emerald-500" : "bg-stone-300"
+                     )}
+                   >
+                     <div className={cn(
+                       "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
+                       isAutoRefresh ? "left-4.5" : "left-0.5"
+                     )} />
+                   </div>
+                   <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest whitespace-nowrap">
+                     Auto
+                   </span>
+                 </div>
+               )}
+            </div>
+
             <button 
                onClick={() => setActiveTab('System Status')}
                className="flex items-center gap-3 bg-stone-50 border border-stone-100 px-5 py-2.5 rounded-full font-bold text-xs uppercase tracking-wider text-stone-600 hover:bg-stone-100 hover:border-stone-200 transition-all cursor-pointer"

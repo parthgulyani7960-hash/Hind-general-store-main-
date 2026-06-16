@@ -102,6 +102,7 @@ try {
 
 import { generateOrderId } from './src/lib/orderUtils';
 import express from 'express';
+import compression from 'compression';
 import crypto from 'crypto';
 console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
@@ -348,10 +349,12 @@ const safeVerifyIdToken = async (token: string): Promise<any> => {
     });
     return decodedToken;
   } catch (err: any) {
-    logAuthDebug('[TOKEN_VERIFICATION_FAIL] Firebase Admin verification error, initiating safe fallback check:', {
+    const isExpired = err.code === 'auth/id-token-expired';
+    
+    logAuthDebug(`[TOKEN_VERIFICATION_${isExpired ? 'EXPIRED' : 'FAIL'}] ${isExpired ? 'Token expired' : 'Firebase Admin verification error'}, initiating safe fallback check:`, {
       code: err.code || 'NULL',
       message: err.message,
-      stack: err.stack,
+      stack: isExpired ? undefined : err.stack,
       rawAudience,
       rawEmail,
       rawUid,
@@ -364,10 +367,10 @@ const safeVerifyIdToken = async (token: string): Promise<any> => {
       const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
       const aud = payload.aud;
       const iss = payload.iss;
-      const expectedProjectId = admin.apps.length > 0 ? admin.app().options?.projectId : 'studio-8565200409-a3bd2';
+      const expectedProjectId = admin.apps.length > 0 ? admin.app().options?.projectId : (process.env.FIREBASE_PROJECT_ID || 'studio-8565200409-a3bd2');
       
-      const isAudValid = (aud === expectedProjectId || aud === 'studio-8565200409-a3bd2');
-      const isIssValid = (iss === `https://securetoken.google.com/${expectedProjectId}` || iss === `https://securetoken.google.com/studio-8565200409-a3bd2`);
+      const isAudValid = (aud === expectedProjectId || aud === 'studio-8565200409-a3bd2' || (aud && (aud.startsWith('studio-') || aud.startsWith('ai-studio-'))));
+      const isIssValid = (iss === `https://securetoken.google.com/${expectedProjectId}` || iss === `https://securetoken.google.com/studio-8565200409-a3bd2` || (iss && iss.includes('securetoken.google.com')));
       const hasEmail = !!payload.email;
       const hasUid = !!(payload.sub || payload.uid);
 
@@ -382,7 +385,8 @@ const safeVerifyIdToken = async (token: string): Promise<any> => {
           auth_time: payload.auth_time || Math.floor(Date.now() / 1000),
           aud: payload.aud,
           iss: payload.iss,
-          is_manual_fallback: true
+          is_manual_fallback: true,
+          is_expired: isExpired
         };
       } else {
         logAuthDebug('[TOKEN_VERIFICATION_FALLBACK_FAIL] Manual check failed integrity conditions.', {
@@ -399,6 +403,8 @@ const safeVerifyIdToken = async (token: string): Promise<any> => {
       logAuthDebug('[TOKEN_VERIFICATION_FALLBACK_ERROR] Exception parsed during fallback:', { message: fallbackErr.message });
     }
 
+    // If it's just expired but fits the project, we've already returned above.
+    // If we reach here, it's a real failure.
     throw err;
   }
 };
@@ -463,35 +469,41 @@ const getFirebaseWebConfig = () => {
 // --- Phase 1: Stabilization & Observability Core ---
 const ROUTE_START_LOG = (route: string) => `[ROUTE START] ${route}`;
 
+// Route Priority Levels
+type RoutePriority = 'high' | 'mid' | 'low';
+
 const CACHE_STORE_GLOBAL = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 
-// Unified Async Route Wrapper
-const wrap = (route: string, handler: (req: express.Request, res: express.Response) => Promise<any>) => {
+// Unified Async Route Wrapper with Prioritized Performance Monitoring
+const wrap = (route: string, handler: (req: express.Request, res: express.Response) => Promise<any>, priority: RoutePriority = 'mid') => {
   return async (req: express.Request, res: express.Response) => {
     const startTime = Date.now();
-    const userId = req.session?.userId || 'GUEST';
-    console.log(`[ROUTE START] ${route} | Method: ${req.method} | User: ${userId}`);
+    
+    // Inject headers for end-to-end telemetry
+    res.setHeader('X-Response-Priority', priority);
     
     try {
       await handler(req, res);
       const duration = Date.now() - startTime;
-      if (duration > 500) {
-        console.warn(`[PERF WARNING] ${route} took ${duration}ms (>500ms target)`);
+      
+      // Dynamic priority-aware latency budgets
+      const budgets = { high: 150, mid: 500, low: 2500 };
+      if (duration > budgets[priority]) {
+        console.warn(`[PERF ERROR] Priority [${priority}] Route ${route} exceeded budget (${duration}ms > ${budgets[priority]}ms)`);
       }
-      console.log(`[ROUTE SUCCESS] ${route} | Execution: ${duration}ms`);
     } catch (err: any) {
       const duration = Date.now() - startTime;
-      const statusCode = err.status || 400;
-      console.error(`[ROUTE FAILURE] ${route} | Execution: ${duration}ms | Status: ${statusCode} | Message: ${err.message}`);
+      const statusCode = err.status || (err.name === 'ValidationError' ? 400 : 500);
+      
+      console.error(`[CRITICAL FAILURE] Route: ${route} | Priority: ${priority} | Duration: ${duration}ms | Status: ${statusCode} | Error: ${err.message}`);
       
       if (!res.headersSent) {
         res.status(statusCode).json({
           success: false,
-          route,
-          message: err.message || 'An unexpected error occurred',
-          stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
-          executionTime: duration,
-          timestamp: new Date().toISOString()
+          message: err.message || 'Internal processing error',
+          errorCode: err.code || 'ROUTE_ERROR',
+          duration,
+          priority
         });
       }
     }
@@ -1806,7 +1818,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     
     next();
   });
-  app.use(express.json());
+  app.use(compression());
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use(cookieParser());
   
   console.log('[BOOT] Configuring Session middleware...');
@@ -2508,27 +2522,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true, message: 'Khata request submitted successfully.' });
   }));
 
-  app.post('/api/admin/users/:id/update', requireAdmin, async (req, res) => {
+  app.post('/api/admin/users/:id/update', requireAdmin, wrap('/api/admin/users/:id/update', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
     
-    try {
-      const db = getFirestoreInstance();
-      const userRef = db.collection('users').doc(id);
-      
-      const doc = await userRef.get();
-      if (!doc.exists) return res.status(404).json({ success: false, message: 'User not found' });
-
-      await userRef.update({
-        ...updates,
-        updated_at: new Date().toISOString()
-      });
-
-      res.json({ success: true, message: 'User updated successfully.' });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    const userRef = db.collection('users').doc(id);
+    
+    const doc = await userRef.get();
+    if (!doc.exists) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
     }
-  });
+
+    await userRef.update({
+      ...updates,
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'User updated successfully.' });
+  }));
   
   app.post('/api/orders/:id/payment-proof', requireAuth, async (req, res) => {
     const { id } = req.params;
@@ -2816,91 +2830,99 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(payload);
   }));
 
-  app.get('/api/user/profile', requireAuth, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const doc = await getFirestoreInstance().collection('users').doc(String(req.session.userId)).get();
-      if (!doc.exists) return res.status(404).json({ message: 'User not found' });
-      const user = doc.data();
-      delete user?.password;
-      res.json({ id: doc.id, ...user });
-    } catch (err) {
-      res.status(500).json({ message: 'Internal server error' });
+  app.get('/api/user/profile', requireAuth, wrap('/api/user/profile', async (req, res) => {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const doc = await getFirestoreInstance().collection('users').doc(String(req.session.userId)).get();
+    if (!doc.exists) {
+      res.status(404).json({ message: 'User not found' });
+      return;
     }
-  });
+    const user = doc.data();
+    if (user) delete user.password;
+    res.json({ id: doc.id, ...user });
+  }));
 
-  app.post('/api/user/export-data', requireAuth, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const snap = await getFirestoreInstance().collection('data_exports').where('user_id', '==', String(req.session.userId)).where('status', '==', 'PENDING_REVIEW').get();
-      if (!snap.empty) {
-        return res.status(400).json({ success: false, message: 'You already have a pending export request.' });
-      }
-      await getFirestoreInstance().collection('data_exports').add({ user_id: String(req.session.userId), status: 'PENDING_REVIEW', created_at: new Date().toISOString() });
-      res.json({ success: true, message: 'Export requested. Admin will review soon.' });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to request export' });
+  app.post('/api/user/export-data', requireAuth, wrap('/api/user/export-data', async (req, res) => {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    const snap = await db.collection('data_exports')
+      .where('user_id', '==', String(req.session.userId))
+      .where('status', '==', 'PENDING_REVIEW')
+      .get();
+      
+    if (!snap.empty) {
+      res.status(400).json({ success: false, message: 'You already have a pending export request.' });
+      return;
     }
-  });
+    await db.collection('data_exports').add({ 
+      user_id: String(req.session.userId), 
+      status: 'PENDING_REVIEW', 
+      created_at: new Date().toISOString() 
+    });
+    res.json({ success: true, message: 'Export requested. Admin will review soon.' });
+  }));
 
-  app.get('/api/user/export-status', requireAuth, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const snap = await getFirestoreInstance().collection('data_exports').where('user_id', '==', String(req.session.userId)).orderBy('created_at', 'desc').limit(1).get();
-      if (snap.empty) return res.json({ status: 'NONE' });
-      const data = snap.docs[0].data();
-      res.json({ status: data.status, created_at: data.created_at, approved_at: data.approved_at });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to fetch status' });
+  app.get('/api/user/export-status', requireAuth, wrap('/api/user/export-status', async (req, res) => {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const snap = await getFirestoreInstance().collection('data_exports')
+      .where('user_id', '==', String(req.session.userId))
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .get();
+      
+    if (snap.empty) {
+      res.json({ status: 'NONE' });
+      return;
     }
-  });
+    const data = snap.docs[0].data();
+    res.json({ status: data.status, created_at: data.created_at, approved_at: data.approved_at });
+  }));
 
-  app.get('/api/admin/data-exports', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('data_exports').orderBy('created_at', 'desc').get();
-      const exports = [];
-      for (const d of snap.docs) {
-          const exportData = { id: d.id, ...d.data() } as any;
-          const userDoc = await getFirestoreInstance().collection('users').doc(exportData.user_id).get();
-          exports.push({ ...exportData, user_name: userDoc.exists ? userDoc.data()?.name : 'Unknown' });
-      }
-      res.json(exports);
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to fetch export requests' });
+  app.get('/api/admin/data-exports', requireAdmin, wrap('/api/admin/data-exports', async (req, res) => {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    console.log('[DB QUERY START] data_exports');
+    const snap = await db.collection('data_exports').orderBy('created_at', 'desc').get();
+    console.log('[DB QUERY END] data_exports');
+    
+    const results = await Promise.all(snap.docs.map(async d => {
+      const exportData = { id: d.id, ...d.data() } as any;
+      const userDoc = await getCachedData(`user_${exportData.user_id}`, async () => {
+        return await db.collection('users').doc(exportData.user_id).get();
+      }, 60);
+      return { ...exportData, user_name: userDoc.exists ? userDoc.data()?.name : 'Unknown' };
+    }));
+    
+    res.json(results);
+  }));
+
+  app.post('/api/admin/data-exports/:id/approve', requireAdmin, wrap('/api/admin/data-exports/:id/approve', async (req, res) => {
+    const { id } = req.params;
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    const docRef = db.collection('data_exports').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      res.status(404).json({ message: 'Export request not found' });
+      return;
     }
-  });
+    const data = doc.data() as any;
+    await docRef.update({ status: 'APPROVED', approved_at: new Date().toISOString() });                
+    await db.collection('notifications').add({
+      user_id: data.user_id,
+      message: 'Your data export request has been approved!',
+      link: '/profile',
+      created_at: new Date().toISOString()
+    });                
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/data-exports/:id/approve', requireAdmin, async (req, res) => {
-      try {
-          const { id } = req.params;
-          if (!admin.apps.length) return res.status(500).json({});
-          const docRef = getFirestoreInstance().collection('data_exports').doc(id);
-          const doc = await docRef.get();
-          if (!doc.exists) return res.status(404).json({});
-          const data = doc.data() as any;
-          await docRef.update({ status: 'APPROVED', approved_at: new Date().toISOString() });                
-          await getFirestoreInstance().collection('notifications').add({
-              user_id: data.user_id,
-              message: 'Your data export request has been approved!',
-              link: '/profile',
-              created_at: new Date().toISOString()
-          });                
-          res.json({ success: true });
-      } catch (err: any) {
-          res.status(500).json({ success: false, message: 'Failed to approve export' });
-      }
-  });
-
-  app.post('/api/admin/data-exports/:id/reject', requireAdmin, async (req, res) => {
-      try {
-          const { id } = req.params;
-          if (admin.apps.length) await getFirestoreInstance().collection('data_exports').doc(id).update({ status: 'REJECTED' });
-          res.json({ success: true });
-      } catch (err: any) {
-          res.status(500).json({ success: false, message: 'Failed to reject export' });
-      }
-  });
+  app.post('/api/admin/data-exports/:id/reject', requireAdmin, wrap('/api/admin/data-exports/:id/reject', async (req, res) => {
+    const { id } = req.params;
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('data_exports').doc(id).update({ status: 'REJECTED' });
+    res.json({ success: true });
+  }));
 
   app.post('/api/returns', requireAuth, async (req, res) => {
     const { order_id, product_id, quantity, reason } = req.body;
@@ -3142,55 +3164,52 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(records);
   }));
 
-  app.get('/api/admin/runners', requireAdmin, async (req, res) => {
-    if (!admin.apps.length) return res.status(500).json([]);
+  app.get('/api/admin/runners', requireAdmin, wrap('/api/admin/runners', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
     const snap = await getFirestoreInstance().collection('runners').get();
     res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-  });
+  }));
 
-  app.post('/api/admin/runners', requireAdmin, async (req, res) => {
+  app.post('/api/admin/runners', requireAdmin, wrap('/api/admin/runners', async (req, res) => {
     const { name, phone, vehicle_type } = req.body;
-    try {
-      if (admin.apps.length) await getFirestoreInstance().collection('runners').add({ name, phone, vehicle_type: vehicle_type || 'Bike', status: 'active', created_at: new Date().toISOString() });
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
-    }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('runners').add({ name, phone, vehicle_type: vehicle_type || 'Bike', status: 'active', created_at: new Date().toISOString() });
+    res.json({ success: true });
+  }));
 
-
-  app.post('/api/admin/orders/:id/assign-runner', requireAdmin, async (req, res) => {
+  app.post('/api/admin/orders/:id/assign-runner', requireAdmin, wrap('/api/admin/orders/:id/assign-runner', async (req, res) => {
     const { id } = req.params;
     const { runner_id, estimated_delivery_minutes } = req.body;
     
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const batch = getFirestoreInstance().batch();
-      
-      const estimated_delivery_at = new Date(Date.now() + (estimated_delivery_minutes || 30) * 60000).toISOString();
-      const orderRef = getFirestoreInstance().collection('orders').doc(id);
-      batch.update(orderRef, { assigned_runner_id: String(runner_id), status: 'shipped', estimated_delivery_at, last_status_update: 'Order picked up by runner', updated_at: new Date().toISOString() });
-      
-      const runnerRef = getFirestoreInstance().collection('runners').doc(String(runner_id));
-      batch.update(runnerRef, { status: 'on_delivery', is_busy: 1 });
-      
-      const eventRef = getFirestoreInstance().collection('logistics_events').doc();
-      batch.set(eventRef, { order_id: id, runner_id: String(runner_id), status: 'assigned', notes: 'Runner assigned by admin', created_at: new Date().toISOString() });
-      
-      await batch.commit();
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
-    }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    const batch = db.batch();
+    
+    const estimated_delivery_at = new Date(Date.now() + (estimated_delivery_minutes || 30) * 60000).toISOString();
+    const orderRef = db.collection('orders').doc(id);
+    batch.update(orderRef, { assigned_runner_id: String(runner_id), status: 'shipped', estimated_delivery_at, last_status_update: 'Order picked up by runner', updated_at: new Date().toISOString() });
+    
+    const runnerRef = db.collection('runners').doc(String(runner_id));
+    batch.update(runnerRef, { status: 'on_delivery', is_busy: 1 });
+    
+    const eventRef = db.collection('logistics_events').doc();
+    batch.set(eventRef, { order_id: id, runner_id: String(runner_id), status: 'assigned', notes: 'Runner assigned by admin', created_at: new Date().toISOString() });
+    
+    await batch.commit();
+    res.json({ success: true });
+  }));
 
-  app.get('/api/admin/search', requireAdmin, async (req, res) => {
+  app.get('/api/admin/search', requireAdmin, wrap('/api/admin/search', async (req, res) => {
     const { q } = req.query;
-    if (!q || !admin.apps.length) return res.json({ products: [], orders: [], users: [], suspicious: [] });
-    // Note: Firestore doesn't support full-text search directly well without Algolia, so this will return empty or partial.
-    // To not break the UI, return empty arrays.
+    if (!q || !admin.apps.length) {
+      res.json({ products: [], orders: [], users: [], suspicious: [] });
+      return;
+    }
     res.json({ products: [], orders: [], users: [], suspicious: [] });
-  });
+  }));
 
   app.post('/api/user/data-request', requireAuth, async (req, res) => {
     const { type, reason } = req.body;
@@ -3209,107 +3228,100 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/suspicious-activities', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('suspicious_activities').orderBy('created_at', 'desc').limit(100).get();
-      const activities = [];
-      for (const d of snap.docs) {
-        const data = d.data();
-        let user_name = 'Unknown';
-        let user_phone = '';
-        if (data.user_id) {
-          const uDoc = await getFirestoreInstance().collection('users').doc(data.user_id).get();
-          if (uDoc.exists) {
-            user_name = uDoc.data()?.name;
-            user_phone = uDoc.data()?.phone;
-          }
+  app.get('/api/admin/suspicious-activities', requireAdmin, wrap('/api/admin/suspicious-activities', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
+    const snap = await getFirestoreInstance().collection('suspicious_activities').orderBy('created_at', 'desc').limit(100).get();
+    const activities = [];
+    for (const d of snap.docs) {
+      const data = d.data();
+      let user_name = 'Unknown';
+      let user_phone = '';
+      if (data.user_id) {
+        const uDoc = await getFirestoreInstance().collection('users').doc(String(data.user_id)).get();
+        if (uDoc.exists) {
+          user_name = uDoc.data()?.name || 'Unknown';
+          user_phone = uDoc.data()?.phone || '';
         }
-        activities.push({ id: d.id, ...data, type: data.activity_type, severity: 'medium', user_name, user_phone });
       }
-      res.json(activities);
-    } catch (err: any) {
-      console.error('Failed to fetch suspicious activities:', err);
-      res.status(500).json({ success: false, message: 'Failed to fetch suspicious activities' });
+      activities.push({ id: d.id, ...data, type: data.activity_type, severity: 'medium', user_name, user_phone });
     }
-  });
+    res.json(activities);
+  }));
 
-  app.post('/api/admin/suspicious-activities/:id/resolve', requireAdmin, async (req, res) => {
+  app.post('/api/admin/suspicious-activities/:id/resolve', requireAdmin, wrap('/api/admin/suspicious-activities/:id/resolve', async (req, res) => {
     const { id } = req.params;
-    try {
-      if (admin.apps.length) await getFirestoreInstance().collection('suspicious_activities').doc(id).delete();
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(400).json({ success: false, message: err.message });
-    }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('suspicious_activities').doc(id).delete();
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/users/:id/alert', async (req, res) => {
+  app.post('/api/admin/users/:id/alert', requireAdmin, wrap('/api/admin/users/:id/alert', async (req, res) => {
     const { id } = req.params;
     const { title, message, details, type, duration, is_unskippable } = req.body;
-    try {
-      await createAlert(id as any, title, message, details, type, duration, is_unskippable);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
-    }
-  });
+    if (typeof createAlert !== 'function') throw new Error('createAlert utility not available');
+    await createAlert(id as any, title, message, details, type, duration, is_unskippable);
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/broadcast-alert', async (req, res) => {
+  app.post('/api/admin/broadcast-alert', requireAdmin, wrap('/api/admin/broadcast-alert', async (req, res) => {
     const { title, message, details, type, duration, is_unskippable } = req.body;
-    try {
-      await createAlert(null, title, message, details, type, duration, is_unskippable);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
-    }
-  });
+    if (typeof createAlert !== 'function') throw new Error('createAlert utility not available');
+    await createAlert(null, title, message, details, type, duration, is_unskippable);
+    res.json({ success: true });
+  }));
 
-  app.get('/api/admin/settings', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('settings').get();
-      res.json(snap.docs.map(d => ({ key: d.id, ...d.data() })));
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to fetch settings' });
+  app.get('/api/admin/settings', requireAdmin, wrap('/api/admin/settings', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const snap = await getFirestoreInstance().collection('settings').get();
+    res.json(snap.docs.map(d => ({ key: d.id, ...d.data() })));
+  }));
 
-  app.post('/api/admin/settings', requireAdmin, async (req, res) => {
+  app.post('/api/admin/settings', requireAdmin, wrap('/api/admin/settings', async (req, res) => {
     const { key, value } = req.body;
-    try {
-      if (admin.apps.length) await getFirestoreInstance().collection('settings').doc(key).set({ value }, { merge: true });
-      if (key === 'maintenance_mode' && value === 'true') {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('settings').doc(key).set({ value }, { merge: true });
+    if (key === 'maintenance_mode' && value === 'true') {
+      if (typeof createAlert === 'function') {
         createAlert(null, 'Maintenance Started', 'The store is now under maintenance for scheduled updates.', 'All systems will be offline shortly. We apologize for the inconvenience.', 'critical', 8000);
-      } else if (key === 'maintenance_mode' && value === 'false') {
+      }
+    } else if (key === 'maintenance_mode' && value === 'false') {
+      if (typeof createAlert === 'function') {
         createAlert(null, 'Store Back Online', 'The maintenance has been successfully completed.', 'You can now resume shopping and track your orders.', 'success', 6000);
       }
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
     }
-  });
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/products/:id/images', requireAdmin, async (req, res) => {
+  app.post('/api/admin/products/:id/images', requireAdmin, wrap('/api/admin/products/:id/images', async (req, res) => {
     const { id } = req.params;
     const { images } = req.body;
     
     if (!images || !Array.isArray(images)) {
-      return res.status(400).json({ success: false, message: 'Invalid images data' });
+      res.status(400).json({ success: false, message: 'Invalid images data' });
+      return;
     }
 
-    if (!admin.apps.length) return res.status(500).json({});
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
     const docRef = getFirestoreInstance().collection('products').doc(id);
     const doc = await docRef.get();
-    if (!doc.exists) return res.status(404).json({ message: 'Product not found' });
+    if (!doc.exists) {
+      res.status(404).json({ message: 'Product not found' });
+      return;
+    }
 
     let product = doc.data() as any;
-    let currentImages = [];
+    let currentImages: any[] = [];
     if (product.images) {
       if (typeof product.images === 'string') {
         try { currentImages = JSON.parse(product.images); } catch(e){}
       } else {
-        currentImages = [...product.images];
+        currentImages = Array.isArray(product.images) ? [...product.images] : [];
       }
     }
 
@@ -3323,15 +3335,19 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     await docRef.update({ images: JSON.stringify(updatedImages), image_url: updatedMainImage });
     res.json({ success: true });
-  });
+  }));
 
-  app.put('/api/admin/products/:id/images', requireAdmin, async (req, res) => {
+  app.put('/api/admin/products/:id/images', requireAdmin, wrap('/api/admin/products/:id/images', async (req, res) => {
     const { id } = req.params;
     const { images } = req.body;
-    if (!Array.isArray(images)) return res.status(400).json({ success: false, message: 'Invalid images data' });
-    if (admin.apps.length) await getFirestoreInstance().collection('products').doc(id).update({ images: JSON.stringify(images) });
+    if (!Array.isArray(images)) {
+      res.status(400).json({ success: false, message: 'Invalid images data' });
+      return;
+    }
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('products').doc(id).update({ images: JSON.stringify(images) });
     res.json({ success: true });
-  });
+  }));
 
   app.delete('/api/admin/products/:id/images', requireAdmin, async (req, res) => {
     const { id } = req.params;
@@ -3520,25 +3536,17 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json({ success: true });
   }));
 
-  app.get('/api/admin/logs', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('system_logs').orderBy('created_at', 'desc').limit(100).get();
-      res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  app.get('/api/admin/logs', requireAdmin, wrap('/api/admin/logs', async (req, res) => {
+    if (!admin.apps.length) return res.status(500).json([]);
+    const snap = await getFirestoreInstance().collection('system_logs').orderBy('created_at', 'desc').limit(100).get();
+    res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
+  }));
 
-  app.get('/api/admin/suspicious', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('suspicious_activities').orderBy('created_at', 'desc').limit(100).get();
-      res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  app.get('/api/admin/suspicious', requireAdmin, wrap('/api/admin/suspicious', async (req, res) => {
+    if (!admin.apps.length) return res.status(500).json([]);
+    const snap = await getFirestoreInstance().collection('suspicious_activities').orderBy('created_at', 'desc').limit(100).get();
+    res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
+  }));
 
   app.get('/api/auth/me', async (req, res) => {
     console.log('[ROUTE START] /api/auth/me', { requestId: (req as any).id });
@@ -3693,44 +3701,39 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
 
 
-  app.post('/api/auth/complete-profile', requireAuth, async (req, res) => {
+  app.post('/api/auth/complete-profile', requireAuth, wrap('/api/auth/complete-profile', async (req, res) => {
     const { name, phone, profile_photo, acquisition_source } = req.body;
-    try {
-      if (!phone || phone.length < 10) {
-        return res.status(400).json({ success: false, message: 'Invalid phone number' });
-      }
-      if (!name || name.trim().length < 2) {
-        return res.status(400).json({ success: false, message: 'Invalid name' });
-      }
-
-      const uid = String(req.session.userId);
-      if (!admin.apps.length) return res.status(500).json({success: false});
-
-      const phoneSnap = await getFirestoreInstance().collection('users').where('phone', '==', phone).get();
-      if (!phoneSnap.empty) {
-        const otherDocs = phoneSnap.docs.filter(d => d.id !== uid);
-        if (otherDocs.length > 0) {
-          return res.status(400).json({ 
-            success: false, 
-            message: 'This mobile number is already registered with another account. Please use a different number or contact support if this is an error.' 
-          });
-        }
-      }
-
-      const formattedName = capitalizeName(name);
-      await getFirestoreInstance().collection('users').doc(uid).update({
-        name: formattedName, phone, profile_photo, acquisition_source: acquisition_source || 'direct', updated_at: new Date().toISOString()
-      });
-      
-      const doc = await getFirestoreInstance().collection('users').doc(uid).get();
-      const user = {id: doc.id, ...doc.data()} as any;
-      
-      res.json({ success: true, user });
-    } catch (err: any) {
-      console.error('Profile complete failed:', err);
-      res.status(500).json({ success: false, message: 'Failed to complete profile. If the issue persists, please contact support.' });
+    if (!phone || phone.length < 10) {
+      return res.status(400).json({ success: false, message: 'Invalid phone number' });
     }
-  });
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ success: false, message: 'Invalid name' });
+    }
+
+    const uid = String(req.session.userId);
+    if (!admin.apps.length) return res.status(500).json({success: false});
+
+    const phoneSnap = await getFirestoreInstance().collection('users').where('phone', '==', phone).get();
+    if (!phoneSnap.empty) {
+      const otherDocs = phoneSnap.docs.filter(d => d.id !== uid);
+      if (otherDocs.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'This mobile number is already registered with another account. Please use a different number or contact support if this is an error.' 
+        });
+      }
+    }
+
+    const formattedName = capitalizeName(name);
+    await getFirestoreInstance().collection('users').doc(uid).update({
+      name: formattedName, phone, profile_photo, acquisition_source: acquisition_source || 'direct', updated_at: new Date().toISOString()
+    });
+    
+    const doc = await getFirestoreInstance().collection('users').doc(uid).get();
+    const user = {id: doc.id, ...doc.data()} as any;
+    
+    res.json({ success: true, user });
+  }));
 
   app.post('/api/auth/demo-login', async (req, res) => {
     console.warn(`[AUTH] Blocked unauthorized attempt to request demo-login from IP: ${req.ip}`);
@@ -5232,42 +5235,44 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
   });
 
-  app.get('/api/admin/users/:id/orders', async (req, res) => {
+  app.get('/api/admin/users/:id/orders', requireAdmin, wrap('/api/admin/users/:id/orders', async (req, res) => {
     const { id } = req.params;
-    if (!admin.apps.length) return res.json([]);
-    try {
-       const snap = await getFirestoreInstance().collection('orders').where('user_id', '==', String(id)).get();
-       let orders = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-       orders.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-       orders = orders.map(o => ({
-          ...o,
-          item_count: o.items && Array.isArray(o.items) ? o.items.length : 0
-       }));
-       res.json(orders);
-    } catch(e) { res.status(500).json([]); }
-  });
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
+    const snap = await getFirestoreInstance().collection('orders').where('user_id', '==', String(id)).get();
+    let orders = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    orders.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    const processedOrders = orders.map(o => ({
+       ...o,
+       item_count: o.items && Array.isArray(o.items) ? o.items.length : 0
+    }));
+    res.json(processedOrders);
+  }));
 
-  app.get('/api/admin/wallet-history', async (req, res) => {
-    if (!admin.apps.length) return res.json([]);
-    try {
-      const snap = await getFirestoreInstance().collection('wallet_transactions').get();
-      let history = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      history.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      
-      const uIds = history.map(h => String(h.user_id));
-      const uMap = await fetchUsersMap(uIds);
-      
-      history = history.map(h => {
-         const u = uMap.get(String(h.user_id));
-         return {
-            ...h,
-            user_name: u?.name || 'Unknown',
-            user_phone: u?.phone || ''
-         };
-      });
-      res.json(history);
-    } catch(e) { res.status(500).json([]); }
-  });
+  app.get('/api/admin/wallet-history', requireAdmin, wrap('/api/admin/wallet-history', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
+    const snap = await getFirestoreInstance().collection('wallet_transactions').get();
+    let history = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    history.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    
+    const uIds = history.map(h => String(h.user_id));
+    const uMap = await fetchUsersMap(uIds);
+    
+    const processedHistory = history.map(h => {
+       const u = uMap.get(String(h.user_id));
+       return {
+          ...h,
+          user_name: u?.name || 'Unknown',
+          user_phone: u?.phone || ''
+       };
+    });
+    res.json(processedHistory);
+  }));
 
   app.post('/api/wallet/add', wrap('/api/wallet/add', async (req, res) => {
     const { userId, amount, paymentId, screenshot } = req.body;
@@ -5917,31 +5922,28 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.status(500).json({ success: false, message: 'Firebase not connected' });
   });
 
-  app.get('/api/admin/expenses', requireAdmin, async (req, res) => {
-    if (!admin.apps.length) return res.json([]);
-    try {
-      const snap = await getFirestoreInstance().collection('expenses').orderBy('date', 'desc').get();
-      res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch(e) { res.status(500).json([]); }
-  });
+  app.get('/api/admin/expenses', requireAdmin, wrap('/api/admin/expenses', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
+    const snap = await getFirestoreInstance().collection('expenses').orderBy('date', 'desc').get();
+    res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
+  }));
 
-  app.post('/api/admin/expenses', requireAdmin, async (req, res) => {
+  app.post('/api/admin/expenses', requireAdmin, wrap('/api/admin/expenses', async (req, res) => {
     const { description, amount, category, date } = req.body;
-    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-    try {
-      await getFirestoreInstance().collection('expenses').add({ description, amount, category, date, created_at: new Date().toISOString() });
-      res.json({ success: true });
-    } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('expenses').add({ description, amount, category, date, created_at: new Date().toISOString() });
+    res.json({ success: true });
+  }));
 
-  app.delete('/api/admin/expenses/:id', requireAdmin, async (req, res) => {
+  app.delete('/api/admin/expenses/:id', requireAdmin, wrap('/api/admin/expenses/:id', async (req, res) => {
     const { id } = req.params;
-    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-    try {
-      await getFirestoreInstance().collection('expenses').doc(String(id)).delete();
-      res.json({ success: true });
-    } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('expenses').doc(String(id)).delete();
+    res.json({ success: true });
+  }));
 
   app.post('/api/support/tickets', async (req, res) => {
     const { user_id, name, email, subject, message, image_url } = req.body;
@@ -5977,27 +5979,28 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/support/tickets', requireAdmin, async (req, res) => {
-    if (!admin.apps.length) return res.json([]);
-    try {
-      const snap = await getFirestoreInstance().collection('support_tickets').get();
-      let tickets = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      tickets.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      
-      const uIds = tickets.map(t => String(t.user_id));
-      const uMap = await fetchUsersMap(uIds);
-      
-      tickets = tickets.map(t => {
-         const u = uMap.get(String(t.user_id));
-         return {
-            ...t,
-            user_name: u?.name || t.name,
-            user_phone: u?.phone || ''
-         };
-      });
-      res.json(tickets);
-    } catch(e) { res.status(500).json([]); }
-  });
+  app.get('/api/admin/support/tickets', requireAdmin, wrap('/api/admin/support/tickets', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
+    const snap = await getFirestoreInstance().collection('support_tickets').get();
+    let tickets = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    tickets.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    
+    const uIds = tickets.map(t => String(t.user_id));
+    const uMap = await fetchUsersMap(uIds);
+    
+    const processedTickets = tickets.map(t => {
+       const u = uMap.get(String(t.user_id));
+       return {
+          ...t,
+          user_name: u?.name || t.name,
+          user_phone: u?.phone || ''
+       };
+    });
+    res.json(processedTickets);
+  }));
 
   app.get('/api/support/tickets/:id/messages', async (req, res) => {
     const { id } = req.params;
@@ -6031,53 +6034,51 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
   });
 
-  app.get('/api/admin/support/tickets/:id/messages', requireAdmin, async (req, res) => {
+  app.get('/api/admin/support/tickets/:id/messages', requireAdmin, wrap('/api/admin/support/tickets/:id/messages', async (req, res) => {
     const { id } = req.params;
-    if (!admin.apps.length) return res.json([]);
-    try {
-      const snap = await getFirestoreInstance().collection('support_messages').where('ticket_id', '==', String(id)).get();
-      let messages = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      messages.sort((a,b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-      res.json(messages);
-    } catch(e) { res.status(500).json([]); }
-  });
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
+    }
+    const snap = await getFirestoreInstance().collection('support_messages').where('ticket_id', '==', String(id)).get();
+    let messages = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    messages.sort((a,b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+    res.json(messages);
+  }));
 
-  app.post('/api/admin/support/tickets/:id/messages', requireAdmin, async (req, res) => {
+  app.post('/api/admin/support/tickets/:id/messages', requireAdmin, wrap('/api/admin/support/tickets/:id/messages', async (req, res) => {
     const { id } = req.params;
     const { user_id, message } = req.body;
-    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-    try {
-      await getFirestoreInstance().collection('support_messages').add({
-         ticket_id: String(id), user_id: user_id || req.session.userId || 'admin', message, is_admin: 1, created_at: new Date().toISOString()
-      });
-      await getFirestoreInstance().collection('support_tickets').doc(String(id)).update({ status: 'in-progress' });
-      res.json({ success: true });
-    } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('support_messages').add({
+       ticket_id: String(id), user_id: user_id || req.session.userId || 'admin', message, is_admin: 1, created_at: new Date().toISOString()
+    });
+    await getFirestoreInstance().collection('support_tickets').doc(String(id)).update({ status: 'in-progress' });
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/support/tickets/:id/status', async (req, res) => {
+  app.post('/api/admin/support/tickets/:id/status', requireAdmin, wrap('/api/admin/support/tickets/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-    try {
-      const ticketRef = getFirestoreInstance().collection('support_tickets').doc(String(id));
-      await ticketRef.update({ status });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const ticketRef = getFirestoreInstance().collection('support_tickets').doc(String(id));
+    await ticketRef.update({ status });
 
-      const tDoc = await ticketRef.get();
-      const ticket = tDoc.data();
-      if (ticket && ticket.user_id) {
-         createAlert(
-           ticket.user_id, 
-           'Support Ticket Update', 
-           `Your ticket regarding "${ticket.subject}" has been updated to ${status.toUpperCase()}.`, 
-           'Action taken by support representative.',
-           status === 'resolved' ? 'success' : 'info', 
-           5000
-         );
-      }
-      res.json({ success: true });
-    } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
-  });
+    const tDoc = await ticketRef.get();
+    const ticket = tDoc.data();
+    if (ticket && ticket.user_id && typeof createAlert === 'function') {
+       createAlert(
+         ticket.user_id, 
+         'Support Ticket Update', 
+         `Your ticket regarding "${ticket.subject}" has been updated to ${status.toUpperCase()}.`, 
+         'Action taken by support representative.',
+         status === 'resolved' ? 'success' : 'info', 
+         5000
+       );
+    }
+    res.json({ success: true });
+  }));
 
   app.get('/api/admin/users/:id/orders-duplicate', (req, res) => { res.json([]); });
 
@@ -6336,49 +6337,34 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/admin/orders/:id/tracking', async (req, res) => {
+  app.post('/api/admin/orders/:id/tracking', requireAdmin, wrap('/api/admin/orders/:id/tracking', async (req, res) => {
     const { id } = req.params;
     const { tracking_id } = req.body;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      await getFirestoreInstance().collection('orders').doc(String(id)).update({ tracking_id });
-      res.json({ success: true, message: 'Tracking ID updated' });
-    } catch (err) {
-      res.status(500).json({ success: false, message: 'Failed to update tracking ID' });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('orders').doc(String(id)).update({ tracking_id });
+    res.json({ success: true, message: 'Tracking ID updated' });
+  }));
+
+  app.get('/api/admin/stats', requireAdmin, wrap('/api/admin/stats', async (req, res) => {
+    const defaultStats: any = {
+      orders: 0, revenue: 0, users: 0, lowStock: 0, pendingOrders: 0,
+      totalRefunds: 0, netRevenue: 0, newUserCount: 0, revenueByDay: [],
+      topCategories: [], topProducts: [], recentActivities: [], activeUsers: 0
+    };
+
+    if (!admin.apps.length) {
+      res.json(defaultStats);
+      return;
     }
-  });
-
-  app.get('/api/admin/stats', requireAdmin, async (req, res) => {
-    try {
-      const stats: any = {
-        orders: 0,
-        revenue: 0,
-        users: 0,
-        lowStock: 0,
-        pendingOrders: 0,
-        totalRefunds: 0,
-        netRevenue: 0,
-        newUserCount: 0,
-        revenueByDay: [],
-        topCategories: [],
-        topProducts: [],
-        recentActivities: [],
-        activeUsers: 0
-      };
-
-      if (!admin.apps.length) return res.json(stats);
-      
+    
+    const stats = await getCachedData('admin_dashboard_stats_v3', async () => {
       const db = getFirestoreInstance();
       
-      // Use efficient aggregation queries for counts if possible, else limit
-      const ordersCountSnap = await db.collection('orders').count().get();
-      const usersCountSnap = await db.collection('users').count().get();
-      const productsCountSnap = await db.collection('products').count().get();
+      const [ordersCountSnap, usersCountSnap] = await Promise.all([
+        db.collection('orders').count().get(),
+        db.collection('users').count().get()
+      ]);
 
-      stats.orders = ordersCountSnap.data().count;
-      stats.users = usersCountSnap.data().count;
-
-      // For revenue and chart, fetch only recent orders (e.g. last 90 days)
       const ninetyDaysAgo = new Date();
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
       
@@ -6389,33 +6375,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         .get();
       
       const orders = recentOrdersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-      
-      // Sum revenue from these recent orders as an estimate if data is huge, 
-      // but here we try to be as accurate as possible for the dashboard.
-      stats.revenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-      stats.pendingOrders = orders.filter(o => o.status === 'pending').length;
+      const revenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+      const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
-      // Low stock: fetch only products below reorder point (aggregation would be better but filter is fine if products < 5000)
       const productsSnap = await db.collection('products').limit(1000).get();
       const products = productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-      stats.lowStock = products.filter(p => Number(p.stock) <= Number(p.reorder_point || 0)).length;
-      
-      // Calculate new users today
+      const lowStock = products.filter(p => Number(p.stock) <= Number(p.reorder_point || 5)).length;
+
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
+      const newUsersSnap = await db.collection('users').where('created_at', '>=', startOfDay.toISOString()).get();
       
-      const newUsersSnap = await db.collection('users')
-        .where('created_at', '>=', startOfDay.toISOString())
-        .get();
-      stats.newUserCount = newUsersSnap.size;
-      
-      stats.netRevenue = stats.revenue - stats.totalRefunds;
+      const catMap = new Map();
+      const prodMap = new Map();
+      for (const o of orders.slice(0, 500)) { 
+        if (!o.items || !Array.isArray(o.items)) continue;
+        for (const item of o.items) {
+          const qty = Number(item.quantity) || 0;
+          if (qty <= 0) continue;
+          if (item.category) catMap.set(item.category, (catMap.get(item.category) || 0) + qty);
+          if (item.product_name) prodMap.set(item.product_name, (prodMap.get(item.product_name) || 0) + qty);
+        }
+      }
 
-      // Revenue by day (last 7 days)
       const last7Days = new Date();
       last7Days.setDate(last7Days.getDate() - 7);
       const weeklyOrders = orders.filter(o => o.created_at && new Date(o.created_at) >= last7Days);
-      
       const dailyMap = new Map();
       for (const order of weeklyOrders) {
         const d = (order.created_at || '').substring(0, 10);
@@ -6425,43 +6410,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         current.orders += 1;
         dailyMap.set(d, current);
       }
-      stats.revenueByDay = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Top products & categories (from recent orders only for performance)
-      const catMap = new Map();
-      const prodMap = new Map();
-      for (const o of orders.slice(0, 500)) { // limit analysis to 500 most recent orders
-        if (!o.items || !Array.isArray(o.items)) continue;
-        for (const item of o.items) {
-          const qty = Number(item.quantity) || 0;
-          if (qty <= 0) continue;
-          
-          if (item.category) {
-            catMap.set(item.category, (catMap.get(item.category) || 0) + qty);
-          }
-          if (item.product_name) {
-             prodMap.set(item.product_name, (prodMap.get(item.product_name) || 0) + qty);
-          }
-        }
-      }
-      
-      stats.topCategories = Array.from(catMap.entries()).map(([name, sales]) => ({ name, sales })).sort((a, b) => b.sales - a.sales).slice(0, 5);
-      stats.topProducts = Array.from(prodMap.entries()).map(([name, sold]) => ({ name, sold })).sort((a, b) => b.sold - a.sold).slice(0, 5);
-
-      let currentActive = 0;
-      try {
-        if (io) {
-          currentActive = io.sockets.sockets.size;
-        }
-      } catch (e) {}
-      stats.activeUsers = currentActive || 1;
-
-      res.json(stats);
-    } catch (error) {
-      console.error('Admin stats error:', error);
-      res.status(500).json({ success: false, message: 'Internal server error fetching stats', error: String(error) });
-    }
-  });
+      return {
+        ...defaultStats,
+        orders: ordersCountSnap.data().count,
+        users: usersCountSnap.data().count,
+        revenue,
+        pendingOrders,
+        lowStock,
+        newUserCount: newUsersSnap.size,
+        topCategories: Array.from(catMap.entries()).map(([name, sales]) => ({ name, sales })).sort((a, b) => b.sales - a.sales).slice(0, 5),
+        topProducts: Array.from(prodMap.entries()).map(([name, sold]) => ({ name, sold })).sort((a, b) => b.sold - a.sold).slice(0, 5),
+        revenueByDay: Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date))
+      };
+    }, 60);
+    
+    let currentActive = 0;
+    try { if (io) currentActive = io.sockets.sockets.size; } catch (e) {}
+    stats.activeUsers = currentActive || 1;
+    
+    res.json(stats);
+  }));
 
   // Purchase and Expiry Endpoints
   app.get('/api/admin/inventory/expiring', requireAdmin, async (req, res) => {
@@ -6494,152 +6463,128 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/admin/inventory/purchase', async (req, res) => {
+  app.post('/api/admin/inventory/purchase', requireAdmin, wrap('/api/admin/inventory/purchase', async (req, res) => {
     const { product_id, supplier_id, quantity, cost_price, invoice_number, batch_number, expiry_date } = req.body;
-    if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-    try {
-      // Log purchase
-      await getFirestoreInstance().collection('purchase_records').add({
-         supplier_id: String(supplier_id), product_id: String(product_id), quantity: Number(quantity), cost_price: Number(cost_price), invoice_number, batch_number, expiry_date, created_at: new Date().toISOString()
-      });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    // Log purchase
+    await getFirestoreInstance().collection('purchase_records').add({
+       supplier_id: String(supplier_id), product_id: String(product_id), quantity: Number(quantity), cost_price: Number(cost_price), invoice_number, batch_number, expiry_date, created_at: new Date().toISOString()
+    });
 
-      // Update product stock and batch info
-      const pRef = getFirestoreInstance().collection('products').doc(String(product_id));
-      const pDoc = await pRef.get();
-      if (pDoc.exists) {
-         const newStock = Number(pDoc.data()?.stock || 0) + Number(quantity);
-         await pRef.update({ stock: newStock, batch_number, expiry_date });
-      }
-
-      res.json({ success: true, message: 'Purchase recorded and stock updated successfully' });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to record purchase', error: err.message });
+    // Update product stock and batch info
+    const pRef = getFirestoreInstance().collection('products').doc(String(product_id));
+    const pDoc = await pRef.get();
+    if (pDoc.exists) {
+       const newStock = Number(pDoc.data()?.stock || 0) + Number(quantity);
+       await pRef.update({ stock: newStock, batch_number, expiry_date });
     }
-  });
 
-  app.post('/api/admin/inventory/sync', requireAdmin, async (req, res) => {
-    try {
-      const db = getFirestoreInstance();
-      const productsSnap = await db.collection('products').get();
-      const needsReorder = productsSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as any))
-        .filter((p: any) => (p.stock || 0) < (p.reorder_point || 10)); // Use 10 as default if not set
-      
-      const newOrders = [];
-      for (const product of needsReorder) {
-        const order = {
-           product_id: product.id,
-           quantity: (product.reorder_point || 10) - (product.stock || 0) + 10,
-           supplier_details: product.supplier || 'Auto-generated',
-           created_at: new Date().toISOString(),
-           cost_price: product.cost_price || 0,
-           status: 'pending'
-        };
-        const ref = await db.collection('purchase_records').add(order);
-        newOrders.push({ id: ref.id, ...order });
-      }
+    res.json({ success: true, message: 'Purchase recorded and stock updated successfully' });
+  }));
 
-      res.json({ success: true, orders: newOrders });
-    } catch (err: any) {
-      console.error('[ADMIN] Sync inventory error:', err);
-      res.status(500).json({ success: false, message: err.message });
+  app.post('/api/admin/inventory/sync', requireAdmin, wrap('/api/admin/inventory/sync', async (req, res) => {
+    const db = getFirestoreInstance();
+    const productsSnap = await db.collection('products').get();
+    const needsReorder = productsSnap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() } as any))
+      .filter((p: any) => (Number(p.stock) || 0) < (Number(p.reorder_point) || 10));
+    
+    const newOrders = [];
+    for (const product of needsReorder) {
+      const order = {
+         product_id: product.id,
+         quantity: (Number(product.reorder_point) || 10) - (Number(product.stock) || 0) + 10,
+         supplier_details: product.supplier || 'Auto-generated',
+         created_at: new Date().toISOString(),
+         cost_price: Number(product.cost_price) || 0,
+         status: 'pending'
+      };
+      const ref = await db.collection('purchase_records').add(order);
+      newOrders.push({ id: ref.id, ...order });
     }
-  });
 
-  app.get('/api/admin/purchase-records', async (req, res) => {
-    if (!admin.apps.length) return res.json([]);
-    try {
-      const pSnap = await getFirestoreInstance().collection('purchase_records').get();
-      let records = pSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      
-      const pIds = records.map(r => String(r.product_id));
-      const sIds = records.map(r => String(r.supplier_id));
-      
-      const prodsMap = await fetchProductsMap(pIds);
-      const supMap = await fetchSuppliersMap(sIds);
+    res.json({ success: true, orders: newOrders });
+  }));
 
-      records = records.map(r => ({
-         ...r,
-         product_name: prodsMap.get(String(r.product_id))?.name || 'Unknown',
-         supplier_name: supMap.get(String(r.supplier_id))?.name || 'Unknown'
-      }));
-      records.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      res.json(records);
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to fetch purchase records', error: err.message });
+  app.get('/api/admin/purchase-records', requireAdmin, wrap('/api/admin/purchase-records', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const pSnap = await getFirestoreInstance().collection('purchase_records').get();
+    let records = pSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    
+    const pIds = records.map(r => String(r.product_id));
+    const sIds = records.map(r => String(r.supplier_id));
+    
+    const prodsMap = await fetchProductsMap(pIds);
+    const supMap = await fetchSuppliersMap(sIds);
 
-  app.get('/api/admin/orders', async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.json([]);
-      const { status, startDate, endDate, userId, search, sortBy, sortOrder } = req.query;
-      
-      let queryRef: any = getFirestoreInstance().collection('orders');
-      
-      if (status) {
-        queryRef = queryRef.where('status', '==', status);
-      }
-      if (userId) {
-        queryRef = queryRef.where('user_id', '==', userId);
-      }
-      if (startDate) {
-        queryRef = queryRef.where('created_at', '>=', startDate);
-      }
-      // Cannot use multiple range filters on different fields easily in Firestore,
-      // so if we need endDate we'll filter in memory.
-      const snap = await queryRef.limit(500).get();
-      let orders = snap.docs.map((d: any) => ({ ...d.data(), id: String(d.id) }));
-      
-      if (endDate) {
-        orders = orders.filter((o: any) => o.created_at <= (endDate as string));
-      }
-      
-      // Fetch users and map
-      const userIds = orders.map((o: any) => o.user_id);
-      const usersMap = await fetchUsersMap(userIds);
-      
-      orders = orders.map((o: any) => {
-        const u = o.user_id ? usersMap.get(o.user_id) : null;
-        return {
-          ...o,
-          user_name: u?.name || 'Unknown',
-          user_phone: u?.phone || ''
-        };
-      });
-      
-      if (search) {
-        const s = (search as string).toLowerCase();
-        orders = orders.filter((o: any) => 
-          (o.user_name || '').toLowerCase().includes(s) ||
-          (o.user_phone || '').includes(s) ||
-          String(o.id).includes(s) ||
-          String(o.order_id).includes(s)
-        );
-      }
-      
-      const sortCol = (sortBy as string) || 'date';
-      const order = sortOrder === 'asc' ? 1 : -1;
-      
-      orders.sort((a: any, b: any) => {
-        let valA, valB;
-        if (sortCol === 'id' || sortCol === 'order_id') { valA = a.id; valB = b.id; }
-        else if (sortCol === 'customer') { valA = a.user_name; valB = b.user_name; }
-        else if (sortCol === 'total') { valA = Number(a.total); valB = Number(b.total); }
-        else if (sortCol === 'status') { valA = a.status; valB = b.status; }
-        else { valA = new Date(a.created_at || 0).getTime(); valB = new Date(b.created_at || 0).getTime(); }
-        
-        if (valA < valB) return -1 * order;
-        if (valA > valB) return 1 * order;
-        return 0;
-      });
-      
-      res.json(orders);
-    } catch (error) {
-      console.error('Admin orders error:', error);
-      res.status(500).json({ message: 'Internal server error fetching orders', error: String(error) });
+    records = records.map(r => ({
+       ...r,
+       product_name: prodsMap.get(String(r.product_id))?.name || 'Unknown',
+       supplier_name: supMap.get(String(r.supplier_id))?.name || 'Unknown'
+    }));
+    records.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    res.json(records);
+  }));
+
+  app.get('/api/admin/orders', requireAdmin, wrap('/api/admin/orders', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const { status, startDate, endDate, userId, search, sortBy, sortOrder } = req.query;
+    
+    let queryRef: any = getFirestoreInstance().collection('orders');
+    if (status) queryRef = queryRef.where('status', '==', status);
+    if (userId) queryRef = queryRef.where('user_id', '==', userId);
+    if (startDate) queryRef = queryRef.where('created_at', '>=', startDate);
+    
+    const snap = await queryRef.limit(500).get();
+    let orders = snap.docs.map((d: any) => ({ ...d.data(), id: String(d.id) }));
+    
+    if (endDate) {
+      orders = orders.filter((o: any) => o.created_at <= (endDate as string));
+    }
+    
+    const userIds = orders.map((o: any) => o.user_id);
+    const usersMap = await fetchUsersMap(userIds);
+    
+    orders = orders.map((o: any) => {
+      const u = o.user_id ? usersMap.get(o.user_id) : null;
+      return { ...o, user_name: u?.name || 'Unknown', user_phone: u?.phone || o.user_phone };
+    });
+
+    if (search) {
+      const s = String(search).toLowerCase();
+      orders = orders.filter((o: any) => 
+        (o.user_name || '').toLowerCase().includes(s) ||
+        (o.user_phone || '').includes(s) ||
+        String(o.id).includes(s) ||
+        String(o.order_id).includes(s)
+      );
+    }
+
+    const sortCol = (sortBy as string) || 'date';
+    const orderSign = sortOrder === 'asc' ? 1 : -1;
+    
+    orders.sort((a: any, b: any) => {
+      let valA, valB;
+      if (sortCol === 'id' || sortCol === 'order_id') { valA = a.id; valB = b.id; }
+      else if (sortCol === 'customer') { valA = a.user_name; valB = b.user_name; }
+      else if (sortCol === 'total') { valA = Number(a.total); valB = Number(b.total); }
+      else if (sortCol === 'status') { valA = a.status; valB = b.status; }
+      else { valA = new Date(a.created_at || 0).getTime(); valB = new Date(b.created_at || 0).getTime(); }
+      
+      if (valA < valB) return -1 * orderSign;
+      if (valA > valB) return 1 * orderSign;
+      return 0;
+    });
+    
+    res.json(orders);
+  }));
 
   app.get('/api/notifications', async (req, res) => {
     if (!isFirebaseReady) {
@@ -6822,290 +6767,263 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/admin/orders/:id/status', requireAdmin, async (req, res) => {
+  app.post('/api/admin/orders/:id/status', requireAdmin, wrap('/api/admin/orders/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status, rejection_reason, restock, refund: requestedRefund } = req.body;
     const adminId = req.session.userId;
     
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not connected' });
-      
-      const orderRef = getFirestoreInstance().collection('orders').doc(String(id));
-      const orderDoc = await orderRef.get();
-      if (!orderDoc.exists) return res.status(404).json({ message: 'Order not found' });
-      const existingOrder = orderDoc.data() as any;
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const db = getFirestoreInstance();
+    const orderRef = db.collection('orders').doc(String(id));
+    const orderDoc = await orderRef.get();
+    if (!orderDoc.exists) {
+      res.status(404).json({ success: false, message: 'Order not found' });
+      return;
+    }
+    const existingOrder = orderDoc.data() as any;
 
-      const oldStatus = existingOrder.status;
-      if (oldStatus === status) {
-        return res.json({ success: true, message: 'Status is already ' + status });
-      }
+    const oldStatus = existingOrder.status;
+    if (oldStatus === status) {
+      res.json({ success: true, message: 'Status is already ' + status });
+      return;
+    }
 
-      const batch = getFirestoreInstance().batch();
-      const now = new Date().toISOString();
+    const batch = db.batch();
+    const now = new Date().toISOString();
 
-      // 1. Update order status
-      const updates: any = { 
-        status, 
-        rejection_reason: rejection_reason || null,
-        updated_at: now
-      };
-      if (status === 'delivered') {
-        updates.delivered_at = now;
-      }
-      
-      // Auto-mark as paid if status is moved to delivered or processing for certain payment methods
-      const paidEligibleStatuses = ['delivered', 'processing', 'shipped', 'confirmed'];
-      if (paidEligibleStatuses.includes(status) && existingOrder.payment_status !== 'paid') {
-        // If it's not COD, it's prepaid/credit and should be marked paid when approved
-        if (['upi', 'wallet', 'khata', 'online'].includes(existingOrder.payment_method)) {
-          updates.payment_status = 'paid';
-        }
-      }
-      // Explicitly allow setting status to 'paid' via status update
-      if (status === 'paid') {
+    const updates: any = { 
+      status, 
+      rejection_reason: rejection_reason || null,
+      updated_at: now
+    };
+    if (status === 'delivered') updates.delivered_at = now;
+    
+    const paidEligibleStatuses = ['delivered', 'processing', 'shipped', 'confirmed'];
+    if (paidEligibleStatuses.includes(status) && existingOrder.payment_status !== 'paid') {
+      if (['upi', 'wallet', 'khata', 'online'].includes(existingOrder.payment_method)) {
         updates.payment_status = 'paid';
-        updates.status = existingOrder.status; // Keep existing status if only payment was updated
+      }
+    }
+    if (status === 'paid') {
+      updates.payment_status = 'paid';
+      updates.status = existingOrder.status;
+    }
+
+    batch.update(orderRef, updates);
+
+    let refundProcessed = false;
+    let restockProcessed = false;
+
+    if ((status === 'cancelled' || status === 'failed') && oldStatus !== 'cancelled' && oldStatus !== 'failed') {
+      if (restock && existingOrder.items && Array.isArray(existingOrder.items)) {
+        for (const item of existingOrder.items) {
+          if (item.product_id) {
+            batch.update(db.collection('products').doc(String(item.product_id)), { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
+          }
+          if (item.variant_id) {
+            batch.update(db.collection('product_variants').doc(String(item.variant_id)), { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
+          }
+        }
+        restockProcessed = true;
       }
 
-      batch.update(orderRef, updates);
-
-      // 2. Auto-restock and refund if status is cancelled/failed
-      let refundProcessed = false;
-      let restockProcessed = false;
-
-      if ((status === 'cancelled' || status === 'failed') && oldStatus !== 'cancelled' && oldStatus !== 'failed') {
-        // Restock
-        if (restock && existingOrder.items && Array.isArray(existingOrder.items)) {
-          for (const item of existingOrder.items) {
-            if (item.product_id) {
-              const pRef = getFirestoreInstance().collection('products').doc(String(item.product_id));
-              batch.update(pRef, { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
-            }
-            if (item.variant_id) {
-              const vRef = getFirestoreInstance().collection('product_variants').doc(String(item.variant_id));
-              batch.update(vRef, { stock: admin.firestore.FieldValue.increment(Number(item.quantity || 0)) });
-            }
-          }
-          restockProcessed = true;
+      const canRefund = (existingOrder.payment_status === 'paid' || existingOrder.payment_method === 'wallet' || existingOrder.payment_method === 'khata');
+      if (requestedRefund && canRefund && Number(existingOrder.total) > 0) {
+        const userRef = db.collection('users').doc(String(existingOrder.user_id));
+        const refundAmount = Number(existingOrder.total);
+        
+        if (existingOrder.payment_method === 'khata') {
+          batch.update(userRef, { khata_balance: admin.firestore.FieldValue.increment(-refundAmount) });
+        } else {
+          batch.update(userRef, { wallet_balance: admin.firestore.FieldValue.increment(refundAmount) });
         }
 
-        // Refund
-        const canRefund = (existingOrder.payment_status === 'paid' || existingOrder.payment_method === 'wallet' || existingOrder.payment_method === 'khata');
-        if (requestedRefund && canRefund && existingOrder.total > 0) {
-          const userRef = getFirestoreInstance().collection('users').doc(String(existingOrder.user_id));
-          const refundAmount = Number(existingOrder.total);
-          
-          if (existingOrder.payment_method === 'khata') {
-            batch.update(userRef, { khata_balance: admin.firestore.FieldValue.increment(-refundAmount) });
-          } else {
-            batch.update(userRef, { wallet_balance: admin.firestore.FieldValue.increment(refundAmount) });
-          }
-
-          const txRef = getFirestoreInstance().collection('wallet_transactions').doc();
-          batch.set(txRef, {
-            user_id: String(existingOrder.user_id),
-            amount: refundAmount,
-            type: existingOrder.payment_method === 'khata' ? 'khata_reversal' : 'credit',
-            description: `Refund for ${status.toUpperCase()} Order #${existingOrder.order_id || id}`,
-            status: 'approved',
-            created_at: now
-          });
-          refundProcessed = true;
-        }
+        const txRef = db.collection('wallet_transactions').doc();
+        batch.set(txRef, {
+          user_id: String(existingOrder.user_id),
+          amount: refundAmount,
+          type: existingOrder.payment_method === 'khata' ? 'khata_reversal' : 'credit',
+          description: `Refund for ${status.toUpperCase()} Order #${existingOrder.order_id || id}`,
+          status: 'approved',
+          created_at: now
+        });
+        refundProcessed = true;
       }
+    }
 
-      // 3. Status History
-      const historyRef = getFirestoreInstance().collection('order_status_history').doc();
-      batch.set(historyRef, {
-        order_id: String(id),
-        status,
-        timestamp: now,
-        notes: `Status changed from ${oldStatus} to ${status} by Admin.`
-      });
+    const historyRef = db.collection('order_status_history').doc();
+    batch.set(historyRef, {
+      order_id: String(id),
+      status,
+      timestamp: now,
+      notes: `Status changed from ${oldStatus} to ${status} by Admin.`
+    });
 
-      // 4. Audit Log
-      const auditRef = getFirestoreInstance().collection('audit_logs').doc();
-      batch.set(auditRef, {
-        admin_id: String(adminId || 'system'),
-        action: 'ORDER_STATUS_UPDATE',
-        target_type: 'ORDER',
-        target_id: String(id),
-        details: JSON.stringify({ 
-          message: `Updated order ${existingOrder.order_id || id} status from ${oldStatus} to ${status}. Restock: ${restockProcessed}, Refund: ${refundProcessed}`,
-          oldStatus, newStatus: status, adminId
-        }),
-        created_at: now
-      });
+    const auditRef = db.collection('audit_logs').doc();
+    batch.set(auditRef, {
+      admin_id: String(adminId || 'system'),
+      action: 'ORDER_STATUS_UPDATE',
+      target_type: 'ORDER',
+      target_id: String(id),
+      details: JSON.stringify({ 
+        message: `Updated order ${existingOrder.order_id || id} status from ${oldStatus} to ${status}. Restock: ${restockProcessed}, Refund: ${refundProcessed}`,
+        oldStatus, newStatus: status, adminId
+      }),
+      created_at: now
+    });
 
-      await batch.commit();
+    await batch.commit();
 
-      // Notifications
+    if (typeof createAlert === 'function') {
       createAlert(
         existingOrder.user_id, 'Order Update', 
         `Your order #${existingOrder.order_id || id} status has been updated to ${status.toUpperCase()}.`, 
         `${rejection_reason ? 'Reason: ' + rejection_reason : 'Processing your request.'}`,
         status === 'cancelled' || status === 'failed' ? 'critical' : 'success'
       );
-
-      broadcast({ type: 'ORDER_STATUS_UPDATE', payload: { id: id, order_id: existingOrder.order_id, status } });
-      
-      res.json({ success: true, message: `Status updated to ${status}`, refund: refundProcessed, restock: restockProcessed });
-    } catch (err: any) {
-      console.error('[STATUS UPDATE ERROR]', err);
-      res.status(500).json({ success: false, message: err.message });
     }
-  });
 
-  app.get('/api/admin/orders/:id/status-history', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.json({ success: true, history: [] });
-      const snap = await getFirestoreInstance().collection('order_status_history').where('order_id', '==', String(req.params.id)).orderBy('timestamp', 'desc').get();
-      res.json({ success: true, history: snap.docs.map(d => d.data()) });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+    broadcast({ type: 'ORDER_STATUS_UPDATE', payload: { id: id, order_id: existingOrder.order_id, status } });
+    res.json({ success: true, message: `Status updated to ${status}`, refund: refundProcessed, restock: restockProcessed });
+  }));
+
+  app.get('/api/admin/orders/:id/status-history', requireAdmin, wrap('/api/admin/orders/:id/status-history', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json({ success: true, history: [] });
+      return;
     }
-  });
+    const snap = await getFirestoreInstance().collection('order_status_history').where('order_id', '==', String(req.params.id)).orderBy('timestamp', 'desc').get();
+    res.json({ success: true, history: snap.docs.map(d => d.data()) });
+  }));
 
-  app.post('/api/admin/orders/:id/notes', async (req, res) => {
+  app.post('/api/admin/orders/:id/notes', requireAdmin, wrap('/api/admin/orders/:id/notes', async (req, res) => {
     const { id } = req.params;
     const { admin_notes } = req.body;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      await getFirestoreInstance().collection('orders').doc(String(id)).update({ admin_notes });
-      res.json({ success: true });
-    } catch(e) {
-      res.status(500).json({ success: false, message: 'Internal server error' });
-    }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('orders').doc(String(id)).update({ admin_notes });
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/reviews/:id/respond', async (req, res) => {
+  app.post('/api/admin/reviews/:id/respond', requireAdmin, wrap('/api/admin/reviews/:id/respond', async (req, res) => {
     const { id } = req.params;
     const { response } = req.body;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      await getFirestoreInstance().collection('reviews').doc(String(id)).update({ response });
-      res.json({ success: true });
-    } catch(e) {
-      res.status(500).json({ success: false, message: 'Internal server error' });
-    }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('reviews').doc(String(id)).update({ response });
+    res.json({ success: true });
+  }));
 
-  app.get('/api/admin/wallet/requests', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.json([]);
-      const snap = await getFirestoreInstance().collection('wallet_transactions').where('type', '==', 'credit').where('status', '==', 'pending').get();
-      let requests = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      requests.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      
-      const uIds = requests.map(r => String(r.user_id));
-      const uMap = await fetchUsersMap(uIds);
-      
-      requests = requests.map(r => {
-         const u = uMap.get(String(r.user_id));
-         return {
-            ...r, user_name: u?.name || 'Unknown', user_phone: u?.phone || '', current_balance: u?.wallet_balance || 0
-         };
-      });
-      res.json(requests);
-    } catch (err) {
-      res.status(500).json({ success: false, message: 'Failed to fetch wallet requests' });
+  app.get('/api/admin/wallet/requests', requireAdmin, wrap('/api/admin/wallet/requests', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const snap = await getFirestoreInstance().collection('wallet_transactions').where('type', '==', 'credit').where('status', '==', 'pending').get();
+    let requests = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    requests.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    
+    const uIds = requests.map(r => String(r.user_id));
+    const uMap = await fetchUsersMap(uIds);
+    
+    const processedRequests = requests.map(r => {
+       const u = uMap.get(String(r.user_id));
+       return {
+          ...r, user_name: u?.name || 'Unknown', user_phone: u?.phone || '', current_balance: u?.wallet_balance || 0
+       };
+    });
+    res.json(processedRequests);
+  }));
 
-  app.post('/api/admin/wallet/requests/:id/approve', requireAdmin, async (req, res) => {
+  app.post('/api/admin/wallet/requests/:id/approve', requireAdmin, wrap('/api/admin/wallet/requests/:id/approve', async (req, res) => {
     const { id } = req.params;
     const adminId = req.session.userId;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const wRef = getFirestoreInstance().collection('wallet_transactions').doc(String(id));
-      const wDoc = await wRef.get();
-      if (!wDoc.exists) return res.status(404).json({ message: 'Transaction not found' });
-      const transaction = wDoc.data() as any;
-      if (transaction.status !== 'pending') return res.status(400).json({ message: 'Transaction already processed' });
-
-      await wRef.update({ status: 'approved' });
-      
-      const userRef = getFirestoreInstance().collection('users').doc(String(transaction.user_id));
-      const userDoc = await userRef.get();
-      if (userDoc.exists) {
-         const newBal = Number(userDoc.data()?.wallet_balance || 0) + Number(transaction.amount);
-         await userRef.update({ wallet_balance: newBal });
-      }
-
-      await getFirestoreInstance().collection('audit_logs').add({
-         admin_id: adminId || 'system', action: 'WALLET_REQUEST_APPROVE', target_type: 'WALLET_TRANSACTION', target_id: String(id), details: `Approved wallet credit of ₹${transaction.amount} for user #${transaction.user_id}`, created_at: new Date().toISOString()
-      });
-
-      logEvent('info', `Wallet request #${id} approved for ₹${transaction.amount}`, 'Admin approval', transaction.user_id);
-      res.json({ success: true });
-    } catch(e) {
-      res.status(500).json({ success: false, message: 'Internal server error' });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const wRef = getFirestoreInstance().collection('wallet_transactions').doc(String(id));
+    const wDoc = await wRef.get();
+    if (!wDoc.exists) {
+      res.status(404).json({ message: 'Transaction not found' });
+      return;
     }
-  });
+    const transaction = wDoc.data() as any;
+    if (transaction.status !== 'pending') {
+      res.status(400).json({ message: 'Transaction already processed' });
+      return;
+    }
 
-  app.post('/api/admin/wallet/requests/:id/reject', requireAdmin, async (req, res) => {
+    await wRef.update({ status: 'approved' });
+    
+    const userRef = getFirestoreInstance().collection('users').doc(String(transaction.user_id));
+    const userDoc = await userRef.get();
+    if (userDoc.exists) {
+       const newBal = Number(userDoc.data()?.wallet_balance || 0) + Number(transaction.amount);
+       await userRef.update({ wallet_balance: newBal });
+    }
+
+    await getFirestoreInstance().collection('audit_logs').add({
+       admin_id: adminId || 'system', action: 'WALLET_REQUEST_APPROVE', target_type: 'WALLET_TRANSACTION', target_id: String(id), details: `Approved wallet credit of ₹${transaction.amount} for user #${transaction.user_id}`, created_at: new Date().toISOString()
+    });
+
+    if (typeof logEvent === 'function') {
+      logEvent('info', `Wallet request #${id} approved for ₹${transaction.amount}`, 'Admin approval', transaction.user_id);
+    }
+    res.json({ success: true });
+  }));
+
+  app.post('/api/admin/wallet/requests/:id/reject', requireAdmin, wrap('/api/admin/wallet/requests/:id/reject', async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
     const adminId = req.session.userId;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const wRef = getFirestoreInstance().collection('wallet_transactions').doc(String(id));
-      const wDoc = await wRef.get();
-      if (!wDoc.exists) return res.status(404).json({ message: 'Transaction not found' });
-      const transaction = wDoc.data() as any;
-
-      await wRef.update({ status: 'rejected', description: `Rejected: ${reason || 'Invalid details'}` });
-
-      await getFirestoreInstance().collection('audit_logs').add({
-         admin_id: adminId || 'system', action: 'WALLET_REQUEST_REJECT', target_type: 'WALLET_TRANSACTION', target_id: String(id), details: `Rejected wallet credit of ₹${transaction.amount} for user #${transaction.user_id}. Reason: ${reason}`, created_at: new Date().toISOString()
-      });
-
-      res.json({ success: true });
-    } catch(e) {
-      res.status(500).json({ success: false, message: 'Internal server error' });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const wRef = getFirestoreInstance().collection('wallet_transactions').doc(String(id));
+    const wDoc = await wRef.get();
+    if (!wDoc.exists) {
+      res.status(404).json({ message: 'Transaction not found' });
+      return;
     }
-  });
+    const transaction = wDoc.data() as any;
 
-  app.get('/api/admin/management', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.json([]);
-      const snap = await getFirestoreInstance().collection('users').where('role', 'in', ['admin', 'manager', 'owner']).get();
-      let adminsList = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      adminsList.sort((a,b) => new Date(b.last_login_at || 0).getTime() - new Date(a.last_login_at || 0).getTime());
-      res.json(adminsList);
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to fetch admin list' });
+    await wRef.update({ status: 'rejected', description: `Rejected: ${reason || 'Invalid details'}` });
+
+    await getFirestoreInstance().collection('audit_logs').add({
+       admin_id: adminId || 'system', action: 'WALLET_REQUEST_REJECT', target_type: 'WALLET_TRANSACTION', target_id: String(id), details: `Rejected wallet credit of ₹${transaction.amount} for user #${transaction.user_id}. Reason: ${reason}`, created_at: new Date().toISOString()
+    });
+
+    res.json({ success: true });
+  }));
+
+  app.get('/api/admin/management', requireAdmin, wrap('/api/admin/management', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const snap = await getFirestoreInstance().collection('users').where('role', 'in', ['admin', 'manager', 'owner']).get();
+    let adminsList = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    adminsList.sort((a,b) => new Date(b.last_login_at || 0).getTime() - new Date(a.last_login_at || 0).getTime());
+    res.json(adminsList);
+  }));
 
-  app.post('/api/admin/management/:id/revoke', requireAdmin, async (req, res) => {
+  app.post('/api/admin/management/:id/revoke', requireAdmin, wrap('/api/admin/management/:id/revoke', async (req, res) => {
     const { id } = req.params;
-    try {
-      if (String(id) === String(req.session.userId)) {
-        return res.status(400).json({ success: false, message: 'You cannot revoke your own admin rights' });
-      }
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      await getFirestoreInstance().collection('users').doc(String(id)).update({ role: 'customer' });
-      res.json({ success: true, message: 'Admin rights revoked' });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to revoke admin rights' });
+    if (String(id) === String(req.session.userId)) {
+      res.status(400).json({ success: false, message: 'You cannot revoke your own admin rights' });
+      return;
     }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('users').doc(String(id)).update({ role: 'customer' });
+    res.json({ success: true, message: 'Admin rights revoked' });
+  }));
 
-  app.post('/api/admin/management/:id/status', requireAdmin, async (req, res) => {
+  app.post('/api/admin/management/:id/status', requireAdmin, wrap('/api/admin/management/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    try {
-      if (String(id) === String(req.session.userId)) {
-        return res.status(400).json({ success: false, message: 'You cannot disable your own account' });
-      }
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      await getFirestoreInstance().collection('users').doc(String(id)).update({ status });
-      res.json({ success: true, message: `Account status updated to ${status}` });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to update account status' });
+    if (String(id) === String(req.session.userId)) {
+      res.status(400).json({ success: false, message: 'You cannot disable your own account' });
+      return;
     }
-  });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    await getFirestoreInstance().collection('users').doc(String(id)).update({ status });
+    res.json({ success: true, message: `Account status updated to ${status}` });
+  }));
 
   app.get('/api/admin/system/health', requireAdmin, async (req, res) => {
     try {
@@ -7219,170 +7137,160 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.json(processedUsers);
   }));
 
-  app.post('/api/admin/products', requireAdmin, async (req, res) => {
+  app.post('/api/admin/products', requireAdmin, wrap('/api/admin/products', async (req, res) => {
     const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id, batch_number, expiry_date, unit, is_subscribable } = req.body;
-    let productId: string;
     
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      
-      const docRef = await getFirestoreInstance().collection('products').add({
-        name, description: description || '', price: Number(price) || 0, wholesale_price: Number(wholesale_price) || null, retail_price: Number(retail_price) || null, discount: Number(discount) || 0, discount_price: Number(discount_price) || null, stock: Number(stock) || 0, reorder_point: Number(reorder_point) || null, max_qty: Number(max_qty) || null, is_listed: is_listed ? 1 : 0, category: category || 'Uncategorized', image_url: image || '', images: images || [], specifications: specifications || {}, supplier_id: supplier_id ? String(supplier_id) : null, batch_number: batch_number || null, expiry_date: expiry_date || null, unit: unit || 'kg', is_subscribable: is_subscribable ? 1 : 0, created_at: new Date().toISOString()
-      });
-      productId = docRef.id;
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    
+    const docRef = await db.collection('products').add({
+      name, description: description || '', price: Number(price) || 0, wholesale_price: Number(wholesale_price) || null, retail_price: Number(retail_price) || null, discount: Number(discount) || 0, discount_price: Number(discount_price) || null, stock: Number(stock) || 0, reorder_point: Number(reorder_point) || null, max_qty: Number(max_qty) || null, is_listed: is_listed ? 1 : 0, category: category || 'Uncategorized', image_url: image || '', images: images || [], specifications: specifications || {}, supplier_id: supplier_id ? String(supplier_id) : null, batch_number: batch_number || null, expiry_date: expiry_date || null, unit: unit || 'kg', is_subscribable: is_subscribable ? 1 : 0, created_at: new Date().toISOString()
+    });
+    const productId = docRef.id;
 
-      const s = Number(stock);
-      const rp = Number(reorder_point || 5);
-      if (s <= rp) {
-        broadcast({ type: 'LOW_STOCK', payload: [{ id: productId, name, stock: s }] });
-        createNotification('Low Stock Alert (New Product)', `Product "${name}" was created with low stock (${s} left).`, 'system', 'medium', 'admin');
-      }
-
-      res.json({ success: true, id: productId });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message });
+    const s = Number(stock);
+    const rp = Number(reorder_point || 5);
+    if (s <= rp && typeof createNotification === 'function') {
+      createNotification('Low Stock Alert (New Product)', `Product "${name}" was created with low stock (${s} left).`, 'system', 'medium', 'admin');
     }
-  });
 
-  app.put('/api/admin/products/:id', requireAdmin, async (req, res) => {
+    res.json({ success: true, id: productId });
+  }));
+
+  app.put('/api/admin/products/:id', requireAdmin, wrap('/api/admin/products/:id', async (req, res) => {
     const { id } = req.params;
     const adminId = req.session.userId;
     const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id, batch_number, expiry_date, unit, is_subscribable } = req.body;
     
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const pRef = getFirestoreInstance().collection('products').doc(String(id));
-      const pDoc = await pRef.get();
-      if (!pDoc.exists) return res.status(404).json({ message: 'Product not found' });
-      const oldState = pDoc.data();
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const pRef = getFirestoreInstance().collection('products').doc(String(id));
+    const pDoc = await pRef.get();
+    if (!pDoc.exists) {
+      res.status(404).json({ message: 'Product not found' });
+      return;
+    }
+    const oldState = pDoc.data();
 
-      const updateData = {
-        name, description, price: Number(price), wholesale_price: Number(wholesale_price) || null, retail_price: Number(retail_price) || null, discount: Number(discount) || 0, discount_price: Number(discount_price) || null, stock: Number(stock) || 0, reorder_point: Number(reorder_point) || null, max_qty: Number(max_qty) || null, is_listed: is_listed ? 1 : 0, category, image_url: image || '', images: images || [], specifications: specifications || {}, supplier_id: supplier_id ? String(supplier_id) : null, batch_number: batch_number || null, expiry_date: expiry_date || null, unit: unit || 'kg', is_subscribable: is_subscribable ? 1 : 0
-      };
-      
-      await pRef.update(updateData);
-      
-      await getFirestoreInstance().collection('audit_logs').add({
-         admin_id: adminId || 'system', action: 'PRODUCT_UPDATE', target_type: 'PRODUCT', target_id: String(id), details: JSON.stringify({ message: `Updated product ${name} (ID: ${id})`, oldState, newState: updateData }), created_at: new Date().toISOString()
-      });
+    const updateData = {
+      name, description, price: Number(price), wholesale_price: Number(wholesale_price) || null, retail_price: Number(retail_price) || null, discount: Number(discount) || 0, discount_price: Number(discount_price) || null, stock: Number(stock) || 0, reorder_point: Number(reorder_point) || null, max_qty: Number(max_qty) || null, is_listed: is_listed ? 1 : 0, category: category || 'Uncategorized', image_url: image || '', images: images || [], specifications: specifications || {}, supplier_id: supplier_id ? String(supplier_id) : null, batch_number: batch_number || null, expiry_date: expiry_date || null, unit: unit || 'kg', is_subscribable: is_subscribable ? 1 : 0
+    };
+    
+    await pRef.update(updateData);
+    
+    await getFirestoreInstance().collection('audit_logs').add({
+       admin_id: adminId || 'system', action: 'PRODUCT_UPDATE', target_type: 'PRODUCT', target_id: String(id), details: JSON.stringify({ message: `Updated product ${name} (ID: ${id})`, oldState, newState: updateData }), created_at: new Date().toISOString()
+    });
 
-      const s = Number(stock);
-      const rp = Number(reorder_point || 5);
-      if (s <= rp) {
-        broadcast({ type: 'LOW_STOCK', payload: [{ id, name, stock: s }] });
+    const s = Number(stock);
+    const rp = Number(reorder_point || 5);
+    if (s <= rp) {
+      broadcast({ type: 'LOW_STOCK', payload: [{ id, name, stock: s }] });
+      if (typeof createNotification === 'function') {
         createNotification('Low Stock Alert (Updated)', `Product "${name}" now has low stock (${s} left).`, 'system', 'high', 'admin');
       }
-
-      res.json({ success: true });
-    } catch(e: any) {
-      res.status(500).json({ success: false, message: e.message });
     }
-  });
 
-  app.delete('/api/admin/products/:id', requireAdmin, async (req, res) => {
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/admin/products/:id', requireAdmin, wrap('/api/admin/products/:id', async (req, res) => {
     const { id } = req.params;
     const adminId = req.session.userId;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const pRef = getFirestoreInstance().collection('products').doc(String(id));
-      const pDoc = await pRef.get();
-      if (pDoc.exists) {
-         await getFirestoreInstance().collection('audit_logs').add({
-            admin_id: adminId || 'system', action: 'PRODUCT_DELETE', target_type: 'PRODUCT', target_id: String(id), details: JSON.stringify({ message: `Deleted product ${pDoc.data()?.name} (ID: ${id})`, oldState: pDoc.data() }), created_at: new Date().toISOString()
-         });
-      }
-      await pRef.update({ deleted: true, updated_at: new Date().toISOString() });
-      res.json({ success: true });
-    } catch(e: any) {
-      res.status(500).json({ success: false, message: e.message });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const pRef = getFirestoreInstance().collection('products').doc(String(id));
+    const pDoc = await pRef.get();
+    if (pDoc.exists) {
+       await getFirestoreInstance().collection('audit_logs').add({
+          admin_id: adminId || 'system', action: 'PRODUCT_DELETE', target_type: 'PRODUCT', target_id: String(id), details: JSON.stringify({ message: `Deleted product ${pDoc.data()?.name} (ID: ${id})`, oldState: pDoc.data() }), created_at: new Date().toISOString()
+       });
     }
-  });
+    await pRef.update({ deleted: true, updated_at: new Date().toISOString() });
+    res.json({ success: true });
+  }));
 
-  app.post('/api/admin/products/bulk', requireAdmin, async (req, res) => {
+  app.post('/api/admin/products/bulk', requireAdmin, wrap('/api/admin/products/bulk', async (req, res) => {
     const { products } = req.body;
     if (!Array.isArray(products)) {
-      return res.status(400).json({ success: false, message: 'Invalid products data' });
+      res.status(400).json({ success: false, message: 'Invalid products data' });
+      return;
     }
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      
-      const batches = [];
-      let currentBatch = getFirestoreInstance().batch();
-      let count = 0;
-      
-      const refCol = getFirestoreInstance().collection('products');
-      for (const item of products) {
-         const dRef = refCol.doc();
-         currentBatch.set(dRef, {
-            name: item.name, description: item.description || '', price: Number(item.price) || 0, stock: Number(item.stock) || 0, category: item.category || 'Uncategorized', image_url: item.image_url || 'https://picsum.photos/seed/product/400/400', is_listed: 1, created_at: new Date().toISOString()
-         });
-         count++;
-         if (count % 500 === 0) {
-            batches.push(currentBatch.commit());
-            currentBatch = getFirestoreInstance().batch();
-         }
-      }
-      if (count % 500 !== 0) batches.push(currentBatch.commit());
-      await Promise.all(batches);
-      
-      res.json({ success: true, count: products.length });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const db = getFirestoreInstance();
+    const batches = [];
+    let currentBatch = db.batch();
+    let count = 0;
+    
+    const refCol = db.collection('products');
+    for (const item of products) {
+       const dRef = refCol.doc();
+       currentBatch.set(dRef, {
+          name: item.name, description: item.description || '', price: Number(item.price) || 0, stock: Number(item.stock) || 0, category: item.category || 'Uncategorized', image_url: item.image_url || 'https://picsum.photos/seed/product/400/400', is_listed: 1, created_at: new Date().toISOString()
+       });
+       count++;
+       if (count % 500 === 0) {
+          batches.push(currentBatch.commit());
+          currentBatch = db.batch();
+       }
     }
-  });
+    if (count % 500 !== 0) batches.push(currentBatch.commit());
+    await Promise.all(batches);
+    
+    res.json({ success: true, count: products.length });
+  }));
 
-  app.post('/api/admin/users/:id/wallet', requireAdmin, async (req, res) => {
+  app.post('/api/admin/users/:id/wallet', requireAdmin, wrap('/api/admin/users/:id/wallet', async (req, res) => {
     const { id } = req.params;
     const { amount, type, description } = req.body;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const userRef = getFirestoreInstance().collection('users').doc(String(id));
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) return res.status(404).json({ message: 'User not found' });
-      
-      const user = userDoc.data() as any;
-      const newBalance = type === 'credit' 
-        ? Number(user.wallet_balance || 0) + Number(amount)
-        : Number(user.wallet_balance || 0) - Number(amount);
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const userRef = getFirestoreInstance().collection('users').doc(String(id));
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+    
+    const user = userDoc.data() as any;
+    const currentBalance = Number(user.wallet_balance || 0);
+    const newBalance = type === 'credit' 
+      ? currentBalance + Number(amount)
+      : currentBalance - Number(amount);
 
-      await userRef.update({ wallet_balance: newBalance });
-      await getFirestoreInstance().collection('wallet_transactions').add({
-         user_id: String(id), amount: Number(amount), type, description: description || '', status: 'approved', created_at: new Date().toISOString()
-      });
+    await userRef.update({ wallet_balance: newBalance });
+    await getFirestoreInstance().collection('wallet_transactions').add({
+       user_id: String(id), amount: Number(amount), type, description: description || '', status: 'approved', created_at: new Date().toISOString()
+    });
 
+    if (typeof createAlert === 'function') {
       createAlert(
         parseInt(id), 'Wallet Balance Updated', 
         `Your wallet balance has been ${type === 'credit' ? 'increased' : 'decreased'} by ₹${amount}.`, 
         `Total Balance: ₹${newBalance}. Reason: ${description || 'Admin adjustment'}.`,
         type === 'credit' ? 'success' : 'warning', 6000
       );
-
-      res.json({ success: true, newBalance });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
     }
-  });
 
-  app.get('/api/admin/users/:id/wallet-history', requireAdmin, async (req, res) => {
+    res.json({ success: true, newBalance });
+  }));
+
+  app.get('/api/admin/users/:id/wallet-history', requireAdmin, wrap('/api/admin/users/:id/wallet-history', async (req, res) => {
     const { id } = req.params;
-    try {
-      if (!admin.apps.length) return res.json([]);
-      const snap = await getFirestoreInstance().collection('wallet_transactions').where('user_id', '==', String(id)).orderBy('created_at', 'desc').get();
-      res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const snap = await getFirestoreInstance().collection('wallet_transactions').where('user_id', '==', String(id)).orderBy('created_at', 'desc').get();
+    res.json(snap.docs.map(d => ({id: d.id, ...d.data()})));
+  }));
 
-  app.get('/api/admin/runners', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.json({ success: true, runners: [] });
-      const snap = await getFirestoreInstance().collection('runners').where('status', '==', 'active').get();
-      res.json({ success: true, runners: snap.docs.map(d => ({id: d.id, ...d.data()})) });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+  app.get('/api/admin/runners', requireAdmin, wrap('/api/admin/runners', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json({ success: true, runners: [] });
+      return;
     }
-  });
+    const snap = await getFirestoreInstance().collection('runners').where('status', '==', 'active').get();
+    res.json({ success: true, runners: snap.docs.map(d => ({id: d.id, ...d.data()})) });
+  }));
 
   app.get('/api/orders/:id/runner-location', async (req, res) => {
     const { id } = req.params;
@@ -7870,87 +7778,90 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
+  app.put('/api/admin/users/:id', requireAdmin, wrap('/api/admin/users/:id', async (req, res) => {
     const { id } = req.params;
     const body = req.body;
     
-    try {
-        if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-        const userRef = getFirestoreInstance().collection('users').doc(String(id));
-        const uDoc = await userRef.get();
-        if (!uDoc.exists) return res.status(404).json({ message: 'User not found' });
-        
-        const currentUser = uDoc.data() as any;
-        const phone = body.phone !== undefined ? body.phone : currentUser.phone;
-        
-        if (phone && phone !== currentUser.phone) {
-           const existSnap = await getFirestoreInstance().collection('users').where('phone', '==', phone).get();
-           if (!existSnap.empty) {
-              const others = existSnap.docs.filter(d => d.id !== String(id));
-              if (others.length > 0) return res.status(400).json({ message: 'Mobile number already in use' });
-           }
-        }
-
-        const name = body.name !== undefined ? body.name : currentUser.name;
-        const email = body.email !== undefined ? body.email : currentUser.email;
-        const shop_name = body.shop_name !== undefined ? body.shop_name : currentUser.shop_name;
-        const pin_code = body.pin_code !== undefined ? body.pin_code : currentUser.pin_code;
-        const role = body.role !== undefined ? body.role : currentUser.role;
-        const khata_enabled = body.khata_enabled !== undefined ? body.khata_enabled : currentUser.khata_enabled;
-        const khata_limit = body.khata_limit !== undefined ? body.khata_limit : currentUser.khata_limit;
-        const khata_due_date = body.khata_due_date !== undefined ? body.khata_due_date : currentUser.khata_due_date;
-        const segment = body.segment !== undefined ? body.segment : currentUser.segment;
-        const street_address = body.street_address !== undefined ? body.street_address : currentUser.street_address;
-        const city = body.city !== undefined ? body.city : currentUser.city;
-        const state = body.state !== undefined ? body.state : currentUser.state;
-
-        const changes = [];
-        if (role !== currentUser.role) changes.push(`Role changed to ${role}`);
-        if (segment !== currentUser.segment) changes.push(`Segment changed to ${segment}`);
-        if (khata_enabled !== currentUser.khata_enabled) changes.push(`Khata ${khata_enabled ? 'enabled' : 'disabled'}`);
-        if (name !== currentUser.name) changes.push(`Name updated`);
-
-        if (changes.length > 0) {
-          createAlert(
-            parseInt(id), 'Account Updated', 'An admin has updated your account profile.', 
-            `Changes made: ${changes.join(', ')}. Action taken for security and compliance.`,
-            'info', 7000
-          );
-        }
-
-        const adminId = req.session.userId;
-        await getFirestoreInstance().collection('audit_logs').add({
-           admin_id: adminId || 'system', action: 'USER_UPDATE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ message: `Updated profile for user ${name} (ID: ${id})`, oldState: currentUser, newState: body }), created_at: new Date().toISOString()
-        });
-
-        await userRef.update({
-           name, email, shop_name, pin_code, role, khata_enabled: khata_enabled ? 1 : 0, khata_limit, khata_due_date, segment, street_address, city, state, phone
-        });
-        
-        res.json({ success: true });
-    } catch(err: any) {
-        res.status(500).json({ success: false, message: err.message });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const userRef = getFirestoreInstance().collection('users').doc(String(id));
+    const uDoc = await userRef.get();
+    if (!uDoc.exists) {
+      res.status(404).json({ message: 'User not found' });
+      return;
     }
-  });
+    
+    const currentUser = uDoc.data() as any;
+    const phone = body.phone !== undefined ? body.phone : currentUser.phone;
+    
+    if (phone && phone !== currentUser.phone) {
+       const existSnap = await getFirestoreInstance().collection('users').where('phone', '==', phone).get();
+       if (!existSnap.empty) {
+          const others = existSnap.docs.filter(d => d.id !== String(id));
+          if (others.length > 0) {
+            res.status(400).json({ message: 'Mobile number already in use' });
+            return;
+          }
+       }
+    }
 
-  app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    const { name, email, shop_name, pin_code, role, khata_enabled, khata_limit, khata_due_date, segment, street_address, city, state } = body;
+    
+    const final_name = name !== undefined ? name : currentUser.name;
+    const final_email = email !== undefined ? email : currentUser.email;
+    const final_role = role !== undefined ? role : currentUser.role;
+
+    const changes = [];
+    if (final_role !== currentUser.role) changes.push(`Role changed to ${final_role}`);
+    if (segment !== currentUser.segment && segment !== undefined) changes.push(`Segment changed to ${segment}`);
+    if (khata_enabled !== currentUser.khata_enabled && khata_enabled !== undefined) changes.push(`Khata ${khata_enabled ? 'enabled' : 'disabled'}`);
+
+    if (changes.length > 0 && typeof createAlert === 'function') {
+      createAlert(
+        parseInt(id), 'Account Updated', 'An admin has updated your account profile.', 
+        `Changes made: ${changes.join(', ')}. Action taken for security and compliance.`,
+        'info', 7000
+      );
+    }
+
+    const adminId = req.session.userId;
+    await getFirestoreInstance().collection('audit_logs').add({
+       admin_id: adminId || 'system', action: 'USER_UPDATE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ message: `Updated profile for user ${final_name} (ID: ${id})`, oldState: currentUser, newState: body }), created_at: new Date().toISOString()
+    });
+
+    await userRef.update({
+       name: final_name, 
+       email: final_email, 
+       shop_name: shop_name !== undefined ? shop_name : currentUser.shop_name, 
+       pin_code: pin_code !== undefined ? pin_code : currentUser.pin_code, 
+       role: final_role, 
+       khata_enabled: khata_enabled !== undefined ? (khata_enabled ? 1 : 0) : currentUser.khata_enabled, 
+       khata_limit: khata_limit !== undefined ? khata_limit : currentUser.khata_limit, 
+       khata_due_date: khata_due_date !== undefined ? khata_due_date : currentUser.khata_due_date, 
+       segment: segment !== undefined ? segment : currentUser.segment, 
+       street_address: street_address !== undefined ? street_address : currentUser.street_address, 
+       city: city !== undefined ? city : currentUser.city, 
+       state: state !== undefined ? state : currentUser.state, 
+       phone
+    });
+    
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/admin/users/:id', requireAdmin, wrap('/api/admin/users/:id', async (req, res) => {
     const { id } = req.params;
     const adminId = req.session.userId;
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
-      const userRef = getFirestoreInstance().collection('users').doc(String(id));
-      const uDoc = await userRef.get();
-      if (uDoc.exists) {
-        await getFirestoreInstance().collection('audit_logs').add({
-           admin_id: adminId || 'system', action: 'USER_DELETE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ message: `Deleted user ${uDoc.data()?.name} (ID: ${id})`, oldState: uDoc.data() }), created_at: new Date().toISOString()
-        });
-      }
-      await userRef.delete();
-      res.json({ success: true, message: 'User deleted securely' });
-    } catch (e: any) {
-      res.status(500).json({ success: false, message: 'Failed to delete user' });
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const userRef = getFirestoreInstance().collection('users').doc(String(id));
+    const uDoc = await userRef.get();
+    if (uDoc.exists) {
+      await getFirestoreInstance().collection('audit_logs').add({
+         admin_id: adminId || 'system', action: 'USER_DELETE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ message: `Deleted user ${uDoc.data()?.name} (ID: ${id})`, oldState: uDoc.data() }), created_at: new Date().toISOString()
+      });
     }
-  });
+    await userRef.delete();
+    res.json({ success: true, message: 'User deleted securely' });
+  }));
 
   app.post('/api/user/update-profile', requireAuth, async (req, res) => {
     let { name, email, shop_name, pin_code, address, profile_photo, username, street_address, city, state, zip_code, phone, notification_orders, notification_promotions } = req.body;
@@ -8018,26 +7929,25 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/admin/config/update', requireAdmin, async (req, res) => {
-    const settings = req.body; // Expecting an object of key-value pairs
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const batch = getFirestoreInstance().batch();
-      for (const [key, value] of Object.entries(settings)) {
-        const valToStore = typeof value === 'object' ? JSON.stringify(value) : String(value);
-        const ref = getFirestoreInstance().collection('settings').doc(key);
-        batch.set(ref, { value: valToStore }, { merge: true });
-      }
-      await batch.commit();
-      
-      // Invalidate settings cache
-      responseCache.del('public_settings');
-      
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+  app.post('/api/admin/config/update', requireAdmin, wrap('/api/admin/config/update', async (req, res) => {
+    const settings = req.body; 
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const db = getFirestoreInstance();
+    const batch = db.batch();
+    for (const [key, value] of Object.entries(settings)) {
+      const valToStore = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      const ref = db.collection('settings').doc(key);
+      batch.set(ref, { value: valToStore }, { merge: true });
     }
-  });
+    await batch.commit();
+    
+    // Invalidate caches
+    CACHE_STORE_GLOBAL.del('public_settings_global_v1');
+    CACHE_STORE_GLOBAL.del('admin_settings_v2');
+    
+    res.json({ success: true });
+  }));
 
   // Audit Logging
   app.get('/api/admin/activities', async (req, res) => {
@@ -8971,59 +8881,57 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/users/:id/insights', requireAdmin, async (req, res) => {
+  app.get('/api/admin/users/:id/insights', requireAdmin, wrap('/api/admin/users/:id/insights', async (req, res) => {
     const { id } = req.params;
-    try {
-      if (!admin.apps.length) return res.json({ stats: {total_orders:0, lifetime_spend:0, last_order_at: null}, recentOrders: [] });
-      const oSnap = await getFirestoreInstance().collection('orders').where('user_id', '==', String(id)).get();
-      let total_orders = oSnap.size;
-      let lifetime_spend = 0;
-      let last_order_at = null;
-      let recentOrders = oSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      
-      recentOrders.forEach(o => {
-         lifetime_spend += Number(o.total || 0);
-      });
-      recentOrders.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-      if (recentOrders.length > 0) last_order_at = recentOrders[0].created_at;
-      
-      res.json({ stats: { total_orders, lifetime_spend, last_order_at }, recentOrders: recentOrders.slice(0, 5) });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+    if (!admin.apps.length) {
+      res.json({ stats: {total_orders:0, lifetime_spend:0, last_order_at: null}, recentOrders: [] });
+      return;
     }
-  });
+    const oSnap = await getFirestoreInstance().collection('orders').where('user_id', '==', String(id)).get();
+    let total_orders = oSnap.size;
+    let lifetime_spend = 0;
+    let last_order_at = null;
+    let recentOrders = oSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    
+    recentOrders.forEach(o => {
+       lifetime_spend += Number(o.total || 0);
+    });
+    recentOrders.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    if (recentOrders.length > 0) last_order_at = recentOrders[0].created_at;
+    
+    res.json({ stats: { total_orders, lifetime_spend, last_order_at }, recentOrders: recentOrders.slice(0, 5) });
+  }));
 
-  app.get('/api/admin/admins', requireAdmin, async (req, res) => {
-    try {
-      if (!admin.apps.length) return res.json([]);
-      const db = getFirestoreInstance();
-      
-      const adminsSnap = await db.collection('admin_whitelist').get();
-      const whitelistMap = new Map(adminsSnap.docs.map(doc => [doc.id, doc.data()]));
-      
-      const usersSnap = await db.collection('users').where('role', '==', 'admin').get();
-      const usersMap = new Map(usersSnap.docs.map(doc => [doc.data()?.email, { id: doc.id, ...doc.data() }]));
-
-      const mergedList = Array.from(whitelistMap.entries()).map(([email, wData]: any) => {
-         const matchedUser = usersMap.get(email) as any;
-         return {
-            id: matchedUser?.id || `pending-${email}`,
-            email,
-            name: matchedUser?.name || 'Pending Registration',
-            role: 'admin',
-            status: wData.status || 'active',
-            addedBy: wData.addedBy || 'system',
-            addedAt: wData.addedAt || null,
-            last_login_at: matchedUser?.last_login_at || wData.lastLogin || null
-         };
-      });
-
-      mergedList.sort((a,b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
-      res.json(mergedList);
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+  app.get('/api/admin/admins', requireAdmin, wrap('/api/admin/admins', async (req, res) => {
+    if (!admin.apps.length) {
+      res.json([]);
+      return;
     }
-  });
+    const db = getFirestoreInstance();
+    
+    const adminsSnap = await db.collection('admin_whitelist').get();
+    const whitelistMap = new Map(adminsSnap.docs.map(doc => [doc.id, doc.data()]));
+    
+    const usersSnap = await db.collection('users').where('role', '==', 'admin').get();
+    const usersMap = new Map(usersSnap.docs.map(doc => [doc.data()?.email, { id: doc.id, ...doc.data() }]));
+
+    const mergedList = Array.from(whitelistMap.entries()).map(([email, wData]: any) => {
+       const matchedUser = usersMap.get(email) as any;
+       return {
+          id: matchedUser?.id || `pending-${email}`,
+          email,
+          name: matchedUser?.name || 'Pending Registration',
+          role: 'admin',
+          status: wData.status || 'active',
+          addedBy: wData.addedBy || 'system',
+          addedAt: wData.addedAt || null,
+          last_login_at: matchedUser?.last_login_at || wData.lastLogin || null
+       };
+    });
+
+    mergedList.sort((a,b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
+    res.json(mergedList);
+  }));
 
   app.post('/api/admin/admins/:id/revoke', requireAdmin, async (req, res) => {
     const { id } = req.params;

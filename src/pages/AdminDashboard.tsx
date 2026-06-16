@@ -35,6 +35,8 @@ import { logger } from '@/lib/logger';
 import { StatSkeleton, TableRowSkeleton, OrderSkeleton } from '@/components/ui/Skeleton';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import { useAdminStats, useAdminOrders, useAdminProducts, useAdminUsers, useAdminLogs, useAdminReturns, useAdminSuppliers, useAdminSuspicious, useAdminWalletRequests } from '@/hooks/useAdminData';
+import { mutate } from 'swr';
 import FeatureToggles from '@/components/admin/FeatureToggles';
 import ProductImageManager from '@/components/admin/ProductImageManager';
 import { OrderStatusBadge } from '@/components/admin/OrderStatusBadge';
@@ -127,11 +129,31 @@ export default function AdminDashboard() {
     fetchPromotions: refetchGlobalPromotions,
     fetchConfig: refetchGlobalConfig
   } = useStore();
+
+  const { data: stats, mutate: mutateStats } = useAdminStats();
+  const { data: swrOrders, mutate: mutateOrders } = useAdminOrders();
+  const { data: swrProducts, mutate: mutateProducts } = useAdminProducts();
+  const { data: swrUsers, mutate: mutateUsers } = useAdminUsers();
+  const { data: swrSuspicious, mutate: mutateSuspicious } = useAdminSuspicious();
+  const { data: swrWalletRequests, mutate: mutateWalletRequests } = useAdminWalletRequests();
+  const { data: systemLogs, mutate: mutateLogs } = useAdminLogs();
+  const { data: swrReturns, mutate: mutateReturns } = useAdminReturns();
+  const { data: swrSuppliers, mutate: mutateSuppliers } = useAdminSuppliers();
+
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTabState] = useState<Tab>('Overview');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // --- Global SWR Sync Effects ---
+  useEffect(() => { if (swrOrders) setOrders(swrOrders); }, [swrOrders]);
+  useEffect(() => { if (swrProducts) setAllProducts(swrProducts); }, [swrProducts]);
+  useEffect(() => { if (swrUsers) setUsers(swrUsers); }, [swrUsers]);
+  useEffect(() => { if (swrReturns) setReturns(swrReturns); }, [swrReturns]);
+  useEffect(() => { if (swrSuppliers) setSuppliers(swrSuppliers); }, [swrSuppliers]);
+  useEffect(() => { if (swrSuspicious) setSuspiciousActivities(swrSuspicious); }, [swrSuspicious]);
+  useEffect(() => { if (swrWalletRequests) setWalletRequests(swrWalletRequests); }, [swrWalletRequests]);
 
   // Unified Tab Management - Handler that syncs with URL and scrolls to top
   const setActiveTab = useCallback((newTab: Tab) => {
@@ -452,7 +474,7 @@ export default function AdminDashboard() {
     is_subscribable: false,
     supplier_id: ''
   });
-  const [stats, setStats] = useState<any>(null);
+  
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [config, setConfig] = useState<any[]>([]);
@@ -490,6 +512,7 @@ export default function AdminDashboard() {
   const [categoryBatchModal, setCategoryBatchModal] = useState({ open: false });
   const [activeActionMenuId, setActiveActionMenuId] = useState<number | string | null>(null);
   const [newUserCount, setNewUserCount] = useState(0);
+  const [isAutoRefresh, setIsAutoRefresh] = useState(true);
 
   const activeTabRef = useRef(activeTab);
   useEffect(() => {
@@ -516,7 +539,7 @@ export default function AdminDashboard() {
     // Centralized interval (Reduced frequency: every 60s for health, 2m for stats)
     // Only happens if the document is visible to save battery and network
     const pollingInterval = setInterval(() => {
-      if (!mounted || !navigator.onLine || document.hidden) return;
+      if (!mounted || !navigator.onLine || document.hidden || !isAutoRefresh) return;
       
       // Health check runs every 60s
       checkHealth();
@@ -533,7 +556,7 @@ export default function AdminDashboard() {
       mounted = false;
       clearInterval(pollingInterval);
     };
-  }, [user]); // Only dependent on user. activeTab handled by activeTabRef
+  }, [user, isAutoRefresh]); // Only dependent on user and auto-refresh toggle. activeTab handled by activeTabRef
 
   useEffect(() => {
     setLoading(true);
@@ -1004,20 +1027,7 @@ export default function AdminDashboard() {
 
   const fetchStats = async (silent = false) => {
     if (!navigator.onLine) return;
-    if (isFetchingStats.current) return;
-    
-    if (!silent) setLoading(true);
-    isFetchingStats.current = true;
-    
-    try {
-      const data = await adminService.getStats(getAuthHeaders());
-      if (data) setStats(data);
-    } catch (err: any) {
-      logger.error('Stats fetch error:', err);
-    } finally {
-      isFetchingStats.current = false;
-      if (!silent) setLoading(false);
-    }
+    return await mutateStats();
   };
 
   const checkHealth = async () => {
@@ -1058,24 +1068,13 @@ export default function AdminDashboard() {
       setOrders(data);
     }, (err) => {
       logger.warn(`Firestore Orders subscription fell back safely to REST API due to: ${err.message}`);
-      adminService.getOrders(getAuthHeaders())
-        .then(data => { if (data) setOrders(data); })
-        .catch(fetchErr => logger.error('REST backup orders fetch failed:', fetchErr));
+      mutateOrders();
     });
   };
 
   const fetchReturns = async () => {
-    try {
-        adminService.invalidateCache('returns');
-        adminService.invalidateCache('orders');
-        adminService.invalidateCache('stats');
-        const data = await fetchWithHandling<any[]>('/api/admin/returns', { headers: getAuthHeaders() });
-        if (data) {
-          setReturns(data);
-        }
-    } catch (err: any) {
-        handleAppError(err, 'Failed to fetch returns', 'fetchReturns');
-    }
+    if (!navigator.onLine) return;
+    return await mutateReturns();
   };
 
   const fetchProducts = () => {
@@ -1087,16 +1086,7 @@ export default function AdminDashboard() {
       setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
     }, (err) => {
       logger.warn(`Firestore Products subscription fell back safely to REST API due to: ${err.message}`);
-      adminService.getProducts(getAuthHeaders())
-        .then(data => {
-          if (data) {
-            setAllProducts(data);
-            setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-          }
-        })
-        .catch(fetchErr => {
-          logger.error('REST backup products fetch failed:', fetchErr);
-        });
+      mutateProducts();
     });
   };
 
@@ -1161,7 +1151,6 @@ export default function AdminDashboard() {
   const [newRole, setNewRole] = useState({ name: '', permissions: [] as string[] });
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [suspiciousActivities, setSuspiciousActivities] = useState<any[]>([]);
-  const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [errorLogs, setErrorLogs] = useState<any[]>([]);
   const [systemHealth, setSystemHealth] = useState<any>(null);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
@@ -1383,14 +1372,7 @@ export default function AdminDashboard() {
 
   const fetchSuspiciousActivities = async () => {
     if (!navigator.onLine) return;
-    try {
-      const data = await adminService.getSuspiciousActivities(getAuthHeaders());
-      if (data) {
-        setSuspiciousActivities(data);
-      }
-    } catch (err) {
-      logger.error('Failed to fetch suspicious activities:', err);
-    }
+    return await mutateSuspicious();
   };
 
   const handleResolveSuspicious = async (id: number) => {
@@ -1455,15 +1437,7 @@ export default function AdminDashboard() {
 
   const fetchWalletRequests = async () => {
     if (!navigator.onLine) return;
-    try {
-      adminService.invalidateCache('wallet_requests');
-      const data = await adminService.getWalletRequests(getAuthHeaders());
-      if (data) {
-        setWalletRequests(data);
-      }
-    } catch (err) {
-      logger.error('Failed to fetch wallet requests:', err);
-    }
+    return await mutateWalletRequests();
   };
 
   useEffect(() => {
@@ -1621,15 +1595,7 @@ export default function AdminDashboard() {
 
   const fetchSuppliers = async () => {
     if (!navigator.onLine) return;
-    try {
-      adminService.invalidateCache('suppliers');
-      const data = await adminService.getSuppliers(getAuthHeaders());
-      if (data) {
-        setSuppliers(data);
-      }
-    } catch (err) {
-      logger.error('Failed to fetch suppliers:', err);
-    }
+    return await mutateSuppliers();
   };
 
   useEffect(() => {
@@ -1940,16 +1906,8 @@ export default function AdminDashboard() {
 
   const fetchSystemLogs = async () => {
     setIsRefreshingLogs(true);
-    try {
-      const data = await fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() });
-      if (data) {
-        setSystemLogs(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch system logs:', err);
-    } finally {
-      setIsRefreshingLogs(false);
-    }
+    await mutateLogs();
+    setIsRefreshingLogs(false);
   };
 
   const fetchSystemHealth = async () => {
@@ -2088,13 +2046,7 @@ export default function AdminDashboard() {
       setUsers(usersData);
     }, (err) => {
       console.warn('Firestore Users subscription fell back safely to REST API due to:', err.message);
-      adminService.getUsers(getAuthHeaders())
-        .then(data => {
-          if (data) setUsers(data);
-        })
-        .catch(fetchErr => {
-          console.error('REST backup users fetch failed:', fetchErr);
-        });
+      mutateUsers();
     });
   };
 
@@ -2110,17 +2062,8 @@ export default function AdminDashboard() {
 
   const fetchAllProducts = async () => {
     try {
-      adminService.invalidateCache('products');
-      adminService.invalidateCache('stats');
-      adminService.invalidateCache('expiring');
-      const data = await fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() });
-      if (data) {
-        setAllProducts(data);
-        setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
-        if (typeof refetchGlobalProducts === 'function') {
-          refetchGlobalProducts();
-        }
-      }
+      await mutateProducts();
+      await mutateStats();
     } catch (err) {
       console.error('Products fetch error:', err);
     }
@@ -3812,6 +3755,19 @@ export default function AdminDashboard() {
     </div>
   );
 
+  const handleGlobalRefresh = async () => {
+    try {
+      await Promise.all([
+        fetchStats(false),
+        checkHealth(),
+        runDbDiagnostics()
+      ]);
+      toast.success('System Intelligence Synchronized');
+    } catch (err) {
+      toast.error('Sync protocol failed');
+    }
+  };
+
   return (
     <AdminDashboardLayout
       activeTab={activeTab}
@@ -3828,6 +3784,9 @@ export default function AdminDashboard() {
       healthStatus={healthStatus}
       syncStatus={syncStatus}
       pendingOrdersCount={orders.filter(o => o.status === 'pending').length}
+      onRefresh={handleGlobalRefresh}
+      isAutoRefresh={isAutoRefresh}
+      setIsAutoRefresh={setIsAutoRefresh}
     >
       <div className="space-y-4 md:space-y-8 pb-12">
         <AnimatePresence mode="wait">
