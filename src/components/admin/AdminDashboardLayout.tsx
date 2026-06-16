@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
 import AdminSidebar from './AdminSidebar';
+import AdminContextSidebar from './AdminContextSidebar';
 import { cn } from '@/types';
 import LoadingFallback from '@/components/LoadingFallback';
 
@@ -161,19 +162,22 @@ export default function AdminDashboardLayout({
           </div>
         </header>
 
-        <main className="flex-1 min-h-0 w-full flex flex-col overflow-hidden">
-          {loading ? (
-            <div className="p-8">
-              <LoadingFallback fullScreen={false} message="Loading dashboard..." />
-            </div>
-          ) : (
-            <div id="admin-main-scroll-container" className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden p-4 md:p-8 scroll-smooth antialiased">
-              <div className="max-w-[1600px] mx-auto w-full min-h-0 pb-20">
-                {children}
+        <div className="flex-1 flex min-h-0">
+          <AdminContextSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <main className="flex-1 min-h-0 w-full flex flex-col overflow-hidden">
+            {loading ? (
+              <div className="p-8">
+                <LoadingFallback fullScreen={false} message="Loading dashboard..." />
               </div>
-            </div>
-          )}
-        </main>
+            ) : (
+              <div id="admin-main-scroll-container" className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden p-4 md:p-8 scroll-smooth antialiased">
+                <div className="max-w-[1600px] mx-auto w-full min-h-0 pb-20">
+                  {children}
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
     </div>
   );
