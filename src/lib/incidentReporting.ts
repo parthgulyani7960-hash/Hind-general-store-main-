@@ -26,6 +26,12 @@ export class ErrorReportingService {
   private queue: ErrorReport[] = [];
   private isProcessing = false;
   private breadcrumbs: Array<{ action: string; timestamp: string }> = [];
+  private lastApiRequest: any = null;
+
+  public setLastApiRequest(req: { url: string; method: string; timestamp: string }) {
+    this.lastApiRequest = req;
+    this.addBreadcrumb(`API Request: ${req.method} ${req.url}`);
+  }
 
   private constructor() {
     this.setupListeners();
@@ -62,23 +68,30 @@ export class ErrorReportingService {
         
         // Extract diagnostic info from ErrorEvent
         const error = event.error || {};
+        const name = error.name || 'Error';
         const message = event.message || error.message || 'Unknown Global Runtime Error';
         const stack = error.stack || 'No stack trace available';
         const filename = event.filename || 'unknown_file';
         const lineno = event.lineno || 0;
         const colno = event.colno || 0;
         const route = window.location.pathname;
+        const componentStack = error.componentStack || '';
 
         this.report({
           type: ErrorType.SYSTEM_ERROR,
-          message: `[GlobalCrash] ${message}`,
+          message: `[GlobalCrash] ${name}: ${message}`,
           stack: stack,
           component: 'GlobalWindowOnError',
           metadata: {
+            errorName: name,
+            errorMessage: message,
+            errorStack: stack,
+            componentStack,
             filename,
             lineno,
             colno,
             route,
+            lastApiRequest: this.lastApiRequest,
             timestamp: new Date().toISOString()
           }
         });
@@ -89,16 +102,24 @@ export class ErrorReportingService {
     window.addEventListener('unhandledrejection', (event) => {
       try {
         const reason = event.reason;
+        const error: any = reason instanceof Error ? reason : {};
+        const name = error.name || 'PromiseRejection';
         const message = reason instanceof Error ? reason.message : String(reason);
         const stack = reason instanceof Error ? reason.stack : undefined;
+        const route = window.location.pathname;
 
         this.report({
-          type: ErrorType.NETWORK_ERROR,
-          message: `[Unhandled Promise Rejection / Network Failure] ${message}`,
+          type: ErrorType.SYSTEM_ERROR,
+          message: `[GlobalCrash] ${name}: ${message}`,
           stack: stack || 'No stack trace available',
           component: 'GlobalUnhandledRejection',
           metadata: {
-            reason: String(reason)
+            errorName: name,
+            errorMessage: message,
+            errorStack: stack || 'No stack trace available',
+            route,
+            lastApiRequest: this.lastApiRequest,
+            timestamp: new Date().toISOString()
           }
         });
       } catch (err) {}

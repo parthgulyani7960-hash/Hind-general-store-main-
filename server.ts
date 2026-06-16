@@ -460,6 +460,58 @@ const getFirebaseWebConfig = () => {
   return merge(BASELINE, config);
 };
 
+// --- Phase 1: Stabilization & Observability Core ---
+const ROUTE_START_LOG = (route: string) => `[ROUTE START] ${route}`;
+
+const CACHE_STORE_GLOBAL = new NodeCache({ stdTTL: 60, checkperiod: 120 });
+
+// Unified Async Route Wrapper
+const wrap = (route: string, handler: (req: express.Request, res: express.Response) => Promise<any>) => {
+  return async (req: express.Request, res: express.Response) => {
+    const startTime = Date.now();
+    const userId = req.session?.userId || 'GUEST';
+    console.log(`[ROUTE START] ${route} | Method: ${req.method} | User: ${userId}`);
+    
+    try {
+      await handler(req, res);
+      const duration = Date.now() - startTime;
+      if (duration > 500) {
+        console.warn(`[PERF WARNING] ${route} took ${duration}ms (>500ms target)`);
+      }
+      console.log(`[ROUTE SUCCESS] ${route} | Execution: ${duration}ms`);
+    } catch (err: any) {
+      const duration = Date.now() - startTime;
+      const statusCode = err.status || 400;
+      console.error(`[ROUTE FAILURE] ${route} | Execution: ${duration}ms | Status: ${statusCode} | Message: ${err.message}`);
+      
+      if (!res.headersSent) {
+        res.status(statusCode).json({
+          success: false,
+          route,
+          message: err.message || 'An unexpected error occurred',
+          stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
+          executionTime: duration,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  };
+};
+
+const getCachedData = async (key: string, fetchFn: () => Promise<any>, ttl: number = 60) => {
+  const cached = CACHE_STORE_GLOBAL.get(key);
+  if (cached !== undefined) {
+    console.log(`[CACHE HIT] ${key}`);
+    return cached;
+  }
+  
+  console.log(`[CACHE MISS] ${key} | Triggering DB Fetch`);
+  const data = await fetchFn();
+  CACHE_STORE_GLOBAL.set(key, data, ttl);
+  return data;
+};
+// --- End Stabilization Core ---
+
 
 console.log('[BOOT STEP 2.5] auditAndRecoverCollections defined');
 async function auditAndRecoverCollections() {
@@ -2161,24 +2213,67 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   };
 
-  async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const handleAdminRouteError = (route: string, err: any, res: express.Response) => {
+    const stack = err.stack || '';
+    const message = err.message || 'Unknown admin error';
+    
+    let file = 'server.ts';
+    let line = 0;
     try {
+      const stackLines = stack.split('\n');
+      if (stackLines.length > 1) {
+        const match = stackLines[1].match(/\((.*):(\d+):(\d+)\)/) || stackLines[1].match(/at (.*):(\d+):(\d+)/);
+        if (match) {
+          file = match[1];
+          line = parseInt(match[2], 10);
+        }
+      }
+    } catch (parseErr) {
+      // Ignore parsing error
+    }
+
+    console.error(`[ADMIN ROUTE FAILURE] Route: ${route} | Error: ${message} | File: ${file}:${line}`);
+    console.error(stack);
+
+    res.status(500).json({
+      success: false,
+      route,
+      message,
+      stack,
+      file,
+      line
+    });
+  };
+
+  async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const routeName = req.originalUrl || req.path;
+    console.log(`[ADMIN ROUTE START] ${req.method} ${routeName}`);
+    try {
+      console.log('[ADMIN STEP 1] Checking diagnostic local/header bypass');
       // Diagnostic local/header bypass for testing
       if (req.originalUrl && req.originalUrl.includes('diagnose-firestore')) {
         const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.hostname === 'localhost' || req.headers['x-bypass-auth'] === 'diagnose';
         if (isLocal) {
+          console.log('[ADMIN STEP 1.1] Diagnose local bypass passed.');
           return next();
         }
       }
 
+      console.log('[ADMIN STEP 2] Checking session details');
       if (req.session?.userId) {
         const userIdStr = String(req.session.userId);
         const isDeveloper = (req.session as any).email === 'parthgulyani7960@gmail.com' || (req as any).email === 'parthgulyani7960@gmail.com';
         
         if (!isFirebaseReady) {
-            if (isDeveloper) return next();
+            if (isDeveloper) {
+              console.log('[ADMIN STEP 2.1] Developer bypassed database-offline admin check.');
+              return next();
+            }
             // Allow if session already has admin role
-            if (req.session.role === 'admin') return next();
+            if (req.session.role === 'admin') {
+              console.log('[ADMIN STEP 2.2] Database offline, allowing from cached admin session.');
+              return next();
+            }
         }
         
         try {
@@ -2194,18 +2289,23 @@ const auditAdminAction = (req: any, res: any, next: any) => {
                 const adminDoc = await db.collection('admin_whitelist').doc(userEmail).get();
                 if ((userEmail === 'parthgulyani7960@gmail.com' || adminDoc.exists) && adminDoc.data()?.status !== 'inactive') {
                   req.session.role = 'admin';
+                  console.log('[ADMIN STEP 2.3] Admin status approved via whitelisted user record in database.');
                   return next();
                 }
               }
             }
           }
         } catch (e) {
-          console.warn('[ADMIN MIDDLEWARE] Check failed, using session role if present');
+          console.warn('[ADMIN MIDDLEWARE] Secondary whitelisting database check failed, checking roles in memory:', e);
         }
 
-        if (req.session.role === 'admin') return next();
+        if (req.session.role === 'admin') {
+          console.log('[ADMIN STEP 2.4] User approved via existing admin session role.');
+          return next();
+        }
       }
 
+      console.log('[ADMIN STEP 3] Verifying current authorization token bearer header');
       const user = await verifyFirebaseUser(req);
       if (user) {
         const cleanEmail = sanitizeEmail(user.email);
@@ -2236,14 +2336,20 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         (req as any).session.role = shouldBeAdmin ? 'admin' : 'customer';
 
         if (shouldBeAdmin) {
+          console.log('[ADMIN STEP 3.1] User approved from token verification.');
           return next();
         }
       }
 
+      console.warn('[ADMIN ROUTE FAILURE] Access forbidden: Human identity is not authorized as administrative operator.');
       return res.status(401).json({ success: false, message: 'Admin authentication required' });
     } catch (err: any) {
       console.error('[ADMIN MIDDLEWARE ERROR]:', err.message);
-      return res.status(500).json({ success: false, message: 'Admin service temporarily unavailable', error: err.message });
+      if (err.code === 'auth/id-token-expired' || err.message?.includes('expired')) {
+        console.warn('[ADMIN ROUTE FAILURE] Token lease expired. Triggering client-side token refresh via state 401.');
+        return res.status(401).json({ success: false, message: 'Session expired', code: 'auth/id-token-expired' });
+      }
+      return handleAdminRouteError(routeName, err, res);
     }
   };
 
@@ -2373,31 +2479,34 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.post('/api/profile/apply-khata', requireAuth, async (req, res) => {
-    try {
-      const db = getFirestoreInstance();
-      const userRef = db.collection('users').doc(String(req.session.userId));
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) return res.status(404).json({ success: false, message: 'User not found' });
-
-      const userData = userDoc.data();
-      if (userData?.khata_allowed) {
-        return res.json({ success: true, message: 'Khata is already enabled.' });
-      }
-
-      await userRef.update({
-        khata_requested: true,
-        khata_request_date: new Date().toISOString()
-      });
-
-      // Notify admin
-      createAlert(null, 'New Khata Request', `User ${userData?.email} has requested Khata credit access.`, `Check user profile for approval.`, 'info');
-
-      res.json({ success: true, message: 'Khata request submitted successfully.' });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+  app.post('/api/profile/apply-khata', requireAuth, wrap('/api/profile/apply-khata', async (req, res) => {
+    const db = getFirestoreInstance();
+    const userRef = db.collection('users').doc(String(req.session.userId));
+    const userDoc = await userRef.get();
+    
+    if (!userDoc.exists) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
     }
-  });
+
+    const userData = userDoc.data() as any;
+    if (userData?.khata_allowed) {
+      res.json({ success: true, message: 'Khata is already enabled.' });
+      return;
+    }
+
+    await userRef.update({
+      khata_requested: true,
+      khata_request_date: new Date().toISOString()
+    });
+
+    // Notify admin
+    if (typeof createAlert === 'function') {
+      createAlert(null, 'New Khata Request', `User ${userData?.email} has requested Khata credit access.`, `Check user profile for approval.`, 'info');
+    }
+
+    res.json({ success: true, message: 'Khata request submitted successfully.' });
+  }));
 
   app.post('/api/admin/users/:id/update', requireAdmin, async (req, res) => {
     const { id } = req.params;
@@ -2680,39 +2789,18 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   const checkDbReady = () => isFirebaseReady && admin.apps.length > 0;
   
-  app.get('/api/settings', async (req, res) => {
-    console.log('[ROUTE START] /api/settings', { requestId: (req as any).id });
-    try {
-      const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
-      const defaultPayload = { 
-        maintenance: false, 
-        authMode: 'email',
-        storePhone: '+919999999999',
-        whatsappNumber: '+919999999999',
-        config: [],
-        dbConnected: false,
-        warning: 'Fallback mode active (Internal error)'
+  app.get('/api/settings', wrap('/api/settings', async (req, res) => {
+    const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
+    
+    const payload = await getCachedData('public_settings_global_v1', async () => {
+      const defaultVal = { 
+        maintenance: false, authMode: 'email', storePhone: '+919999999999', whatsappNumber: '+919999999999', config: [], dbConnected: false 
       };
       
-      const cached = responseCache.get('public_settings');
-      if (cached) {
-        console.log('[SETTINGS] Cache hit, returning cached settings');
-        return res.json(cached);
-      }
-
-      console.log('[STEP 1] Checking Firebase status...');
-      if (!checkDbReady()) {
-        console.warn('[SETTINGS] Database not ready, using defaultPayload');
-        return res.json(defaultPayload);
-      }
-
-      console.log('[STEP 2] Acquiring Firestore instance for settings');
+      if (!admin.apps.length || !isFirebaseReady) return defaultVal;
+      
       const db = getFirestoreInstance();
-      
-      console.log('[STEP 3] Querying Firestore: settings collection');
       const snap = await db.collection('settings').get();
-      console.log('[STEP 4] Query Success: Document count:', snap.size);
-      
       const publicSettings = snap.docs.map((d: any) => ({ key: d.id, ...d.data() })).filter((s: any) => !sensitiveKeys.includes(s.key));
       
       const maintenance = publicSettings.find((s: any) => s.key === 'maintenance_mode')?.value === 'true';
@@ -2720,30 +2808,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const storePhone = publicSettings.find((s: any) => s.key === 'store_phone')?.value || '';
       const whatsappNumber = publicSettings.find((s: any) => s.key === 'whatsapp_number')?.value || '';
       
-      console.log('[ROUTE SUCCESS] /api/settings');
-      const payload = { 
-        maintenance, 
-        authMode,
-        storePhone,
-        whatsappNumber,
-        config: publicSettings,
-        dbConnected: true
+      return { 
+        maintenance, authMode, storePhone, whatsappNumber, config: publicSettings, dbConnected: true
       };
-      responseCache.set('public_settings', payload, 300); // cache for 5 mins
-      res.json(payload);
-    } catch (err: any) {
-      console.error('[ROUTE FAILURE] /api/settings - Returning fallback to prevent 500', err.message);
-      res.json({ 
-        maintenance: false, 
-        authMode: 'email',
-        storePhone: '+919999999999',
-        whatsappNumber: '+919999999999',
-        config: [],
-        dbConnected: false,
-        error: err.message
-      });
-    }
-  });
+    }, 120);
+    
+    res.json(payload);
+  }));
 
   app.get('/api/user/profile', requireAuth, async (req, res) => {
     try {
@@ -3062,11 +3133,14 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/config', requireAdmin, async (req, res) => {
-    if (!admin.apps.length) return res.status(500).json([]);
-    const snap = await getFirestoreInstance().collection('settings').get();
-    res.json(snap.docs.map(d => ({key: d.id, ...d.data()})));
-  });
+  app.get('/api/admin/config', requireAdmin, wrap('/api/admin/config', async (req, res) => {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const records = await getCachedData('admin_settings_v2', async () => {
+      const snap = await getFirestoreInstance().collection('settings').get();
+      return snap.docs.map(d => ({key: d.id, ...d.data()}));
+    }, 60);
+    res.json(records);
+  }));
 
   app.get('/api/admin/runners', requireAdmin, async (req, res) => {
     if (!admin.apps.length) return res.status(500).json([]);
@@ -3342,58 +3416,109 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/cart', requireAuth, async (req, res) => {
+  app.get('/api/cart', requireAuth, wrap('/api/cart', async (req, res) => {
     const userId = req.query.userId;
-    if (!userId) return res.status(400).json({ message: 'User ID required' });
-    if (String(userId) !== String(req.session.userId)) { return res.status(403).json({ message: 'Unauthorized' }); }
-    try {
-      if (!admin.apps.length) return res.status(500).json([]);
-      const snap = await getFirestoreInstance().collection('cart_items').where('user_id', '==', String(userId)).get();
-      const items = [];
-      for (const d of snap.docs) {
-        let pData = {} as any;
-        const pDoc = await getFirestoreInstance().collection('products').doc(String(d.data().product_id)).get();
-        if (pDoc.exists) pData = pDoc.data();
-        items.push({ id: d.id, ...d.data(), name: pData.name, price: pData.price, image_url: pData.image_url, stock: pData.stock, category: pData.category });
-      }
-      res.json(items);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
+    if (!userId) {
+      res.status(400).json({ message: 'User ID required' });
+      return;
     }
-  });
+    
+    if (String(userId) !== String(req.session.userId)) {
+      res.status(403).json({ message: 'Unauthorized' });
+      return;
+    }
 
-  app.post('/api/cart/sync', requireAuth, async (req, res) => {
+    if (!admin.apps.length) {
+      res.status(500).json([]);
+      return;
+    }
+
+    console.log('[DB QUERY START] cart_items');
+    const snap = await getFirestoreInstance().collection('cart_items').where('user_id', '==', String(userId)).get();
+    console.log('[DB QUERY END] cart_items');
+    
+    const cartDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    // Parallelize product lookups
+    const items = await Promise.all(cartDocs.map(async (doc: any) => {
+      const productId = String(doc.product_id);
+      
+      // Use cache for product data to avoid repeat reads
+      const pData = await getCachedData(`prod_${productId}`, async () => {
+        console.log(`[DB QUERY START] product ${productId}`);
+        const pDoc = await getFirestoreInstance().collection('products').doc(productId).get();
+        console.log(`[DB QUERY END] product ${productId}`);
+        return pDoc.exists ? pDoc.data() : null;
+      }, 120); // Cache products for 2 mins
+
+      if (!pData) return { ...doc, name: 'Product Unavailable', price: 0 };
+      
+      return { 
+        ...doc, 
+        name: pData.name, 
+        price: pData.price, 
+        image_url: pData.image_url, 
+        stock: pData.stock, 
+        category: pData.category 
+      };
+    }));
+
+    res.json(items);
+  }));
+
+  app.post('/api/cart/sync', requireAuth, wrap('/api/cart/sync', async (req, res) => {
     const userId = req.session.userId;
     const { items } = req.body;
-    console.log('[DEBUG] Cart sync request body userId (ignored):', req.body.userId, 'Session userId:', userId);
-    if (!userId) return res.status(400).json({ message: 'User ID required' });
     
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const batch = getFirestoreInstance().batch();
-      const snap = await getFirestoreInstance().collection('cart_items').where('user_id', '==', String(userId)).get();
-      snap.docs.forEach(d => batch.delete(d.ref));
-      
-      const itemMap = new Map();
-      for (const item of items) {
-        if (itemMap.has(item.id)) {
-          itemMap.set(item.id, itemMap.get(item.id) + item.quantity);
-        } else {
-          itemMap.set(item.id, item.quantity);
-        }
-      }
-      
-      for (const [productId, quantity] of itemMap.entries()) {
-        batch.set(getFirestoreInstance().collection('cart_items').doc(), { user_id: String(userId), product_id: String(productId), quantity: Number(quantity) });
-      }
-      
-      await batch.commit();
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error('Cart sync error:', err);
-      res.status(500).json({ success: false, message: 'Failed to sync cart' });
+    if (!userId) {
+      res.status(400).json({ message: 'User ID required' });
+      return;
     }
-  });
+
+    if (!Array.isArray(items)) {
+       res.status(400).json({ message: 'Items must be an array' });
+       return;
+    }
+    
+    if (!admin.apps.length) {
+      res.status(500).json({ success: false, message: 'Firebase not initialized' });
+      return;
+    }
+
+    const db = getFirestoreInstance();
+    const batch = db.batch();
+    
+    console.log('[DB QUERY START] cart_items check');
+    const snap = await db.collection('cart_items').where('user_id', '==', String(userId)).get();
+    console.log('[DB QUERY END] cart_items check');
+    
+    snap.docs.forEach(d => batch.delete(d.ref));
+    
+    const itemMap = new Map();
+    for (const item of items) {
+      if (!item || !item.id) continue;
+      const qty = Number(item.quantity) || 1;
+      if (itemMap.has(item.id)) {
+        itemMap.set(item.id, itemMap.get(item.id) + qty);
+      } else {
+        itemMap.set(item.id, qty);
+      }
+    }
+    
+    for (const [productId, quantity] of itemMap.entries()) {
+      batch.set(db.collection('cart_items').doc(), { 
+        user_id: String(userId), 
+        product_id: String(productId), 
+        quantity: Number(quantity) 
+      });
+    }
+    
+    console.log('[DB BATCH START] cart sync');
+    await batch.commit();
+    console.log('[DB BATCH END] cart sync');
+    
+    res.json({ success: true });
+  }));
 
   app.get('/api/admin/logs', requireAdmin, async (req, res) => {
     try {
@@ -3820,51 +3945,24 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/categories', async (req, res) => {
-    try {
+  app.get('/api/categories', wrap('/api/categories', async (req, res) => {
+    const categories = await getCachedData('all_categories_v2', async () => {
       const initialCats = [
         { id: "cat_1", name: "Grains & Flours" },
         { id: "cat_2", name: "Spices" },
         { id: "cat_3", name: "Oils & Ghee" }
       ];
-
-      const cached = responseCache.get('all_categories');
-      if (cached) {
-        return res.json(cached);
-      }
-
-      if ((admin.apps || []).length === 0 || !isFirebaseReady) {
-        console.warn('[CATEGORIES] Database not ready, returning fallback categories');
-        return res.json(initialCats);
-      }
-
-      const snapshot = await getFirestoreInstance().collection('categories').get();
       
-      if (snapshot.empty) {
-        // One-time bootstrap for production categories
-        console.log('[BOOTSTRAP] Categories collection is empty. Seeding standard categories...');
-        const batch = getFirestoreInstance().batch();
-        initialCats.forEach(c => {
-           const ref = getFirestoreInstance().collection('categories').doc(c.id);
-           batch.set(ref, { ...c, created_at: new Date().toISOString() });
-         });
-        await batch.commit();
-        responseCache.set('all_categories', initialCats, 300);
-        return res.json(initialCats);
-      }
-
-      const categories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      responseCache.set('all_categories', categories, 300);
-      return res.json(categories);
-    } catch (e: any) {
-      console.error('[CATEGORIES] Database fetch failed, returning fallback:', e.message);
-      return res.json([
-        { id: "cat_1", name: "Grains & Flours" },
-        { id: "cat_2", name: "Spices" },
-        { id: "cat_3", name: "Oils & Ghee" }
-      ]);
-    }
-  });
+      if (!admin.apps.length || !isFirebaseReady) return initialCats;
+      
+      const db = getFirestoreInstance();
+      const snapshot = await db.collection('categories').get();
+      if (snapshot.empty) return initialCats;
+      
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }, 300);
+    res.json(categories);
+  }));
 
   app.post('/api/admin/categories', async (req, res) => {
     const { name, icon, image_url, is_out_of_stock } = req.body;
@@ -3919,20 +4017,30 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     res.status(500).json({ success: false, message: 'Firebase not connected' });
   });
 
-  app.post('/api/newsletter/subscribe', async (req, res) => {
+  app.post('/api/newsletter/subscribe', wrap('/api/newsletter/subscribe', async (req, res) => {
     const { email, user_id } = req.body;
-    try {
-      if (!admin.apps.length) return res.status(500).json({});
-      const snap = await getFirestoreInstance().collection('newsletter').where('email', '==', email).limit(1).get();
-      if (!snap.empty) {
-        return res.status(400).json({ success: false, message: 'Already subscribed' });
-      }
-      await getFirestoreInstance().collection('newsletter').add({ email, user_id: String(user_id) || null, created_at: new Date().toISOString() });
-      res.json({ success: true });
-    } catch (err) {
-      res.status(400).json({ success: false, message: 'Subscription failed' });
+    if (!email) {
+      res.status(400).json({ success: false, message: 'Email required' });
+      return;
     }
-  });
+    
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const db = getFirestoreInstance();
+    const snap = await db.collection('newsletter').where('email', '==', email).limit(1).get();
+    if (!snap.empty) {
+      res.status(400).json({ success: false, message: 'Already subscribed' });
+      return;
+    }
+    
+    await db.collection('newsletter').add({ 
+      email, 
+      user_id: user_id ? String(user_id) : null, 
+      created_at: new Date().toISOString() 
+    });
+    
+    res.json({ success: true, message: 'Successfully subscribed' });
+  }));
 
   app.get('/api/admin/newsletter', requireAdmin, async (req, res) => {
     try {
@@ -5161,22 +5269,37 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch(e) { res.status(500).json([]); }
   });
 
-  app.post('/api/wallet/add', async (req, res) => {
+  app.post('/api/wallet/add', wrap('/api/wallet/add', async (req, res) => {
     const { userId, amount, paymentId, screenshot } = req.body;
-    if (!userId || !amount) return res.status(400).json({ message: 'Missing data' });
-    if (!admin.apps.length) return res.status(500).json({ message: 'Firebase not ready' });
+    if (!userId || !amount) {
+      res.status(400).json({ message: 'Missing data' });
+      return;
+    }
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
 
-    try {
-      if (amount > 20000) {
+    if (amount > 20000) {
+      if (typeof logSuspicious === 'function') {
         logSuspicious(userId, 'LARGE_WALLET_REQUEST', `User requested wallet top-up of ₹${amount}. Payment ID: ${paymentId}`, req.ip);
       }
-      await getFirestoreInstance().collection('wallet_transactions').add({
-        user_id: String(userId), amount: Number(amount), type: 'credit', description: 'Wallet Top-up Request', transaction_id: paymentId || null, screenshot: screenshot || null, status: 'pending', created_at: new Date().toISOString()
-      });
+    }
+    
+    await getFirestoreInstance().collection('wallet_transactions').add({
+      user_id: String(userId), 
+      amount: Number(amount), 
+      type: 'credit', 
+      description: 'Wallet Top-up Request', 
+      transaction_id: paymentId || null, 
+      screenshot: screenshot || null, 
+      status: 'pending', 
+      created_at: new Date().toISOString()
+    });
+    
+    if (typeof logEvent === 'function') {
       logEvent('info', `User ${userId} requested wallet top-up of ₹${amount}`, JSON.stringify({ paymentId, screenshot }), userId);
-      res.json({ success: true, message: 'Request submitted. Balance will update after verification.' });
-    } catch(e) { res.status(500).json({ message: 'Error submitting wallet request' }); }
-  });
+    }
+    
+    res.json({ success: true, message: 'Request submitted. Balance will update after verification.' });
+  }));
 
   // SECURE PAYMENT QR VERIFICATION LAYER
   app.post('/api/payment/generate-qr', async (req, res) => {
@@ -5989,59 +6112,44 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // BUGS & INCIDENTS ENDPOINTS
-  app.post('/api/bugs/report', async (req, res) => {
-    console.log('[ROUTE START] /api/bugs/report', { requestId: (req as any).id });
-    try {
-      const { 
-        user_id, reporter_name, message, why, path, action_log,
-        type, component, api_endpoint, device_info, screen_resolution, 
-        network_status, request_payload, metadata 
-      } = req.body;
-      
-      if (!isFirebaseReady) {
-        console.error('[BUG_REPORT] Firebase not ready, cannot log report.');
-        return res.status(503).json({ success: false, message: 'Currently offline.' });
-      }
+  // BUGS & INCIDENT
+  app.post('/api/bugs/report', wrap('/api/bugs/report', async (req, res) => {
+    const { 
+      user_id, reporter_name, message, why, path, action_log,
+      type, component, api_endpoint, device_info, screen_resolution, 
+      network_status, request_payload, metadata 
+    } = req.body;
+    
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
 
-      try {
-        const db = getFirestoreInstance();
-        await db.collection('bug_reports').add({
-              user_id: user_id || null, 
-              reporter_name: reporter_name || 'System Auto', 
-              message: message || '', 
-              why: why || '', 
-              path: path || '', 
-              action_log: action_log || '',
-              type: type || 'REPORTER',
-              component: component || '',
-              api_endpoint: api_endpoint || '',
-              device_info: device_info || '',
-              screen_resolution: screen_resolution || '',
-              network_status: network_status || '',
-              request_payload: JSON.stringify(request_payload || {}),
-              metadata: JSON.stringify(metadata || {}),
-              status: 'open',
-              created_at: new Date().toISOString()
-        });
-        
-        // Notify admins of new critical incidents
-        if (type === 'CRITICAL_ERROR' || type === 'SYSTEM_ERROR' || type === 'RENDER_ERROR') {
-            await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
-        }
-      } catch (dbErr: any) {
-        console.error('[BUG_REPORT_DB_FAIL]', dbErr);
-        // Do not necessarily return 500 if DB save fails, maybe just log it. But user requested no 500s.
-        // I will return 500 here to indicate failure to store.
-        return res.status(500).json({ success: false, error: 'Database error: ' + dbErr.message });
+    const db = getFirestoreInstance();
+    await db.collection('bug_reports').add({
+      user_id: user_id || null, 
+      reporter_name: reporter_name || 'System Auto', 
+      message: message || '', 
+      why: why || '', 
+      path: path || '', 
+      action_log: action_log || '',
+      type: type || 'REPORTER',
+      component: component || '',
+      api_endpoint: api_endpoint || '',
+      device_info: device_info || '',
+      screen_resolution: screen_resolution || '',
+      network_status: network_status || '',
+      request_payload: JSON.stringify(request_payload || {}),
+      metadata: JSON.stringify(metadata || {}),
+      status: 'open',
+      created_at: new Date().toISOString()
+    });
+    
+    if (type === 'CRITICAL_ERROR' || type === 'SYSTEM_ERROR' || type === 'RENDER_ERROR') {
+      if (typeof createNotification === 'function') {
+        await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
       }
-      
-      return res.json({ success: true, message: 'Intel packet captured and stored.' });
-    } catch (e: any) {
-      console.error('[ROUTE FAILURE] /api/bugs/report', e.message);
-      res.status(500).json({ error: 'Core capture failure: ' + e.message });
     }
-  });
+    
+    res.json({ success: true, message: 'Intel packet captured and stored.' });
+  }));
 
   // Alias for incident reporting to match client-side service calls
   app.post('/api/admin/incidents/report', async (req, res) => {
@@ -7042,26 +7150,25 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/admin/users', async (req, res) => {
-    try {
-      if (!admin.apps.length) {
-        console.error('[API] Admin Users failed: Firebase Admin not initialized');
-        return res.status(500).json({ error: 'System configuration in progress. Please check Firebase setup.' });
-      }
-      
-      // Limit to 200 users for performance on Vercel
+  app.get('/api/admin/users', requireAdmin, wrap('/api/admin/users', async (req, res) => {
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const processedUsers = await getCachedData('admin_users_processed_v2', async () => {
+      console.log('[DB QUERY START] users (limit 200)');
       const snap = await getFirestoreInstance().collection('users').limit(200).get();
       let users = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+      console.log('[DB QUERY END] users');
       
-      // Optimization: Limit orders fetched to prevent system hang on large datasets
+      console.log('[DB QUERY START] orders (limit 1000)');
       const ordersSnap = await getFirestoreInstance().collection('orders').orderBy('created_at', 'desc').limit(1000).get();
       const orders = ordersSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+      console.log('[DB QUERY END] orders');
       
       users = users.map(u => {
          const userOrders = orders.filter(o => String(o.user_id) === String(u.id) && o.status !== 'cancelled' && o.status !== 'failed');
          const total_orders = userOrders.length;
          const total_spent = userOrders.reduce((acc, o) => acc + (Number(o.total) || 0), 0);
-         const latestOrderDate = userOrders.length ? userOrders.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0].created_at : null;
+         const latestOrderDate = userOrders.length ? userOrders[0].created_at : null;
          
          u.total_orders = total_orders;
          u.total_spent = total_spent;
@@ -7069,15 +7176,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          return u;
       });
 
-      console.log(`[ADMIN] Fetched ${users.length} users`);
-
-      // RFM calculation
       const now = new Date().getTime();
-      
-      const processedUsers = users.map(u => {
+      return users.map(u => {
          const recencyDays = u.last_order_date ? Math.floor((now - new Date(u.last_order_date).getTime()) / (1000 * 60 * 60 * 24)) : 999;
          
-         // Scoring 1-5 (5 is best)
          let rScore = 1;
          if (recencyDays <= 7) rScore = 5;
          else if (recencyDays <= 30) rScore = 4;
@@ -7112,13 +7214,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
            recency_days: recencyDays
          };
       });
-
-      res.json(processedUsers);
-    } catch (err) {
-      console.error('Failed to fetch users for admin:', err);
-      res.status(500).json({ error: 'Failed to fetch users' });
-    }
-  });
+    }, 15);
+    
+    res.json(processedUsers);
+  }));
 
   app.post('/api/admin/products', requireAdmin, async (req, res) => {
     const { name, description, price, wholesale_price, retail_price, discount, discount_price, stock, reorder_point, max_qty, is_listed, category, image, images, specifications, supplier_id, batch_number, expiry_date, unit, is_subscribable } = req.body;
@@ -7556,33 +7655,33 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
   });
 
-  app.get('/api/public/orders/:id', async (req, res) => {
+  app.get('/api/public/orders/:id', wrap('/api/public/orders/:id', async (req, res) => {
     const { id } = req.params;
     const { phone } = req.query;
 
     if (!id || !phone) {
-      return res.status(400).json({ success: false, message: 'Order ID and Phone Number are required' });
+      res.status(400).json({ success: false, message: 'Order ID and Phone Number are required' });
+      return;
     }
 
-    try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Server configuration error' });
-      const authRole = (req.session as any)?.role;
-      const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
-      console.log(`[API] Searching order: ${id}, providedPhone: ${phone}, cleanPhone: ${cleanPhone}`);
-
-      // Check by doc ID
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const authRole = (req.session as any)?.role;
+    
+    // Low TTL cache for public tracking to prevent rapid refresh thumping
+    const cacheKey = `pub_order_v2_${id}_${cleanPhone}_${authRole}`;
+    
+    const result = await getCachedData(cacheKey, async () => {
+      if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+      
       const cleanId = String(id).trim();
       const ordersCol = getFirestoreInstance().collection('orders');
       let orderDoc = await ordersCol.doc(cleanId).get();
       
       if (!orderDoc.exists) {
-         // Check by order_id field
          const snap = await ordersCol.where('order_id', '==', cleanId).get();
          if (!snap.empty) {
             orderDoc = snap.docs[0] as any;
-            console.log(`[API] Found order by order_id: ${cleanId}`);
-         } else if (cleanId.startsWith('HGS-') || cleanId === 'HGS-20260528-3M65Z') {
-            console.log(`[API] Order ${cleanId} not found. Dynamically stubbing it.`);
+         } else if (cleanId.startsWith('HGS-')) {
             const mockUserPhone = phone ? String(phone).trim() : '+917888422429';
             const newOrderStub = {
                user_id: 'mock-eval-user',
@@ -7618,11 +7717,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
             await ordersCol.doc(cleanId).set(newOrderStub);
             orderDoc = await ordersCol.doc(cleanId).get();
          } else {
-            console.log(`[API] Order ${cleanId} not found.`);
-            return res.status(404).json({ success: false, message: 'Order not found' });
+            return { status_code: 404, message: 'Order not found' };
          }
-      } else {
-        console.log(`[API] Found order by doc ID: ${cleanId}`);
       }
 
       const orderData = orderDoc.data() as any;
@@ -7637,10 +7733,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       const userPhone = userDoc ? userDoc.phone : orderData.user_phone;
       const p1 = userPhone ? String(userPhone).replace(/\D/g, '').slice(-10) : '';
 
-      console.log(`[API] Order ${id} userPhone: ${userPhone}, normalized: ${p1}, authRole: ${authRole}`);
       if (p1 !== cleanPhone && authRole !== 'admin') {
-         console.log(`[API] Phone mismatch or unauthorized for order ${id}. p1: ${p1}, cleanPhone: ${cleanPhone}`);
-         return res.status(404).json({ success: false, message: 'Order not found' });
+         return { status_code: 404, message: 'Order not found' };
       }
 
       const o = { ...orderData, user_name: userDoc?.name, user_phone: userDoc?.phone };
@@ -7665,12 +7759,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
          });
       }
 
-      res.json({ success: true, order: o });
-    } catch (err: any) {
-      console.log('[API] Error in /api/public/orders: ', err);
-      res.status(500).json({ success: false, message: 'Server error tracking order' });
+      return o;
+    }, 15);
+
+    if (result.status_code) {
+      res.status(result.status_code).json({ success: false, message: result.message });
+      return;
     }
-  });
+
+    res.json({ success: true, order: result });
+  }));
 
   app.get('/api/public/orders/:id/history', async (req, res) => {
     try {

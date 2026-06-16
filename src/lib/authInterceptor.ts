@@ -1,19 +1,19 @@
-import { auth } from '@/firebase';
+import { auth, authReadyPromise } from '@/firebase';
 import { logger } from './logger';
 
 let refreshPromise: Promise<string | null> | null = null;
 
 const performRefresh = async (): Promise<string | null> => {
-    logger.info('[AUTH] Token refresh started');
+    logger.info('[AUTH] Token refresh started, checking readiness...');
     try {
-        const readyPromise = typeof auth.authStateReady === 'function' ? auth.authStateReady() : Promise.resolve();
         const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Refresh auth timeout')), 3000)
+            setTimeout(() => reject(new Error('Refresh auth readiness check timed out')), 5000)
         );
         try {
-            await Promise.race([readyPromise, timeoutPromise]);
+            await Promise.race([authReadyPromise, timeoutPromise]);
+            logger.info('[AUTH] Firebase Auth is ready.');
         } catch (e) {
-            logger.warn('Firebase authStateReady timed out during refresh');
+            logger.warn('Firebase authReadyPromise timed out during refresh check');
         }
 
         const user = auth.currentUser;

@@ -11,6 +11,8 @@ export default function PaymentSettingsTab({
   config,
   updateSetting,
 }: PaymentSettingsTabProps) {
+  const safeConfig = Array.isArray(config) ? config : [];
+
   return (
     <div className="max-w-full overflow-x-hidden max-w-2xl space-y-6 font-sans pb-10 pr-2">
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
@@ -20,15 +22,15 @@ export default function PaymentSettingsTab({
             <div className="flex items-center space-x-2">
               <span className="text-xs font-bold text-stone-500 uppercase">Enable UPI</span>
               <button 
-                onClick={() => updateSetting('upi_enabled', config.find(c => c.key === 'upi_enabled')?.value === 'true' ? 'false' : 'true')}
+                onClick={() => updateSetting('upi_enabled', safeConfig.find(c => c.key === 'upi_enabled')?.value === 'true' ? 'false' : 'true')}
                 className={cn(
                   "w-12 h-6 rounded-full transition-all relative flex items-center px-1",
-                  config.find(c => c.key === 'upi_enabled')?.value === 'true' ? "bg-primary" : "bg-stone-200"
+                  safeConfig.find(c => c.key === 'upi_enabled')?.value === 'true' ? "bg-primary" : "bg-stone-200"
                 )}
               >
                 <div className={cn(
                   "w-4 h-4 bg-white rounded-full shadow-sm transition-transform",
-                  config.find(c => c.key === 'upi_enabled')?.value === 'true' ? "translate-x-6" : "translate-x-0"
+                  safeConfig.find(c => c.key === 'upi_enabled')?.value === 'true' ? "translate-x-6" : "translate-x-0"
                 )} />
               </button>
             </div>
@@ -43,7 +45,7 @@ export default function PaymentSettingsTab({
                 onClick={() => updateSetting('upi_verification_mode', 'manual')}
                 className={cn(
                   "py-3 rounded-xl text-xs font-bold transition-all border-2",
-                  config.find(c => c.key === 'upi_verification_mode')?.value === 'manual' || !config.find(c => c.key === 'upi_verification_mode')
+                  safeConfig.find(c => c.key === 'upi_verification_mode')?.value === 'manual' || !safeConfig.find(c => c.key === 'upi_verification_mode')
                     ? "bg-primary text-white border-primary shadow-lg shadow-primary/20"
                     : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
                 )}
@@ -54,7 +56,7 @@ export default function PaymentSettingsTab({
                 onClick={() => updateSetting('upi_verification_mode', 'auto')}
                 className={cn(
                   "py-3 rounded-xl text-xs font-bold transition-all border-2",
-                  config.find(c => c.key === 'upi_verification_mode')?.value === 'auto'
+                  safeConfig.find(c => c.key === 'upi_verification_mode')?.value === 'auto'
                     ? "bg-primary text-white border-primary shadow-lg shadow-primary/20"
                     : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
                 )}
@@ -63,7 +65,7 @@ export default function PaymentSettingsTab({
               </button>
             </div>
             <p className="text-[10px] text-stone-500 mt-2 italic text-left">
-              {config.find(c => c.key === 'upi_verification_mode')?.value === 'auto' 
+              {safeConfig.find(c => c.key === 'upi_verification_mode')?.value === 'auto' 
                 ? "* System will scan emails/webhooks for matching Order IDs." 
                 : "* Customers must submit UTR/Screenshot for manual admin approval."}
             </p>
@@ -74,7 +76,7 @@ export default function PaymentSettingsTab({
             <input 
               type="text" 
               className="input-field"
-              defaultValue={config.find(c => c.key === 'upi_id')?.value}
+              defaultValue={safeConfig.find(c => c.key === 'upi_id')?.value}
               onBlur={(e) => updateSetting('upi_id', e.target.value)}
             />
           </div>
@@ -83,7 +85,7 @@ export default function PaymentSettingsTab({
             <input 
               type="text" 
               className="input-field"
-              defaultValue={config.find(c => c.key === 'upi_name')?.value}
+              defaultValue={safeConfig.find(c => c.key === 'upi_name')?.value}
               onBlur={(e) => updateSetting('upi_name', e.target.value)}
             />
           </div>
@@ -91,8 +93,8 @@ export default function PaymentSettingsTab({
             <label className="block text-sm font-bold text-stone-700 mb-1 text-left">QR Code Image</label>
             <div className="flex items-center space-x-4">
               <div className="w-24 h-24 bg-stone-100 rounded-xl border border-stone-200 overflow-hidden flex items-center justify-center flex-shrink-0">
-                {config.find(c => c.key === 'upi_qr')?.value ? (
-                  <img src={config.find(c => c.key === 'upi_qr')?.value} alt="QR" className="w-full h-full object-contain" />
+                {safeConfig.find(c => c.key === 'upi_qr')?.value ? (
+                  <img src={safeConfig.find(c => c.key === 'upi_qr')?.value} alt="QR" className="w-full h-full object-contain" />
                 ) : (
                   <ImageIcon className="text-stone-300" size={32} />
                 )}
@@ -102,7 +104,7 @@ export default function PaymentSettingsTab({
                   type="text" 
                   className="input-field text-xs"
                   placeholder="Image URL (https://...)"
-                  defaultValue={config.find(c => c.key === 'upi_qr')?.value}
+                  defaultValue={safeConfig.find(c => c.key === 'upi_qr')?.value}
                   onBlur={(e) => updateSetting('upi_qr', e.target.value)}
                 />
                 <div className="relative">
@@ -138,7 +140,7 @@ export default function PaymentSettingsTab({
                 <input 
                   type="text" 
                   className="input-field"
-                  defaultValue={config.find(c => c.key === 'bank_name')?.value}
+                  defaultValue={safeConfig.find(c => c.key === 'bank_name')?.value}
                   onBlur={(e) => updateSetting('bank_name', e.target.value)}
                 />
               </div>
@@ -147,7 +149,7 @@ export default function PaymentSettingsTab({
                 <input 
                   type="text" 
                   className="input-field"
-                  defaultValue={config.find(c => c.key === 'account_holder')?.value}
+                  defaultValue={safeConfig.find(c => c.key === 'account_holder')?.value}
                   onBlur={(e) => updateSetting('account_holder', e.target.value)}
                 />
               </div>
@@ -156,7 +158,7 @@ export default function PaymentSettingsTab({
                 <input 
                   type="text" 
                   className="input-field"
-                  defaultValue={config.find(c => c.key === 'account_number')?.value}
+                  defaultValue={safeConfig.find(c => c.key === 'account_number')?.value}
                   onBlur={(e) => updateSetting('account_number', e.target.value)}
                 />
               </div>
@@ -165,7 +167,7 @@ export default function PaymentSettingsTab({
                 <input 
                   type="text" 
                   className="input-field"
-                  defaultValue={config.find(c => c.key === 'ifsc_code')?.value}
+                  defaultValue={safeConfig.find(c => c.key === 'ifsc_code')?.value}
                   onBlur={(e) => updateSetting('ifsc_code', e.target.value)}
                 />
               </div>

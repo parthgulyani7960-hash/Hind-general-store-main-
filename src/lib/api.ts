@@ -60,6 +60,13 @@ const fetchWithHandlingInternal = async <T>(
   window.dispatchEvent(new CustomEvent('api_loading_start'));
 
   try {
+    // Register the last API request details with error tracking service
+    errorService.setLastApiRequest({
+      url: cleanUrl,
+      method: options.method || 'GET',
+      timestamp: new Date().toISOString()
+    });
+
     // Global fetch is now wrapped in main.tsx, so it handles token injection and retries
     const res = await fetch(cleanUrl, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
@@ -330,42 +337,46 @@ export const fetchWithHandling = async <T>(
     return fetchWithHandlingInternal<T>(url, options, retries);
   }
 
-  // Check if this path is target cached path
-  const targetPaths = [
-    '/api/settings',
-    '/api/promotions',
-    '/api/promotions-rules',
-    '/api/announcements',
-    '/api/addresses',
-    '/api/notifications'
-  ];
-  
-  const isCachable = targetPaths.some(p => cleanCacheUrl.includes(p));
-
-  if (isCachable) {
-    const cached = apiCache[cleanCacheUrl];
-    if (cached && Date.now() - cached.timestamp < API_CACHE_TIME) {
-      logger.debug(`API CACHE HIT: ${cleanCacheUrl}`);
-      return cached.data;
-    }
-
-    if (apiPendingPromises[cleanCacheUrl]) {
-      logger.debug(`API DEDUP HIT: Joining in-flight: ${cleanCacheUrl}`);
-      return apiPendingPromises[cleanCacheUrl];
-    }
-
-    const promise = fetchWithHandlingInternal<T>(url, options, retries).then(data => {
-      if (data !== null) {
-        apiCache[cleanCacheUrl] = { data, timestamp: Date.now() };
-      }
-      return data;
-    }).finally(() => {
-      delete apiPendingPromises[cleanCacheUrl];
-    });
-
-    apiPendingPromises[cleanCacheUrl] = promise;
-    return promise;
+  // Phase 3: Global Request Deduplication for all GET requests
+  if (apiPendingPromises[cleanCacheUrl]) {
+    logger.debug(`API DEDUP HIT: Joining in-flight: ${cleanCacheUrl}`);
+    return apiPendingPromises[cleanCacheUrl];
   }
 
-  return fetchWithHandlingInternal<T>(url, options, retries);
+  const promise = (async () => {
+    // Check if this path is target cached path
+    const targetPaths = [
+      '/api/settings',
+      '/api/promotions',
+      '/api/promotions-rules',
+      '/api/announcements',
+      '/api/addresses',
+      '/api/notifications',
+      '/api/config',
+      '/api/categories',
+      '/api/bulk-discounts'
+    ];
+    
+    const isCachable = targetPaths.some(p => cleanCacheUrl.includes(p));
+
+    if (isCachable) {
+      const cached = apiCache[cleanCacheUrl];
+      if (cached && Date.now() - cached.timestamp < API_CACHE_TIME) {
+        logger.debug(`API CACHE HIT: ${cleanCacheUrl}`);
+        return cached.data;
+      }
+    }
+
+    const data = await fetchWithHandlingInternal<T>(url, options, retries);
+    
+    if (data !== null && isCachable) {
+      apiCache[cleanCacheUrl] = { data, timestamp: Date.now() };
+    }
+    return data;
+  })().finally(() => {
+    delete apiPendingPromises[cleanCacheUrl];
+  });
+
+  apiPendingPromises[cleanCacheUrl] = promise;
+  return promise;
 };

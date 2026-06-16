@@ -207,6 +207,24 @@ try {
 export { auth, db, storage };
 export const googleProvider = new GoogleAuthProvider();
 
+let resolveAuthReady: (value: any) => void;
+export const authReadyPromise = new Promise((resolve) => {
+  resolveAuthReady = resolve;
+});
+
+if (auth && typeof fbOnIdTokenChanged === 'function') {
+  const unsub = fbOnIdTokenChanged(auth, (user) => {
+    resolveAuthReady(user);
+    unsub();
+  }, (err) => {
+    console.error('[Firebase] authReadyPromise check error:', err);
+    resolveAuthReady(null);
+    unsub();
+  });
+} else {
+  resolveAuthReady(null);
+}
+
 const onAuthStateChanged = (authInstance: any, next: any, error?: any, completed?: any) => {
   if (authInstance && typeof fbOnAuthStateChanged === 'function' && typeof authInstance.onAuthStateChanged !== 'function') {
     try {

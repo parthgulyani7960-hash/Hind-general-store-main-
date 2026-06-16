@@ -53,6 +53,8 @@ export default function StoreSettingsTab({
   adminTheme,
   setAdminTheme,
 }: StoreSettingsTabProps) {
+  const safeConfig = Array.isArray(config) ? config : [];
+
   return (
     <div className="max-w-full overflow-x-hidden space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 font-sans pr-2">
       {/* Header */}
@@ -201,7 +203,7 @@ export default function StoreSettingsTab({
                     type="email" 
                     className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
                     placeholder="you@example.com"
-                    defaultValue={config.find(c => c.key === 'admin_email')?.value}
+                    defaultValue={safeConfig.find(c => c.key === 'admin_email')?.value}
                     onBlur={(e) => updateSetting('admin_email', e.target.value)}
                   />
                 </div>
@@ -215,7 +217,7 @@ export default function StoreSettingsTab({
                     type="text" 
                     className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] pl-16 pr-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
                     placeholder="+91 Number"
-                    defaultValue={config.find(c => c.key === 'admin_phone')?.value}
+                    defaultValue={safeConfig.find(c => c.key === 'admin_phone')?.value}
                     onBlur={(e) => updateSetting('admin_phone', e.target.value)}
                   />
                 </div>
@@ -243,7 +245,7 @@ export default function StoreSettingsTab({
                     type="text" 
                     className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
                     placeholder="Organization Name"
-                    defaultValue={config.find(c => c.key === 'store_name')?.value}
+                    defaultValue={safeConfig.find(c => c.key === 'store_name')?.value}
                     onBlur={(e) => updateSetting('store_name', e.target.value)}
                   />
                 </div>
@@ -254,7 +256,7 @@ export default function StoreSettingsTab({
                     <input 
                       type="text" 
                       className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
-                      defaultValue={config.find(c => c.key === 'store_phone')?.value}
+                      defaultValue={safeConfig.find(c => c.key === 'store_phone')?.value}
                       onBlur={(e) => updateSetting('store_phone', e.target.value)}
                     />
                   </div>
@@ -263,7 +265,7 @@ export default function StoreSettingsTab({
                     <input 
                       type="text" 
                       className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-6 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all text-sm"
-                      defaultValue={config.find(c => c.key === 'whatsapp_number')?.value}
+                      defaultValue={safeConfig.find(c => c.key === 'whatsapp_number')?.value}
                       onBlur={(e) => updateSetting('whatsapp_number', e.target.value)}
                     />
                   </div>
@@ -275,7 +277,7 @@ export default function StoreSettingsTab({
                     type="text" 
                     className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-5 text-stone-900 font-bold focus:border-primary focus:bg-white outline-none transition-all"
                     placeholder="Dispatch HQ Address"
-                    defaultValue={config.find(c => c.key === 'store_address')?.value}
+                    defaultValue={safeConfig.find(c => c.key === 'store_address')?.value}
                     onBlur={(e) => updateSetting('store_address', e.target.value)}
                   />
                 </div>
@@ -469,13 +471,11 @@ export default function StoreSettingsTab({
             <h3 className="text-3xl font-black text-stone-900 tracking-tight text-left">System Safe-Mode</h3>
             <p className="text-stone-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1 text-left">Maintenance & Global Access Control</p>
           </div>
-        </div>
-        
-        <div className="flex items-center justify-between p-8 bg-stone-50 rounded-[2.5rem] border border-stone-100">
+        </div>        <div className="flex items-center justify-between p-8 bg-stone-50 rounded-[2.5rem] border border-stone-100">
           <div className="flex items-center space-x-6">
              <div className={cn(
                "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm",
-               config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600 text-white" : "bg-white text-stone-300"
+               safeConfig.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600 text-white" : "bg-white text-stone-300"
              )}>
                <Zap size={20} />
              </div>
@@ -486,17 +486,17 @@ export default function StoreSettingsTab({
           </div>
           <button 
             onClick={() => {
-              const current = config.find(c => c.key === 'maintenance_mode')?.value === 'true';
+              const current = safeConfig.find(c => c.key === 'maintenance_mode')?.value === 'true';
               updateSetting('maintenance_mode', (!current).toString());
             }}
             className={cn(
-              "w-20 h-10 rounded-full transition-all relative p-1 shadow-inner",
-              config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600" : "bg-stone-200"
+               "w-20 h-10 rounded-full transition-all relative p-1 shadow-inner",
+               safeConfig.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "bg-red-600" : "bg-stone-200"
             )}
           >
             <div className={cn(
               "w-8 h-8 bg-white rounded-full shadow-lg transition-all",
-              config.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "ml-10" : "ml-0"
+              safeConfig.find(c => c.key === 'maintenance_mode')?.value === 'true' ? "ml-10" : "ml-0"
             )} />
           </button>
         </div>
@@ -511,7 +511,7 @@ export default function StoreSettingsTab({
               type="text" 
               className="w-full bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-black text-stone-900 focus:border-red-500 focus:bg-white outline-none transition-all tracking-tight"
               placeholder="e.g., 2 Hours"
-              defaultValue={config.find(c => c.key === 'maintenance_time')?.value}
+              defaultValue={safeConfig.find(c => c.key === 'maintenance_time')?.value}
               onBlur={(e) => updateSetting('maintenance_time', e.target.value)}
             />
           </div>
@@ -525,12 +525,12 @@ export default function StoreSettingsTab({
               <input 
                 type="text" 
                 className="flex-1 bg-stone-50 border-stone-100 border-2 rounded-[1.5rem] px-8 py-4 text-xl font-mono font-black text-stone-900 focus:border-red-500 focus:bg-white outline-none transition-all tracking-tight text-left"
-                defaultValue={config.find(c => c.key === 'maintenance_secret')?.value}
+                defaultValue={safeConfig.find(c => c.key === 'maintenance_secret')?.value}
                 onBlur={(e) => updateSetting('maintenance_secret', e.target.value)}
               />
               <button 
                 onClick={() => {
-                  const secret = config.find(c => c.key === 'maintenance_secret')?.value;
+                  const secret = safeConfig.find(c => c.key === 'maintenance_secret')?.value;
                   if (secret) {
                     navigator.clipboard.writeText(secret);
                     toast.success('Clearance token copied');
