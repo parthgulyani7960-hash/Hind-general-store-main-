@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { adminService } from '@/services/adminService';
 
 interface PaymentsTabProps {
   fetchWithHandling: <T>(url: string, options?: any) => Promise<T>;
@@ -53,6 +54,9 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
+      adminService.invalidateCache('orders');
+      adminService.invalidateCache('stats');
+      adminService.invalidateCache('wallet_requests');
       await fetchWithHandling('/api/admin/payment-sync-now', { 
         method: 'POST', 
         headers: getAuthHeaders() 
@@ -72,6 +76,8 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
     if (!confirmApprove) return;
 
     try {
+      adminService.invalidateCache('orders');
+      adminService.invalidateCache('stats');
       await fetchWithHandling(`/api/admin/orders/${orderId}/manual-approve`, {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -86,6 +92,8 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
 
   const handleVerifyQR = async (id: string) => {
      try {
+       adminService.invalidateCache('orders');
+       adminService.invalidateCache('stats');
        await fetchWithHandling(`/api/admin/payment-qrs/${id}/verify`, {
           method: 'POST',
           headers: getAuthHeaders()
@@ -99,6 +107,8 @@ export default function PaymentsTab({ fetchWithHandling, getAuthHeaders, toast }
 
   const handleRejectQR = async (id: string) => {
      try {
+       adminService.invalidateCache('orders');
+       adminService.invalidateCache('stats');
        await fetchWithHandling(`/api/admin/payment-qrs/${id}/reject`, {
           method: 'POST',
           headers: getAuthHeaders()

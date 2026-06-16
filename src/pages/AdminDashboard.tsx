@@ -114,7 +114,19 @@ const PromotionsTab = lazyWithRetry(() => import('@/components/admin/tabs/Promot
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, adminTheme, setAdminTheme, simulatedRole, setSimulatedRole, logout, hasPermission } = useStore();
+  const { 
+    user, 
+    adminTheme, 
+    setAdminTheme, 
+    simulatedRole, 
+    setSimulatedRole, 
+    logout, 
+    hasPermission,
+    fetchProducts: refetchGlobalProducts,
+    fetchCategories: refetchGlobalCategories,
+    fetchPromotions: refetchGlobalPromotions,
+    fetchConfig: refetchGlobalConfig
+  } = useStore();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTabState] = useState<Tab>('Overview');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
@@ -1037,6 +1049,8 @@ export default function AdminDashboard() {
   };
 
   const fetchOrders = () => {
+    adminService.invalidateCache('orders');
+    adminService.invalidateCache('stats');
     if (!navigator.onLine) return () => {};
     let q = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
     return onSnapshot(q, (snapshot) => {
@@ -1052,6 +1066,9 @@ export default function AdminDashboard() {
 
   const fetchReturns = async () => {
     try {
+        adminService.invalidateCache('returns');
+        adminService.invalidateCache('orders');
+        adminService.invalidateCache('stats');
         const data = await fetchWithHandling<any[]>('/api/admin/returns', { headers: getAuthHeaders() });
         if (data) {
           setReturns(data);
@@ -1439,6 +1456,7 @@ export default function AdminDashboard() {
   const fetchWalletRequests = async () => {
     if (!navigator.onLine) return;
     try {
+      adminService.invalidateCache('wallet_requests');
       const data = await adminService.getWalletRequests(getAuthHeaders());
       if (data) {
         setWalletRequests(data);
@@ -1604,6 +1622,7 @@ export default function AdminDashboard() {
   const fetchSuppliers = async () => {
     if (!navigator.onLine) return;
     try {
+      adminService.invalidateCache('suppliers');
       const data = await adminService.getSuppliers(getAuthHeaders());
       if (data) {
         setSuppliers(data);
@@ -2041,9 +2060,13 @@ export default function AdminDashboard() {
   const fetchConfig = async () => {
     if (!navigator.onLine) return;
     try {
+      adminService.invalidateCache('config');
       const data = await adminService.getConfig(getAuthHeaders());
       if (data) {
         setConfig(data);
+        if (typeof refetchGlobalConfig === 'function') {
+          refetchGlobalConfig();
+        }
       }
     } catch (err) {
       console.error('Failed to fetch config:', err);
@@ -2053,6 +2076,8 @@ export default function AdminDashboard() {
 
 
   const fetchUsers = () => {
+    adminService.invalidateCache('users');
+    adminService.invalidateCache('stats');
     if (!navigator.onLine) return () => {};
     // Only use REST if explicitly requested or if onSnapshot is unavailable/unstable
     // Removed proactive load to stop multiple API calls
@@ -2085,10 +2110,16 @@ export default function AdminDashboard() {
 
   const fetchAllProducts = async () => {
     try {
+      adminService.invalidateCache('products');
+      adminService.invalidateCache('stats');
+      adminService.invalidateCache('expiring');
       const data = await fetchWithHandling<any[]>('/api/products', { headers: getAuthHeaders() });
       if (data) {
         setAllProducts(data);
         setLowStockProducts(data.filter((p: any) => p.stock <= (p.reorder_point || 5)));
+        if (typeof refetchGlobalProducts === 'function') {
+          refetchGlobalProducts();
+        }
       }
     } catch (err) {
       console.error('Products fetch error:', err);
@@ -2097,9 +2128,13 @@ export default function AdminDashboard() {
 
   const fetchCategories = async () => {
     try {
+      adminService.invalidateCache('categories');
       const data = await adminService.getCategories(getAuthHeaders());
       if (data) {
         setCategories(data);
+        if (typeof refetchGlobalCategories === 'function') {
+          refetchGlobalCategories();
+        }
       }
     } catch (err) {
       console.error('Categories fetch error:', err);
@@ -2158,9 +2193,13 @@ export default function AdminDashboard() {
     if (!navigator.onLine) return;
     setLoading(true);
     try {
+      adminService.invalidateCache('promotions');
       const data = await fetchWithHandling<any[]>('/api/promotions', { headers: getAuthHeaders() });
       if (data) {
         setPromotions(data);
+        if (typeof refetchGlobalPromotions === 'function') {
+          refetchGlobalPromotions();
+        }
       }
     } catch (err) {
       console.error('Promotions fetch error:', err);
@@ -2173,6 +2212,7 @@ export default function AdminDashboard() {
     if (!navigator.onLine) return;
     setLoading(true);
     try {
+      adminService.invalidateCache('promo_rules');
       const data = await adminService.getPromotionRules(getAuthHeaders());
       if (data) {
         setPromotionRules(data);
@@ -2188,6 +2228,7 @@ export default function AdminDashboard() {
     if (!navigator.onLine) return;
     setLoading(true);
     try {
+      adminService.invalidateCache('bulk_discounts');
       const data = await adminService.getBulkDiscounts(getAuthHeaders());
       if (data) {
         setBulkDiscounts(data);

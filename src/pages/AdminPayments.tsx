@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
 import { cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
+import { adminService } from '@/services/adminService';
 
 interface EmailLog {
   id: number;
@@ -76,6 +77,9 @@ export default function AdminPayments() {
   const syncNow = async () => {
     setIsLoading(true);
     try {
+      adminService.invalidateCache('orders');
+      adminService.invalidateCache('stats');
+      adminService.invalidateCache('wallet_requests');
       const data = await fetchWithHandling<any>('/api/admin/payment-sync-now', { 
         method: 'POST',
         headers: getAuthHeaders()
@@ -121,6 +125,8 @@ export default function AdminPayments() {
     if (reason === null) return;
     
     try {
+      adminService.invalidateCache('orders');
+      adminService.invalidateCache('stats');
       const data = await fetchWithHandling<any>(`/api/admin/orders/${orderId}/manual-approve`, {
         method: 'POST',
         headers: getAuthHeaders(),

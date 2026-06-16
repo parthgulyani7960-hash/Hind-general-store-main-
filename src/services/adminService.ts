@@ -33,6 +33,15 @@ async function fetchCached<T>(key: string, fetchFn: () => Promise<T>): Promise<T
 }
 
 export const adminService = {
+  invalidateCache: (key?: string) => {
+    if (key) {
+      delete cache[key];
+    } else {
+      Object.keys(cache).forEach(k => {
+        delete cache[k];
+      });
+    }
+  },
   getStats: (headers: any) => fetchCached('stats', () => fetchWithHandling<any>('/api/admin/stats', { headers })),
   getOrders: (headers: any) => fetchCached('orders', () => fetchWithHandling<any[]>('/api/admin/orders', { headers })),
   getProducts: (headers: any) => fetchCached('products', () => fetchWithHandling<any[]>('/api/admin/products', { headers })),
