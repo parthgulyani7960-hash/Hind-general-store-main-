@@ -4414,7 +4414,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   }
 
   app.post('/api/admin/make-admin', requireAdmin, async (req, res) => {
-    const { email } = req.body;
+    const { email, duration } = req.body;
     if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
     if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Firebase not connected' });
     
@@ -4426,34 +4426,47 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       const adminUser = await db.collection('users').doc(String(req.session.userId)).get();
       const adminEmail = adminUser.data()?.email || 'admin';
 
-      // 1. Add to whitelisted 'admin_whitelist' collection
-      const adminRef = db.collection('admin_whitelist').doc(sanitized);
-      const adminDoc = await adminRef.get();
-      
-      const adminPayload = {
+      // Calculate expiration
+      let isPermanent = duration === 'permanent';
+      let expiresAt = null;
+      if (!isPermanent && duration) {
+          const hours = parseInt(duration);
+          if (!isNaN(hours)) {
+              const d = new Date();
+              d.setHours(d.getHours() + hours);
+              expiresAt = d.toISOString();
+          }
+      }
+
+      // Add to admin_whitelist
+      await db.collection('admin_whitelist').doc(sanitized).set({
          email: sanitized,
          addedBy: adminEmail,
          addedAt: new Date().toISOString(),
-         status: 'active',
-         lastLogin: adminDoc.exists ? (adminDoc.data()?.lastLogin || null) : null
-      };
+         expiresAt,
+         isPermanent,
+         status: 'active'
+      }, { merge: true });
       
-      await adminRef.set(adminPayload);
+      res.json({ success: true, message: 'Access granted successfully!' });
+    } catch (err) {
+      console.error('Failed to grant admin access:', err);
+      res.status(500).json({ success: false, message: 'Failed to grant access.' });
+    }
+  });
 
-      // 2. If user already exists, update their role instantly
-      const snap = await db.collection('users').where('email', '==', sanitized).get();
-      if (!snap.empty) {
-        for (const doc of snap.docs) {
-          await doc.ref.update({ role: 'admin' });
-        }
-      }
-
-      // Log activity
-      await logAdminActivity(req, 'ADD_ADMIN_WHITELIST', { email: sanitized, message: `Admin ${adminEmail} whitelisted ${sanitized} for admin access.` });
-
-      res.json({ success: true, message: 'Admin email whitelisted successfully.' });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
+  app.post('/api/admin/revoke-admin', requireAdmin, async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+    
+    try {
+      const db = getFirestoreInstance();
+      const sanitized = sanitizeEmail(email);
+      await db.collection('admin_whitelist').doc(sanitized).delete();
+      res.json({ success: true, message: 'Access revoked successfully!' });
+    } catch (err) {
+      console.error('Failed to revoke admin access:', err);
+      res.status(500).json({ success: false, message: 'Failed to revoke access.' });
     }
   });
 

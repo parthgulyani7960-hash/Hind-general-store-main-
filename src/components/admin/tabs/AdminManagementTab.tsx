@@ -64,37 +64,45 @@ export default function AdminManagementTab({
           e.preventDefault();
           const form = e.currentTarget;
           const emailInput = form.elements.namedItem('email') as HTMLInputElement;
+          const durationInput = form.elements.namedItem('duration') as HTMLSelectElement;
           const emailValue = emailInput?.value?.trim();
+          const durationValue = durationInput?.value;
           if (!emailValue) return;
           try {
             const data = await fetchWithHandling<{ success: boolean; message?: string }>('/api/admin/make-admin', {
               method: 'POST',
               headers: getAuthHeaders(),
-              body: JSON.stringify({ email: emailValue })
+              body: JSON.stringify({ email: emailValue, duration: durationValue })
             });
             if (data && data.success) {
-              toast.success(data.message || 'Email whitelisted successfully!');
+              toast.success(data.message || 'Access granted!');
               if (emailInput) emailInput.value = '';
               fetchAdmins();
             } else {
-              toast.error(data?.message || 'Failed to whitelist email.');
+              toast.error(data?.message || 'Failed to grant access.');
             }
           } catch (err: any) {
-            toast.error(err.message || 'Failed to complete whitelist request.');
+            toast.error(err.message || 'Failed to complete process.');
           }
         }} className="flex gap-2 w-full md:w-auto shrink-0">
           <input 
             type="email"
             name="email"
             required
-            placeholder="Enter admin email to whitelist..."
+            placeholder="Enter admin email..."
             className="w-full md:w-80 px-5 py-4 bg-white border border-stone-200 rounded-2xl outline-none focus:border-stone-900 text-sm font-bold shadow-sm"
           />
+          <select name="duration" className="px-3 py-4 bg-white border border-stone-200 rounded-2xl text-sm font-bold shadow-sm">
+             <option value="permanent">Permanent</option>
+             <option value="1">1 Hour</option>
+             <option value="24">24 Hours</option>
+             <option value="168">1 Week</option>
+          </select>
           <button 
             type="submit"
             className="px-6 py-4 bg-stone-950 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-stone-800 transition-all shadow-md shrink-0 animate-pulse"
           >
-            Add Whitelist
+            Grant Admin
           </button>
         </form>
       </div>
@@ -104,11 +112,11 @@ export default function AdminManagementTab({
           <table className="w-full text-left font-sans">
             <thead className="bg-stone-50/50 text-stone-400 text-[10px] uppercase font-black tracking-[0.25em]">
               <tr>
-                <th className="px-10 py-8">Administrator Identity</th>
-                <th className="px-6 py-8">Role Tier</th>
-                <th className="px-6 py-8">State Persistence</th>
-                <th className="px-6 py-8">Last Node Access</th>
-                <th className="px-10 py-8 text-right">Governance</th>
+                <th className="px-10 py-8">Administrator</th>
+                <th className="px-6 py-8">Access Type</th>
+                <th className="px-6 py-8">Expires</th>
+                <th className="px-6 py-8">Status</th>
+                <th className="px-10 py-8 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-50">
@@ -126,76 +134,47 @@ export default function AdminManagementTab({
                         <Shield size={18} />
                       </div>
                       <div className="flex flex-col items-start">
-                        <p className="text-sm font-black text-stone-900 text-left">{adm.name || 'Admin Entity'}</p>
+                        <p className="text-sm font-black text-stone-900 text-left">{adm.name || 'Admin'}</p>
                         <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest text-left">{adm.email}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-7">
-                    <span className={cn(
+                     <span className={cn(
                       "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border",
-                      adm.role === 'owner' ? "bg-purple-50 text-purple-600 border-purple-100" :
-                      adm.role === 'admin' ? "bg-red-50 text-red-600 border-red-100" :
-                      "bg-blue-50 text-blue-600 border-blue-100"
-                    )}>
-                      {adm.role}
-                    </span>
+                      adm.isPermanent ? "bg-purple-50 text-purple-600 border-purple-100" : "bg-blue-50 text-blue-600 border-blue-100"
+                     )}>
+                       {adm.isPermanent ? 'Permanent' : 'Temporary'}
+                     </span>
+                  </td>
+                  <td className="px-6 py-7 text-[10px] font-bold text-stone-600">
+                    {adm.expiresAt ? new Date(adm.expiresAt).toLocaleString() : 'N/A'}
                   </td>
                   <td className="px-6 py-7">
-                     <div className="flex items-center space-x-2">
-                       <div className={cn("w-2 h-2 rounded-full shrink-0", adm.status === 'disabled' ? 'bg-red-500' : 'bg-emerald-500')} />
-                       <span className="text-[10px] font-black text-stone-800 uppercase tracking-widest">
-                         {adm.status === 'disabled' ? 'Disabled' : 'Operational'}
-                       </span>
-                     </div>
-                  </td>
-                  <td className="px-6 py-7 whitespace-nowrap">
-                    <div className="flex flex-col items-start">
-                      <span className="text-[11px] font-black text-stone-800">
-                        {adm.last_login_at ? new Date(adm.last_login_at).toLocaleString() : 'Never accessed'}
+                      <div className={cn("w-2 h-2 rounded-full", adm.status === 'active' ? 'bg-emerald-500' : 'bg-red-500')} />
+                      <span className="text-[10px] font-black text-stone-800 uppercase tracking-widest">
+                         {adm.status === 'active' ? 'Active' : 'Disabled'}
                       </span>
-                    </div>
                   </td>
                   <td className="px-10 py-7 text-right">
-                    <div className="flex justify-end space-x-3">
-                       <button
-                         onClick={async () => {
-                           const status = adm.status === 'disabled' ? 'active' : 'disabled';
-                           try {
-                             await fetchWithHandling(`/api/admin/admins/${adm.id}/status`, {
-                               method: 'POST',
-                               headers: getAuthHeaders(),
-                               body: JSON.stringify({ status })
-                             });
-                             toast.success(`Admin ${status === 'active' ? 'enabled' : 'disabled'}`);
-                             fetchAdmins();
-                           } catch (err) {}
-                         }}
-                         className={cn(
-                           "px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                           adm.status === 'disabled' ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" : "bg-amber-50 text-amber-600 hover:bg-amber-100"
-                         )}
-                       >
-                         {adm.status === 'disabled' ? 'Enable' : 'Disable'}
-                       </button>
-                       <button
-                         onClick={async () => {
-                           if (window.confirm(`Are you sure you want to revoke admin rights for ${adm.email}?`)) {
-                             try {
-                               await fetchWithHandling(`/api/admin/admins/${adm.id}/revoke`, {
-                                 method: 'POST',
-                                 headers: getAuthHeaders()
-                               });
-                               toast.success('Admin rights revoked');
-                               fetchAdmins();
-                             } catch (err) {}
-                           }
-                         }}
-                         className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all whitespace-nowrap"
-                       >
-                         Revoke Access
-                       </button>
-                    </div>
+                    <button
+                      onClick={async () => {
+                        if (window.confirm('Revoke access?')) {
+                          try {
+                            await fetchWithHandling(`/api/admin/revoke-admin`, {
+                              method: 'POST',
+                              headers: getAuthHeaders(),
+                              body: JSON.stringify({ email: adm.email })
+                            });
+                            toast.success('Access revoked');
+                            fetchAdmins();
+                          } catch (err) {}
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all"
+                    >
+                      Revoke
+                    </button>
                   </td>
                 </motion.tr>
               ))}

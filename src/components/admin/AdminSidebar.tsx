@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone, Bell,
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
   Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus,
-  Terminal, ShieldCheck, Sparkles
+  Terminal, ShieldCheck, Sparkles, Cpu
 } from 'lucide-react';
 import { cn } from '@/types';
 
