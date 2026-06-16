@@ -151,7 +151,7 @@ export default function Products() {
   const filteredProducts = useMemo(() => {
     const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
     
-    const base = products.filter(p => {
+    const base = (products || []).filter(p => {
       const activePrice = getProductPrice(p, user?.role);
       
       const searchableText = `${p.name} ${p.description} ${p.category}`.toLowerCase();

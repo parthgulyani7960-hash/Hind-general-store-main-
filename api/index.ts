@@ -26,8 +26,19 @@ export default async function apiEntryPoint(req: any, res: any) {
   try {
     console.log(`[BOOT ${reqId}] Dynamically importing ../dist/server.cjs...`);
     const module = await import('../dist/server.cjs');
-    handler = module.default || module;
-    console.log(`[BOOT ${reqId}] Import success, type:`, typeof handler);
+    
+    // Robust detection of default handler under ES / CommonJS module interop nesting
+    if (module && typeof module.default === 'function') {
+      handler = module.default;
+    } else if (module && module.default && typeof module.default.default === 'function') {
+      handler = module.default.default;
+    } else if (typeof module === 'function') {
+      handler = module;
+    } else {
+      handler = module.default || module;
+    }
+    
+    console.log(`[BOOT ${reqId}] Import success, final handler type:`, typeof handler);
   } catch (importErr: any) {
     console.error(`[CRITICAL ${reqId}] Failed to import ../dist/server.cjs:`, importErr.message);
     console.error(importErr.stack);
@@ -60,7 +71,32 @@ export default async function apiEntryPoint(req: any, res: any) {
   } catch (err: any) {
     console.error(`[FATAL ${reqId}] API Entry Point Crash:`, err.message);
     console.error(err.stack);
+
+    const isPermissionError = err.code === 'permission-denied' || 
+                              err.message?.toLowerCase().includes('permission-denied') || 
+                              err.message?.toLowerCase().includes('insufficient permissions');
+    const isAuthError = err.code === 'unauthenticated' || 
+                        err.message?.toLowerCase().includes('unauthenticated') || 
+                        err.message?.toLowerCase().includes('auth-error') ||
+                        err.state === 401 || err.state === 403;
+
     if (!res.headersSent) {
+      if (isPermissionError) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'You do not have permission to access this resource or perform this action.',
+          requestId: reqId
+        });
+      }
+      if (isAuthError) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+          message: 'Authentication session expired or missing token. Please sign in.',
+          requestId: reqId
+        });
+      }
       res.status(500).json({ 
         success: false,
         bootPhase: 'HANDLER_EXECUTION',
