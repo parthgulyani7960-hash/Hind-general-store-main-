@@ -1,7 +1,7 @@
 import {StrictMode, useEffect} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
-import { StoreProvider } from './StoreContext';
+
 import './index.css';
 import 'leaflet/dist/leaflet.css';
 import AppCrashBoundary from './components/AppCrashBoundary';

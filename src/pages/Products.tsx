@@ -125,22 +125,26 @@ export default function Products() {
     }
 
     // Real-Time Inventory Management Socket.io
-    const socket = io();
-    
-    socket.on('data', (data) => {
-      if (isMounted && data.type === 'INVENTORY_UPDATE') {
-        setProducts(prevProducts => prevProducts.map(p => {
-          if (p.id === data.product_id) {
-            return { ...p, stock: data.stock };
-          }
-          return p;
-        }));
-      }
-    });
+    let socket: any;
+    try {
+      socket = io();
+      socket.on('data', (data) => {
+        if (isMounted && data.type === 'INVENTORY_UPDATE') {
+          setProducts(prevProducts => prevProducts.map(p => {
+            if (p.id === data.product_id) {
+              return { ...p, stock: data.stock };
+            }
+            return p;
+          }));
+        }
+      });
+    } catch (e) {
+      console.warn('[Products] Socket.io failed to initialize', e);
+    }
 
     return () => {
       isMounted = false;
-      socket.disconnect();
+      if (socket) socket.disconnect();
     };
   }, [user?.id, user?.role]);
 
@@ -211,7 +215,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
 };
 
   const storeCategories = useMemo(() => {
-    const list = globalCategories.map(c => c.name);
+    const list = (globalCategories || []).map(c => c.name);
     return ['All', ...list];
   }, [globalCategories]);
 
@@ -326,7 +330,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
     </div>
   );
 
-  const isFilterActive = selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && products.length > 0 && maxPrice !== Math.max(...products.map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance';
+  const isFilterActive = selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || (maxPrice !== '' && (products || []).length > 0 && maxPrice !== Math.max(...(products || []).map(p => getProductPrice(p, user?.role))).toString()) || sortBy !== 'relevance';
 
   // Rendering Main Return
   
@@ -845,7 +849,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                         setSelectedCategory('All'); 
                         setSelectedRating(null); 
                         setMinPrice('0'); 
-                        const maxP = Math.max(...products.map(p => getProductPrice(p, user?.role)));
+                        const maxP = (products || []).length > 0 ? Math.max(...(products || []).map(p => getProductPrice(p, user?.role))) : 0;
                         setMaxPrice(maxP.toString());
                         setOnSaleOnly(false);
                         setSortBy('relevance');
@@ -879,6 +883,8 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
           <h3 className="text-xl font-bold text-stone-900 mb-4">Unable to load products</h3>
           <button onClick={fetchProducts} className="px-6 py-3 bg-stone-900 text-white rounded-xl font-bold">Retry Connection</button>
         </div>
+      ) : !filteredProducts ? (
+        <div className="py-20 text-center">Loading...</div>
       ) : (
         <motion.div 
         layout
@@ -897,7 +903,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
       >
         <AnimatePresence mode="popLayout">
         {filteredProducts.map((product) => {
-          const cartItem = cart.find(item => item.id === product.id);
+          const cartItem = (cart || []).find(item => item.id === product.id);
           
           return (
             <motion.div 

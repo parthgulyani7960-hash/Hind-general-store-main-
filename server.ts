@@ -147,8 +147,8 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import NodeCache from 'node-cache';
 
-console.log('[BOOT STEP 1.1] All imports completed successfully');
 
+console.log('[BOOT STEP 1.1] All imports completed successfully');
 
 const responseCache = new NodeCache({ stdTTL: 300 });
 
@@ -5672,9 +5672,13 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.post('/api/support/tickets', async (req, res) => {
     const { user_id, name, email, subject, message, image_url } = req.body;
-    if (!isFirebaseReady) return res.status(500).json({ success: false, message: 'Currently offline.' });
+    if (!isFirebaseReady) {
+      console.error('[SupportTicket] Firebase not ready');
+      return res.status(500).json({ success: false, message: 'Currently offline.' });
+    }
     try {
-      const docRef = await getFirestoreInstance().collection('support_tickets').add({
+      const db = getFirestoreInstance();
+      const docRef = await db.collection('support_tickets').add({
          user_id: user_id || null, 
          name: name || null, 
          email: email || null, 
@@ -5694,7 +5698,10 @@ const auditAdminAction = (req: any, res: any, next: any) => {
       createNotification('New Support Ticket', `Subject: ${subject} from ${name || email || 'Anonymous'}`, 'system', 'medium', 'admin');
 
       res.json({ success: true, ticketId });
-    } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
+    } catch(e: any) { 
+      console.error('[SupportTicket] Error creating ticket:', e);
+      res.status(500).json({ success: false, message: 'Internal server error: ' + e.message }); 
+    }
   });
 
   app.get('/api/admin/support/tickets', requireAdmin, async (req, res) => {
@@ -5842,40 +5849,47 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         network_status, request_payload, metadata 
       } = req.body;
       
-      if (admin.apps.length) {
-         try {
-           await getFirestoreInstance().collection('bug_reports').add({
-             user_id: user_id || null, 
-             reporter_name: reporter_name || 'System Auto', 
-             message: message || '', 
-             why: why || '', 
-             path: path || '', 
-             action_log: action_log || '',
-             type: type || 'REPORTER',
-             component: component || '',
-             api_endpoint: api_endpoint || '',
-             device_info: device_info || '',
-             screen_resolution: screen_resolution || '',
-             network_status: network_status || '',
-             request_payload: JSON.stringify(request_payload || {}),
-             metadata: JSON.stringify(metadata || {}),
-             status: 'open',
-             created_at: new Date().toISOString()
-           });
-           
-           // Notify admins of new critical incidents
-           if (type === 'CRITICAL_ERROR' || type === 'SYSTEM_ERROR' || type === 'RENDER_ERROR') {
-              await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
-           }
-         } catch (dbErr: any) {
-           console.error('[BUG_REPORT_DB_FAIL]', dbErr.message);
-         }
+      if (!isFirebaseReady) {
+        console.error('[BUG_REPORT] Firebase not ready, cannot log report.');
+        return res.status(503).json({ success: false, message: 'Currently offline.' });
+      }
+
+      try {
+        const db = getFirestoreInstance();
+        await db.collection('bug_reports').add({
+              user_id: user_id || null, 
+              reporter_name: reporter_name || 'System Auto', 
+              message: message || '', 
+              why: why || '', 
+              path: path || '', 
+              action_log: action_log || '',
+              type: type || 'REPORTER',
+              component: component || '',
+              api_endpoint: api_endpoint || '',
+              device_info: device_info || '',
+              screen_resolution: screen_resolution || '',
+              network_status: network_status || '',
+              request_payload: JSON.stringify(request_payload || {}),
+              metadata: JSON.stringify(metadata || {}),
+              status: 'open',
+              created_at: new Date().toISOString()
+        });
+        
+        // Notify admins of new critical incidents
+        if (type === 'CRITICAL_ERROR' || type === 'SYSTEM_ERROR' || type === 'RENDER_ERROR') {
+            await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
+        }
+      } catch (dbErr: any) {
+        console.error('[BUG_REPORT_DB_FAIL]', dbErr);
+        // Do not necessarily return 500 if DB save fails, maybe just log it. But user requested no 500s.
+        // I will return 500 here to indicate failure to store.
+        return res.status(500).json({ success: false, error: 'Database error: ' + dbErr.message });
       }
       
       return res.json({ success: true, message: 'Intel packet captured and stored.' });
     } catch (e: any) {
       console.error('[ROUTE FAILURE] /api/bugs/report', e.message);
-      res.status(500).json({ error: 'Core capture failure' });
+      res.status(500).json({ error: 'Core capture failure: ' + e.message });
     }
   });
 
@@ -9687,6 +9701,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
     if (res.headersSent) {
       return next(err);
+    }
+
+    const isPermissionError = err.code === 'permission-denied' || 
+                              err.message?.toLowerCase().includes('permission-denied') || 
+                              err.message?.toLowerCase().includes('insufficient permissions');
+    const isAuthError = err.code === 'unauthenticated' || 
+                        err.message?.toLowerCase().includes('unauthenticated') || 
+                        err.message?.toLowerCase().includes('auth-error') ||
+                        err.state === 401 || err.state === 403;
+
+    if (isPermissionError) {
+      return res.status(403).json({
+        success: false,
+        requestId,
+        error: 'Forbidden',
+        message: 'You do not have permission to access this resource or perform this action.'
+      });
+    }
+
+    if (isAuthError) {
+      return res.status(401).json({
+        success: false,
+        requestId,
+        error: 'Unauthorized',
+        message: 'Authentication session expired or missing token. Please sign in.'
+      });
     }
     
     const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';

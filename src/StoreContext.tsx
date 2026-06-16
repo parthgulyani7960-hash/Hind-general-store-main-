@@ -735,78 +735,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (initialCheckDone.current) {
-        logger.debug('StoreProvider was already initialized, skipping');
+        logger.debug('StoreProvider re-mounted, skipping initialization');
         return;
     }
     initialCheckDone.current = true;
     
     let unsubscribe: any;
-
-    const initialize = async () => {
-      console.log('STORE_INIT_START');
-      let isInitFinished = false;
-      
-      const finalizeInit = () => {
-        if (isInitFinished) return;
-        isInitFinished = true;
-        isInitialized.current = true;
-        setIsAuthChecking(false);
-        setIsInitialAuthPerformed(true);
-        console.log('STORE_INIT_COMPLETE');
-      };
-
-      try {
-        logger.info('[BOOT] Starting store context initialization...');
-        
-        // Fast path: if there is a saved token, check/validate it immediately
-        const savedToken = localStorage.getItem('hgs_token');
-        const hasSavedUser = !!localStorage.getItem('hgs_user');
-        
-        // If we have token AND user, we can show UI immediately while revalidating in background
-        if (savedToken && hasSavedUser) {
-          finalizeInit();
-        }
-
-        // Fire all asset loadings concurrently in the background
-        Promise.allSettled([
-          checkMaintenance(),
-          fetchConfig(),
-          fetchCategories(),
-          fetchAnnouncements()
-        ]).then(() => {
-          logger.info('[BOOT] Background core assets fetching completed');
-        });
-
-        // Auth initialization
-        if (auth && typeof auth.authStateReady === 'function') {
-          auth.authStateReady()
-            .then(async () => {
-              console.log('AUTH_STATE_READY');
-              const firebaseUser = auth?.currentUser;
-              if (firebaseUser) {
-                const token = await firebaseUser.getIdToken();
-                localStorage.setItem('hgs_token', token);
-                await checkAuth(token);
-              }
-              finalizeInit();
-            })
-            .catch((e: any) => {
-              logger.warn('[BOOT] Auth state ready check errored:', e.message);
-              finalizeInit();
-            });
-        } else {
-          // Fallback if authStateReady is not available
-          const token = localStorage.getItem('hgs_token');
-          if (token) await checkAuth(token);
-          finalizeInit();
-        }
-
-      } catch (err: any) {
-        logger.error('[BOOT] Initialization error:', err.message);
-        finalizeInit();
-      }
-      
-      unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+    
+    // Restore session immediately if local token exists
+    const savedToken = localStorage.getItem('hgs_token');
+    if (savedToken) {
+      checkAuth(savedToken).catch(err => {
+        logger.warn('[BOOT] Initial checkAuth failed:', err);
+      });
+    }
+    
+    // Auth initialization is already handled in firebase.ts.
+    // Just set up the listener.
+    unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           const token = await firebaseUser.getIdToken();
           if (token !== localStorage.getItem('hgs_token')) {
@@ -821,30 +767,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
       });
-    };
     
-    initialize();
-    
-    const authErrListener = () => {
-      setUser(null);
-    };
-    const dbErrListener = () => {
-      setDbError(true);
-    };
-    const forceBypassListener = () => {
-      console.warn('[RECOVERY] Force bypass loading state event triggered.');
-      setIsAuthChecking(false);
-      setIsInitialAuthPerformed(true);
-    };
+    // Auth error listeners
+    const authErrListener = () => { setUser(null); };
+    const dbErrListener = () => { setDbError(true); };
     window.addEventListener('auth_error', authErrListener);
     window.addEventListener('database_error', dbErrListener);
-    window.addEventListener('force_bypass_loading', forceBypassListener);
     
     return () => {
       if (unsubscribe) unsubscribe();
       window.removeEventListener('auth_error', authErrListener);
       window.removeEventListener('database_error', dbErrListener);
-      window.removeEventListener('force_bypass_loading', forceBypassListener);
     };
   }, []);
 

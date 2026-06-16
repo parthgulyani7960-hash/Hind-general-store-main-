@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 import { Download, Printer, ArrowLeft, CheckCircle2, CheckCircle, Package, Truck, Home, Clock, XCircle, ShieldAlert, FileText, RefreshCw, Sparkles, Receipt, CheckSquare } from 'lucide-react';
 
-import { StoreProvider, useStore } from '@/StoreContext';
+import { useStore } from '@/StoreContext';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, amountToWords } from '@/lib/utils';
 

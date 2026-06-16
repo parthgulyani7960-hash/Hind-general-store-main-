@@ -24,17 +24,26 @@ service cloud.firestore {
     // Enhanced Admin check: prioritized and cached-friendly
     function isAdmin() { 
       return isSignedIn() && (
-        // Part 1: Fast Token Check
         request.auth.token.email == 'parthgulyani7960@gmail.com' ||
         request.auth.token.admin == true ||
-        
-        // Part 2: Role Document Check
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-         
-        // Part 3: Whitelist Check
         exists(/databases/$(database)/documents/admin_whitelist/$(request.auth.token.email))
       ); 
+    }
+    
+    function isCustomer() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'customer'
+      );
+    }
+    
+    function isDelivery() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'delivery'
+      );
     }
 
     // --- User Profiles ---
@@ -67,13 +76,14 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         resource.data.userId == request.auth.uid || 
         resource.data.user_id == request.auth.uid || 
-        isAdmin()
+        isAdmin() ||
+        isDelivery()
       );
       allow create: if isSignedIn() && (
         incoming().userId == request.auth.uid || 
         incoming().user_id == request.auth.uid
       );
-      allow update: if isAdmin();
+      allow update: if isAdmin() || isDelivery();
     }
 
     // --- Purchase Records ---
