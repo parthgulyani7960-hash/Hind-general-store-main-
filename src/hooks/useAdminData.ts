@@ -35,10 +35,10 @@ const adminFetcher = async (key: string) => {
 };
 
 const DEFAULT_CONFIG: SWRConfiguration = {
-  refreshInterval: 30000, // 30 seconds
+  refreshInterval: 10000, // 10 seconds for more immediate updates
   revalidateOnFocus: true,
   revalidateOnReconnect: true,
-  dedupingInterval: 5000,
+  dedupingInterval: 3000,
 };
 
 export const useAdminStats = (config?: SWRConfiguration) => {

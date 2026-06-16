@@ -52,18 +52,24 @@ const menuGroups = [
     ]
   },
   {
-    label: 'System',
+    label: 'Developer',
     items: [
-      { name: 'Admin Management', label: 'Admin Ops', icon: Shield },
-      { name: 'Roles', label: 'Role Manager', icon: UserCog },
-      { name: 'Store Settings', label: 'Settings', icon: Settings },
-      { name: 'Feature Toggles', label: 'Feature Toggles', icon: ToggleLeft },
+      { name: 'Api Monitor', label: 'API Monitor', icon: Cpu },
       { name: 'System Status', label: 'System Health', icon: Activity },
       { name: 'System Logs', label: 'Dev Logs', icon: Terminal },
       { name: 'Audit Logs', label: 'Audit Trail', icon: ClipboardList },
       { name: 'Data Exports', label: 'Data Warehouse', icon: PackagePlus },
       { name: 'Security Audit', label: 'Security Audit', icon: ShieldCheck },
       { name: 'Automatic Reports', label: 'Anomalies', icon: Bug },
+    ]
+  },
+  {
+    label: 'System',
+    items: [
+      { name: 'Admin Management', label: 'Admin Ops', icon: Shield },
+      { name: 'Roles', label: 'Role Manager', icon: UserCog },
+      { name: 'Store Settings', label: 'Settings', icon: Settings },
+      { name: 'Feature Toggles', label: 'Feature Toggles', icon: ToggleLeft },
     ]
   }
 ];

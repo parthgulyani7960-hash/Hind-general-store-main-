@@ -112,52 +112,29 @@ service cloud.firestore {
       }
     }
 
-    // --- Settings & Delivery ---
-    match /settings/{key} {
-      allow read: if true; 
-      allow write: if isAdmin();
-    }
-    match /delivery_areas/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // --- Logs & Debugging ---
-    match /bug_reports/{reportId} {
-      allow create: if true;
-      allow read: if isAdmin();
-    }
-    match /error_logs/{logId} {
-      allow create: if true;
-      allow read: if isAdmin();
-    }
-    match /system_logs/{id} {
-      allow create: if true;
-      allow read: if isAdmin();
-    }
-    match /audit_logs/{logId} { 
-      allow read: if isAdmin(); 
-      allow create: if true;
-    }
-    match /suspicious_activities/{id} {
-      allow create: if true;
-      allow read: if isAdmin();
-    }
-
-    // --- Other Collections ---
-    match /reviews/{reviewId} { 
-      allow read: if true; 
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin(); 
-    }
+    // --- Support Tickets (support_tickets) ---
     match /support_tickets/{ticketId} { 
-      allow read: if isSignedIn() && (resource.data.user_id == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin()); 
+      allow read: if isSignedIn() && (
+        resource.data.user_id == request.auth.uid || 
+        resource.data.userId == request.auth.uid || 
+        isAdmin()
+      ); 
       allow create: if isSignedIn();
-      allow update: if isAdmin();
-    }
-    match /promotions/{promoId} { 
-      allow read: if true; 
-      allow write: if isAdmin(); 
+      allow update: if isAdmin() || (
+        isSignedIn() && (
+          resource.data.user_id == request.auth.uid || 
+          resource.data.userId == request.auth.uid
+        )
+      );
+      
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.user_id == request.auth.uid ||
+          get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userId == request.auth.uid ||
+          isAdmin()
+        );
+        allow create: if isSignedIn();
+      }
     }
   }
 }

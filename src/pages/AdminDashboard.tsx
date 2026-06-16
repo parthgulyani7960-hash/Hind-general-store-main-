@@ -94,7 +94,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Api Monitor';
 
 import { lazyWithRetry } from '@/lib/lazyLoader';
 import { ComponentCrashBoundary } from '@/components/AppCrashBoundary';
@@ -112,6 +112,7 @@ const UPIWebhookLogsTab = lazyWithRetry(() => import('@/components/admin/tabs/UP
 const DataExportsTab = lazyWithRetry(() => import('@/components/admin/tabs/DataExportsTab'), 'Exports');
 const AnnouncementsTab = lazyWithRetry(() => import('@/components/admin/tabs/AnnouncementsTab'), 'Announcements');
 const PromotionsTab = lazyWithRetry(() => import('@/components/admin/tabs/PromotionsTab'), 'Promotions');
+const ApiMonitorTab = lazyWithRetry(() => import('@/components/admin/tabs/ApiMonitorTab'), 'ApiMonitor');
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -536,21 +537,20 @@ export default function AdminDashboard() {
 
     let mounted = true;
 
-    // Centralized interval (Reduced frequency: every 60s for health, 2m for stats)
+    // Centralized interval (Reduced frequency: every 30s for health/stats)
     // Only happens if the document is visible to save battery and network
     const pollingInterval = setInterval(() => {
       if (!mounted || !navigator.onLine || document.hidden || !isAutoRefresh) return;
       
-      // Health check runs every 60s
+      // Health check runs every 30s
       checkHealth();
 
-      // Stats fetch runs every 2 minutes (every 2nd tick)
-      // but only if on Overview tab or Analytics tab to avoid useless background calls
+      // Stats fetch runs every 30s as well
       const needsStats = activeTabRef.current === 'Overview' || activeTabRef.current === 'Analytics';
       if (needsStats) {
         fetchStats(true); 
       }
-    }, 60000);
+    }, 30000);
 
     return () => {
       mounted = false;
@@ -672,6 +672,8 @@ export default function AdminDashboard() {
               return <NewsletterTab />;
             case 'UPI Webhook Logs':
               return <UPIWebhookLogsTab />;
+            case 'Api Monitor':
+              return <ApiMonitorTab />;
             case 'System Logs':
               return <SystemLogsTab />;
             case 'Data Exports':

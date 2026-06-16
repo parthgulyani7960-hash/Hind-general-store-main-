@@ -158,7 +158,7 @@ setTimeout(() => {
     // We can't easily re-trigger the state inside StoreContext from here,
     // but at least we log it and can suggest a page reload or similar.
   }
-}, 10000);
+}, 2000);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

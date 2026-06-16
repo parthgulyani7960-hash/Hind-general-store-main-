@@ -114,39 +114,61 @@ export default function Products() {
     };
   }, [isFilterOpen]);
 
-  const lastFetchRef = useRef<string>('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
+
+  // Reset pagination when filters change
   useEffect(() => {
-    let isMounted = true;
-    const currentKey = `${user?.id}-${user?.role}`;
-    
-    // Initial fetch from global context
-    if (products.length === 0) {
-      fetchProducts();
+    setPage(1);
+    setHasMore(true);
+    fetchProducts({ 
+      page: 1, 
+      limit: 20, 
+      search: searchTerm, 
+      category: selectedCategory, 
+      sortBy: sortBy,
+      append: false 
+    }).then(count => {
+      if (count < 20) setHasMore(false);
+      else setHasMore(true);
+    });
+  }, [searchTerm, selectedCategory, sortBy]);
+
+  // Infinite Scroll Observer
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMore && !isLoadingProducts) {
+        const nextPage = page + 1;
+        setPage(nextPage);
+        fetchProducts({ 
+          page: nextPage, 
+          limit: 20, 
+          search: searchTerm, 
+          category: selectedCategory, 
+          sortBy: sortBy,
+          append: true 
+        }).then((count) => {
+          if (count < 20) {
+            setHasMore(false);
+          }
+        });
+      }
+    }, { threshold: 0.1 });
+
+    if (scrollSentinelRef.current) {
+      observer.observe(scrollSentinelRef.current);
     }
 
-    // Real-Time Inventory Management Socket.io
-    let socket: any;
-    try {
-      socket = io();
-      socket.on('data', (data) => {
-        if (isMounted && data.type === 'INVENTORY_UPDATE') {
-          setProducts(prevProducts => prevProducts.map(p => {
-            if (p.id === data.product_id) {
-              return { ...p, stock: data.stock };
-            }
-            return p;
-          }));
-        }
-      });
-    } catch (e) {
-      console.warn('[Products] Socket.io failed to initialize', e);
-    }
+    return () => observer.disconnect();
+  }, [page, hasMore, isLoadingProducts, searchTerm, selectedCategory, sortBy]);
 
-    return () => {
-      isMounted = false;
-      if (socket) socket.disconnect();
-    };
-  }, [user?.id, user?.role]);
+  // Detection of end of list
+  useEffect(() => {
+    // If we just loaded a page and it came empty or partial, we might have reached the end
+    // But since the store combines them, we check the length of the latest batch indirectly
+    // A better way is to return the count from API, but for now we'll check if products changed
+  }, [products.length]);
 
   const filteredProducts = useMemo(() => {
     const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
@@ -881,7 +903,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
       {loadFailed ? (
         <div className="py-20 text-center">
           <h3 className="text-xl font-bold text-stone-900 mb-4">Unable to load products</h3>
-          <button onClick={fetchProducts} className="px-6 py-3 bg-stone-900 text-white rounded-xl font-bold">Retry Connection</button>
+          <button onClick={() => fetchProducts()} className="px-6 py-3 bg-stone-900 text-white rounded-xl font-bold">Retry Connection</button>
         </div>
       ) : !filteredProducts ? (
         <div className="py-20 text-center">Loading...</div>
@@ -938,56 +960,38 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                 <div className="absolute top-2 left-2 flex flex-col space-y-1 z-10">
                     {product.discount > 0 && (
                       <div className="bg-red-600 text-white px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest shadow-lg border border-red-400/20">
-                        {product.discount}% OFF
+                        -{product.discount}%
                       </div>
                     )}
                 </div>
-
-                <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/5 transition-colors duration-300" />
-                
-                <button 
-                  onClick={(e) => { e.preventDefault(); handleEnlargeImage(e, product.image_url || `https://picsum.photos/seed/${product.id}/800/800`); }}
-                  className="absolute bottom-4 right-4 p-3 bg-white/80 backdrop-blur-md text-stone-900 rounded-[1.25rem] opacity-0 group-hover/image:opacity-100 transform translate-y-2 group-hover/image:translate-y-0 transition-all duration-300 shadow-xl border border-stone-100 hover:bg-stone-900 hover:text-white"
-                  title="Enlarge View"
-                >
-                  <Maximize2 size={16} strokeWidth={3} />
-                </button>
               </Link>
-              
-              <div className="flex-1 flex flex-col">
-                <Link to={`/product/${product.id}`} className="mb-2 block group">
-                  <h3 className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors leading-tight line-clamp-2 min-h-[2.5rem] max-h-[2.5rem] overflow-hidden text-ellipsis break-words">{product.name}</h3>
-                </Link>
-                
-                <div className="mt-auto flex items-center justify-between pt-2 border-t border-stone-50">
+
+              <div className="flex flex-col flex-1 space-y-2">
+                <div className="flex-1">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-primary/60 mb-1 block">{product.category}</span>
+                  <Link to={`/product/${product.id}`} className="text-xs font-bold text-stone-900 line-clamp-1 hover:text-primary transition-colors">
+                    {product.name}
+                  </Link>
+                </div>
+
+                <div className="flex items-center justify-between mt-auto pt-2 border-t border-stone-50">
                   <div className="flex flex-col">
-                    <span className="text-sm font-black text-primary">
-                      ₹{(() => {
-                        const price = getProductPrice(product, user?.role);
-                        return product.discount > 0 ? Math.round(price * (1 - product.discount / 100)) : price;
-                      })()}
-                    </span>
+                    <span className="text-xs font-black text-primary">₹{getProductPrice(product, user?.role)}</span>
                     {product.discount > 0 && (
-                      <span className="text-[10px] text-stone-400 line-through font-bold">₹{getProductPrice(product, user?.role)}</span>
+                      <span className="text-[10px] text-stone-300 line-through">₹{product.price}</span>
                     )}
                   </div>
-
+                  
                   {product.stock <= 0 ? (
-                    <div className="text-[9px] uppercase font-black text-stone-400 bg-stone-100 px-3 py-2 rounded-xl border border-stone-200">Out of Stock</div>
-                  ) : cartItem ? (
-                     <div className="flex items-center bg-stone-950 text-white rounded-[1.25rem] p-1.5 shadow-xl border border-stone-800">
-                        <button onClick={() => updateQuantity(product.id, -1)} className="p-2 px-3 hover:bg-white/10 rounded-xl transition-all active:scale-90"><Minus size={18} strokeWidth={4} /></button>
-                        <span className="font-black text-sm px-2 min-w-[1.5rem] text-center">{cartItem.quantity}</span>
-                        <button onClick={() => updateQuantity(product.id, 1)} className="p-2 px-3 hover:bg-white/10 rounded-xl transition-all active:scale-90"><Plus size={18} strokeWidth={4} /></button>
-                     </div>
+                    <span className="text-[8px] font-bold text-red-400 uppercase tracking-tighter">Out of Stock</span>
                   ) : (
                     <Button 
                       onClick={() => handleAddToCart(product)}
                       isLoading={loadingButtons[product.id]}
-                      variant="primary"
-                      className="bg-stone-900 text-white p-4 rounded-[1.25rem] shadow-xl hover:bg-emerald-600 border-none sm:min-h-0 sm:py-3.5"
+                      variant="ghost"
+                      className="rounded-xl h-8 w-8 p-0"
                     >
-                      <Plus size={18} strokeWidth={4} />
+                      <Plus size={16} />
                     </Button>
                   )}
                 </div>
@@ -996,10 +1000,25 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
           );
         })}
         </AnimatePresence>
+        
+        {/* Infinite Scroll Sentinel */}
+        <div ref={scrollSentinelRef} className="col-span-full h-20 flex items-center justify-center">
+          {isLoadingProducts && (
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+            >
+              <Loader2 className="text-primary w-8 h-8" />
+            </motion.div>
+          )}
+          {!hasMore && (
+            <p className="text-xs font-bold text-stone-400 uppercase tracking-[0.2em]">End of Collection</p>
+          )}
+        </div>
       </motion.div>
       )}
 
-      {filteredProducts.length === 0 && (
+      {filteredProducts.length === 0 && !isLoadingProducts && (
         <div className="flex flex-col items-center justify-center py-20 px-4">
           <div className="flex flex-col items-center text-center space-y-8 max-w-lg">
             <div className="relative">

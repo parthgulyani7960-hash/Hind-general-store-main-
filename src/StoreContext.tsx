@@ -90,7 +90,7 @@ interface StoreContextType {
   setDbError: (val: boolean) => void;
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
-  fetchProducts: () => Promise<void>;
+  fetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean }) => Promise<number>;
   isLoadingProducts: boolean;
   fetchProductsError: string | null;
   isApiUp: boolean;
@@ -131,7 +131,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
   const [dbError, setDbError] = useState(false);
   const [isApiUp, setIsApiUp] = useState(true);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('hgs_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const initialCheckDone = useRef(false);
   const isInitialized = useRef(false);
@@ -282,31 +289,46 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // 2. Helper Functions (useCallbacks and async functions)
-  const fetchProducts = React.useCallback(async () => {
+  const fetchProducts = React.useCallback(async (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean }) => {
     if (isLoadingProducts) return;
     setIsLoadingProducts(true);
     setFetchProductsError(null);
     try {
-      if (!isOnline && products.length > 0) {
-        setIsLoadingProducts(false);
-        return;
-      }
+      const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance', append = false } = params || {};
+      
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        search,
+        category,
+        sortBy
+      });
 
-      logger.debug('Fetching products...');
-      const data = await fetchWithHandling<Product[]>('/api/products');
-      if (data && data.length > 0) {
-        setProducts(data);
-        localStorage.setItem('hgs_products', JSON.stringify(data));
-      } else if (data === null) {
-          throw new Error('Failed to fetch products');
+      logger.debug(`Fetching products (Page ${page})...`);
+      const data = await fetchWithHandling<Product[]>(`/api/products?${queryParams.toString()}`);
+      
+      if (data) {
+        if (append) {
+          setProducts(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const newProducts = data.filter(p => !existingIds.has(p.id));
+            return [...prev, ...newProducts];
+          });
+        } else {
+          setProducts(data);
+          localStorage.setItem('hgs_products', JSON.stringify(data));
+        }
+        return data.length;
       }
+      return 0;
     } catch (err: any) {
       console.error('Failed to fetch products:', err);
       setFetchProductsError(err.message || 'Failed to fetch products');
+      return 0;
     } finally {
       setIsLoadingProducts(false);
     }
-  }, [isOnline, products.length, isLoadingProducts]);
+  }, [isLoadingProducts]);
 
   const checkMaintenance = React.useCallback(async () => {
     try {
@@ -689,6 +711,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const data = await fetchWithHandling<any[]>('/api/categories');
       if (data && Array.isArray(data)) {
         setCategories(data);
+        localStorage.setItem('hgs_categories', JSON.stringify(data));
       } else {
         setCategories([]);
       }

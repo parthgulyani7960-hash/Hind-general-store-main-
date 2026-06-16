@@ -1612,50 +1612,24 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
   }
   
   const creationPromise = (async () => {
-    let usersColl;
+    let db;
     try {
-      usersColl = getFirestoreInstance().collection('users');
+      db = getFirestoreInstance();
     } catch (e) {
-      console.warn('[FIREBASE] Firestore unreachable for Auth. Using shadow profile.');
       return {
         id: decodedToken.uid || 'shadow_user',
         email: emailInput,
-        role: (lowercaseEmail === 'parthgulyani7960@gmail.com' || lowercaseEmail === 'admin@hindstore.com') ? 'admin' : 'customer',
+        role: (lowercaseEmail === 'parthgulyani7960@gmail.com') ? 'admin' : 'customer',
         name: decodedToken.name || emailInput.split('@')[0],
         is_shadow: true
       };
     }
 
     try {
-      // Attempt multi-tiered lookups
+      const usersColl = db.collection('users');
       let snap = await usersColl.where('email', '==', lowercaseEmail).limit(1).get();
       
-      if (snap.empty) {
-        const NBSP_Email = '\u00a0' + lowercaseEmail;
-        snap = await usersColl.where('email', '==', NBSP_Email).limit(1).get();
-      }
-      
-      let shouldBeAdmin = false;
-      const lowerEmail = lowercaseEmail;
-      
-      const adminDoc = await getFirestoreInstance().collection('admin_whitelist').doc(lowerEmail).get();
-      if (lowerEmail === 'parthgulyani7960@gmail.com') {
-        shouldBeAdmin = true;
-        if (!adminDoc.exists) {
-          await getFirestoreInstance().collection('admin_whitelist').doc(lowerEmail).set({
-            email: lowerEmail,
-            addedBy: 'system',
-            addedAt: new Date().toISOString(),
-            status: 'active',
-            lastLogin: new Date().toISOString()
-          });
-        }
-      } else {
-        if (adminDoc.exists && adminDoc.data()?.status === 'active') {
-          shouldBeAdmin = true;
-        }
-      }
-      
+      const shouldBeAdmin = await checkAdminWhitelisted(lowercaseEmail);
       const role = shouldBeAdmin ? 'admin' : (decodedToken.role || 'customer');
 
       if (!snap.empty) {
@@ -1663,14 +1637,11 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
         let user = { id: doc.id, ...doc.data() } as any;
         const updates: any = {};
         
-        // Auto-upgrade or downgrade role based on admins collection
-        const targetRole = shouldBeAdmin ? 'admin' : (decodedToken.role || user.role || 'customer');
-        if (user.role !== targetRole) {
-          updates.role = targetRole;
-          user.role = targetRole;
+        if (user.role !== role) {
+          updates.role = role;
+          user.role = role;
         }
 
-        // Auto-link old account if uid is missing
         if (!user.uid && decodedToken.uid) {
           updates.uid = decodedToken.uid;
           user.uid = decodedToken.uid;
@@ -1680,35 +1651,26 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
           await doc.ref.update(updates);
         }
         return user;
+      } else {
+        const newUser = {
+          email: lowercaseEmail,
+          uid: decodedToken.uid,
+          name: decodedToken.name || emailInput.split('@')[0],
+          role: role,
+          auth_provider: 'google',
+          created_at: new Date().toISOString(),
+          last_login: new Date().toISOString(),
+          status: 'active'
+        };
+        const docRef = await usersColl.add(newUser);
+        return { id: docRef.id, ...newUser };
       }
-      
-      // Create new user
-      const newUser = {
-        uid: decodedToken.uid,
-        email: lowercaseEmail,
-        name: decodedToken.name || emailInput.split('@')[0],
-        role: role,
-        created_at: new Date().toISOString(),
-        wallet_balance: 0,
-        khata_enabled: false
-      };
-      
-      const docRef = await usersColl.add(newUser);
-      return { id: docRef.id, ...newUser };
-    } catch (e: any) {
-      console.error('[AUTH] Firestore error in getOrCreateUser:', e.message);
-      // Resilience fallback: Return user from token if DB is down/restricted
-      return {
-        id: decodedToken.uid || 'token_user',
-        email: emailInput,
-        role: (lowercaseEmail === 'parthgulyani7960@gmail.com' || lowercaseEmail === 'admin@hindstore.com') ? 'admin' : (decodedToken.role || 'customer'),
-        name: decodedToken.name || emailInput.split('@')[0],
-        is_shadow: true,
-        db_error: e.message
-      };
+    } catch (err: any) {
+      console.error('[AUTH] getOrCreateUser error:', err.message);
+      throw err;
     }
   })();
-
+      
   userCreationMutex.set(lowercaseEmail, creationPromise);
   try {
     return await creationPromise;
@@ -2259,113 +2221,88 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     });
   };
 
-  async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
-    const routeName = req.originalUrl || req.path;
-    console.log(`[ADMIN ROUTE START] ${req.method} ${routeName}`);
-    try {
-      console.log('[ADMIN STEP 1] Checking diagnostic local/header bypass');
-      // Diagnostic local/header bypass for testing
-      if (req.originalUrl && req.originalUrl.includes('diagnose-firestore')) {
-        const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.hostname === 'localhost' || req.headers['x-bypass-auth'] === 'diagnose';
-        if (isLocal) {
-          console.log('[ADMIN STEP 1.1] Diagnose local bypass passed.');
-          return next();
-        }
+  // In-memory cache for admin whitelist to speed up authentication checks
+const adminWhitelistCache = new Map<string, { role: string; status: string; timestamp: number }>();
+const CACHE_TTL = 1000 * 60 * 10; // 10 minutes
+
+async function checkAdminWhitelisted(email: string): Promise<boolean> {
+  const cached = adminWhitelistCache.get(email);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.status === 'active';
+  }
+
+  try {
+    const db = getFirestoreInstance();
+    const adminDoc = await db.collection('admin_whitelist').doc(email).get();
+    if (adminDoc.exists) {
+      const data = adminDoc.data();
+      adminWhitelistCache.set(email, { 
+        role: 'admin', 
+        status: data?.status || 'active', 
+        timestamp: Date.now() 
+      });
+      return data?.status === 'active';
+    }
+  } catch (e) {
+    console.error('[ADMIN_WHITELIST] Cache miss/fetch error:', email, e);
+  }
+  return false;
+}
+
+async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const routeName = req.originalUrl || req.path;
+  try {
+    if (req.originalUrl && req.originalUrl.includes('diagnose-firestore')) {
+      const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.hostname === 'localhost' || req.headers['x-bypass-auth'] === 'diagnose';
+      if (isLocal) return next();
+    }
+
+    if (req.session?.userId) {
+      const userIdStr = String(req.session.userId);
+      const userEmail = sanitizeEmail((req.session as any).email);
+      
+      if (userEmail === 'parthgulyani7960@gmail.com') return next();
+      
+      if (userEmail && await checkAdminWhitelisted(userEmail)) {
+        req.session.role = 'admin';
+        return next();
       }
 
-      console.log('[ADMIN STEP 2] Checking session details');
-      if (req.session?.userId) {
-        const userIdStr = String(req.session.userId);
-        const isDeveloper = (req.session as any).email === 'parthgulyani7960@gmail.com' || (req as any).email === 'parthgulyani7960@gmail.com';
-        
-        if (!isFirebaseReady) {
-            if (isDeveloper) {
-              console.log('[ADMIN STEP 2.1] Developer bypassed database-offline admin check.');
-              return next();
-            }
-            // Allow if session already has admin role
-            if (req.session.role === 'admin') {
-              console.log('[ADMIN STEP 2.2] Database offline, allowing from cached admin session.');
-              return next();
-            }
-        }
-        
-        try {
-          if (isFirebaseReady) {
-            const db = getFirestoreInstance();
-            const doc = await db.collection('users').doc(userIdStr).get();
-            if (doc.exists) {
-              const udata = doc.data();
-              const userEmail = sanitizeEmail(udata?.email);
-              
-              if (userEmail) {
-                // Verify if email exists in 'admin_whitelist' collection and is active
-                const adminDoc = await db.collection('admin_whitelist').doc(userEmail).get();
-                if ((userEmail === 'parthgulyani7960@gmail.com' || adminDoc.exists) && adminDoc.data()?.status !== 'inactive') {
-                  req.session.role = 'admin';
-                  console.log('[ADMIN STEP 2.3] Admin status approved via whitelisted user record in database.');
-                  return next();
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[ADMIN MIDDLEWARE] Secondary whitelisting database check failed, checking roles in memory:', e);
-        }
+      if (req.session.role === 'admin') return next();
+    }
 
-        if (req.session.role === 'admin') {
-          console.log('[ADMIN STEP 2.4] User approved via existing admin session role.');
-          return next();
-        }
-      }
+    const user = await verifyFirebaseUser(req);
+    if (user) {
+      const cleanEmail = sanitizeEmail(user.email);
+      const isDevelopmentAdmin = cleanEmail === 'parthgulyani7960@gmail.com';
+      const isWhitelisted = await checkAdminWhitelisted(cleanEmail);
 
-      console.log('[ADMIN STEP 3] Verifying current authorization token bearer header');
-      const user = await verifyFirebaseUser(req);
-      if (user) {
-        const cleanEmail = sanitizeEmail(user.email);
-        const db = getFirestoreInstance();
-        
-        let shouldBeAdmin = false;
-        if (cleanEmail === 'parthgulyani7960@gmail.com') {
-          shouldBeAdmin = true;
-          const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
-          if (!adminDoc.exists) {
-            await db.collection('admin_whitelist').doc(cleanEmail).set({
-              email: cleanEmail,
-              addedBy: 'system',
-              addedAt: new Date().toISOString(),
-              status: 'active',
-              lastLogin: new Date().toISOString()
-            });
-          }
-        } else {
-          const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
-          if (adminDoc.exists && adminDoc.data()?.status === 'active') {
-            shouldBeAdmin = true;
-          }
+      if (isDevelopmentAdmin || isWhitelisted) {
+        if (isDevelopmentAdmin) {
+           const db = getFirestoreInstance();
+           const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
+           if (!adminDoc.exists) {
+             await db.collection('admin_whitelist').doc(cleanEmail).set({
+               email: cleanEmail, addedBy: 'system', addedAt: new Date().toISOString(), status: 'active', lastLogin: new Date().toISOString()
+             });
+           }
         }
-
         (req as any).session = (req as any).session || {};
         (req as any).session.userId = user.id;
-        (req as any).session.role = shouldBeAdmin ? 'admin' : 'customer';
-
-        if (shouldBeAdmin) {
-          console.log('[ADMIN STEP 3.1] User approved from token verification.');
-          return next();
-        }
+        (req as any).session.role = 'admin';
+        (req as any).session.email = cleanEmail;
+        return next();
       }
-
-      console.warn('[ADMIN ROUTE FAILURE] Access forbidden: Human identity is not authorized as administrative operator.');
-      return res.status(401).json({ success: false, message: 'Admin authentication required' });
-    } catch (err: any) {
-      console.error('[ADMIN MIDDLEWARE ERROR]:', err.message);
-      if (err.code === 'auth/id-token-expired' || err.message?.includes('expired')) {
-        console.warn('[ADMIN ROUTE FAILURE] Token lease expired. Triggering client-side token refresh via state 401.');
-        return res.status(401).json({ success: false, message: 'Session expired', code: 'auth/id-token-expired' });
-      }
-      return handleAdminRouteError(routeName, err, res);
     }
-  };
+
+    return res.status(401).json({ success: false, message: 'Admin authentication required' });
+  } catch (err: any) {
+    if (err.code === 'auth/id-token-expired' || err.message?.includes('expired')) {
+      return res.status(401).json({ success: false, message: 'Session expired', code: 'auth/id-token-expired' });
+    }
+    return handleAdminRouteError(routeName, err, res);
+  }
+}
 
   async function auditRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
     const methodsToAudit = ['POST', 'PUT', 'DELETE'];
@@ -2520,6 +2457,28 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }
 
     res.json({ success: true, message: 'Khata request submitted successfully.' });
+  }));
+
+  app.get('/api/admin/dashboard', requireAdmin, wrap('/api/admin/dashboard', async (req, res) => {
+    const db = getFirestoreInstance();
+    try {
+      const [statsSnap, ordersSnap, usersSnap, productsSnap] = await Promise.all([
+        db.collection('stats').limit(1).get(),
+        db.collection('orders').limit(5).get(),
+        db.collection('users').limit(5).get(),
+        db.collection('products').limit(5).get()
+      ]);
+      
+      res.json({
+        stats: statsSnap.docs.length > 0 ? statsSnap.docs[0].data() : {},
+        orders: ordersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        users: usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        products: productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      });
+    } catch (err: any) {
+      console.error('[ADMIN_DASHBOARD_ERROR]', err);
+      res.status(500).json({ success: false, message: 'Failed to aggregate dashboard data', error: err.message });
+    }
   }));
 
   app.post('/api/admin/users/:id/update', requireAdmin, wrap('/api/admin/users/:id/update', async (req, res) => {
@@ -5408,44 +5367,27 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
     app.get('/api/products', async (req, res) => {
     try {
-      const dummyProducts = [
-        { id: "prod_1", name: 'Premium Whole Wheat Atta', description: 'Freshly milled, high-fiber whole wheat flour.', price: 450, wholesale_price: 400, retail_price: 430, discount: 5, stock: 100, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1596649320297-c7ba8dbca160', is_listed: true, avg_rating: 4.8, review_count: 120, images: [], specifications: {} },
-        { id: "prod_2", name: 'Organic Turmeric Powder', description: 'Pure, organic, unadulterated turmeric with high curcumin.', price: 120, wholesale_price: 90, retail_price: 110, discount: 10, stock: 200, category: 'Spices', image_url: 'https://images.unsplash.com/photo-1615486171430-b18341656fde', is_listed: true, avg_rating: 4.6, review_count: 85, images: [], specifications: {} },
-        { id: "prod_3", name: 'Basmati Rice (Long Grain)', description: 'Aromatic, aged basmati rice for perfect biryanis.', price: 850, wholesale_price: 750, retail_price: 800, discount: 0, stock: 50, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e8ac', is_listed: true, avg_rating: 4.9, review_count: 310, images: [], specifications: {} }
-      ];
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = (page - 1) * limit;
+      const search = (req.query.search as string || '').toLowerCase().trim();
+      const category = req.query.category as string || 'All';
+      const sortBy = req.query.sortBy as string || 'relevance';
 
       if ((admin?.apps || []).length === 0 || !isFirebaseReady) {
-        console.warn('[PRODUCTS] Database not ready, returning fallback products');
-        return res.json(dummyProducts);
+        return res.json([]);
       }
 
-      const snapshot = await getFirestoreInstance().collection('products').limit(500).get();
-      if (snapshot.empty && req.originalUrl === '/api/products') {
-        console.log('[BOOTSTRAP] Products collection is empty. Seeding dummy products...');
-        const initialProducts = [
-          { name: 'Premium Whole Wheat Atta', description: 'Freshly milled, high-fiber whole wheat flour.', price: 450, wholesale_price: 400, retail_price: 430, discount: 5, stock: 100, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1596649320297-c7ba8dbca160', is_listed: true, avg_rating: 4.8, review_count: 120 },
-          { name: 'Organic Turmeric Powder', description: 'Pure, organic, unadulterated turmeric with high curcumin.', price: 120, wholesale_price: 90, retail_price: 110, discount: 10, stock: 200, category: 'Spices', image_url: 'https://images.unsplash.com/photo-1615486171430-b18341656fde', is_listed: true, avg_rating: 4.6, review_count: 85 },
-          { name: 'Basmati Rice (Long Grain)', description: 'Aromatic, aged basmati rice for perfect biryanis.', price: 850, wholesale_price: 750, retail_price: 800, discount: 0, stock: 50, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e8ac', is_listed: true, avg_rating: 4.9, review_count: 310 },
-          { name: 'Cold Pressed Mustard Oil', description: 'Traditional Kachi Ghani mustard oil for authentic cooking.', price: 210, wholesale_price: 180, retail_price: 195, discount: 2, stock: 150, category: 'Oils & Ghee', image_url: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be', is_listed: true, avg_rating: 4.5, review_count: 45 },
-          { name: 'Desi Ghee (Cow)', description: 'Pure cow ghee made using traditional bilona method.', price: 650, wholesale_price: 580, retail_price: 610, discount: 0, stock: 30, category: 'Oils & Ghee', image_url: 'https://images.unsplash.com/photo-1630129757611-39655faaf9d9', is_listed: true, avg_rating: 4.7, review_count: 220 },
-          { name: 'Kashmiri Red Chilli Powder', description: 'Vibrant red color and mild heat, perfect for rich gravies.', price: 250, wholesale_price: 210, retail_price: 230, discount: 15, stock: 80, category: 'Spices', image_url: 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d', is_listed: true, avg_rating: 4.4, review_count: 67 },
-        ];
-        const batch = getFirestoreInstance().batch();
-        for (const dp of initialProducts) {
-          const ref = getFirestoreInstance().collection('products').doc();
-          batch.set(ref, { ...dp, created_at: new Date().toISOString() });
-        }
-        try { 
-          await batch.commit(); 
-          // Refetch
-          const newSnap = await getFirestoreInstance().collection('products').limit(500).get();
-          if (!newSnap.empty) {
-            snapshot.docs.push(...newSnap.docs);
-          }
-        } catch (e) { console.error('Failed to seed:', e); }
+      const db = getFirestoreInstance();
+      let queryRef: any = db.collection('products');
+      
+      if (category !== 'All') {
+        queryRef = queryRef.where('category', '==', category);
       }
 
-      const fbProducts = snapshot.docs.map(doc => {
+      const snapshot = await queryRef.get();
+      
+      const allFetchedProducts = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -5455,18 +5397,32 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         } as any;
       });
       
-      let finalProducts = [];
+      let filtered = allFetchedProducts;
       if (req.session?.role !== 'admin') {
-        finalProducts = fbProducts.filter(p => p.is_listed !== 0 && p.is_listed !== false);
-      } else {
-        finalProducts = fbProducts;
+        filtered = allFetchedProducts.filter(p => p.is_listed !== 0 && p.is_listed !== false && !p.is_deleted);
       }
 
-      const products = finalProducts.map((p: any) => {
+      if (search) {
+        const terms = search.split(' ');
+        filtered = filtered.filter(p => {
+          const text = `${p.name} ${p.description} ${p.category}`.toLowerCase();
+          return terms.every(t => text.includes(t));
+        });
+      }
+
+      // Sorting
+      if (sortBy === 'price-low') filtered.sort((a,b) => (a.retail_price || a.price) - (b.retail_price || b.price));
+      else if (sortBy === 'price-high') filtered.sort((a,b) => (b.retail_price || b.price) - (a.retail_price || a.price));
+      else if (sortBy === 'rating') filtered.sort((a,b) => b.avg_rating - a.avg_rating);
+      else if (sortBy === 'newest') filtered.sort((a,b) => new Date(b.created_at || b.updated_at || 0).getTime() - new Date(a.created_at || a.updated_at || 0).getTime());
+
+      const paginated = filtered.slice(offset, offset + limit);
+
+      const products = paginated.map((p: any) => {
         let images = [];
         let specs = {};
         try {
-          images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images || [];
+          images = typeof p.images === 'string' ? JSON.parse(p.images) : (Array.isArray(p.images) ? p.images : []);
         } catch (e) {
           images = [];
         }
@@ -5484,12 +5440,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       res.json(products);
     } catch (err: any) {
-      console.error('[SERVER] Global Products Fetch Error, returning defaults:', err);
-      res.json([
-        { id: "prod_1", name: 'Premium Whole Wheat Atta', description: 'Freshly milled, high-fiber whole wheat flour.', price: 450, wholesale_price: 400, retail_price: 430, discount: 5, stock: 100, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1596649320297-c7ba8dbca160', is_listed: true, avg_rating: 4.8, review_count: 120, images: [], specifications: {} },
-        { id: "prod_2", name: 'Organic Turmeric Powder', description: 'Pure, organic, unadulterated turmeric with high curcumin.', price: 120, wholesale_price: 90, retail_price: 110, discount: 10, stock: 200, category: 'Spices', image_url: 'https://images.unsplash.com/photo-1615486171430-b18341656fde', is_listed: true, avg_rating: 4.6, review_count: 85, images: [], specifications: {} },
-        { id: "prod_3", name: 'Basmati Rice (Long Grain)', description: 'Aromatic, aged basmati rice for perfect biryanis.', price: 850, wholesale_price: 750, retail_price: 800, discount: 0, stock: 50, category: 'Grains & Flours', image_url: 'https://images.unsplash.com/photo-1586201375761-83865001e8ac', is_listed: true, avg_rating: 4.9, review_count: 310, images: [], specifications: {} }
-      ]);
+      console.error('[SERVER] Products Fetch Error:', err);
+      res.json([]);
     }
   });
 
@@ -7135,6 +7087,12 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     }, 15);
     
     res.json(processedUsers);
+  }));
+
+  app.get('/api/admin/products', requireAdmin, wrap('/api/admin/products', async (req, res) => {
+    const snapshot = await getFirestoreInstance().collection('products').get();
+    const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(products);
   }));
 
   app.post('/api/admin/products', requireAdmin, wrap('/api/admin/products', async (req, res) => {
@@ -9663,6 +9621,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     } catch (err: any) {
       res.json({ status: 'offline', errorCount: 0 });
     }
+  });
+
+  app.get('/admin/products', (req, res, next) => {
+    logger.info(`[DEBUG] /admin/products requested - path: ${req.path}`);
+    res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
   });
 
   // API 404 handler (must be after all valid API routes)
