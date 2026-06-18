@@ -25,10 +25,25 @@ export default function LocationPicker({ onLocationFound, className = "" }: Prop
         setLoading(false);
       },
       (error) => {
-        toast.error(`Permission denied: ${error.message}`, { id: 'geo' });
+        let errorMsg = 'Could not fetch location';
+        if (error.code === 1) errorMsg = 'Location permission denied';
+        else if (error.code === 3) errorMsg = 'Connection timed out';
+        
+        toast.error(errorMsg, { id: 'geo' });
         setLoading(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 30000,
+        maximumAge: 0
       }
     );
+    // Notify user that high accuracy can take time
+    setTimeout(() => {
+      if (loading) {
+        toast('Waiting for satellite signal...', { id: 'geo', icon: '📡' });
+      }
+    }, 5000);
   };
 
   return (

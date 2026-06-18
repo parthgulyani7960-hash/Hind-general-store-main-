@@ -9,6 +9,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 import { cn, User } from '@/types';
 import toast from 'react-hot-toast';
 import ModalContainer from './ui/ModalContainer';
+import { triggerFeedback } from '@/lib/feedback';
 
 interface WalletModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ export default function WalletModal({ isOpen, onClose, user, refreshHistory, con
       link.href = url;
       link.download = `payment_qr_${user.id}.png`;
       link.click();
+      triggerFeedback('light');
       toast.success('QR Code saved');
     }
   };
@@ -75,6 +77,7 @@ export default function WalletModal({ isOpen, onClose, user, refreshHistory, con
       });
       const data = await res.json();
       if (data.success) {
+        triggerFeedback('heavy');
         setMode('success');
         refreshHistory();
       } else {

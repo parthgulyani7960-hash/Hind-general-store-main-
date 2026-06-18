@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, ShoppingBag, ShoppingCart, User, Heart, Check } from 'lucide-react';
+import { Home, ShoppingBag, ShoppingCart, User, Heart } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { cn } from '@/types';
@@ -8,6 +9,24 @@ export default function MobileBottomNav() {
   const location = useLocation();
   const { cart, wishlist, lastAddedId } = useStore();
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    // Detect if keyboard is visible by checking viewport height change
+    const originalHeight = window.innerHeight;
+    const handleResize = () => {
+      if (window.innerHeight < originalHeight * 0.8) {
+        setIsVisible(false);
+      } else {
+        setIsVisible(true);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  if (!isVisible) return null;
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },

@@ -8,6 +8,7 @@ interface ProgressiveImageProps {
   className?: string;
   placeholderSrc?: string; // Optional low-res version
   blur?: boolean;
+  loading?: "lazy" | "eager";
 }
 
 export const ProgressiveImage = ({ 
@@ -15,49 +16,42 @@ export const ProgressiveImage = ({
   alt, 
   className, 
   placeholderSrc,
-  blur = true 
+  blur = true,
+  loading = "lazy"
 }: ProgressiveImageProps) => {
   const [isLoaded, setIsLoaded] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState(placeholderSrc || src);
-
-  useEffect(() => {
-    setIsLoaded(false);
-    setCurrentSrc(placeholderSrc || src);
-    const img = new Image();
-    img.src = src;
-    img.onload = () => {
-      setCurrentSrc(src);
-      setIsLoaded(true);
-    };
-  }, [src, placeholderSrc]);
 
   return (
     <div className={cn("relative overflow-hidden bg-stone-100", className)}>
-      {/* Skeleton / Placeholder background */}
+      {/* Automatic Blur-up Placeholder (simulated with a very low-res fallback) */}
       {!isLoaded && (
-        <div className="absolute inset-0 animate-pulse bg-stone-200" />
+        <img 
+          src={placeholderSrc || src}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-60"
+          loading="lazy"
+        />
       )}
-      
+
       <motion.img
-        src={currentSrc}
+        src={src}
         alt={alt}
+        loading={loading}
+        onLoad={() => setIsLoaded(true)}
         initial={false}
         animate={{
-          filter: blur && !isLoaded ? 'blur(10px)' : 'blur(0px)',
-          scale: !isLoaded ? 1.05 : 1,
-          opacity: isLoaded || placeholderSrc ? 1 : 0
+          opacity: isLoaded ? 1 : 0,
+          scale: isLoaded ? 1 : 1.05,
+          filter: isLoaded ? 'blur(0px)' : 'blur(4px)'
         }}
         transition={{ 
           duration: 0.6,
           ease: "easeOut"
         }}
         className={cn(
-          "w-full h-full object-cover transition-opacity duration-300",
-          !isLoaded && placeholderSrc ? "opacity-100" : ""
+          "w-full h-full object-cover relative z-10",
+          !isLoaded && "pointer-events-none"
         )}
-        onLoad={() => {
-            if (currentSrc === src) setIsLoaded(true);
-        }}
       />
     </div>
   );

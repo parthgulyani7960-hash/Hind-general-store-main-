@@ -1,21 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Activity, ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, cn } from '@/lib/utils';
+import { Severity } from '@/lib/incidentReporting';
 
 export default function ActivityLogs() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [severityFilter, setSeverityFilter] = useState<Severity | 'All'>('All');
 
   useEffect(() => {
     fetchWithHandling<any[]>('/api/admin/system-logs', { headers: getAuthHeaders() })
       .then(data => {
-        if (data) setLogs(data);
+        if (data) {
+          setLogs(data);
+          console.log('Logs structure:', data[0]);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const filteredLogs = useMemo(() => {
+    if (severityFilter === 'All') return logs;
+    return logs.filter(log => log.severity === severityFilter || (severityFilter === Severity.MEDIUM && (!log.severity || log.level === 'info')));
+  }, [logs, severityFilter]);
 
   return (
     <div className="h-[calc(100vh-4.5rem)] bg-stone-50 overflow-y-auto no-scrollbar scroll-smooth">
@@ -53,10 +63,10 @@ export default function ActivityLogs() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-100">
-                            {logs.map((log, i) => (
+                            {filteredLogs.map((log, i) => (
                                 <tr key={i} className="hover:bg-stone-50 transition-colors">
                                     <td className="px-6 py-4 text-stone-600 font-mono">{new Date(log.created_at).toLocaleString()}</td>
-                                    <td className="px-6 py-4"><span className={cn("px-2 py-1 rounded-md text-[10px] font-black uppercase", log.level === 'error' ? 'bg-red-100 text-red-700' : 'bg-stone-100 text-stone-600')}>{log.level}</span></td>
+                                    <td className="px-6 py-4"><span className={cn("px-2 py-1 rounded-md text-[10px] font-black uppercase", (log.severity === Severity.CRITICAL || log.level === 'error') ? 'bg-red-100 text-red-700' : 'bg-stone-100 text-stone-600')}>{log.severity || log.level}</span></td>
                                     <td className="px-6 py-4 text-stone-800 font-medium">{log.message}</td>
                                     <td className="px-6 py-4 text-stone-500 text-xs font-mono">{log.path}</td>
                                 </tr>

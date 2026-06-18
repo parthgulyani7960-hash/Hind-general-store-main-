@@ -6,6 +6,7 @@ import { cn } from '@/types';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
+import { triggerFeedback } from '@/lib/feedback';
 
 interface InventoryModalsProps {
   productModal: { open: boolean; mode: 'add' | 'edit' };
@@ -110,7 +111,13 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
         size="md"
       >
         <div className="p-8 pb-10">
-          <form onSubmit={handleProductSubmit} className="space-y-4">
+          <form 
+            onSubmit={(e) => {
+              triggerFeedback('medium');
+              handleProductSubmit(e);
+            }} 
+            className="space-y-4"
+          >
             <div>
               <label className="block text-sm font-bold text-stone-700 mb-2">Product Name</label>
               <input 
@@ -457,7 +464,13 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
         size="md"
       >
         <div className="p-8 pb-10">
-          <form onSubmit={handleStockEntrySubmit} className="space-y-4">
+          <form 
+            onSubmit={(e) => {
+              triggerFeedback('medium');
+              handleStockEntrySubmit(e);
+            }} 
+            className="space-y-4"
+          >
             <div className="bg-stone-50 p-4 rounded-2xl flex items-center space-x-4 mb-4">
               <div className="w-12 h-12 bg-white rounded-xl border border-stone-100 overflow-hidden shrink-0">
                 <img src={stockEntryModal.product?.image_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -665,7 +678,13 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
         size="sm"
       >
         <div className="p-8 pb-10">
-          <form onSubmit={handleCategorySubmit} className="space-y-4">
+          <form 
+            onSubmit={(e) => {
+              triggerFeedback('medium');
+              handleCategorySubmit(e);
+            }} 
+            className="space-y-4"
+          >
             <div>
               <label className="block text-sm font-bold text-stone-700 mb-2">Category Name</label>
               <input 
@@ -711,7 +730,13 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
         size="md"
       >
         <div className="p-8 pb-10">
-          <form onSubmit={handleSupplierSubmit} className="space-y-4">
+          <form 
+            onSubmit={(e) => {
+              triggerFeedback('medium');
+              handleSupplierSubmit(e);
+            }} 
+            className="space-y-4"
+          >
             <div>
               <label className="block text-sm font-bold text-stone-700 mb-2">Supplier Name</label>
               <input 
@@ -891,7 +916,10 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
             )}
 
             <button 
-              onClick={() => setProductVariants([...productVariants, { name: '', price: '', stock: '', unit_quantity: 1, is_default: productVariants.length === 0 ? 1 : 0 }])}
+              onClick={() => {
+                triggerFeedback('light');
+                setProductVariants([...productVariants, { name: '', price: '', stock: '', unit_quantity: 1, is_default: productVariants.length === 0 ? 1 : 0 }]);
+              }}
               className="w-full py-5 border-2 border-dashed border-stone-200 rounded-[20px] text-stone-400 hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all font-bold text-sm flex items-center justify-center space-x-2 group mt-6"
             >
               <Plus size={18} className="transition-transform group-hover:scale-110 group-hover:rotate-90 duration-300" />
@@ -908,6 +936,7 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
             </button>
             <button 
               onClick={async () => {
+                triggerFeedback('medium');
                 try {
                   const data = await fetchWithHandling<any>(`/api/admin/products/${variantModal.productId}/variants`, {
                     method: 'POST',

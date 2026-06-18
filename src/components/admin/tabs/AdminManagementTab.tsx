@@ -2,6 +2,9 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Shield, RefreshCw, Activity, Trash2, CheckCircle2, Users } from 'lucide-react';
 import { cn } from '@/types';
+import { adminService } from '@/lib/adminService';
+import { triggerFeedback } from '@/lib/feedback';
+import toast from 'react-hot-toast';
 
 interface AdminManagementTabProps {
   admins: any[];
@@ -11,9 +14,6 @@ interface AdminManagementTabProps {
   deletionRequests: any[];
   approveDeletion: (id: number) => void;
   rejectDeletion: (id: number) => void;
-  fetchWithHandling: <T>(url: string, options?: any) => Promise<T>;
-  getAuthHeaders: () => any;
-  toast: any;
 }
 
 export default function AdminManagementTab({
@@ -24,9 +24,6 @@ export default function AdminManagementTab({
   deletionRequests,
   approveDeletion,
   rejectDeletion,
-  fetchWithHandling,
-  getAuthHeaders,
-  toast,
 }: AdminManagementTabProps) {
   return (
     <div className="max-w-full overflow-x-hidden space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10">
@@ -55,9 +52,9 @@ export default function AdminManagementTab({
       {/* Whitelist Admin Form */}
       <div className="bg-stone-50 border border-stone-200/60 p-6 rounded-[2rem] flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="text-left md:max-w-md">
-          <h3 className="text-lg font-black text-stone-900 tracking-tight">Whitelist New Administrator</h3>
+          <h3 className="text-lg font-black text-stone-900 tracking-tight">Grant Admin Access</h3>
           <p className="text-xs text-stone-500 font-medium mt-1 leading-relaxed">
-            If the account already exists, it instantly gains admin privileges. If the account is pending, the email will be whitelisted automatically for future registrations or logins.
+            Grant admin permissions. Access can be temporary or permanent.
           </p>
         </div>
         <form onSubmit={async (e) => {
@@ -69,11 +66,7 @@ export default function AdminManagementTab({
           const durationValue = durationInput?.value;
           if (!emailValue) return;
           try {
-            const data = await fetchWithHandling<{ success: boolean; message?: string }>('/api/admin/make-admin', {
-              method: 'POST',
-              headers: getAuthHeaders(),
-              body: JSON.stringify({ email: emailValue, duration: durationValue })
-            });
+            const data = await adminService.grantAdminAccess(emailValue, durationValue);
             if (data && data.success) {
               toast.success(data.message || 'Access granted!');
               if (emailInput) emailInput.value = '';
@@ -100,6 +93,7 @@ export default function AdminManagementTab({
           </select>
           <button 
             type="submit"
+            onClick={() => triggerFeedback('medium')}
             className="px-6 py-4 bg-stone-950 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-stone-800 transition-all shadow-md shrink-0 animate-pulse"
           >
             Grant Admin
@@ -159,13 +153,12 @@ export default function AdminManagementTab({
                   <td className="px-10 py-7 text-right">
                     <button
                       onClick={async () => {
-                        if (window.confirm('Revoke access?')) {
+                        const confirmed = window.confirm('Revoke access?');
+                        triggerFeedback('medium');
+                        if (confirmed) {
+                          triggerFeedback('heavy');
                           try {
-                            await fetchWithHandling(`/api/admin/revoke-admin`, {
-                              method: 'POST',
-                              headers: getAuthHeaders(),
-                              body: JSON.stringify({ email: adm.email })
-                            });
+                            await adminService.revokeAdminAccess(adm.email);
                             toast.success('Access revoked');
                             fetchAdmins();
                           } catch (err) {}
@@ -263,13 +256,19 @@ export default function AdminManagementTab({
                     </div>
                     <div className="flex gap-3">
                        <button 
-                        onClick={() => approveDeletion(req.id)} 
+                        onClick={() => {
+                          triggerFeedback('heavy');
+                          approveDeletion(req.id);
+                        }} 
                         className="flex-1 py-4 bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-200 hover:bg-red-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
                        >
                          Authorize Full Purge
                        </button>
                        <button 
-                        onClick={() => rejectDeletion(req.id)} 
+                        onClick={() => {
+                          triggerFeedback('medium');
+                          rejectDeletion(req.id);
+                        }} 
                         className="px-8 py-4 bg-white text-red-500 rounded-2xl text-xs font-black uppercase tracking-widest border border-red-100 hover:bg-red-50 transition-all"
                        >
                          Reject

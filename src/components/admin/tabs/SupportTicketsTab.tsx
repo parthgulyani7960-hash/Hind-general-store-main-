@@ -34,6 +34,23 @@ export default function SupportTicketsTab({
   toast,
   user,
 }: SupportTicketsTabProps) {
+  const [selectedTickets, setSelectedTickets] = React.useState<Set<string>>(new Set());
+
+  const toggleAllTickets = () => {
+      if (selectedTickets.size === tickets.length) {
+          setSelectedTickets(new Set());
+      } else {
+          setSelectedTickets(new Set(tickets.map(t => t.id)));
+      }
+  };
+
+  const toggleTicket = (id: string) => {
+      const next = new Set(selectedTickets);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setSelectedTickets(next);
+  };
+
   useEffect(() => {
     if (!selectedTicket) return;
     
@@ -60,33 +77,72 @@ export default function SupportTicketsTab({
             {tickets.length}
           </div>
         </div>
-        <div className="max-w-full overflow-x-hidden flex-1 divide-y divide-stone-50">
-          {tickets.map((ticket) => (
-            <button 
-              key={ticket.id}
-              onClick={() => {
-                setSelectedTicket(ticket);
-              }}
-              className={cn(
-                "w-full p-8 text-left hover:bg-stone-50/80 transition-all duration-300 group relative",
-                selectedTicket?.id === ticket.id && "bg-stone-50"
-              )}
+        
+        {/* Bulk Action Panel */}
+        {selectedTickets.size > 0 && (
+          <div className="p-4 bg-stone-50 border-b border-stone-100 flex items-center gap-2">
+            <span className="text-xs font-black uppercase tracking-widest text-stone-600">{selectedTickets.size} selected</span>
+            <select 
+                className="bg-white border rounded-lg px-2 py-1 text-[10px] font-black uppercase"
+                onChange={async (e) => {
+                    const status = e.target.value;
+                    try {
+                        await fetchWithHandling('/api/admin/support/tickets/bulk-update', {
+                            method: 'POST',
+                            headers: getAuthHeaders(),
+                            body: JSON.stringify({ ticketIds: Array.from(selectedTickets), status })
+                        });
+                        toast.success('Batch update successful');
+                        setSelectedTickets(new Set());
+                        fetchTickets();
+                    } catch (err) {
+                        toast.error('Batch update failed');
+                    }
+                }}
             >
-              {selectedTicket?.id === ticket.id && (
-                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary animate-in slide-in-from-left duration-300" />
-              )}
-              <div className="flex justify-between items-start mb-4">
-                <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest bg-stone-100 px-2 py-0.5 rounded">#TKT-{ticket.id}</span>
-                <span className={cn(
-                  "text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-wider",
-                  ticket.status === 'open' ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                )}>
-                  {ticket.status}
-                </span>
-              </div>
-              <p className="font-black text-stone-900 text-base mb-1 tracking-tight group-hover:text-primary transition-colors text-left">{ticket.subject}</p>
-              <p className="text-xs text-stone-400 font-medium line-clamp-1 text-left">{ticket.user_name} • {ticket.user_phone}</p>
-            </button>
+                <option value="">Move To...</option>
+                <option value="in-progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+                <option value="admin-attention">Requires Admin Attention</option>
+            </select>
+          </div>
+        )}
+
+        <div className="max-w-full overflow-x-hidden flex-1 divide-y divide-stone-50">
+          <div className="px-8 py-4 flex items-center gap-3">
+             <input type="checkbox" checked={selectedTickets.size === tickets.length && tickets.length > 0} onChange={toggleAllTickets} className="rounded" />
+             <span className="text-[10px] font-black text-stone-400 uppercase">Select All</span>
+          </div>
+
+          {tickets.map((ticket) => (
+            <div key={ticket.id} className={cn("flex items-start", selectedTicket?.id === ticket.id && "bg-stone-50")}>
+                <div className="pl-6 pt-10">
+                    <input type="checkbox" checked={selectedTickets.has(ticket.id)} onChange={() => toggleTicket(ticket.id)} className="rounded" />
+                </div>
+                <button 
+                  onClick={() => {
+                    setSelectedTicket(ticket);
+                  }}
+                  className={cn(
+                    "w-full p-8 text-left hover:bg-stone-50/80 transition-all duration-300 group relative"
+                  )}
+                >
+                  {selectedTicket?.id === ticket.id && (
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary animate-in slide-in-from-left duration-300" />
+                  )}
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest bg-stone-100 px-2 py-0.5 rounded">#TKT-{ticket.id}</span>
+                    <span className={cn(
+                      "text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-wider",
+                      ticket.status === 'open' ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                    )}>
+                      {ticket.status}
+                    </span>
+                  </div>
+                  <p className="font-black text-stone-900 text-base mb-1 tracking-tight group-hover:text-primary transition-colors text-left">{ticket.subject}</p>
+                  <p className="text-xs text-stone-400 font-medium line-clamp-1 text-left">{ticket.user_name} • {ticket.user_phone}</p>
+                </button>
+            </div>
           ))}
           {tickets.length === 0 && (
             <div className="p-12 text-center text-stone-400 font-bold italic">No active frequency detected.</div>
@@ -108,11 +164,49 @@ export default function SupportTicketsTab({
                 </div>
               </div>
               <div className="flex items-center space-x-4">
-                 <select 
-                  className="bg-stone-55 border-stone-100 border-2 rounded-2xl px-6 py-3 text-xs font-black uppercase tracking-widest text-stone-600 focus:border-primary focus:bg-white outline-none transition-all cursor-pointer shadow-sm"
+                 <button 
+                  onClick={async () => {
+                    if (confirm('Are you sure you want to ban this user?')) {
+                        try {
+                           await fetchWithHandling(`/api/admin/users/${selectedTicket.user_id}/ban`, {
+                             method: 'POST',
+                             headers: getAuthHeaders()
+                           });
+                           toast.success('User banned successfully');
+                        } catch (err) { toast.error('Failed to ban user'); }
+                    }
+                  }}
+                  className="bg-red-50 text-red-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-red-100 transition-all"
+                >
+                  Ban User
+                </button>
+                 {selectedTicket.status === 'resolved' && (
+                 <button 
+                  onClick={async () => {
+                    const amount = prompt('Enter refund amount:');
+                    if (amount) {
+                         try {
+                           await fetchWithHandling(`/api/admin/orders/${selectedTicket.order_id}/refund`, {
+                             method: 'POST',
+                             headers: getAuthHeaders(),
+                             body: JSON.stringify({ amount })
+                           });
+                           toast.success('Refund processed successfully');
+                        } catch (err) { toast.error('Failed to process refund'); }
+                    }
+                  }}
+                  className="bg-emerald-50 text-emerald-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-emerald-100 transition-all"
+                >
+                  Issue Refund
+                </button>
+                )}
+                <select 
+                  className="bg-stone-50 border-stone-100 border-2 rounded-2xl px-6 py-3 text-xs font-black uppercase tracking-widest text-stone-600 focus:border-primary focus:bg-white outline-none transition-all cursor-pointer shadow-sm"
                   value={selectedTicket.status}
                   onChange={async (e) => {
                     const newStatus = e.target.value;
+                    if (!confirm(`Update ticket status to ${newStatus.toUpperCase()}? This will notify the customer.`)) return;
+
                     try {
                       const data = await fetchWithHandling<any>(`/api/admin/support/tickets/${selectedTicket.id}/status`, {
                         method: 'POST',
@@ -120,18 +214,20 @@ export default function SupportTicketsTab({
                         body: JSON.stringify({ status: newStatus })
                       });
                       if (data) {
-                        toast.success('Protocol state updated');
+                        toast.success('Protocol state updated and customer notified');
                         fetchTickets();
                         setSelectedTicket({...selectedTicket, status: newStatus});
                       }
                     } catch (err) {
                       console.error('Update ticket status error:', err);
+                      toast.error('Failed to update status');
                     }
                   }}
                 >
                   <option value="open">Open Portal</option>
-                  <option value="in-progress">Executing</option>
+                  <option value="in-progress">In Progress</option>
                   <option value="resolved">Resolved</option>
+                  <option value="admin-attention">Requires Admin Attention</option>
                   <option value="closed">Decommissioned</option>
                 </select>
               </div>

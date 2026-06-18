@@ -3,10 +3,10 @@ import { logger } from '@/lib/logger';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Mail, Phone, MapPin, ShoppingBag, Shield, HelpCircle, 
-  ChevronRight, Camera, LogOut, Settings, Bell, CreditCard, 
+  ChevronRight, ChevronDown, Check, Camera, LogOut, Settings, Bell, CreditCard, 
   History, Wallet, Info, MessageSquare, ExternalLink, Activity, Globe, Plus, X,
   Heart, CheckCircle, Package, Truck, Home, Star, RefreshCw, Clock, Download, Trash2, Copy, Navigation2, MoreVertical,
-  ArrowRight, ShieldCheck, Book, TrendingUp, Maximize2, Lock
+  ArrowRight, ShieldCheck, Book, TrendingUp, Maximize2, Lock, AlertCircle, Loader2
 } from 'lucide-react';
 import { useStore } from '@/StoreContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
@@ -19,6 +19,8 @@ import WholesaleInsights from '@/components/WholesaleInsights';
 import LocationPicker from '@/components/LocationPicker';
 import WalletModal from '@/components/WalletModal';
 import LoadingFallback from '@/components/LoadingFallback';
+import { KhataWizard } from '@/components/KhataWizard';
+import { ExportManagement } from '@/components/ExportManagement';
 import { useProfileAuthDebug } from '@/hooks/useProfileAuthDebug';
 import { fetchWithHandling } from '@/lib/api';
 import { triggerFeedback } from '@/lib/feedback';
@@ -47,12 +49,16 @@ export default function Profile() {
     wishlist, 
     toggleWishlist, 
     subscribeNewsletter,
+    unsubscribeNewsletter,
+    checkNewsletterStatus,
     addresses, deleteAddress, setDefaultAddress, saveAddress,
     simulatedRole, t, logActivity,
     config = [],
     language,
     setLanguage,
     refreshUser,
+    fetchConfig,
+    isMaintenance,
     isAuthChecking,
     isRevalidating
   } = useStore();
@@ -77,6 +83,8 @@ export default function Profile() {
   const emailMatch = user?.email ? user.email.toLowerCase().includes('parthgulyani7960@gmail.com') : false;
   const isUserAdmin = user && (user.role === 'admin' || emailMatch || simulatedRole === 'admin');
   const [isEditing, setIsEditing] = useState(false);
+  const [showLanguageSelector, setShowLanguageSelector] = useState(false);
+  const [showKhataWizard, setShowKhataWizard] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingAddress, setIsSavingAddress] = useState(false);
   const [showManageAccountModal, setShowManageAccountModal] = useState(false);
@@ -180,6 +188,10 @@ export default function Profile() {
   const [exportUrl, setExportUrl] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTimeLeft, setExportTimeLeft] = useState(60);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('Direct customer request via profile');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteIsSubmitting, setDeleteIsSubmitting] = useState(false);
 
   useEffect(() => {
     let timer: any;
@@ -281,7 +293,9 @@ export default function Profile() {
 
   const handlePurgeCache = () => {
     const confirmed = window.confirm('Reset local application cache? This will clear your temporary shopping cart, search history, and saved identifiers, but you will remain signed in.');
+    triggerFeedback('medium');
     if (confirmed) {
+      triggerFeedback('heavy');
       setIsPurging(true);
       setTimeout(() => {
         localStorage.removeItem('cart-storage');
@@ -335,23 +349,32 @@ export default function Profile() {
         console.error('Failed to request export:', err);
       }
     } else {
-      const confirmed = window.confirm('Are you absolutely sure you want to request permanent account deletion? This action is irreversible once processed by the admin.');
-      if (!confirmed) return;
-      
-      const reason = window.prompt('Please provide a reason for deletion (optional):') || "Direct customer request via profile";
-      try {
-        const data = await fetchWithHandling<any>('/api/user/deletion-request', { 
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ reason })
-        });
-        if (data && data.success) {
-          toast.success(data.message || 'Your deletion request has been submitted for review.');
-          fetchDeletionStatus();
-        }
-      } catch (err) {
-        toast.error('Failed to process deletion request');
+      setDeleteConfirmText('');
+      setShowDeleteConfirmModal(true);
+      triggerFeedback('heavy');
+    }
+  };
+
+  const submitDeletionRequest = async () => {
+    setDeleteIsSubmitting(true);
+    triggerFeedback('medium');
+    try {
+      const data = await fetchWithHandling<any>('/api/user/deletion-request', { 
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ reason: deleteReason || "Direct customer request via profile" })
+      });
+      if (data && data.success) {
+        toast.success(data.message || 'Your deletion request has been submitted for review.');
+        fetchDeletionStatus();
+        setShowDeleteConfirmModal(false);
+      } else {
+        toast.error(data?.message || 'Failed to process deletion request');
       }
+    } catch (err) {
+      toast.error('Failed to process deletion request');
+    } finally {
+      setDeleteIsSubmitting(false);
     }
   };
   const [showAddressModal, setShowAddressModal] = useState(false);
@@ -701,6 +724,7 @@ export default function Profile() {
   };
 
   const handleReturnSubmit = async () => {
+    triggerFeedback('medium');
     if (!returnProductId) { toast.error('Please select a product to return'); return; }
     if (!returnReason.trim()) { toast.error('Please provide a reason'); return; }
     
@@ -729,6 +753,21 @@ export default function Profile() {
   };
   const [reviewComment, setReviewComment] = useState('');
   const [newsletterEmail, setNewsletterEmail] = useState(user?.email || '');
+  const [isSubscribed, setIsSubscribed] = useState<boolean | null>(null);
+  const [checkingNewsletter, setCheckingNewsletter] = useState(false);
+  const [submittingNewsletter, setSubmittingNewsletter] = useState(false);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      if (user?.email) {
+        setCheckingNewsletter(true);
+        const status = await checkNewsletterStatus(user.email);
+        setIsSubscribed(status);
+        setCheckingNewsletter(false);
+      }
+    };
+    fetchStatus();
+  }, [user?.email, checkNewsletterStatus]);
 
   useEffect(() => {
     if (user?.email && !newsletterEmail) {
@@ -736,13 +775,49 @@ export default function Profile() {
     }
   }, [user]);
 
+  const handleNewsletterAction = async () => {
+    if (!newsletterEmail || !isValidEmail(newsletterEmail)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    
+    setSubmittingNewsletter(true);
+    try {
+      if (isSubscribed) {
+        const success = await unsubscribeNewsletter(newsletterEmail);
+        if (success) {
+          setIsSubscribed(false);
+          toast.success('You have been unsubscribed from our newsletter.');
+          logActivity('NEWSLETTER_UNSUBSCRIBE', `User unsubscribed: ${newsletterEmail}`);
+        }
+      } else {
+        const success = await subscribeNewsletter(newsletterEmail);
+        if (success) {
+          setIsSubscribed(true);
+          toast.success('Welcome to the community! You are now subscribed.');
+          logActivity('NEWSLETTER_SUBSCRIBE', `User subscribed: ${newsletterEmail}`);
+        }
+      }
+    } catch (err) {
+      toast.error('Communication error. Please try again.');
+    } finally {
+      setSubmittingNewsletter(false);
+    }
+  };
+
+  const isValidEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
   const handleReviewSubmit = async () => {
+    triggerFeedback('medium');
     if (!reviewComment.trim()) {
       toast.error('Please enter a comment');
       return;
     }
     setIsSubmitting(true);
     try {
+      const { fetchWithHandling } = await import('@/lib/api');
       const data = await fetchWithHandling<any>('/api/reviews', {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -750,7 +825,7 @@ export default function Profile() {
           order_id: showReviewModal.orderId,
           rating: reviewRating,
           comment: reviewComment,
-          user_name: user.name
+          user_name: user?.name
         })
       });
       if (data) {
@@ -764,18 +839,6 @@ export default function Profile() {
       console.error('Error submitting review:', err);
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleNewsletterSubscribe = async () => {
-    if (!newsletterEmail) return;
-    try {
-      const success = await subscribeNewsletter(newsletterEmail);
-      if (success) {
-        setNewsletterEmail('');
-      }
-    } catch (err) {
-      toast.error('Subscription failed');
     }
   };
   const [wishlistProducts, setWishlistProducts] = useState<Product[]>([]);
@@ -890,6 +953,7 @@ export default function Profile() {
   };
 
   const handleSave = async () => {
+    triggerFeedback('medium');
     if (isSavingProfile) return;
     // Phone validation
     if (!isValidPhone(formData.phone)) {
@@ -989,7 +1053,7 @@ export default function Profile() {
     return (
       <div className="flex h-screen flex-col items-center justify-center p-4 bg-stone-50/50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
-        <p className="text-stone-500 font-medium text-sm">Verifying session...</p>
+        <p className="text-stone-500 font-medium text-sm">Authenticating session...</p>
       </div>
     );
   }
@@ -1157,7 +1221,7 @@ export default function Profile() {
                 <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest font-mono">Store Credit</p>
               </div>
               <p className="text-3xl font-black text-white group-hover/stat:text-emerald-400 transition-colors">₹{user.wallet_balance}</p>
-              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Verified Balance</span>
+              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Available Balance</span>
             </button>
             <button 
               type="button"
@@ -1530,58 +1594,6 @@ export default function Profile() {
                           </div>
                         </div>
                     </div>
-
-                    {/* Cache & Maintenance Section */}
-                    <div className="border-t border-stone-100 pt-6 space-y-4">
-                        <h3 className="font-bold text-lg flex items-center gap-2">
-                           <RefreshCw size={18} className="text-emerald-500" />
-                           <span>App Maintenance</span>
-                        </h3>
-                        <p className="text-xs text-stone-500">
-                          Clear temporary application data to fix display glitches or refresh session state.
-                        </p>
-                        <button
-                          onClick={handlePurgeCache}
-                          disabled={isPurging}
-                          className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                        >
-                          {isPurging ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                          <span>Purge Local Data Cache</span>
-                        </button>
-                    </div>
-
-                    {/* Manage Account Section */}
-                    <div className="border-t border-stone-100 pt-6 space-y-4">
-                        <h3 className="font-bold text-lg flex items-center gap-2">
-                          <User size={18} className="text-amber-500" />
-                          <span>Identity & Verified Details</span>
-                        </h3>
-                        <p className="text-xs text-stone-500 leading-relaxed">
-                          Securely manage and update your primary profile details and the phone number linked to your shop orders.
-                        </p>
-                        <div className="bg-stone-50/70 rounded-2xl p-5 space-y-3 font-mono text-xs border border-stone-100 group">
-                          <div className="flex justify-between border-b border-stone-100 pb-3">
-                            <span className="text-stone-500">Primary Display Name:</span>
-                            <span className="font-bold text-stone-900">{user?.name}</span>
-                          </div>
-                          <div className="flex justify-between pt-1">
-                            <span className="text-stone-500">Verified Phone Number:</span>
-                            <span className="font-bold text-stone-900">{user?.phone || 'Pending Setup'}</span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAccountName(user?.name || '');
-                            setAccountPhone(user?.phone || '');
-                            setShowManageAccountModal(true);
-                          }}
-                          className="w-full py-4 bg-stone-900 hover:bg-slate-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
-                        >
-                          <Shield size={14} />
-                          <span>Update Account Identity</span>
-                        </button>
-                    </div>
                 </motion.div>
             )}
             {activeProfileTab === 'khata' && (
@@ -1775,7 +1787,10 @@ export default function Profile() {
                               </button>
                               <button 
                                 onClick={() => {
-                                  if(window.confirm('Delete this address?')) deleteAddress(addr.id);
+                  if(window.confirm('Delete this address?')) {
+                    triggerFeedback('heavy');
+                    deleteAddress(addr.id);
+                  }
                                 }}
                                 className="p-2 text-stone-400 hover:text-red-500 transition-colors hover:bg-stone-100 rounded-lg"
                               >
@@ -1985,9 +2000,7 @@ export default function Profile() {
                                 order.status === 'shipped' ? 'bg-blue-500 text-white border-blue-500' :
                                 'bg-amber-500 text-white border-amber-500 animate-pulse'
                               )}>
-                                {order.status === 'shipped' && order.delivery_type === 'pickup' 
-                                  ? 'READY FOR PICKUP' 
-                                  : (t(order.status) || (order.status || 'PENDING').toUpperCase())}
+                                {(t(order.status) || (order.status || 'PENDING').toUpperCase())}
                               </span>
                             </div>
                           </div>
@@ -2447,28 +2460,60 @@ export default function Profile() {
           </AnimatePresence>
 
           {/* Newsletter Section */}
-          <div className="bg-primary/5 rounded-3xl p-8 border border-primary/10">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="text-center md:text-left">
-                <h3 className="text-xl font-black text-primary mb-2">Join the General Store Karyana Shop Store Community</h3>
-                <p className="text-sm text-stone-600">Get exclusive offers, new arrivals and shopping tips directly in your inbox.</p>
+          <div className="bg-emerald-50 rounded-3xl p-8 border border-emerald-100 shadow-sm">
+            <div className="flex flex-col lg:flex-row items-center justify-between gap-8">
+              <div className="text-center lg:text-left max-w-xl">
+                <div className="flex items-center justify-center lg:justify-start gap-3 mb-2">
+                  <Mail className="text-emerald-600" size={24} />
+                  <h3 className="text-xl font-black text-stone-900">Community Connections</h3>
+                </div>
+                <p className="text-sm text-stone-600 font-medium">
+                  {isSubscribed ? 
+                    "You are currently part of our priority circular. We'll keep you notified of wholesale stock arrivals and seasonal discounts." :
+                    "Join the General Store Karyana Shop community for exclusive wholesale price updates, seasonal arrivals, and priority stock alerts."
+                  }
+                </p>
               </div>
-              <div className="flex w-full md:w-auto bg-white p-1.5 rounded-2xl shadow-sm border border-stone-100">
-                <input 
-                  type="email" 
-                  placeholder="Your email address"
-                  value={newsletterEmail}
-                  onChange={(e) => setNewsletterEmail(e.target.value)}
-                  className="flex-1 px-4 py-2 text-sm outline-none bg-transparent"
-                />
+              <div className="flex flex-col sm:flex-row w-full lg:w-auto bg-white p-2 rounded-2xl shadow-md border border-stone-100 gap-2">
+                <div className="relative flex-1 min-w-[240px]">
+                  <input 
+                    type="email" 
+                    placeholder="Your secure email address"
+                    value={newsletterEmail}
+                    onChange={(e) => setNewsletterEmail(e.target.value)}
+                    className="w-full px-4 py-3 text-sm outline-none bg-transparent font-medium text-stone-700"
+                  />
+                  {checkingNewsletter && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <Loader2 size={14} className="animate-spin text-stone-400" />
+                    </div>
+                  )}
+                </div>
                 <button 
-                  onClick={handleNewsletterSubscribe}
-                  className="bg-primary text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-primary/90 transition-colors"
+                  onClick={handleNewsletterAction}
+                  disabled={submittingNewsletter}
+                  className={cn(
+                    "px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2",
+                    isSubscribed ? 
+                      "bg-stone-100 text-stone-500 hover:bg-stone-200" : 
+                      "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200"
+                  )}
                 >
-                  Subscribe
+                  {submittingNewsletter ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {isSubscribed ? 'Unsubscribe' : 'Enroll Now'}
                 </button>
               </div>
             </div>
+            {isSubscribed === false && newsletterEmail === user?.email && (
+              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mt-4 text-center lg:text-left">
+                ● Status: Not Enrolled. We miss you in the circle!
+              </p>
+            )}
+            {isSubscribed === true && (
+              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mt-4 text-center lg:text-left">
+                ● Status: Active Subscriber. You're receiving priority updates.
+              </p>
+            )}
           </div>
 
           {/* Dedicated Resources & Access Section */}
@@ -2499,8 +2544,6 @@ export default function Profile() {
             </div>
           </div>
         </div>
-
-        {/* Khata System */}
         <div className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden">
           <div className="p-8 border-b border-stone-100 bg-stone-50/30 flex items-center justify-between">
             <div>
@@ -2531,24 +2574,13 @@ export default function Profile() {
                   <p className="text-xs text-stone-400 leading-relaxed">Applying for Khata allows you to place orders and pay for them later at your convenience. Admin approval required based on your transaction history.</p>
                 </div>
                 <button 
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/profile/apply-khata', {
-                         method: 'POST',
-                         headers: getAuthHeaders()
-                      });
-                      const data = await res.json();
-                      if (data.success) {
-                        toast.success('Khata request sent successfully!');
-                        refreshUser();
-                      }
-                    } catch (err) {
-                      toast.error('Failed to send request');
-                    }
+                  onClick={() => {
+                    setShowKhataWizard(true);
+                    triggerFeedback('medium');
                   }}
                   className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-xs transition-all active:scale-98 hover:shadow-md cursor-pointer"
                 >
-                  Apply for Khata Access
+                  Apply for Khata Access (Interactive Setup)
                 </button>
               </div>
             )}
@@ -2619,34 +2651,67 @@ export default function Profile() {
               color="text-purple-500"
             />
               
-              <div 
-                className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
-                onClick={() => {
-                  const langs = ['en', 'hi', 'pa'] as const;
-                  const currentIndex = langs.indexOf(language as any) || 0;
-                  const nextLang = langs[(currentIndex + 1) % langs.length];
-                  setLanguage(nextLang);
-                  toast.success(`Language set to ${nextLang.toUpperCase()}`);
-                  triggerFeedback('medium');
-                }}
-              >
-                <div className="flex items-center justify-between">
+              <div className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group">
+                <div 
+                  className="flex items-center justify-between"
+                  onClick={() => {
+                    setShowLanguageSelector(!showLanguageSelector);
+                    triggerFeedback('light');
+                  }}
+                >
                   <div className="flex items-center space-x-4">
                     <div className="p-3 bg-stone-100 rounded-2xl text-stone-500 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                       <Globe size={20} />
                     </div>
                     <div>
                       <p className="font-bold text-stone-700">Language</p>
-                      <p className="text-[10px] text-stone-400 font-medium">{language.toUpperCase()}</p>
+                      <p className="text-[10px] text-stone-400 font-medium">
+                        {language === 'en' ? 'ENGLISH (EN)' : language === 'hi' ? 'HINDI (HI)' : 'PUNJABI (PA)'}
+                      </p>
                     </div>
                   </div>
-                  <ChevronRight size={18} className="text-stone-300 group-hover:text-primary transition-colors" />
+                  <ChevronDown size={18} className={cn("text-stone-300 group-hover:text-primary transition-all duration-300", showLanguageSelector && "rotate-180 text-primary")} />
                 </div>
+
+                <AnimatePresence>
+                  {showLanguageSelector && (
+                    <motion.div 
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="mt-4 pl-14 space-y-2 overflow-hidden"
+                    >
+                      {[
+                        { code: 'en', label: 'English (EN)' },
+                        { code: 'hi', label: 'Hindi (HI)' },
+                        { code: 'pa', label: 'Punjabi (PA)' }
+                      ].map((lang) => (
+                        <div 
+                          key={lang.code}
+                          onClick={() => {
+                            setLanguage(lang.code as any);
+                            toast.success(`Language set to ${lang.label}`);
+                            triggerFeedback('medium');
+                          }}
+                          className={cn(
+                            "flex items-center justify-between py-2 px-3.5 rounded-xl transition-all border",
+                            language === lang.code 
+                              ? "bg-primary/5 text-primary border-primary/20 font-bold" 
+                              : "text-stone-500 border-transparent hover:bg-stone-100"
+                          )}
+                        >
+                          <span className="text-xs">{lang.label}</span>
+                          {language === lang.code && <Check size={14} className="text-primary" />}
+                        </div>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <div 
                 className="p-6 hover:bg-stone-50 transition-colors cursor-pointer group"
-                onClick={() => toast.success('Cache cleared')}
+                onClick={handlePurgeCache}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
@@ -2659,6 +2724,10 @@ export default function Profile() {
                     </div>
                   </div>
                   <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePurgeCache();
+                    }}
                     className="text-xs font-bold text-stone-400 group-hover:text-red-500 uppercase tracking-wider py-2 px-4 rounded-xl bg-stone-100 group-hover:bg-red-50 transition-colors"
                   >
                     Clear
@@ -2669,7 +2738,10 @@ export default function Profile() {
           </div>
 
           <button 
-            onClick={logout}
+            onClick={() => {
+              triggerFeedback('heavy');
+              logout();
+            }}
             className="w-full p-6 bg-red-50 text-red-600 rounded-3xl font-bold flex items-center justify-center space-x-3 hover:bg-red-100 transition-colors border border-red-100"
           >
             <LogOut size={20} />
@@ -2689,28 +2761,25 @@ export default function Profile() {
               <div className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    <div className={cn(
-                      "p-3 rounded-2xl transition-colors",
-                      isExporting ? "bg-amber-100 text-amber-600 animate-pulse" : "bg-stone-100 text-stone-500"
-                    )}>
+                    <div className="p-3 bg-stone-100 rounded-2xl text-stone-500">
                       <Download size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-stone-700">Export My Data (Cloud Backup)</p>
-                      <p className="text-[10px] text-stone-400 font-medium">Download a verified CSV structured archive of your account</p>
+                      <p className="font-bold text-stone-700">Export Account Data</p>
+                      <p className="text-[10px] text-stone-400 font-medium">Configure and compile customized CSV spreadsheets or high-contrast official PDF dossiers</p>
                     </div>
                   </div>
                   <div className="flex space-x-2">
                        <button 
-                        disabled={isExporting}
                         onClick={(e) => { 
                           e.stopPropagation(); 
-                          handleExportData(); 
+                          setShowExportModal(true);
+                          triggerFeedback('medium');
                         }} 
-                        className="px-6 py-2.5 bg-stone-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                        className="px-6 py-2.5 bg-stone-900 text-white hover:bg-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-stone-900/10"
                       >
-                      {isExporting ? <RefreshCw size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
-                      {isExporting ? 'Generating...' : 'Download as CSV'}
+                      <ShieldCheck size={12} />
+                      <span>Configure Export Plan</span>
                     </button>
                   </div>
                 </div>
@@ -2729,7 +2798,11 @@ export default function Profile() {
                   <div>
                     { (!deletionStatus || deletionStatus.status === 'NONE') ? (
                       <button 
-                        onClick={(e) => { e.stopPropagation(); handleDataRequest('delete'); }} 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          triggerFeedback('heavy');
+                          handleDataRequest('delete'); 
+                        }} 
                         className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
                       >
                         Request Deletion
@@ -2737,14 +2810,12 @@ export default function Profile() {
                     ) : (
                       <div className="flex flex-col items-end">
                         <span className={cn(
-                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                          deletionStatus.status === 'PENDING' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest text-white",
+                          deletionStatus.status === 'PENDING' ? "bg-amber-500 shadow-sm" : "bg-emerald-500 shadow-sm"
                         )}>
-                          {deletionStatus.status}
+                          {deletionStatus.status === 'PENDING' ? 'Deletion Requested' : 'Processed'}
                         </span>
-                        {deletionStatus.scheduled_for && (
-                          <p className="text-[8px] text-stone-400 mt-1">Scheduled: {new Date(deletionStatus.scheduled_for).toLocaleDateString()}</p>
-                        )}
+                        <p className="text-[10px] font-bold text-stone-400 mt-1">{new Date(deletionStatus.created_at).toLocaleDateString()}</p>
                       </div>
                     )}
                   </div>
@@ -2754,10 +2825,6 @@ export default function Profile() {
           </div>
         </div>
       </div>
-
-      {/* Add Money Modal Component */}
-
-      {/* Review Modal */}
       <AnimatePresence>
         {showReviewModal.open && (
            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -2768,11 +2835,12 @@ export default function Profile() {
               className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
             >
               <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50">
-                <h3 className="font-bold text-lg">Review Order #ORD-{showReviewModal.orderId}</h3>
+                <h3 className="font-bold text-lg">Review Order #{showReviewModal.orderId}</h3>
                 <button onClick={() => setShowReviewModal({ open: false, orderId: null })} className="p-2 hover:bg-stone-200 rounded-xl transition-colors">
                   <X size={20} />
                 </button>
               </div>
+
               <div className="p-6 space-y-6">
                 <div>
                   <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-3">Rating</label>
@@ -2898,6 +2966,7 @@ export default function Profile() {
               <form 
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  triggerFeedback('medium');
                   if (isSavingAddress) return;
                   setIsSavingAddress(true);
                   try {
@@ -3187,7 +3256,10 @@ export default function Profile() {
                     Discard Changes
                   </button>
                   <button 
-                    onClick={handleUpdateOrder}
+                  onClick={() => {
+                    triggerFeedback('medium');
+                    handleUpdateOrder();
+                  }}
                     disabled={isUpdatingOrder}
                     className={cn(
                       "flex-[2] btn-primary py-4 text-xs flex items-center justify-center space-x-3 shadow-xl shadow-primary/20",
@@ -3431,107 +3503,105 @@ export default function Profile() {
           </div>
         )}
 
+        {showKhataWizard && (
+          <KhataWizard 
+            isOpen={showKhataWizard} 
+            onClose={() => setShowKhataWizard(false)} 
+            onSuccess={refreshUser} 
+          />
+        )}
+
         {showExportModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-stone-900/80 backdrop-blur-md"
-              onClick={() => {
-                setShowExportModal(false);
-                if (exportUrl) URL.revokeObjectURL(exportUrl);
-                setExportUrl(null);
-              }}
-            />
+          <ExportManagement 
+            isOpen={showExportModal} 
+            onClose={() => setShowExportModal(false)}
+            orders={orders}
+            walletHistory={walletHistory}
+          />
+        )}
+
+        {showDeleteConfirmModal && (
+          <div id="delete-account-modal" className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/90 backdrop-blur-md flex items-center justify-center p-4">
             <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white rounded-[2.5rem] p-8 w-full max-w-2xl shadow-2xl border border-stone-100 z-[120] text-center flex flex-col md:flex-row gap-6 items-center"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-stone-100 space-y-6"
             >
-              {/* Left Column: Details & Controls */}
-              <div className="flex-1 text-center md:text-left space-y-4">
-                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto md:mx-0 border border-emerald-100/50">
-                  <ShieldCheck size={32} />
+              <div className="space-y-2 text-center">
+                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto border border-red-100">
+                  <AlertCircle size={28} />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 justify-center md:justify-start">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest font-mono">Secure Session Authorized</span>
-                  </div>
-                  <h2 className="text-2xl font-black text-stone-900 mt-1 mb-2 uppercase tracking-tight italic">Verified Data Dossier</h2>
-                  <p className="text-stone-500 text-[11px] font-medium leading-relaxed">
-                    Your platform activity record has been generated. View the embedded document below. Access is restricted under a local, temporary secure environment.
-                  </p>
+                <h3 className="text-xl font-serif font-black text-stone-900">Irreversible Action</h3>
+                <p className="text-xs text-stone-400 font-extrabold uppercase tracking-widest font-mono text-red-500">Security Access Node Deletion</p>
+              </div>
+
+              <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100 text-xs text-stone-500 leading-relaxed text-center space-y-2">
+                <p>
+                  You are initiating a formal request to permanently delete your Hind General Store account and erase your connected database attributes. 
+                </p>
+                <p className="font-bold text-stone-800">
+                  This action is irreversible once finalized by the security team.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-stone-400">Reason for Request (Optional)</label>
+                  <input
+                    type="text"
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    placeholder="E.g., Privacy concerns, moving out, etc."
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-800 focus:outline-none focus:border-red-500 transition-colors"
+                  />
                 </div>
 
-                {/* Session countdown timer */}
-                <div className="bg-stone-50 border border-stone-150 rounded-2xl p-4 text-left">
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-wider">Session Remaining</span>
-                    <span className="text-xs font-mono font-black text-emerald-600">{exportTimeLeft}s</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-stone-200/50 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-emerald-500 rounded-full transition-all duration-1000 ease-linear"
-                      style={{ width: `${(exportTimeLeft / 60) * 100}%` }}
-                    />
-                  </div>
-                  <p className="text-[9px] font-medium text-stone-400 mt-2">
-                    For your information security, this session and temporary URL automatically expires when the countdown is complete.
-                  </p>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <button 
-                    onClick={() => {
-                      const link = document.createElement('a');
-                      link.href = exportUrl || '';
-                      link.download = `HGS_Account_Data_Archive.pdf`;
-                      link.click();
-                      toast.success('Your data archive has been downloaded successfully!');
-                    }}
-                    className="flex-1 py-3.5 bg-stone-900 hover:bg-slate-800 text-white rounded-xl font-black uppercase tracking-[0.1em] text-[10px] transition-all flex items-center justify-center gap-2 hover:shadow-lg shadow-stone-900/10 active:scale-95 cursor-pointer"
-                  >
-                    <Download size={14} />
-                    <span>Download PDF</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowExportModal(false);
-                      if (exportUrl) URL.revokeObjectURL(exportUrl);
-                      setExportUrl(null);
-                    }}
-                    className="flex-1 py-3.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-black uppercase tracking-[0.1em] text-[10px] transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
-                  >
-                    Close Session
-                  </button>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-stone-400 flex justify-between">
+                    <span>Confirmation Code</span>
+                    <span className="text-red-500 font-bold">Type "DELETE"</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    placeholder="Type DELETE to confirm"
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-800 text-center font-mono font-bold uppercase tracking-widest focus:outline-none focus:border-red-500 transition-colors"
+                  />
                 </div>
               </div>
 
-              {/* Right Column: Embedded PDF Viewer */}
-              <div className="w-full md:w-[320px] flex flex-col space-y-2">
-                <div className="text-[9px] font-bold text-stone-400 uppercase tracking-wider text-left pl-1 font-mono">
-                  Embedded Presentation
-                </div>
-                <div className="w-full h-[280px] bg-stone-50 rounded-2xl overflow-hidden border border-stone-200 shadow-inner relative flex items-center justify-center text-center">
-                  {exportUrl ? (
-                    <iframe 
-                      src={exportUrl} 
-                      className="w-full h-full border-none rounded-2xl" 
-                      title="Data Dossier Preview"
-                    />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirmModal(false)}
+                  disabled={deleteIsSubmitting}
+                  className="flex-1 py-3 bg-stone-100 hover:bg-stone-250 text-stone-750 font-bold rounded-2xl text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitDeletionRequest}
+                  disabled={deleteIsSubmitting || deleteConfirmText !== 'DELETE'}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 disabled:bg-stone-100 disabled:text-stone-300 text-white font-extrabold rounded-2xl text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-500/10"
+                >
+                  {deleteIsSubmitting ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" />
+                      <span>Sending...</span>
+                    </>
                   ) : (
-                    <div className="text-stone-400 text-xs p-4">Loading cryptographic data stream...</div>
+                    <span>Delete Account</span>
                   )}
-                </div>
+                </button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-      </div>
+    </div>
     </div>
   );
 }

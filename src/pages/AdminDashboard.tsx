@@ -6,8 +6,10 @@ import toast from 'react-hot-toast';
 import { withErrorReporting } from '@/lib/uiUtils';
 import { handleAppError } from '@/lib/incidentUtils';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '@/firebase';
+import { 
+  db, handleFirestoreError, OperationType, 
+  collection, onSnapshot, query, orderBy, limit, where 
+} from '@/firebase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend
@@ -485,7 +487,6 @@ export default function AdminDashboard() {
   const [walletType, setWalletType] = useState<'credit' | 'debit'>('credit');
   const [reportDetailModal, setReportDetailModal] = useState<{ open: boolean; report: any | null }>({ open: false, report: null });
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
-  const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
   const [orderUserIdFilter, setOrderUserIdFilter] = useState<string>('');
   const [orderDateStart, setOrderDateStart] = useState<string>('');
   const [orderDateEnd, setOrderDateEnd] = useState<string>('');
@@ -929,9 +930,6 @@ export default function AdminDashboard() {
                   deletionRequests={deletionRequests}
                   approveDeletion={approveDeletion}
                   rejectDeletion={rejectDeletion}
-                  fetchWithHandling={fetchWithHandling}
-                  getAuthHeaders={getAuthHeaders}
-                  toast={toast}
                 />
               );
             case 'Promotional Rules':
@@ -1074,9 +1072,28 @@ export default function AdminDashboard() {
     });
   };
 
-  const fetchReturns = async () => {
-    if (!navigator.onLine) return;
-    return await mutateReturns();
+  const fetchReturns = () => {
+    if (!navigator.onLine || !db) return () => {};
+    const q = query(collection(db, 'returns'), orderBy('created_at', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setReturns(data);
+    }, (err) => {
+      console.warn('Firestore Returns subscription fell back safely:', err.message);
+      mutateReturns();
+    });
+  };
+
+  const fetchWalletRequests = () => {
+    if (!navigator.onLine || !db) return () => {};
+    const q = query(collection(db, 'wallet_requests'), where('status', '==', 'pending'), orderBy('created_at', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setWalletRequests(data);
+    }, (err) => {
+      console.warn('Firestore Wallet Requests subscription fell back safely:', err.message);
+      mutateWalletRequests();
+    });
   };
 
   const fetchProducts = () => {
@@ -1095,15 +1112,33 @@ export default function AdminDashboard() {
   useEffect(() => {
     let unsubscribeOrders: () => void;
     let unsubscribeProducts: () => void;
+    let unsubscribeUsers: () => void;
+    let unsubscribeTickets: () => void;
+    let unsubscribeReturns: () => void;
+    let unsubscribeWalletRequests: () => void;
+    let unsubscribeNotifications: () => void;
+    let unsubscribeCategories: () => void;
     
     if (user?.role === 'admin') {
       // Subscribe once on mount
       unsubscribeProducts = fetchProducts();
       unsubscribeOrders = fetchOrders();
+      unsubscribeUsers = fetchUsers();
+      unsubscribeTickets = fetchTickets();
+      unsubscribeReturns = fetchReturns();
+      unsubscribeWalletRequests = fetchWalletRequests();
+      unsubscribeNotifications = fetchNotifications();
+      unsubscribeCategories = fetchCategories();
     }
     return () => {
       if (unsubscribeOrders) unsubscribeOrders();
       if (unsubscribeProducts) unsubscribeProducts();
+      if (unsubscribeUsers) unsubscribeUsers();
+      if (unsubscribeTickets) unsubscribeTickets();
+      if (unsubscribeReturns) unsubscribeReturns();
+      if (unsubscribeWalletRequests) unsubscribeWalletRequests();
+      if (unsubscribeNotifications) unsubscribeNotifications();
+      if (unsubscribeCategories) unsubscribeCategories();
     };
   }, [user]);
 
@@ -1170,16 +1205,8 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    let unsubscribe: () => void;
     if (activeTab === 'Expenses') fetchExpenses();
-    if (activeTab === 'Support Tickets') {
-      unsubscribe = fetchTickets();
-    }
     if (activeTab === 'Suspicious Activities') fetchSuspiciousActivities();
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
   }, [activeTab]);
   const [reviewResponse, setReviewResponse] = useState('');
   const [promotions, setPromotions] = useState<any[]>([]);
@@ -1436,17 +1463,6 @@ export default function AdminDashboard() {
       logger.error('Save runner error:', err);
     }
   };
-
-  const fetchWalletRequests = async () => {
-    if (!navigator.onLine) return;
-    return await mutateWalletRequests();
-  };
-
-  useEffect(() => {
-    if (activeTab === 'Wallet Requests') {
-      fetchWalletRequests();
-    }
-  }, [activeTab]);
 
   const handleApproveWalletRequest = async (id: number) => {
     try {
@@ -2052,16 +2068,6 @@ export default function AdminDashboard() {
     });
   };
 
-  useEffect(() => {
-    let unsubscribe: () => void;
-    if (activeTab === 'Customers') {
-      unsubscribe = fetchUsers();
-    }
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [activeTab]);
-
   const fetchAllProducts = async () => {
     try {
       await mutateProducts();
@@ -2071,19 +2077,16 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchCategories = async () => {
-    try {
-      adminService.invalidateCache('categories');
-      const data = await adminService.getCategories(getAuthHeaders());
-      if (data) {
-        setCategories(data);
-        if (typeof refetchGlobalCategories === 'function') {
-          refetchGlobalCategories();
-        }
-      }
-    } catch (err) {
-      console.error('Categories fetch error:', err);
-    }
+  const fetchCategories = () => {
+    if (!db) return () => {};
+    const catRef = collection(db, 'categories');
+    return onSnapshot(catRef, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setCategories(data);
+    }, (err) => {
+      console.warn('Firestore Categories subscription fell back safely:', err.message);
+      // Optional: keep using REST if needed, but onSnapshot should be reliable
+    });
   };
 
   const fetchTickets = () => {
@@ -2112,15 +2115,18 @@ export default function AdminDashboard() {
     });
   };
 
-  const fetchNotifications = async () => {
-    try {
-      const data = await adminService.getNotifications(getAuthHeaders());
-      if (data) {
-        setNotifications(data);
-      }
-    } catch (err) {
-      console.error('Notifications fetch error:', err);
-    }
+  const fetchNotifications = () => {
+    if (!navigator.onLine || !db) return () => {};
+    const q = query(collection(db, 'notifications'), orderBy('created_at', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setNotifications(data);
+    }, (err) => {
+      console.warn('Firestore Notifications subscription fell back safely:', err.message);
+      adminService.getNotifications(getAuthHeaders())
+        .then(data => { if (data) setNotifications(data); })
+        .catch(console.error);
+    });
   };
 
   const fetchDeliveryAreas = async () => {

@@ -5,6 +5,7 @@ import { cn } from '@/types';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
+import { triggerFeedback } from '@/lib/feedback';
 
 interface FinanceModalsProps {
   walletModal: { open: boolean; userId: number | null };
@@ -96,7 +97,10 @@ export const FinanceModals: React.FC<FinanceModalsProps> = ({
               Cancel
             </button>
             <button 
-              onClick={handleWalletUpdate}
+              onClick={() => {
+                triggerFeedback('medium');
+                handleWalletUpdate();
+              }}
               className="flex-1 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary/90"
             >
               Confirm
@@ -159,7 +163,13 @@ export const FinanceModals: React.FC<FinanceModalsProps> = ({
         size="md"
       >
         <div className="p-8 pb-10">
-          <form onSubmit={handleAddExpense} className="space-y-4">
+          <form 
+            onSubmit={(e) => {
+              triggerFeedback('medium');
+              handleAddExpense(e);
+            }} 
+            className="space-y-4"
+          >
             <div>
               <label className="block text-sm font-bold text-stone-700 mb-2">Description</label>
               <input 
@@ -286,6 +296,7 @@ export const FinanceModals: React.FC<FinanceModalsProps> = ({
             </button>
             <button 
               onClick={async () => {
+                triggerFeedback('light');
                 if (!newRole.name) return toast.error('Role name is required');
                 try {
                   const method = roleModal.mode === 'add' ? 'POST' : 'PUT';

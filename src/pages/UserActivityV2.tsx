@@ -18,6 +18,8 @@ import {
   Star
 } from 'lucide-react';
 import { useStore } from '@/StoreContext';
+import { db } from '@/firebase';
+import { collection, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -79,13 +81,61 @@ export default function UserActivity() {
   };
 
   useEffect(() => {
-    if (!user) {
-       navigate('/login');
-       return;
-    }
+    if (!user?.id || !db) return;
+    
     setLoading(true);
-    loadData().finally(() => setLoading(false));
-  }, [user]);
+    
+    // Real-time Orders Listener
+    const userIdStr = String(user.id);
+    const ordersRef = query(
+      collection(db, 'orders'), 
+      where('user_id', '==', userIdStr), 
+      orderBy('created_at', 'desc'),
+      limit(50)
+    );
+    const unsubscribeOrders = onSnapshot(ordersRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrders(data);
+      setLoading(false);
+    }, (err) => {
+      console.warn('Orders real-time sync failed:', err);
+      loadData().finally(() => setLoading(false));
+    });
+    
+    // Real-time Wallet History Listener
+    const walletRef = query(
+      collection(db, 'wallet_history'), 
+      where('user_id', '==', userIdStr), 
+      orderBy('created_at', 'desc'),
+      limit(50)
+    );
+    const unsubscribeWallet = onSnapshot(walletRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setWalletTx(data);
+    }, (err) => {
+      console.warn('Wallet history real-time sync failed:', err);
+    });
+
+    // Real-time Khata History Listener 
+    const khataRef = query(
+      collection(db, 'khata_history'), 
+      where('user_id', '==', userIdStr), 
+      orderBy('created_at', 'desc'),
+      limit(50)
+    );
+    const unsubscribeKhata = onSnapshot(khataRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setKhataTx(data);
+    }, (err) => {
+      console.warn('Khata history real-time sync failed:', err);
+    });
+
+    return () => {
+      unsubscribeOrders();
+      unsubscribeWallet();
+      unsubscribeKhata();
+    };
+  }, [user?.id]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -287,9 +337,19 @@ export default function UserActivity() {
                           </div>
                         </div>
 
-                        <span className={cn("px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest", getOrderStatusColor(o.status))}>
-                          {o.status}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {o.delivery_type && (
+                            <span className={cn(
+                              "px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border",
+                              o.delivery_type === 'pickup' ? "bg-orange-50 text-orange-600 border-orange-200" : "bg-blue-50 text-blue-600 border-blue-200"
+                            )}>
+                              {o.delivery_type}
+                            </span>
+                          )}
+                          <span className={cn("px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest", getOrderStatusColor(o.status))}>
+                            {o.status}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Display items summary preview */}

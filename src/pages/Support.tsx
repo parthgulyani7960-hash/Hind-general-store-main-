@@ -11,6 +11,7 @@ import { cn } from '@/types';
 import toast from 'react-hot-toast';
 import UserAvatar from '@/components/UserAvatar';
 import { getAuthHeaders } from '@/lib/utils';
+import { triggerFeedback } from '@/lib/feedback';
 import { fetchWithHandling } from '@/lib/api';
 import SupportChat from '@/components/SupportChat';
 import { db } from '@/firebase';
@@ -86,6 +87,7 @@ export default function Support() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    triggerFeedback('medium');
     
     // Enforce 500 word limit
     const wordCount = form.message.trim().split(/\s+/).filter(Boolean).length;
@@ -120,11 +122,11 @@ export default function Support() {
       });
 
       // Also save to Firestore for real-time chat
-      if (data && data.ticket_id || data?.id) {
+      if (data && (data.ticket_id || data?.id)) {
         const ticketId = String(data.ticket_id || data.id || Date.now());
         await addDoc(collection(db, 'tickets'), {
           id: ticketId,
-          user_id: user?.id || null,
+          user_id: String(user?.id || ''), 
           user_name: form.name,
           subject: form.subject,
           message: form.message,

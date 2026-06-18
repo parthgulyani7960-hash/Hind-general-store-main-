@@ -10,6 +10,7 @@ import {
 import { useStore } from '@/StoreContext';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
+import { triggerFeedback } from '@/lib/feedback';
 import { cn } from '@/types';
 import LoadingFallback from '@/components/LoadingFallback';
 import toast from 'react-hot-toast';
@@ -200,12 +201,9 @@ export default function UserActivity() {
                              <div>
                                 <div className="flex items-center space-x-2">
                                   <h4 className="text-lg font-black text-stone-900 tracking-tight leading-none group-hover:text-primary transition-colors">Order #{order.order_id || order.id}</h4>
-                                  {order.delivery_type === 'pickup' && (
-                                     <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter">Self Pickup</span>
-                                  )}
                                 </div>
                                 <div className="flex items-center space-x-3 mt-2">
-                                   <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none border-r border-stone-200 pr-3">{new Date(order.created_at).toLocaleDateString()}</p>
+                                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none border-r border-stone-200 pr-3">{new Date(order.created_at).toLocaleDateString()}</p>
                                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none">{order.items.length} Assets</p>
                                 </div>
                              </div>
@@ -216,7 +214,7 @@ export default function UserActivity() {
                                "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border",
                                getStatusColor(order.status)
                              )}>
-                               {order.status === 'shipped' && order.delivery_type === 'pickup' ? 'READY FOR PICKUP' : order.status}
+                               {order.status}
                              </span>
                              <p className="text-2xl font-black text-stone-900 tracking-tight leading-none">₹{order.total}</p>
                           </div>
@@ -333,8 +331,21 @@ export default function UserActivity() {
                        </div>
                     </div>
                     <div className="mt-10 flex gap-4">
-                       <button className="px-8 py-4 bg-white text-stone-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Top Up Protocol</button>
-                       <button className="px-8 py-4 bg-white/10 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/20 active:scale-95 transition-all">View Analytics</button>
+                       <button 
+                         onClick={() => {
+                           triggerFeedback('medium');
+                           // Protocol logic or modal navigation
+                         }}
+                         className="px-8 py-4 bg-white text-stone-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
+                       >
+                         Top Up Protocol
+                       </button>
+                       <button 
+                         onClick={() => triggerFeedback('light')}
+                         className="px-8 py-4 bg-white/10 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/20 active:scale-95 transition-all"
+                       >
+                         View Analytics
+                       </button>
                     </div>
                  </div>
               </div>

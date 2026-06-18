@@ -10,6 +10,7 @@ import { fetchWithHandling } from '@/lib/api';
 import { signInWithGoogle, handleAuthError } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { triggerFeedback } from '@/lib/feedback';
 
 /**
  * Premium, High-Fidelity Login View for Hind Store
@@ -64,6 +65,7 @@ export default function Login() {
 
   // Google Sign-In handler (Processes both registration and login automatically)
   const handleGoogleLogin = async () => {
+    triggerFeedback('medium');
     if (!isOnline) {
       toast.error('You are currently offline. Please check your internet connection.');
       return;

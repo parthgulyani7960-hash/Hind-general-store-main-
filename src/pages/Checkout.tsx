@@ -2,17 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
-import { ShoppingBag, MapPin, CreditCard, CheckCircle2, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { ShoppingBag, MapPin, CreditCard, CheckCircle2, ShieldCheck, AlertTriangle, Store, Truck } from 'lucide-react';
 import { cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/Button';
 import { triggerFeedback } from '@/lib/feedback';
+import { queueOfflineOrder } from '@/lib/offline';
 
 export default function Checkout() {
   const { cart, t, user, clearCart } = useStore();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup' | null>(null);
   const [addressData, setAddressData] = useState({ name: '', phone: '', address: '' });
   const [coords, setCoords] = useState<{lat: number, lng: number} | null>(null);
   const [reverseGeocodedAddress, setReverseGeocodedAddress] = useState<string>('');
@@ -21,6 +23,7 @@ export default function Checkout() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorHeader, setErrorHeader] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [isOfflineOrder, setIsOfflineOrder] = useState(false);
 
   useEffect(() => {
     if (cart.length === 0 && step !== 3) {
@@ -28,7 +31,7 @@ export default function Checkout() {
       return () => clearTimeout(timer);
     }
 
-    if (navigator.geolocation && step === 1) {
+    if (navigator.geolocation && step === 2 && deliveryMethod === 'delivery') {
       navigator.geolocation.getCurrentPosition((position) => {
         const { latitude, longitude } = position.coords;
         setCoords({ lat: latitude, lng: longitude });
@@ -60,13 +63,10 @@ export default function Checkout() {
     setErrorHeader(null);
 
     try {
-      // Intentional delay to simulate payment gateway security validation (User Request: "Add some delay and lag")
-      await new Promise(resolve => setTimeout(resolve, 3200));
-      
       const transactionId = `TXN-${Math.random().toString(36).substring(2, 12).toUpperCase()}`;
       
       const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-      const deliveryFee = subtotal < 500 ? 50 : 0;
+      const deliveryFee = 0;
       
       const payload = {
         user_id: user?.id || 'guest',
@@ -86,10 +86,21 @@ export default function Checkout() {
           manual_address: reverseGeocodedAddress
         },
         payment_method: 'online',
-        payment_id: transactionId, // Persisting captured transaction ID
-        delivery_type: 'economy',
-        notes: `Reverse Geocoded: ${reverseGeocodedAddress}`
+        payment_id: transactionId,
+        delivery_type: deliveryMethod || 'standard',
+        notes: deliveryMethod === 'pickup' ? 'Self Pickup from Store' : `Delivery to: ${addressData.address}`
       };
+
+      if (!navigator.onLine) {
+        await queueOfflineOrder(payload);
+        setIsOfflineOrder(true);
+        setOrderId(`OFFLINE-${transactionId}`);
+        clearCart();
+        setStep(4);
+        triggerFeedback('heavy');
+        toast.success("Order Queued Offline! Will sync when back online.");
+        return;
+      }
 
       const res = await fetchWithHandling<any>('/api/orders', {
         method: 'POST',
@@ -116,9 +127,10 @@ export default function Checkout() {
   };
 
   const steps = [
-    { id: 1, label: 'Address' },
-    { id: 2, label: 'Review' },
-    { id: 3, label: 'Success' },
+    { id: 1, label: 'Method' },
+    { id: 2, label: 'Details' },
+    { id: 3, label: 'Review' },
+    { id: 4, label: 'Success' },
   ];
 
   const renderStep = () => {
@@ -137,7 +149,10 @@ export default function Checkout() {
         </div>
         <Button 
           className="w-full p-4 rounded-2xl bg-stone-900 text-white font-black uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-stone-900/10" 
-          onClick={() => setErrorHeader(null)}
+          onClick={() => {
+            triggerFeedback('light');
+            setErrorHeader(null);
+          }}
           variant="primary"
         >
           Return to Checkout
@@ -149,7 +164,70 @@ export default function Checkout() {
       case 1: return <div className="space-y-6">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">1</div>
-          <h2 className="text-xl font-black tracking-tight text-stone-900">Where should we deliver?</h2>
+          <h2 className="text-xl font-black tracking-tight text-stone-900">How would you like your order?</h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <button 
+            onClick={() => {
+              triggerFeedback('medium');
+              setDeliveryMethod('delivery');
+              setStep(2);
+            }}
+            className={cn(
+              "p-6 rounded-3xl border-2 transition-all text-left flex flex-col gap-3 group relative overflow-hidden",
+              deliveryMethod === 'delivery' ? "border-stone-900 bg-stone-900 text-white shadow-xl shadow-stone-900/10" : "border-stone-100 bg-white hover:border-stone-200"
+            )}
+          >
+            <div className={cn(
+              "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors",
+              deliveryMethod === 'delivery' ? "bg-white/10 text-white" : "bg-stone-50 text-stone-900"
+            )}>
+              <Truck size={24} />
+            </div>
+            <div>
+              <div className="font-black text-sm uppercase tracking-widest">Home Delivery</div>
+              <div className={cn(
+                "text-[10px] font-bold mt-1",
+                deliveryMethod === 'delivery' ? "text-white/60" : "text-stone-400"
+              )}>Standard doorstep arrival</div>
+            </div>
+          </button>
+
+          <button 
+            onClick={() => {
+              triggerFeedback('medium');
+              setDeliveryMethod('pickup');
+              setStep(2);
+            }}
+            className={cn(
+              "p-6 rounded-3xl border-2 transition-all text-left flex flex-col gap-3 group relative overflow-hidden",
+              deliveryMethod === 'pickup' ? "border-stone-900 bg-stone-900 text-white shadow-xl shadow-stone-900/10" : "border-stone-100 bg-white hover:border-stone-200"
+            )}
+          >
+            <div className={cn(
+              "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors",
+              deliveryMethod === 'pickup' ? "bg-white/10 text-white" : "bg-stone-50 text-stone-900"
+            )}>
+              <Store size={24} />
+            </div>
+            <div>
+              <div className="font-black text-sm uppercase tracking-widest">Store Pickup</div>
+              <div className={cn(
+                "text-[10px] font-bold mt-1",
+                deliveryMethod === 'pickup' ? "text-white/60" : "text-stone-400"
+              )}>Collect from our fulfillment hub</div>
+            </div>
+          </button>
+        </div>
+      </div>;
+
+      case 2: return <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">2</div>
+          <h2 className="text-xl font-black tracking-tight text-stone-900">
+            {deliveryMethod === 'pickup' ? 'Who is picking up?' : 'Where should we deliver?'}
+          </h2>
         </div>
 
         <div className="space-y-4">
@@ -163,13 +241,15 @@ export default function Checkout() {
              <input type="tel" placeholder="+91 00000 00000" className="w-full p-4 border-2 border-stone-100 rounded-2xl focus:border-stone-900 outline-none transition-all font-bold placeholder:text-stone-300" value={addressData.phone} onChange={(e) => setAddressData({...addressData, phone: e.target.value})} />
           </div>
 
-          <div className="space-y-1.5 focus-within:translate-x-1 transition-transform">
-             <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest ml-1">Full Postal Address</label>
-             <textarea placeholder="Apartment, Street, Area..." className="w-full p-4 border-2 border-stone-100 rounded-2xl focus:border-stone-900 outline-none transition-all min-h-[100px] font-bold placeholder:text-stone-300 resize-none" value={addressData.address} onChange={(e) => setAddressData({...addressData, address: e.target.value})} />
-          </div>
+          {deliveryMethod === 'delivery' && (
+            <div className="space-y-1.5 focus-within:translate-x-1 transition-transform">
+               <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest ml-1">Full Postal Address</label>
+               <textarea placeholder="Apartment, Street, Area..." className="w-full p-4 border-2 border-stone-100 rounded-2xl focus:border-stone-900 outline-none transition-all min-h-[100px] font-bold placeholder:text-stone-300 resize-none" value={addressData.address} onChange={(e) => setAddressData({...addressData, address: e.target.value})} />
+            </div>
+          )}
         </div>
 
-        {coords && (
+        {deliveryMethod === 'delivery' && coords && (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -188,22 +268,38 @@ export default function Checkout() {
         <Button 
           variant="primary"
           className="w-full p-5 rounded-2xl bg-stone-900 text-white disabled:opacity-30 disabled:grayscale font-black uppercase tracking-widest shadow-xl shadow-stone-900/10 active:scale-95 transition-all group" 
-          disabled={!addressData.name || !addressData.phone || !addressData.address} 
-          onClick={() => setStep(2)}
+          disabled={!addressData.name || !addressData.phone || (deliveryMethod === 'delivery' && !addressData.address)} 
+          onClick={() => {
+            triggerFeedback('medium');
+            setStep(3);
+          }}
         >
-          <span>Continue to Payment</span>
+          <span>Continue to Final Review</span>
+        </Button>
+        <Button 
+          variant="ghost"
+          className="w-full py-2 text-stone-400 font-extrabold uppercase text-[10px] tracking-widest" 
+          onClick={() => setStep(1)}
+        >
+          Go Back
         </Button>
       </div>;
 
-      case 2: return <div className="space-y-6">
+      case 3: return <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">2</div>
+          <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">3</div>
           <h2 className="text-xl font-black tracking-tight text-stone-900">Secure Order Review</h2>
         </div>
 
         <div className="bg-stone-50 p-6 rounded-2xl border-2 border-dashed border-stone-200 flex flex-col gap-4">
            <div className="flex justify-between items-center text-sm font-bold text-stone-600">
-              <span className="uppercase tracking-widest text-[10px]">Deliver to</span>
+              <span className="uppercase tracking-widest text-[10px]">Method</span>
+              <span className="text-stone-900 uppercase italic tracking-tighter text-xs">
+                {deliveryMethod === 'delivery' ? 'Home Delivery' : 'Store Pickup'}
+              </span>
+           </div>
+           <div className="flex justify-between items-center text-sm font-bold text-stone-600">
+              <span className="uppercase tracking-widest text-[10px]">{deliveryMethod === 'pickup' ? 'Collector' : 'Deliver to'}</span>
               <span className="text-stone-900">{addressData.name}</span>
            </div>
            <div className="h-px bg-stone-200 w-full" />
@@ -231,7 +327,10 @@ export default function Checkout() {
           className="w-full p-6 bg-stone-900 text-white disabled:opacity-50 font-black text-lg uppercase tracking-[0.2em] rounded-[2.5rem] shadow-2xl shadow-stone-900/30 active:scale-[0.98] transition-all relative overflow-hidden group" 
           disabled={isProcessing || !tnc} 
           isLoading={isProcessing}
-          onClick={placeOrder}
+          onClick={() => {
+            triggerFeedback('heavy');
+            placeOrder();
+          }}
         >
           Authorize Payment
         </Button>
@@ -240,36 +339,47 @@ export default function Checkout() {
           <Button 
             variant="ghost"
             className="w-full py-4 text-stone-400 font-extrabold uppercase text-[10px] tracking-widest hover:text-stone-900" 
-            onClick={() => setStep(1)}
+            onClick={() => setStep(2)}
           >
             Modify Details
           </Button>
         )}
       </div>;
 
-      case 3: return <motion.div 
+      case 4: return <motion.div 
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         className="space-y-8 text-center py-6"
       >
-        <div className="w-24 h-24 bg-emerald-50 text-emerald-500 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl shadow-emerald-500/10">
-           <CheckCircle2 size={48} />
+        <div className={cn(
+          "w-24 h-24 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl",
+          isOfflineOrder ? "bg-stone-100 text-stone-500 shadow-stone-200/20" : "bg-emerald-50 text-emerald-500 shadow-emerald-500/10"
+        )}>
+           {isOfflineOrder ? <Truck size={48} /> : <CheckCircle2 size={48} />}
         </div>
         <div className="space-y-2">
-           <h2 className="text-3xl font-black text-stone-900 tracking-tighter">Order Success!</h2>
-           <p className="text-stone-500 font-bold text-sm">Your secure transaction has been logged.</p>
+           <h2 className="text-3xl font-black text-stone-900 tracking-tighter">
+             {isOfflineOrder ? 'Order Queued!' : 'Order Success!'}
+           </h2>
+           <p className="text-stone-500 font-bold text-sm">
+             {isOfflineOrder 
+               ? 'You are currently offline. Your order will be sent automatically once connectivity is restored.' 
+               : 'Your secure transaction has been logged.'}
+           </p>
         </div>
         
         <div className="bg-stone-50 p-6 rounded-3xl border border-stone-100 inline-block w-full">
-           <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Receipt Number</div>
+           <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">
+             {isOfflineOrder ? 'Queue Identifier' : 'Receipt Number'}
+           </div>
            <p className="text-stone-900 font-black text-lg font-mono">#{orderId}</p>
         </div>
 
         <button 
           className="w-full p-5 rounded-2xl bg-stone-900 text-white font-black uppercase tracking-widest hover:shadow-2xl hover:shadow-stone-900/20 active:scale-95 transition-all" 
-          onClick={() => navigate('/history?tab=orders')}
+          onClick={() => navigate(isOfflineOrder ? '/history' : '/history?tab=orders')}
         >
-          Track Progress
+          {isOfflineOrder ? 'Return to History' : 'Track Progress'}
         </button>
       </motion.div>;
     }
@@ -284,7 +394,7 @@ export default function Checkout() {
               <ShoppingBag size={12} />
               Return to Bag
            </Link>
-           <span className="text-[10px] font-black text-stone-400 uppercase tracking-[0.3em]">Phase {step}/3</span>
+           <span className="text-[10px] font-black text-stone-400 uppercase tracking-[0.3em]">Phase {step}/{steps.length}</span>
         </div>
 
         {/* Progress Bar Container */}

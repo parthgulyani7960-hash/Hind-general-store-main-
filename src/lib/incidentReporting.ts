@@ -9,8 +9,15 @@ export enum ErrorType {
   SYSTEM_ERROR = 'SYSTEM_ERROR'
 }
 
+export enum Severity {
+  LOW = 'Low',
+  MEDIUM = 'Medium',
+  CRITICAL = 'Critical'
+}
+
 export interface ErrorReport {
   type: ErrorType;
+  severity: Severity;
   message: string;
   stack?: string;
   path: string;
@@ -23,14 +30,15 @@ export interface ErrorReport {
 
 export class ErrorReportingService {
   private static instance: ErrorReportingService;
-  private queue: ErrorReport[] = [];
-  private isProcessing = false;
   private breadcrumbs: Array<{ action: string; timestamp: string }> = [];
-  private lastApiRequest: any = null;
+  private navigationHistory: Array<{ url: string; timestamp: string }> = [];
+  private apiHistory: Array<{ url: string; method: string; timestamp: string }> = [];
+  private recentErrors = new Map<string, number>();
 
   public setLastApiRequest(req: { url: string; method: string; timestamp: string }) {
-    this.lastApiRequest = req;
     this.addBreadcrumb(`API Request: ${req.method} ${req.url}`);
+    this.apiHistory.push(req);
+    if (this.apiHistory.length > 5) this.apiHistory.shift();
   }
 
   private constructor() {
@@ -44,6 +52,16 @@ export class ErrorReportingService {
     return ErrorReportingService.instance;
   }
 
+  private generateHash(reportData: any): string {
+    const content = `${reportData.message}|${reportData.stack || ''}|${reportData.component || ''}`;
+    // Simple base64 encoding of content as a key for deduplication
+    try {
+      return btoa(unescape(encodeURIComponent(content))).substring(0, 64);
+    } catch (e) {
+      return content.substring(0, 64);
+    }
+  }
+
   public addBreadcrumb(action: string): void {
     const timestamp = new Date().toISOString();
     this.breadcrumbs.push({ action, timestamp });
@@ -53,17 +71,48 @@ export class ErrorReportingService {
     console.log(`[Breadcrumb] ${action}`);
   }
 
+  public addNavigationAction(url: string): void {
+    const timestamp = new Date().toISOString();
+    this.navigationHistory.push({ url, timestamp });
+    if (this.navigationHistory.length > 5) this.navigationHistory.shift();
+    this.addBreadcrumb(`Navigate: ${url}`);
+  }
+
   private setupListeners() {
     if (typeof window === 'undefined') return;
 
-    // Record initial load/path
-    this.addBreadcrumb(`Initial Pathname: ${window.location.pathname}`);
+    // Track navigation history
+    window.addEventListener('popstate', () => {
+      this.addNavigationAction(window.location.pathname);
+    });
 
-    // Global uncaught JS exceptions (Component-level / render exceptions that escape boundaries)
+    try {
+      const originalPushState = window.history.pushState;
+      const originalReplaceState = window.history.replaceState;
+      const self = this;
+
+      window.history.pushState = function(state, ...args) {
+        const result = originalPushState.apply(this, [state, ...args]);
+        try {
+          self.addNavigationAction(window.location.pathname);
+        } catch (e) {}
+        return result;
+      };
+
+      window.history.replaceState = function(state, ...args) {
+        const result = originalReplaceState.apply(this, [state, ...args]);
+        try {
+          self.addNavigationAction(window.location.pathname);
+        } catch (e) {}
+        return result;
+      };
+    } catch (e) {}
+
+    // Global uncaught JS exceptions
     window.addEventListener('error', (event) => {
       try {
         if (event.message?.includes('ResizeObserver') || event.message?.includes('Extension')) {
-          return; // Ignore benign/extension warnings
+          return;
         }
         
         // Extract diagnostic info from ErrorEvent
@@ -91,14 +140,14 @@ export class ErrorReportingService {
             lineno,
             colno,
             route,
-            lastApiRequest: this.lastApiRequest,
+            lastApiRequest: this.apiHistory[this.apiHistory.length - 1],
             timestamp: new Date().toISOString()
           }
         });
       } catch (err) {}
     }, { capture: true });
 
-    // Global unhandled promise rejections (automatic tracking of async/fetch/network failures)
+    // Global unhandled promise rejections
     window.addEventListener('unhandledrejection', (event) => {
       try {
         const reason = event.reason;
@@ -118,75 +167,44 @@ export class ErrorReportingService {
             errorMessage: message,
             errorStack: stack || 'No stack trace available',
             route,
-            lastApiRequest: this.lastApiRequest,
+            lastApiRequest: this.apiHistory[this.apiHistory.length - 1],
             timestamp: new Date().toISOString()
           }
         });
       } catch (err) {}
     });
-
-    // Track clicks on interactive elements
-    window.addEventListener('click', (event) => {
-      try {
-        const target = event.target as HTMLElement;
-        if (!target) return;
-        const interactive = target.closest('button, a, input, select, textarea');
-        if (interactive) {
-          const tagName = interactive.tagName.toLowerCase();
-          const text = interactive.textContent?.trim().slice(0, 50) || '';
-          const idStr = interactive.id ? `#${interactive.id}` : '';
-          const label = `Click: <${tagName}${idStr}> ${text ? `"${text}"` : ''}`;
-          this.addBreadcrumb(label);
-        }
-      } catch (err) {
-        // Silently ignore tracing failures
-      }
-    }, { capture: true, passive: true });
-
-    // Track popstate
-    window.addEventListener('popstate', () => {
-      this.addBreadcrumb(`Navigate (popstate): ${window.location.pathname}`);
-    });
-
-    // Track state pushes/replacements in router (monkeypatch)
-    try {
-      const originalPushState = window.history.pushState;
-      const originalReplaceState = window.history.replaceState;
-      const self = this;
-
-      window.history.pushState = function(state, ...args) {
-        const result = originalPushState.apply(this, [state, ...args]);
-        try {
-          self.addBreadcrumb(`Navigate (pushState): ${window.location.pathname}`);
-        } catch (e) {}
-        return result;
-      };
-
-      window.history.replaceState = function(state, ...args) {
-        const result = originalReplaceState.apply(this, [state, ...args]);
-        try {
-          self.addBreadcrumb(`Navigate (replaceState): ${window.location.pathname}`);
-        } catch (e) {}
-        return result;
-      };
-    } catch (e) {}
   }
 
-  public report(reportData: Omit<ErrorReport, 'timestamp' | 'browser' | 'path'>): void {
+  private batchTimer: ReturnType<typeof setTimeout> | null = null;
+  private queuedReports: ErrorReport[] = [];
+
+  public report(reportData: Omit<ErrorReport, 'timestamp' | 'browser' | 'path'> & { severity?: Severity }): void {
     const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
     if (isOffline) {
       console.warn(`[ErrorService] Suppressed automated background report (Offline Status): ${reportData.message}`);
       return;
     }
 
+    const hash = this.generateHash(reportData);
+    const now = Date.now();
+    if (this.recentErrors.has(hash) && (now - this.recentErrors.get(hash)! < 10000)) {
+        console.warn(`[ErrorService] Deduplication: Suppressing duplicate error`, reportData.message);
+        return;
+    }
+    this.recentErrors.set(hash, now);
+    if (this.recentErrors.size > 100) this.recentErrors.clear();
+
     const report: ErrorReport = {
       ...reportData,
+      severity: reportData.severity || Severity.MEDIUM,
       path: window.location.pathname,
       timestamp: new Date().toISOString(),
       browser: navigator.userAgent,
       metadata: {
         ...(reportData.metadata || {}),
-        breadcrumbs: this.breadcrumbs
+        breadcrumbs: this.breadcrumbs,
+        navigationHistory: this.navigationHistory,
+        apiHistory: this.apiHistory
       }
     };
 
@@ -194,15 +212,18 @@ export class ErrorReportingService {
     
     window.dispatchEvent(new CustomEvent('system_error', { detail: report }));
     
-    this.queue.push(report);
-    this.processQueue();
+    this.queuedReports.push(report);
+    if (!this.batchTimer) {
+        this.batchTimer = setTimeout(() => this.processBatch(), 5000);
+    }
   }
 
-  private async processQueue() {
-    if (this.isProcessing || this.queue.length === 0) return;
+  private async processBatch() {
+    this.batchTimer = null;
+    if (this.queuedReports.length === 0) return;
 
-    this.isProcessing = true;
-    const report = this.queue[0];
+    const reports = [...this.queuedReports];
+    this.queuedReports = [];
 
     try {
       const deviceInfo = `${navigator.platform} | ${navigator.vendor}`;
@@ -211,7 +232,7 @@ export class ErrorReportingService {
         `${(navigator as any).connection.effectiveType} | ${(navigator as any).connection.downlink}Mbps` : 
         'Unknown';
 
-      // Use standard fetch to avoid recursive error reporting if fetchWithHandling fails
+      // Send the batch as an array
       await fetch('/api/bugs/report', {
         method: 'POST',
         headers: {
@@ -219,33 +240,31 @@ export class ErrorReportingService {
           ...getAuthHeaders()
         },
         body: JSON.stringify({
-          user_id: report.userId || null,
-          reporter_name: 'Automated Reporter',
-          message: report.message,
-          why: report.stack || report.type,
-          path: report.path,
-          type: report.type,
-          component: report.component || '',
-          device_info: deviceInfo,
-          screen_resolution: screenRes,
-          network_status: networkStatus,
-          action_log: `Captured by ${report.type} Service`,
-          metadata: report.metadata
+            isBatch: true,
+            reports: reports.map(report => ({
+                user_id: report.userId || null,
+                reporter_name: 'Automated Reporter',
+                message: report.message,
+                why: report.stack || report.type,
+                path: report.path,
+                type: report.type,
+                severity: report.severity,
+                component: report.component || '',
+                device_info: deviceInfo,
+                screen_resolution: screenRes,
+                network_status: networkStatus,
+                action_log: `Captured by ${report.type} Service`,
+                metadata: report.metadata
+            }))
         })
       });
-      
-      this.queue.shift();
     } catch (err) {
-      console.warn('[ErrorService] Failed to send report to server', err);
-      // Keep in queue for next retry or just discard if too many failures
-      if (this.queue.length > 50) this.queue.shift();
-    } finally {
-      this.isProcessing = false;
-      if (this.queue.length > 0) {
-        setTimeout(() => this.processQueue(), 5000);
-      }
+      console.warn('[ErrorService] Failed to send report batch to server', err);
+      // Re-queue on failure? Maybe
+      this.queuedReports = [...reports, ...this.queuedReports];
     }
   }
+
 }
 
 export const errorService = ErrorReportingService.getInstance();

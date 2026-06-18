@@ -5,6 +5,7 @@ import { Link, useNavigate, NavLink, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import { cn } from '@/types';
 import toast from 'react-hot-toast';
+import { triggerFeedback } from '@/lib/feedback';
 
 import UserAvatar from './UserAvatar';
 import SearchOverlay from './SearchOverlay';
@@ -344,7 +345,7 @@ export default function Navbar() {
                       <div className="h-px bg-slate-100 my-1 mx-2" />
                       
                       <button 
-                        onClick={() => { logout(); setIsAvatarMenuOpen(false); }}
+                        onClick={() => { triggerFeedback('heavy'); logout(); setIsAvatarMenuOpen(false); }}
                         className="w-full flex items-center space-x-2 px-3.5 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer"
                       >
                         <LogOut size={14} className="text-red-400" />
@@ -497,7 +498,7 @@ export default function Navbar() {
                     transition={{ delay: 0.35 }}
                   >
                     <button 
-                      onClick={() => { logout(); setIsMenuOpen(false); }}
+                      onClick={() => { triggerFeedback('heavy'); logout(); setIsMenuOpen(false); }}
                       className="w-full flex items-center space-x-3 text-left py-3 px-5 text-sm font-bold text-red-650 hover:bg-red-50 rounded-2xl mt-1 font-display"
                     >
                       <LogOut size={18} className="text-red-400" />

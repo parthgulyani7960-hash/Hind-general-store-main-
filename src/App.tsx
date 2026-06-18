@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import HeadOptimizer from './components/HeadOptimizer';
 import SmartLink from './components/SmartLink';
 import { NetworkBanner } from './components/NetworkBanner';
 import { GlobalProgressBar } from './components/GlobalProgressBar';
@@ -6,20 +7,16 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
-import GlobalAnnouncements from './components/GlobalAnnouncements';
 import MobileBottomNav from './components/MobileBottomNav';
-import FloatingCart from './components/FloatingCart';
 import BackToTop from './components/BackToTop';
-import FullScreenAlert from './components/FullScreenAlert';
 import AuthGuard from './components/AuthGuard';
-import ReviewPromptNotification from './components/ReviewPromptNotification';
 import { TopPromotionTicker } from './components/TopPromotionTicker';
-import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
 import { AdminDiagnosticPanel } from './components/AdminDiagnosticPanel';
 
 import { triggerFeedback } from './lib/feedback';
 export { triggerFeedback };
 import { useStore, StoreProvider } from './StoreContext';
+import { LanguageProvider } from './LanguageContext';
 import React, { useState, Suspense, lazy, useEffect, useRef } from 'react';
 import toast, { useToasterStore } from 'react-hot-toast';
 import { AnimatePresence, motion } from 'motion/react';
@@ -56,12 +53,12 @@ function ScrollToTopOnNavigate() {
   return null;
 }
 
+import { lazyWithRetry } from './lib/lazyLoader';
+
 // High-Priority Core Pages
 const Home = lazyWithRetry(() => import('./pages/Home'), 'Home');
 const Products = lazyWithRetry(() => import('./pages/Products'), 'Products');
 const Login = lazyWithRetry(() => import('./pages/Login'), 'Login');
-
-import { lazyWithRetry } from './lib/lazyLoader';
 
 // Preload helper for admin dashboard
 const preloadAdmin = () => {
@@ -90,6 +87,13 @@ const DeliveryDashboard = lazyWithRetry(() => import('./pages/DeliveryDashboard'
 const MaintenancePage = lazyWithRetry(() => import('./pages/MaintenancePage'), 'Maintenance');
 const TrackOrder = lazyWithRetry(() => import('./pages/TrackOrder'), 'Tracker');
 const UserActivity = lazyWithRetry(() => import('./pages/UserActivityV2'), 'Activity');
+
+// Lazy-loaded secondary overlay UI components for initial bundle size optimization
+const ConfirmLogoutDialog = lazyWithRetry(() => import('./components/ConfirmLogoutDialog'), 'ConfirmLogoutDialog');
+const ReviewPromptNotification = lazyWithRetry(() => import('./components/ReviewPromptNotification'), 'ReviewPromptNotification');
+const FullScreenAlert = lazyWithRetry(() => import('./components/FullScreenAlert'), 'FullScreenAlert');
+const FloatingCart = lazyWithRetry(() => import('./components/FloatingCart'), 'FloatingCart');
+const GlobalAnnouncements = lazyWithRetry(() => import('./components/GlobalAnnouncements'), 'GlobalAnnouncements');
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -306,16 +310,23 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AppCrashBoundary>
-      <StoreProvider>
-        <AppContent />
-      </StoreProvider>
+      <LanguageProvider>
+        <StoreProvider>
+          <AppContent />
+        </StoreProvider>
+      </LanguageProvider>
     </AppCrashBoundary>
   );
 }
 
+import { useMobileInputFocus } from './hooks/useMobileInputFocus';
+
 function AppContent() {
   const store = useStore();
   const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout } = store;
+
+  // Global mobile input behavior optimization
+  useMobileInputFocus(true);
 
   useEffect(() => {
     // Notify the bootstrap monitor that the React application is mounting successfully
@@ -361,29 +372,61 @@ function AppContent() {
     return <DbConnectionIssue />;
   }
 
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    
+    const handleResize = () => {
+      if (!window.visualViewport) return;
+      
+      const isVisible = window.visualViewport.height < window.innerHeight * 0.8;
+      setIsKeyboardVisible(isVisible);
+
+      if (isVisible) {
+        // Keyboard visible transition handled by useMobileInputFocus hook
+      }
+    };
+    
+    window.visualViewport.addEventListener('resize', handleResize);
+    return () => window.visualViewport?.removeEventListener('resize', handleResize);
+  }, []);
+
   return (
     <Router>
+      <HeadOptimizer />
       <ScrollToTopOnNavigate />
-      <ReviewPromptNotification />
-      <FullScreenAlert />
-      <div className={cn("min-h-screen flex flex-col pt-safe", adminTheme)}>
+      <Suspense fallback={null}>
+        <ReviewPromptNotification />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FullScreenAlert />
+      </Suspense>
+      <div className={cn("min-h-screen flex flex-col pt-safe transition-all duration-300", adminTheme, isKeyboardVisible && "pb-0")}>
         <OfflineIndicator />
         <TopPromotionTicker />
         <GlobalProgressBar />
-        <GlobalAnnouncements />
+        <Suspense fallback={null}>
+          <GlobalAnnouncements />
+        </Suspense>
         <ToastManager />
         <Toaster position="top-center" />
         <Navbar />
-        <ConfirmLogoutDialog 
-          isOpen={showLogoutDialog} 
-          onClose={() => setShowLogoutDialog(false)} 
-          onConfirm={performLogout} 
-        />
+        <Suspense fallback={null}>
+          <ConfirmLogoutDialog 
+            isOpen={showLogoutDialog} 
+            onClose={() => setShowLogoutDialog(false)} 
+            onConfirm={performLogout} 
+          />
+        </Suspense>
         <main className="flex-1 pb-24 md:pb-0 relative">
           <AnimatedRoutes />
         </main>
         <MobileBottomNav />
-        <FloatingCart />
+        <AdminDiagnosticPanel />
+        <Suspense fallback={null}>
+          <FloatingCart />
+        </Suspense>
         <BackToTop />
       </div>
     </Router>

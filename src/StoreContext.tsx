@@ -2,8 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission, Announcement } from './types';
 import toast from 'react-hot-toast';
 import { translations, Language } from './translations';
+import { useLanguage } from './LanguageContext';
+import { useSWRConfig } from 'swr';
 import { useNetwork } from './hooks/useNetwork';
-import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged } from './firebase'; 
+import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged, db, doc, onSnapshot, collection, query, orderBy, limit, where } from './firebase'; 
 import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
 import { securityService } from './services/securityService';
@@ -34,6 +36,8 @@ interface StoreContextType {
   config: any[];
   fetchConfig: () => Promise<void>;
   subscribeNewsletter: (email: string) => Promise<boolean>;
+  unsubscribeNewsletter: (email: string) => Promise<boolean>;
+  checkNewsletterStatus: (email: string) => Promise<boolean>;
   vibration: boolean;
   setVibration: (val: boolean) => void;
   notifications: boolean;
@@ -101,11 +105,15 @@ interface StoreContextType {
   fetchCategories: () => Promise<void>;
   announcements: Announcement[];
   fetchAnnouncements: () => Promise<void>;
+  prefetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string }) => void;
+  prefetchProduct: (productId: string | number) => void;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const { language, setLanguage, t } = useLanguage();
+  const { mutate: swrMutate } = useSWRConfig();
   // 1. State and Refs
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
@@ -193,6 +201,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const cachedCartRef = React.useRef<{ data: CartItem[]; timestamp: number; userId: any } | null>(null);
   const fetchCartPromiseRef = React.useRef<Promise<CartItem[]> | null>(null);
   const isCartCacheDirtyRef = React.useRef<boolean>(true);
+  const clientProductsCacheRef = React.useRef<Record<string, { data: Product[]; timestamp: number }>>({});
+  const clientProductDetailCacheRef = React.useRef<Record<string, { data: any; timestamp: number }>>({});
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [config, setConfig] = useState<any[]>([]);
   const [vibration, setVibration] = useState(() => {
@@ -234,13 +244,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
-  const [language, setLanguage] = useState<Language>(() => {
-    return (localStorage.getItem('hgs_lang') as Language) || 'en';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('hgs_lang', language);
-  }, [language]);
 
   useEffect(() => {
     try {
@@ -290,12 +293,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // 2. Helper Functions (useCallbacks and async functions)
   const fetchProducts = React.useCallback(async (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean }) => {
-    if (isLoadingProducts) return;
-    setIsLoadingProducts(true);
-    setFetchProductsError(null);
-    try {
-      const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance', append = false } = params || {};
+    const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance', append = false } = params || {};
+    
+    const cacheKey = `${category}_${sortBy}_${search}_${page}_${limit}_${append}`;
+    const cached = clientProductsCacheRef.current[cacheKey];
+    const isCached = !!cached;
+    const isStale = cached ? (Date.now() - cached.timestamp > 30000) : true;
+
+    // Stale-While-Revalidate: instantly serve cached data so layout renders immediately
+    if (isCached && cached) {
+      if (append) {
+        setProducts(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newProducts = cached.data.filter(p => !existingIds.has(p.id));
+          return [...prev, ...newProducts];
+        });
+      } else {
+        setProducts(cached.data);
+      }
       
+      // If the cache is fresh (< 30s), skip unnecessary network requests completely!
+      if (!isStale) {
+        return cached.data.length;
+      }
+    }
+
+    // Only set loading overlays if we have absolutely nothing to show.
+    // This avoids flickering spinners on cached items!
+    if (!isCached) {
+      setIsLoadingProducts(true);
+    }
+    setFetchProductsError(null);
+
+    try {
       const queryParams = new URLSearchParams({
         page: page.toString(),
         limit: limit.toString(),
@@ -304,10 +334,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         sortBy
       });
 
-      logger.debug(`Fetching products (Page ${page})...`);
+      logger.debug(`Fetching products SWR update (Page ${page})...`);
       const data = await fetchWithHandling<Product[]>(`/api/products?${queryParams.toString()}`);
       
       if (data) {
+        // Save to cache
+        clientProductsCacheRef.current[cacheKey] = {
+          data,
+          timestamp: Date.now()
+        };
+
         if (append) {
           setProducts(prev => {
             const existingIds = new Set(prev.map(p => p.id));
@@ -323,12 +359,64 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return 0;
     } catch (err: any) {
       console.error('Failed to fetch products:', err);
-      setFetchProductsError(err.message || 'Failed to fetch products');
+      // Only show error to user if they aren't looking at cached data
+      if (!isCached) {
+        setFetchProductsError(err.message || 'Failed to fetch products');
+      }
       return 0;
     } finally {
       setIsLoadingProducts(false);
     }
   }, [isLoadingProducts]);
+
+  const prefetchProducts = React.useCallback((params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string }) => {
+    const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance' } = params || {};
+    const cacheKey = `${category}_${sortBy}_${search}_${page}_${limit}_false`;
+    
+    // If already cached and fresh, don't double fetch
+    const cached = clientProductsCacheRef.current[cacheKey];
+    if (cached && Date.now() - cached.timestamp < 30000) {
+      return;
+    }
+
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      search,
+      category,
+      sortBy
+    });
+
+    // Fetch silently in the background
+    fetchWithHandling<Product[]>(`/api/products?${queryParams.toString()}`).then(data => {
+      if (data) {
+        clientProductsCacheRef.current[cacheKey] = {
+          data,
+          timestamp: Date.now()
+        };
+        logger.debug(`[PREFETCH] Prefetched products for key: ${cacheKey}`);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const prefetchProduct = React.useCallback((productId: string | number) => {
+    const cacheKey = String(productId);
+    const cached = clientProductDetailCacheRef.current[cacheKey];
+    if (cached && Date.now() - cached.timestamp < 30000) {
+      return;
+    }
+
+    // Fetch in background to warm client memory caches and service worker caches
+    fetchWithHandling<any>(`/api/products/${productId}`).then(data => {
+      if (data) {
+        clientProductDetailCacheRef.current[cacheKey] = {
+          data,
+          timestamp: Date.now()
+        };
+        logger.debug(`[PREFETCH] Prefetched product detail: ${productId}`);
+      }
+    }).catch(() => {});
+  }, []);
 
   const checkMaintenance = React.useCallback(async () => {
     try {
@@ -614,11 +702,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await signOutUser(); 
       securityService.trackAuth('logout', currentUser);
     } catch (e) {}
-    try { await fetchWithHandling('/api/auth/logout', { method: 'POST' }); } catch (err) {}
+    
+    // Server-side session invalidation
+    try { 
+      await fetchWithHandling('/api/auth/logout', { method: 'POST' }); 
+    } catch (err) {}
+
+    // 1. Invalidate SWR Cache entirely
+    try {
+      if (swrMutate) {
+        await swrMutate(() => true, undefined, { revalidate: false });
+      }
+    } catch (swrErr) {
+      console.warn('SWR Cache reset warning:', swrErr);
+    }
+
+    // 2. Clear all local storage values
+    try {
+      localStorage.clear();
+    } catch (lsErr) {}
+
+    // 3. Reset all StoreContext state
     setUser(null);
-    localStorage.removeItem('hgs_user');
-    localStorage.removeItem('hgs_token');
-    toast.success('Logged out');
+    setCart([]);
+    setWishlist([]);
+    setNotificationsList([]);
+    setPendingAlerts([]);
+    setCurrentAlert(null);
+
+    // 4. Invalidate compiler refs
+    clientProductsCacheRef.current = {};
+    clientProductDetailCacheRef.current = {};
+    cachedCartRef.current = null;
+
+    toast.success('Logged out successfully');
   };
 
   const getProductPrice = (product: Product, userRole?: string) => {
@@ -699,7 +816,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err: any) {
       console.error('Newsletter error:', err);
-      toast.error('Network error during subscription.');
+      toast.error(err.message || 'Network error during subscription.');
+      return false;
+    }
+  };
+
+  const unsubscribeNewsletter = async (email: string): Promise<boolean> => {
+    if (!email || !email.includes('@')) {
+      toast.error('Please enter a valid email address.');
+      return false;
+    }
+    try {
+      const res = await fetchWithHandling<any>('/api/newsletter/unsubscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user ? getAuthHeaders() : {}),
+        },
+        body: JSON.stringify({ email }),
+      });
+      if (res && res.success) {
+        toast.success(res.message || 'Successfully unsubscribed from our newsletter.');
+        return true;
+      } else {
+        toast.error(res?.message || 'Failed to unsubscribe.');
+        return false;
+      }
+    } catch (err: any) {
+      console.error('Newsletter unsubscribe error:', err);
+      toast.error(err.message || 'Network error during unsubscription.');
+      return false;
+    }
+  };
+
+  const checkNewsletterStatus = async (email: string): Promise<boolean> => {
+    if (!email || !email.includes('@')) {
+      return false;
+    }
+    try {
+      const res = await fetchWithHandling<any>('/api/newsletter/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user ? getAuthHeaders() : {}),
+        },
+        body: JSON.stringify({ email }),
+      });
+      return !!(res && res.subscribed);
+    } catch (err) {
+      console.error('Newsletter status check error:', err);
       return false;
     }
   };
@@ -737,6 +902,121 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const markAlertAsRead = async (id: number) => {};
 
   // 3. Effects
+  // Real-time User Data Hook
+  useEffect(() => {
+    if (!user?.id || !db) return;
+    
+    // Listen to changes in the user's document for real-time wallet/khata/role updates
+    const userDocRef = doc(db, 'users', String(user.id));
+    const unsubscribe = onSnapshot(userDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setUser(prev => {
+          const updated = { ...prev, ...data } as User;
+          if (JSON.stringify(prev) !== JSON.stringify(updated)) {
+            localStorage.setItem('hgs_user', JSON.stringify(updated));
+            return updated;
+          }
+          return prev;
+        });
+      }
+    }, (error: any) => {
+      console.error('[REALTIME] User listener error:', error);
+      if (error.code !== 'permission-denied') {
+        setDbError(true);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user?.id]);
+
+  // Real-time Categories Hook
+  useEffect(() => {
+    if (!db) return;
+    const catRef = collection(db, 'categories');
+    const unsubscribe = onSnapshot(catRef, (snapshot) => {
+      const cats = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setCategories(cats);
+      localStorage.setItem('hgs_categories', JSON.stringify(cats));
+    }, (error: any) => {
+      console.error('[REALTIME] Categories listener error:', error);
+      if (error.code !== 'permission-denied') {
+        setDbError(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Products Hook
+  useEffect(() => {
+    if (!db) return;
+    const productsRef = query(collection(db, 'products'), where('is_listed', '==', true));
+    const unsubscribe = onSnapshot(productsRef, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ 
+        id: isNaN(Number(d.id)) ? d.id : Number(d.id), 
+        ...d.data() 
+      })) as Product[];
+      setProducts(data);
+      localStorage.setItem('hgs_products', JSON.stringify(data));
+    }, (error: any) => {
+      console.error('[REALTIME] Products listener error:', error);
+      if (error.code !== 'permission-denied') {
+        setDbError(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Announcements Hook
+  useEffect(() => {
+    if (!db) return;
+    const announcementsRef = query(collection(db, 'announcements'), orderBy('created_at', 'desc'), limit(5));
+    const unsubscribe = onSnapshot(announcementsRef, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ 
+        id: d.id, 
+        ...d.data() 
+      })) as unknown as Announcement[];
+      setAnnouncements(data);
+    }, (error: any) => {
+      // Permission denied is expected while auth is initializing or user not authenticated.
+      // Simply ignore and do not log to console to prevent noise.
+      if (error.code !== 'permission-denied') {
+        console.error('[REALTIME] Announcements listener error:', error);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Notifications Hook
+  useEffect(() => {
+    if (!user?.id || !db) return;
+    
+    // Listen for both user-specific and broadcast notifications
+    const notificationsRef = query(
+      collection(db, 'notifications'), 
+      where('target_role', 'in', ['all', user.role || 'customer']),
+      orderBy('created_at', 'desc'),
+      limit(50)
+    );
+    
+    const unsubscribe = onSnapshot(notificationsRef, (snapshot) => {
+      const currentUserIdStr = user?.id ? String(user.id) : null;
+      const data = snapshot.docs.map(d => {
+        return { id: d.id, ...d.data() } as any;
+      }).filter(n => !n.user_id || String(n.user_id) === currentUserIdStr);
+      
+      setNotificationsList(data);
+    }, (error: any) => {
+      // Permission denied is expected while auth is initializing or user not authenticated.
+      // Simply ignore and do not log to console to prevent noise.
+      if (error.code !== 'permission-denied') {
+        console.error('[REALTIME] Notifications listener error:', error);
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [user?.id, user?.role]);
+
   const [previousRole, setPreviousRole] = React.useState(user?.role || 'retailer');
   useEffect(() => {
     if (user && user.role === 'wholesaler' && previousRole !== 'wholesaler') {
@@ -905,11 +1185,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout, performLogout, showLogoutDialog, setShowLogoutDialog,
     isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance, fetchCart,
     authMode, updateProfile, refreshUser, fetchUser, wishlist, toggleWishlist, config, fetchConfig,
-    subscribeNewsletter, vibration, setVibration, notifications, setNotifications,
+    subscribeNewsletter, unsubscribeNewsletter, checkNewsletterStatus, vibration, setVibration, notifications, setNotifications,
     sound, setSound, adminTheme, setAdminTheme, appliedCoupon, setAppliedCoupon,
     promotions, fetchPromotions, bulkDiscounts, fetchBulkDiscounts, getProductPrice,
     simulatedRole, setSimulatedRole,
-    language, setLanguage, t: (key: any) => translations[language][key as keyof typeof translations.en] || key, 
+    language, setLanguage, t, 
     addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
     isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
     isAuthChecking, isRevalidating, setIsRevalidating, isInitialAuthPerformed, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
@@ -918,11 +1198,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError,
     isApiUp, setIsApiUp,
     categories, setCategories, fetchCategories, isLoadingCategories,
-    announcements, fetchAnnouncements
+    announcements, fetchAnnouncements,
+    prefetchProducts, prefetchProduct
   }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
+    notifications, vibration, sound,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
-    announcements, fetchAnnouncements]);
+    announcements, fetchAnnouncements, prefetchProducts, prefetchProduct]);
 
   return (
     <StoreContext.Provider value={contextValue}>

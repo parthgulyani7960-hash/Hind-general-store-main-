@@ -20,20 +20,15 @@ const COLORS = {
  */
 
 const addWatermark = (doc: jsPDF, pageWidth: number, pageHeight: number) => {
-  doc.saveGraphicsState();
-  doc.setGState(new (doc as any).GState({ opacity: 0.04 }));
-  
-  doc.setFontSize(45);
+  doc.setFontSize(40);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(22, 163, 74); // Emerald Green
+  doc.setTextColor(242, 248, 243); // Extremely light emerald-tinged grey status
   doc.text('ORIGINAL TAX INVOICE', pageWidth / 2, pageHeight / 2 - 30, { align: 'center', angle: 45 });
 
-  doc.setFontSize(20);
+  doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42); // Slate
+  doc.setTextColor(245, 245, 247); // Light grey slate status
   doc.text('SECURED DIGITAL TRANSACTION ● VERIFIED HGS', pageWidth / 2, pageHeight / 2 + 30, { align: 'center', angle: 45 });
-  
-  doc.restoreGraphicsState();
 };
 
 const drawVerifiedBadge = (doc: jsPDF, x: number, y: number) => {
@@ -119,17 +114,13 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
   doc.setTextColor(COLORS.SECONDARY[0], COLORS.SECONDARY[1], COLORS.SECONDARY[2]);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text(order.delivery_type === 'pickup' ? 'COLLECTION POINT / CLIENT:' : 'BILL TO / SHIP TO:', margin, 54);
+  doc.text('BILL TO / SHIP TO:', margin, 54);
 
   let customerAddr: any = {};
-  if (order.delivery_type === 'pickup') {
-    customerAddr = { name: order.user_name || 'Customer', phone: order.user_phone || 'N/A', address: 'STORE COLLECTION POINT SELECTED' };
-  } else {
-    try {
-      customerAddr = typeof order.address === 'string' ? JSON.parse(order.address) : order.address;
-    } catch (e) {
-      customerAddr = { name: order.user_name || 'Customer', address: order.address };
-    }
+  try {
+    customerAddr = typeof order.address === 'string' ? JSON.parse(order.address) : order.address;
+  } catch (e) {
+    customerAddr = { name: order.user_name || 'Customer', address: order.address };
   }
 
   doc.setFontSize(10);
@@ -143,8 +134,7 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
     `Email Ref: ${order.user_email || 'N/A'}`,
     customerAddr.address || 'N/A',
     customerAddr.landmark ? `Landmark: ${customerAddr.landmark}` : '',
-    customerAddr.city ? `${customerAddr.city.toUpperCase()}, ${customerAddr.state?.toUpperCase()}` : '',
-    order.delivery_type === 'pickup' ? 'PICKUP LOCATION: NEW HIND GENERAL STORE, NAYAGAON' : ''
+    customerAddr.city ? `${customerAddr.city.toUpperCase()}, ${customerAddr.state?.toUpperCase()}` : ''
   ].filter(Boolean), margin, 65, { lineHeightFactor: 1.3, maxWidth: 85 });
 
   // Right-hand Column (Transaction Ledger)
@@ -158,7 +148,7 @@ export const generateOrderInvoicePDF = (order: any, config: any[]) => {
     ['Issue Date:', format(new Date(order.created_at || Date.now()), 'dd MMM yyyy, HH:mm')],
     ['Settlement Mode:', String(order.payment_method || 'CASH').toUpperCase()],
     ['Protocol Status:', String(order.status || 'PENDING').toUpperCase()],
-    ['Logistics Mode:', String(order.delivery_type || 'DELIVERY').toUpperCase()],
+    ['Logistics Mode:', 'STANDARD DELIVERY'],
     ['Transaction ID:', order.payment_id || order.payment_utr || 'LOCAL_SETTLEMENT']
   ];
 

@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { calculateBulkDiscount, cn, getAuthHeaders } from '@/lib/utils';
 import { fetchWithHandling } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { triggerFeedback } from '@/lib/feedback';
 
 export default function Cart() {
   console.log('[CART] Rendering component');
@@ -101,6 +102,7 @@ export default function Cart() {
     try {
       const data = await fetchWithHandling<any>(`/api/coupons/validate?code=${couponCode}&total=${subtotal}`, { headers: getAuthHeaders() });
       if (data && data.success) {
+        triggerFeedback('medium');
         setAppliedCoupon(data.coupon);
         toast.success('Coupon applied successfully!');
       } else if (data) {
@@ -303,6 +305,7 @@ export default function Cart() {
                     <div className="flex items-center space-x-1 bg-stone-50 rounded-lg p-0.5 border border-stone-100">
                       <button 
                         onClick={async () => {
+                          triggerFeedback('light');
                           if (item.quantity === 1) {
                             removeFromCart(item.id, item.selectedVariant?.id);
                           } else {
@@ -318,6 +321,7 @@ export default function Cart() {
                       </span>
                       <button 
                         onClick={async () => {
+                          triggerFeedback('light');
                           updateQuantity(item.id, 1, item.selectedVariant?.id);
                         }} 
                         className="w-5 h-5 flex items-center justify-center bg-white text-stone-800 hover:text-primary active:scale-90 rounded-md transition-all shadow-sm"
@@ -340,7 +344,10 @@ export default function Cart() {
                       )}
                       
                       <button 
-                        onClick={() => removeFromCart(item.id, item.selectedVariant?.id)}
+                        onClick={() => {
+                          triggerFeedback('medium');
+                          removeFromCart(item.id, item.selectedVariant?.id);
+                        }}
                         className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                         title="Remove Item"
                       >
@@ -449,18 +456,12 @@ export default function Cart() {
                   </div>
                 </div>
                 
-                {!isOnline ? (
+                {(
                   <Button 
-                    disabled
-                    variant="secondary"
-                    className="w-full py-6 rounded-[2rem] text-lg font-black uppercase tracking-widest cursor-not-allowed border border-stone-200"
-                  >
-                    <span>Connect to Checkout</span>
-                    <WifiOff size={20} />
-                  </Button>
-                ) : (
-                  <Button 
-                    onClick={() => navigate('/checkout')} 
+                    onClick={() => {
+                      triggerFeedback('medium');
+                      navigate('/checkout');
+                    }} 
                     variant="primary"
                     className="w-full py-6 rounded-[2rem] text-lg font-black uppercase tracking-widest transition-all hover:shadow-2xl hover:shadow-stone-900/30 group/btn"
                   >

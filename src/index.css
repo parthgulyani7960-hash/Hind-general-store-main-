@@ -4,6 +4,7 @@
 html,
 body {
   height: 100%;
+  height: 100dvh;
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   overflow-x: hidden;
@@ -128,6 +129,11 @@ textarea {
     @apply transition-all active:scale-[0.98] active:opacity-90;
   }
 
+  .mobile-focused {
+    @apply ring-8 ring-primary/20 border-primary shadow-[0_0_40px_rgba(22,163,74,0.15)] -translate-y-1 scale-[1.02] z-50;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
   /* Base stability guards */
   img {
     @apply max-w-full h-auto object-cover;
@@ -223,7 +229,12 @@ select {
 }
 
 .input-field {
-  @apply w-full px-4 py-3 sm:py-2 min-h-[44px] md:min-h-0 rounded-xl border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all;
+  @apply w-full px-4 py-3 sm:py-2 min-h-[44px] md:min-h-0 rounded-xl border border-stone-200 bg-white focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all duration-300;
+  transform: translateZ(0); /* Hardware acceleration */
+}
+
+.input-field:focus {
+  @apply shadow-lg -translate-y-0.5;
 }
 
 .ql-editor {

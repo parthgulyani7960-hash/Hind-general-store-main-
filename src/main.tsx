@@ -99,7 +99,26 @@ try {
           const finalInit = { ...requestInit, headers };
 
           try {
+            const startTime = Date.now();
             const res = await originalFetch(finalInput, finalInit);
+            const duration = Date.now() - startTime;
+
+            if (duration > 500) {
+              try {
+                errorService.report({
+                  type: ErrorType.API_ERROR,
+                  message: `[Performance] Request to ${inputUrl} exceeded 500ms: ${duration}ms`,
+                  metadata: {
+                    url: inputUrl,
+                    durationMs: duration,
+                    thresholdMs: 500
+                  }
+                });
+                console.warn(`[PERFORMANCE WARNING] ${inputUrl} took ${duration}ms`);
+              } catch (reportErr) {
+                // Ignore reporting errors silently
+              }
+            }
             
             // Handle 401 unauthorized (Token Refresh Logic)
             const isAuthLogin = inputUrl.includes('/api/auth/firebase-login');
@@ -170,7 +189,7 @@ if (typeof window !== 'undefined' && (window as any).__markAppAsLoaded) {
   (window as any).__markAppAsLoaded();
 }
 
-/* Disabling ServiceWorker for preview stability
+// Register the custom Workbox ServiceWorker to dramatically speed up static loads and repeat visits
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((registration) => {
@@ -180,5 +199,4 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
-*/
 

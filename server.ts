@@ -349,9 +349,9 @@ const safeVerifyIdToken = async (token: string): Promise<any> => {
     });
     return decodedToken;
   } catch (err: any) {
-    const isExpired = err.code === 'auth/id-token-expired';
+    const isExpired = err.code === 'auth/id-token-expired' || err.code === 'auth/argument-error';
     
-    logAuthDebug(`[TOKEN_VERIFICATION_${isExpired ? 'EXPIRED' : 'FAIL'}] ${isExpired ? 'Token expired' : 'Firebase Admin verification error'}, initiating safe fallback check:`, {
+    logAuthDebug(`[TOKEN_VERIFICATION_${isExpired ? 'EXPIRED_OR_INVALID' : 'FAIL'}] ${isExpired ? 'Token expired or invalid' : 'Firebase Admin verification error'}, initiating safe fallback check:`, {
       code: err.code || 'NULL',
       message: err.message,
       stack: isExpired ? undefined : err.stack,
@@ -796,6 +796,34 @@ async function initializeFirebase() {
 }
 
 const appReady = initializeFirebase();
+
+async function waitForFirebase(timeoutMs = 15000): Promise<boolean> {
+  if (isFirebaseReady) return true;
+  try {
+    await Promise.race([
+      appReady,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase wait timeout')), timeoutMs))
+    ]);
+    return isFirebaseReady;
+  } catch (err) {
+    console.warn('[SERVER] Waiting for Firebase failed or timed out:', err);
+    return isFirebaseReady;
+  }
+}
+
+function invalidateServerProductsCache() {
+  (global as any).allProductsCache = null;
+  (global as any).prodCache = {};
+  if (typeof CACHE_STORE_GLOBAL !== 'undefined' && CACHE_STORE_GLOBAL) {
+    const keys = CACHE_STORE_GLOBAL.keys();
+    keys.forEach(key => {
+      if (key.startsWith('prod_') || key.startsWith('all_fetched_products') || key.startsWith('all_categories')) {
+        CACHE_STORE_GLOBAL.del(key);
+      }
+    });
+  }
+  console.log('[CACHE] Invalidated server products cache and global cache keys.');
+}
 
 
 const handleAppError = (err: any, message: string, context: string) => {
@@ -2114,6 +2142,59 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     next();
   });
 
+  // Helper function to generate a fast, collision-resistant ETag hash from response bodies
+  function generateFastETag(body: string | Buffer): string {
+    if (!body) return '""';
+    const str = typeof body === 'string' ? body : body.toString('utf8');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0; // Convert to 32bit integer
+    }
+    return `W/"${hash.toString(16)}"`;
+  }
+
+  // Cache-Control and ETag validation middleware for cacheable GET API requests
+  app.use('/api', (req, res, next) => {
+    if (req.method !== 'GET') {
+      return next();
+    }
+
+    const cacheablePaths = [
+      '/products',
+      '/categories',
+      '/promotions-rules',
+      '/settings',
+      '/announcements'
+    ];
+
+    const isCacheable = cacheablePaths.some(p => req.path.startsWith(p));
+    if (!isCacheable) {
+      return next();
+    }
+
+    // Allow cache for 10 seconds, but demand immediate revalidation afterwards
+    res.setHeader('Cache-Control', 'public, max-age=10, must-revalidate');
+
+    const originalSend = res.send;
+    res.send = function (body: any): any {
+      if (typeof body === 'string' || Buffer.isBuffer(body)) {
+        const etag = generateFastETag(body);
+        res.setHeader('ETag', etag);
+
+        const ifNoneMatch = req.headers['if-none-match'];
+        if (ifNoneMatch && ifNoneMatch === etag) {
+          res.status(304);
+          // Return empty response body on 304 Not Modified
+          return originalSend.call(this, '');
+        }
+      }
+      return originalSend.call(this, body);
+    };
+
+    next();
+  });
+
   async function logAuthFailure(req: express.Request, message: string, userId?: string) {
     try {
       if (!isFirebaseReady) {
@@ -2446,9 +2527,19 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       return;
     }
 
+    const { businessName, ownerName, gstNumber, businessType, estimatedCredit, wholesalerStatus, contactPhone, notes } = req.body || {};
+
     await userRef.update({
       khata_requested: true,
-      khata_request_date: new Date().toISOString()
+      khata_request_date: new Date().toISOString(),
+      ...(businessName && { shop_name: businessName }),
+      ...(ownerName && { owner_name: ownerName }),
+      ...(gstNumber && { gst_number: gstNumber }),
+      ...(businessType && { business_type: businessType }),
+      ...(estimatedCredit && { estimated_monthly_credit: estimatedCredit }),
+      ...(wholesalerStatus && { wholesaler_status: wholesalerStatus }),
+      ...(contactPhone && { phone: contactPhone }),
+      ...(notes && { khata_notes: notes })
     });
 
     // Notify admin
@@ -2759,6 +2850,88 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       res.status(500).json({ success: false, error: err.message });
     }
   });
+
+  app.get('/api/geocode/reverse', wrap('/api/geocode/reverse', async (req, res) => {
+    const { lat, lng } = req.query;
+    if (!lat || !lng) {
+      return res.status(400).json({ error: "Missing lat or lng" });
+    }
+    try {
+      const googleKey = process.env.GOOGLE_MAPS_PLATFORM_KEY;
+      if (googleKey) {
+        try {
+          const response = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleKey}`
+          );
+          const data = await response.json();
+          if (data.status === 'OK' && data.results.length > 0) {
+            const result = data.results[0];
+            const components = result.address_components;
+
+            let streetNumber = '';
+            let route = '';
+            let city = '';
+            let state = '';
+            let pin_code = '';
+
+            components.forEach((c: any) => {
+              if (c.types.includes('street_number')) streetNumber = c.long_name;
+              if (c.types.includes('route')) route = c.long_name;
+              if (c.types.includes('locality')) city = c.long_name;
+              if (c.types.includes('administrative_area_level_1')) state = c.long_name;
+              if (c.types.includes('postal_code')) pin_code = c.long_name;
+            });
+
+            if (!city) {
+              const sublocality = components.find((c: any) => c.types.includes('sublocality'));
+              if (sublocality) city = sublocality.long_name;
+            }
+
+            return res.json({
+              address: `${streetNumber} ${route}`.trim() || result.formatted_address,
+              city,
+              state,
+              pin_code: pin_code.slice(0, 6),
+              latitude: Number(lat),
+              longitude: Number(lng)
+            });
+          }
+        } catch (err) {
+          console.warn("Google reverse geocoding on server failed:", err);
+        }
+      }
+
+      // Safe and robust backend fetch to Nominatim (bypassing Client CORS issues completely)
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+        {
+          headers: {
+            'User-Agent': 'GeneralStoreKaryanaShop/1.0 (contact: parthgulyani7960@gmail.com)'
+          }
+        }
+      );
+      const data = await response.json();
+      if (data && data.address) {
+        const addr = data.address;
+        const city = addr.city || addr.town || addr.village || '';
+        const road = addr.road || '';
+        const neighbourhood = addr.neighbourhood || addr.suburb || '';
+
+        return res.json({
+          address: `${road}${neighbourhood ? ', ' + neighbourhood : ''}`.trim() || data.display_name,
+          city: city,
+          state: addr.state || '',
+          pin_code: addr.postcode?.replace(/\D/g, '').slice(0, 6) || '',
+          latitude: Number(lat),
+          longitude: Number(lng)
+        });
+      }
+      return res.status(404).json({ error: "Address not found" });
+    } catch (error: any) {
+      console.error("Reverse geocode endpoint error:", error);
+      return res.status(500).json({ error: error.message || "Failed to reverse geocode" });
+    }
+  }));
 
   const checkDbReady = () => isFirebaseReady && admin.apps.length > 0;
   
@@ -3991,7 +4164,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     const db = getFirestoreInstance();
     const snap = await db.collection('newsletter').where('email', '==', email).limit(1).get();
     if (!snap.empty) {
-      res.status(400).json({ success: false, message: 'Already subscribed' });
+      res.json({ success: false, message: 'Already subscribed', alreadySubscribed: true });
       return;
     }
     
@@ -4002,6 +4175,37 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     });
     
     res.json({ success: true, message: 'Successfully subscribed' });
+  }));
+
+  app.post('/api/newsletter/status', wrap('/api/newsletter/status', async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, message: 'Email required' });
+      return;
+    }
+    const db = getFirestoreInstance();
+    const snap = await db.collection('newsletter').where('email', '==', email).limit(1).get();
+    res.json({ success: true, subscribed: !snap.empty });
+  }));
+
+  app.post('/api/newsletter/unsubscribe', wrap('/api/newsletter/unsubscribe', async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, message: 'Email required' });
+      return;
+    }
+    const db = getFirestoreInstance();
+    const snap = await db.collection('newsletter').where('email', '==', email).get();
+    if (snap.empty) {
+      res.json({ success: false, message: 'Not subscribed yet or already unsubscribed' });
+      return;
+    }
+    const batch = db.batch();
+    snap.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+    res.json({ success: true, message: 'Successfully unsubscribed' });
   }));
 
   app.get('/api/admin/newsletter', requireAdmin, async (req, res) => {
@@ -5380,6 +5584,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   });
     app.get('/api/products', async (req, res) => {
     try {
+      // 1. Wait for Firebase to be ready if it's still booting
+      const isReadyOnTime = await waitForFirebase();
+      if ((admin?.apps || []).length === 0 || !isReadyOnTime) {
+        console.error('[API] Products fail: Firebase not ready. apps:', (admin?.apps || []).length, 'ready:', isFirebaseReady);
+        return res.json([]);
+      }
+
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = (page - 1) * limit;
@@ -5387,34 +5598,50 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       const category = req.query.category as string || 'All';
       const sortBy = req.query.sortBy as string || 'relevance';
 
-      if ((admin?.apps || []).length === 0 || !isFirebaseReady) {
-        return res.json([]);
+      // 2. SWR / Cache hit for specific paginated parameters
+      const cacheKey = `products_${category}_${sortBy}_${search}_${page}_${limit}`;
+      if (!(global as any).prodCache) (global as any).prodCache = {};
+      const cachedResult = (global as any).prodCache[cacheKey];
+      if (cachedResult && (Date.now() - cachedResult.ts < 10000)) { // 10 second cache TTL for the exact config
+        return res.json(cachedResult.data);
       }
 
-      const db = getFirestoreInstance();
-      let queryRef: any = db.collection('products');
-      
-      if (category !== 'All') {
-        queryRef = queryRef.where('category', '==', category);
+      // 3. Fetch all products from Firestore or active server cache to prevent heavy reads
+      let allFetchedProducts: any[] = [];
+      const now = Date.now();
+      const needsFresh = req.query.fresh === 'true';
+      if ((global as any).allProductsCache && (now - (global as any).allProductsCache.ts < 20000) && !needsFresh) {
+        allFetchedProducts = (global as any).allProductsCache.data;
+      } else {
+        const db = getFirestoreInstance();
+        const snapshot = await db.collection('products').get();
+        allFetchedProducts = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            avg_rating: data.avg_rating || 0,
+            review_count: data.review_count || 0
+          } as any;
+        });
+        (global as any).allProductsCache = {
+          data: allFetchedProducts,
+          ts: now
+        };
       }
 
-      const snapshot = await queryRef.get();
-      
-      const allFetchedProducts = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          avg_rating: data.avg_rating || 0,
-          review_count: data.review_count || 0
-        } as any;
-      });
-      
+      // 4. Apply category filter
       let filtered = allFetchedProducts;
+      if (category !== 'All') {
+        filtered = filtered.filter(p => p.category === category);
+      }
+      
+      // 5. Exclude unlisted or deleted products for non-admins
       if (req.session?.role !== 'admin') {
-        filtered = allFetchedProducts.filter(p => p.is_listed !== 0 && p.is_listed !== false && !p.is_deleted);
+        filtered = filtered.filter(p => (p.is_listed !== 0 && p.is_listed !== false && !p.is_deleted));
       }
 
+      // 6. Apply Search
       if (search) {
         const terms = search.split(' ');
         filtered = filtered.filter(p => {
@@ -5423,12 +5650,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         });
       }
 
-      // Sorting
+      // 7. Sorting
       if (sortBy === 'price-low') filtered.sort((a,b) => (a.retail_price || a.price) - (b.retail_price || b.price));
       else if (sortBy === 'price-high') filtered.sort((a,b) => (b.retail_price || b.price) - (a.retail_price || a.price));
       else if (sortBy === 'rating') filtered.sort((a,b) => b.avg_rating - a.avg_rating);
       else if (sortBy === 'newest') filtered.sort((a,b) => new Date(b.created_at || b.updated_at || 0).getTime() - new Date(a.created_at || a.updated_at || 0).getTime());
 
+      // 8. Pagination slice
       const paginated = filtered.slice(offset, offset + limit);
 
       const products = paginated.map((p: any) => {
@@ -5451,10 +5679,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         };
       });
 
+      // Update paginated query level cache
+      (global as any).prodCache[cacheKey] = { ts: Date.now(), data: products };
+
       res.json(products);
-    } catch (err: any) {
-      console.error('[SERVER] Products Fetch Error:', err);
-      res.json([]);
+    } catch (err) {
+      console.error('[API] /api/products error:', err);
+      res.status(500).json([]);
     }
   });
 
@@ -5463,17 +5694,24 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     
     if (admin.apps.length > 0) {
       try {
-        const doc = await getFirestoreInstance().collection('products').doc(String(id)).get();
-        if (doc.exists) {
-          const data = doc.data() as any;
-          return res.json({
-            id: doc.id,
-            ...data,
-            images: data.images || [],
-            specifications: data.specifications || {},
-            avg_rating: data.avg_rating || 0,
-            review_count: data.review_count || 0
-          });
+        const productData = await getCachedData(`prod_detail_${id}`, async () => {
+          const doc = await getFirestoreInstance().collection('products').doc(String(id)).get();
+          if (doc.exists) {
+            const data = doc.data() as any;
+            return {
+              id: doc.id,
+              ...data,
+              images: data.images || [],
+              specifications: data.specifications || {},
+              avg_rating: data.avg_rating || 0,
+              review_count: data.review_count || 0
+            };
+          }
+          return null;
+        }, 30); // 30s cache
+
+        if (productData) {
+          return res.json(productData);
         }
       } catch(e) {
         console.error('Firebase product get id failed', e);
@@ -5487,28 +5725,31 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     const { id } = req.params;
     if (!admin.apps.length) return res.status(404).json({ message: 'Product not found' });
     try {
-      const pDoc = await getFirestoreInstance().collection('products').doc(String(id)).get();
-      if (!pDoc.exists) return res.status(404).json({ message: 'Product not found' });
-      
-      const cat = pDoc.data()?.category;
-      if (!cat) return res.json([]);
-      
-      const snap = await getFirestoreInstance().collection('products')
-         .where('category', '==', cat)
-         .where('is_listed', 'in', [1, true])
-         .limit(5).get();
-      
-      let related = snap.docs
-         .map(d => ({id: d.id, ...d.data()} as any))
-         .filter(p => String(p.id) !== String(id))
-         .slice(0, 4);
-      
-      related = related.map(p => ({
-         ...p,
-         images: (typeof p.images === 'string' ? JSON.parse(p.images || '[]') : p.images) || [],
-         specifications: (typeof p.specifications === 'string' ? JSON.parse(p.specifications || '{}') : p.specifications) || {}
-      }));
-      res.json(related);
+      const relatedData = await getCachedData(`prod_related_${id}`, async () => {
+        const pDoc = await getFirestoreInstance().collection('products').doc(String(id)).get();
+        if (!pDoc.exists) return null;
+        
+        const cat = pDoc.data()?.category;
+        if (!cat) return [];
+        
+        const snap = await getFirestoreInstance().collection('products')
+           .where('category', '==', cat)
+           .where('is_listed', 'in', [1, true])
+           .limit(5).get();
+        
+        let related = snap.docs
+           .map(d => ({id: d.id, ...d.data()} as any))
+           .filter(p => String(p.id) !== String(id))
+           .slice(0, 4);
+        
+        return related.map(p => ({
+           ...p,
+           images: (typeof p.images === 'string' ? JSON.parse(p.images || '[]') : p.images) || [],
+           specifications: (typeof p.specifications === 'string' ? JSON.parse(p.specifications || '{}') : p.specifications) || {}
+        }));
+      }, 30); // 30s cache
+
+      res.json(relatedData || []);
     } catch(e) { res.status(500).json([]); }
   });
 
@@ -6032,17 +6273,45 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
     const tDoc = await ticketRef.get();
     const ticket = tDoc.data();
-    if (ticket && ticket.user_id && typeof createAlert === 'function') {
-       createAlert(
-         ticket.user_id, 
-         'Support Ticket Update', 
-         `Your ticket regarding "${ticket.subject}" has been updated to ${status.toUpperCase()}.`, 
-         'Action taken by support representative.',
-         status === 'resolved' ? 'success' : 'info', 
-         5000
-       );
+    if (ticket && ticket.user_id) {
+      if (typeof createAlert === 'function') {
+         createAlert(
+           ticket.user_id, 
+           'Support Ticket Update', 
+           `Your ticket regarding "${ticket.subject}" has been updated to ${status.toUpperCase()}.`, 
+           'Action taken by support representative.',
+           status === 'resolved' ? 'success' : 'info', 
+           5000
+         );
+      }
+      
+      // Queue Email
+      const userDoc = await getFirestoreInstance().collection('users').doc(ticket.user_id).get();
+      const userData = userDoc.data();
+      if (userData?.email) {
+          await getFirestoreInstance().collection('email_queue').add({
+              to: userData.email,
+              subject: `Ticket Update: #${id}`,
+              body: `Your ticket regarding "${ticket.subject}" has been updated to ${status.toUpperCase()}.`,
+              status: 'pending',
+              created_at: new Date().toISOString()
+          });
+      }
     }
     res.json({ success: true });
+  }));
+
+  app.post('/api/admin/support/tickets/bulk-update', requireAdmin, wrap('/api/admin/support/tickets/bulk-update', async (req, res) => {
+    const { ticketIds, status } = req.body;
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const db = getFirestoreInstance();
+    const batch = db.batch();
+    for (const id of ticketIds) {
+        const ticketRef = db.collection('support_tickets').doc(String(id));
+        batch.update(ticketRef, { status });
+    }
+    await batch.commit();
+    res.json({ success: true, message: `Updated ${ticketIds.length} tickets to ${status}` });
   }));
 
   app.get('/api/admin/users/:id/orders-duplicate', (req, res) => { res.json([]); });
@@ -6080,15 +6349,41 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
   // BUGS & INCIDENT
   app.post('/api/bugs/report', wrap('/api/bugs/report', async (req, res) => {
-    const { 
-      user_id, reporter_name, message, why, path, action_log,
-      type, component, api_endpoint, device_info, screen_resolution, 
-      network_status, request_payload, metadata 
-    } = req.body;
-    
-    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    const { isBatch, reports, user_id, reporter_name, message, why, path, action_log,
+      type, component, api_endpoint, device_info, screen_resolution,
+      network_status, request_payload, metadata } = req.body;
 
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
     const db = getFirestoreInstance();
+
+    if (isBatch && Array.isArray(reports)) {
+        const batch = db.batch();
+        for (const report of reports) {
+           const ref = db.collection('bug_reports').doc();
+           batch.set(ref, {
+               user_id: report.user_id || null, 
+               reporter_name: report.reporter_name || 'System Auto', 
+               message: report.message || '', 
+               why: report.why || '', 
+               path: report.path || '', 
+               action_log: report.action_log || '',
+               type: report.type || 'REPORTER',
+               component: report.component || '',
+               api_endpoint: report.api_endpoint || '',
+               device_info: report.device_info || '',
+               screen_resolution: report.screen_resolution || '',
+               network_status: report.network_status || '',
+               request_payload: JSON.stringify(report.request_payload || {}),
+               metadata: JSON.stringify(report.metadata || {}),
+               status: 'open',
+               created_at: new Date().toISOString()
+           });
+        }
+        await batch.commit();
+        res.json({ success: true, message: `Captured ${reports.length} intel packets.` });
+        return;
+    }
+
     await db.collection('bug_reports').add({
       user_id: user_id || null, 
       reporter_name: reporter_name || 'System Auto', 
@@ -6108,7 +6403,9 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       created_at: new Date().toISOString()
     });
     
-    if (type === 'CRITICAL_ERROR' || type === 'SYSTEM_ERROR' || type === 'RENDER_ERROR') {
+    // Check if this type warrants a notification
+    const criticalTypes = ['CRITICAL_ERROR', 'SYSTEM_ERROR', 'RENDER_ERROR'];
+    if (criticalTypes.includes(type)) {
       if (typeof createNotification === 'function') {
         await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
       }
@@ -6116,6 +6413,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     
     res.json({ success: true, message: 'Intel packet captured and stored.' });
   }));
+
 
   // Alias for incident reporting to match client-side service calls
   app.post('/api/admin/incidents/report', async (req, res) => {
@@ -6732,6 +7030,37 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
   });
 
+  app.post('/api/admin/orders/:id/refund', requireAdmin, wrap('/api/admin/orders/:id/refund', async (req, res) => {
+    const { id } = req.params;
+    const { amount } = req.body;
+    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
+    
+    const db = getFirestoreInstance();
+    const orderRef = db.collection('orders').doc(String(id));
+    const orderDoc = await orderRef.get();
+    if (!orderDoc.exists) return res.status(404).json({ success: false, message: 'Order not found' });
+    
+    const orderData = orderDoc.data()!;
+    const userId = orderData.user_id;
+
+    // Update Wallet Balance
+    await db.collection('users').doc(String(userId)).update({
+        wallet_balance: admin.firestore.FieldValue.increment(Number(amount))
+    });
+
+    // Add Incident Log
+    await db.collection('incident_logs').add({
+        type: 'REFUND',
+        order_id: String(id),
+        user_id: String(userId),
+        amount: Number(amount),
+        message: `Refund processed for order ${id}`,
+        created_at: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: 'Refund processed successfully' });
+  }));
+
   app.post('/api/admin/orders/:id/status', requireAdmin, wrap('/api/admin/orders/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status, rejection_reason, restock, refund: requestedRefund } = req.body;
@@ -7125,6 +7454,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       createNotification('Low Stock Alert (New Product)', `Product "${name}" was created with low stock (${s} left).`, 'system', 'medium', 'admin');
     }
 
+    invalidateServerProductsCache();
     res.json({ success: true, id: productId });
   }));
 
@@ -7161,6 +7491,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       }
     }
 
+    invalidateServerProductsCache();
     res.json({ success: true });
   }));
 
@@ -7176,6 +7507,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
        });
     }
     await pRef.update({ deleted: true, updated_at: new Date().toISOString() });
+    invalidateServerProductsCache();
     res.json({ success: true });
   }));
 
@@ -7206,7 +7538,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
     if (count % 500 !== 0) batches.push(currentBatch.commit());
     await Promise.all(batches);
-    
+    invalidateServerProductsCache();
     res.json({ success: true, count: products.length });
   }));
 

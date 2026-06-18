@@ -179,7 +179,13 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
                                 {u.khata_enabled ? 'Line of Credit' : 'NO LINE'}
                             </span>
                         </td>
-                        <td className="px-8 py-6 text-right">
+                        <td className="px-8 py-6 text-right flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => setWalletModal({ open: true, user: u })}
+                            className="p-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-2xl transition-all"
+                          >
+                            <IndianRupee size={18} />
+                          </button>
                           <button 
                             onClick={() => setCustomerModal({ open: true, user: u })}
                             className="p-3 bg-stone-50 text-stone-500 hover:text-primary rounded-2xl transition-all"

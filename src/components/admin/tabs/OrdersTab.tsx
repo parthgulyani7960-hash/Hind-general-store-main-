@@ -54,7 +54,6 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
         setTimeout(() => setIsRefreshing(false), 2000);
     };
     const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
-    const [orderDeliveryFilter, setOrderDeliveryFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
     const [orderDateStart, setOrderDateStart] = useState<string>('');
     const [orderDateEnd, setOrderDateEnd] = useState<string>('');
     const [orderSortBy, setOrderSortBy] = useState('date');
@@ -67,14 +66,13 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
           order.status === orderStatusFilter || 
           (orderStatusFilter === 'paid' && order.payment_status === 'paid') ||
           (orderStatusFilter === 'verifying' && order.payment_status === 'verifying');
-        const matchesDelivery = orderDeliveryFilter === 'all' || order.delivery_type === orderDeliveryFilter;
         const orderDate = new Date(order.created_at).toISOString().split('T')[0];
         const matchesStart = !orderDateStart || orderDate >= orderDateStart;
         const matchesEnd = !orderDateEnd || orderDate <= orderDateEnd;
         const matchesSearch = !orderSearchTerm || 
           order.id.toString().includes((orderSearchTerm || '').replace('#ORD-', '')) ||
           order.user_name?.toLowerCase().includes(orderSearchTerm.toLowerCase());
-        return matchesStatus && matchesDelivery && matchesStart && matchesEnd && matchesSearch;
+        return matchesStatus && matchesStart && matchesEnd && matchesSearch;
     });
 
     const sortedOrders = [...filteredOrders].sort((a, b) => {
@@ -220,38 +218,6 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                 </select>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider">Order Type</label>
-                <select 
-                  className="w-full bg-white border border-stone-200/60 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all cursor-pointer font-black text-stone-700 focus:border-stone-400 uppercase tracking-wide"
-                  value={orderDeliveryFilter}
-                  onChange={(e) => setOrderDeliveryFilter(e.target.value as any)}
-                >
-                  <option value="all">All Types</option>
-                  <option value="delivery">Home Delivery</option>
-                  <option value="pickup">Store Pickup</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider">Date Range</label>
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="date" 
-                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase outline-none transition-all text-stone-700 tracking-wider"
-                    value={orderDateStart}
-                    onChange={(e) => setOrderDateStart(e.target.value)}
-                  />
-                  <span className="text-stone-300">→</span>
-                  <input 
-                    type="date" 
-                    className="w-full bg-white border border-stone-200/60 rounded-xl px-3 py-2.5 text-[10px] font-black uppercase outline-none transition-all text-stone-700 tracking-wider"
-                    value={orderDateEnd}
-                    onChange={(e) => setOrderDateEnd(e.target.value)}
-                  />
-                </div>
-              </div>
-
               <div className="flex items-end space-x-2">
                 <div className="flex-1 space-y-1.5">
                   <label className="text-[10px] font-black text-stone-400 uppercase tracking-wider">Sort By</label>
@@ -280,7 +246,6 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                     setOrderSearchTerm('');
                     setOrderSortBy('date');
                     setOrderSortOrder('desc');
-                    setOrderDeliveryFilter('all');
                   }}
                   className="p-3 bg-white border border-stone-200/60 rounded-xl text-stone-400 hover:text-red-500 transition-all shadow-sm"
                 >
@@ -365,12 +330,17 @@ const OrdersTab: React.FC<OrdersTabProps> = ({
                             />
                           </td>
                           <td className="px-6 py-6">
-                            <div className="flex flex-col">
+                            <div className="flex flex-col gap-2">
                                 <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-stone-900 text-white rounded-lg font-mono text-xs font-black tracking-tighter select-text">
                                   <span>{order.order_id || `ORD#${order.id}`}</span>
                                 </span>
-                                {order.delivery_type === 'pickup' && (
-                                  <span className="mt-1 bg-stone-100 text-stone-700 text-[8px] px-2 py-0.5 rounded-md font-black uppercase tracking-wider w-fit border border-stone-200/50">Pickup</span>
+                                {order.delivery_type && (
+                                  <span className={cn(
+                                    "inline-flex items-center px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border",
+                                    order.delivery_type === 'pickup' ? "bg-orange-50 text-orange-600 border-orange-200" : "bg-blue-50 text-blue-600 border-blue-200"
+                                  )}>
+                                    {order.delivery_type}
+                                  </span>
                                 )}
                             </div>
                           </td>

@@ -290,12 +290,24 @@ export default function TrackOrder() {
     }
   };
 
+  const isPickup = order?.delivery_type === 'pickup';
+
   const steps = [
     { key: 'pending', label: t('order_placed'), icon: Package, description: 'We have received your order' },
     { key: 'confirmed', label: t('confirmed'), icon: CheckCircle2, description: 'Inventory has been reserved' },
     { key: 'processing', label: t('processing'), icon: Info, description: 'Your items are being packed' },
-    { key: 'shipped', label: order?.delivery_type === 'pickup' ? 'Ready for Pickup' : t('shipped'), icon: Truck, description: order?.delivery_type === 'pickup' ? 'Order is staged at the counter' : 'Order is out of the store' },
-    { key: 'delivered', label: order?.delivery_type === 'pickup' ? 'Picked Up' : t('delivered'), icon: Home, description: order?.delivery_type === 'pickup' ? 'Thank you for visiting!' : 'Enjoy your purchase!' }
+    { 
+      key: 'shipped', 
+      label: isPickup ? 'Ready for Pickup' : t('shipped'), 
+      icon: isPickup ? ShoppingBag : Truck, 
+      description: isPickup ? 'Your order is ready at the store' : 'Order is out of the store' 
+    },
+    { 
+      key: 'delivered', 
+      label: isPickup ? 'Collected' : t('delivered'), 
+      icon: isPickup ? CheckCircle2 : Home, 
+      description: isPickup ? 'Order has been picked up' : 'Enjoy your purchase!' 
+    }
   ];
 
   const currentStepIndex = order ? steps.findIndex(s => s.key === order.status) : -1;
@@ -505,11 +517,18 @@ export default function TrackOrder() {
                     </button>
                   </div>
                 </div>
-                <div className="px-6 py-2 bg-primary/10 rounded-full flex items-center gap-2">
-                  <span className="text-sm font-black text-primary uppercase tracking-widest">{t(order.status) || order.status}</span>
-                  {order.delivery_type === 'pickup' && (
-                    <span className="bg-emerald-500 text-white text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-sm blur-[0.2px]">Pickup</span>
+                <div className="flex items-center gap-3">
+                  {order.delivery_type && (
+                    <div className={cn(
+                      "px-4 py-2 rounded-full border flex items-center gap-2",
+                      order.delivery_type === 'pickup' ? "bg-orange-50 border-orange-100 text-orange-600" : "bg-blue-50 border-blue-100 text-blue-600"
+                    )}>
+                       <span className="text-xs font-black uppercase tracking-widest">{order.delivery_type}</span>
+                    </div>
                   )}
+                  <div className="px-6 py-2 bg-primary/10 rounded-full flex items-center gap-2">
+                    <span className="text-sm font-black text-primary uppercase tracking-widest">{t(order.status) || order.status}</span>
+                  </div>
                 </div>
               </div>
 
@@ -685,41 +704,6 @@ export default function TrackOrder() {
                 </Link>
               </div>
               
-              {order.delivery_type === 'pickup' && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="md:col-span-2 bg-emerald-50 p-8 rounded-[2.5rem] border-2 border-emerald-100 shadow-sm relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 p-8 opacity-5">
-                     <Home size={120} />
-                  </div>
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
-                    <div className="flex items-center gap-6">
-                      <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-emerald-500 shadow-xl shadow-emerald-500/10 border border-emerald-50">
-                         <Home size={32} />
-                      </div>
-                      <div>
-                        <h4 className="text-2xl font-black text-emerald-900 tracking-tighter">Collection Protocol</h4>
-                        <p className="text-sm font-bold text-emerald-700/80 mb-1">New Hind General Store</p>
-                        <p className="text-xs text-emerald-600 font-medium max-w-xs leading-relaxed">Shop No. 1, Main Market, Nayagaon, SAS Nagar, Punjab</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                      <a 
-                        href="https://www.google.com/maps/search/?api=1&query=New+Hind+General+Store+Nayagaon+SAS+Nagar" 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="flex items-center justify-center gap-3 px-8 py-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-600/30 active:scale-95"
-                      >
-                        <Truck size={18} />
-                        <span>Route Navigation</span>
-                      </a>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
               {(order.status === 'pending' || order.status === 'confirmed') && (
                 <button 
                   onClick={() => setShowCancelModal(true)}

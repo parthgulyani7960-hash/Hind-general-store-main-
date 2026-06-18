@@ -135,7 +135,12 @@ function HomeInner() {
                     className="flex-1 w-full md:w-auto relative rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl mt-8 md:mt-0 hidden sm:block hover:scale-[1.01] transition-transform duration-300 cursor-pointer"
                   >
                      <Link to={banner.link || '/products'} onClick={() => handleBannerClick(banner.id)}>
-                       <ProgressiveImage src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} className="w-full h-[300px] md:h-[500px]" alt="Banner" />
+                       <ProgressiveImage 
+                         src={banner.image_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'} 
+                         className="w-full h-[300px] md:h-[500px]" 
+                         alt="Banner" 
+                         loading="eager"
+                       />
                      </Link>
                   </motion.div>
                </div>
@@ -174,7 +179,12 @@ function HomeInner() {
               </div>
             </div>
             <div className="flex-1 w-full md:w-auto relative rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl mt-8 md:mt-0 hidden sm:block">
-               <ProgressiveImage src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800" className="w-full h-[300px] md:h-[500px]" alt="Fresh Groceries" />
+               <ProgressiveImage 
+                 src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800" 
+                 className="w-full h-[300px] md:h-[500px]" 
+                 alt="Fresh Groceries" 
+                 loading="eager"
+               />
             </div>
          </div>
         )}

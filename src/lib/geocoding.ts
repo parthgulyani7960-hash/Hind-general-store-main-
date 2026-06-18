@@ -36,53 +36,16 @@ export const reverseGeocode = async (
   lng: number, 
   googleMapsApiKey?: string
 ): Promise<GeocodeResult> => {
-  // If API Key is provided, use Google Maps Geocoding API
-  if (googleMapsApiKey) {
-    try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleMapsApiKey}`
-      );
-      const data = await response.json();
-
-      if (data.status === 'OK' && data.results.length > 0) {
-        const result = data.results[0];
-        const components = result.address_components;
-
-        let streetNumber = '';
-        let route = '';
-        let city = '';
-        let state = '';
-        let pin_code = '';
-
-        components.forEach((c: any) => {
-          if (c.types.includes('street_number')) streetNumber = c.long_name;
-          if (c.types.includes('route')) route = c.long_name;
-          if (c.types.includes('locality')) city = c.long_name;
-          if (c.types.includes('administrative_area_level_1')) state = c.long_name;
-          if (c.types.includes('postal_code')) pin_code = c.long_name;
-        });
-
-        // Fallback for city if locality is missing
-        if (!city) {
-          const sublocality = components.find((c: any) => c.types.includes('sublocality'));
-          if (sublocality) city = sublocality.long_name;
-        }
-
-        return {
-          address: `${streetNumber} ${route}`.trim() || result.formatted_address,
-          city,
-          state,
-          pin_code: pin_code.slice(0, 6),
-          latitude: lat,
-          longitude: lng
-        };
-      }
-    } catch (error) {
-      console.warn('Google Reverse Geocoding failed, falling back to Nominatim:', error);
+  try {
+    const response = await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`);
+    if (response.ok) {
+      return await response.json();
     }
+  } catch (error) {
+    console.warn('Backend proxy geocoding failed, trying direct fallback:', error);
   }
 
-  // Fallback to OpenStreetMap Nominatim
+  // Fallback to direct Nominatim if backend proxy is temporarily unreachable
   const response = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
   );

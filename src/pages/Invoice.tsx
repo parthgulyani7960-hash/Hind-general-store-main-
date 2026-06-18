@@ -128,20 +128,12 @@ export default function Invoice() {
           ) : (
             <div className="relative">
               <div className="flex justify-between relative z-10">
-                {(order.delivery_type === 'pickup'
-                  ? [
-                      { id: 'pending', label: 'Order Placed', icon: CheckCircle },
-                      { id: 'processing', label: 'Packed', icon: Package },
-                      { id: 'shipped', label: 'Ready for Pickup', icon: Clock },
-                      { id: 'delivered', label: 'Collected', icon: CheckCircle2 },
-                    ]
-                  : [
-                      { id: 'pending', label: 'Order Placed', icon: CheckCircle },
-                      { id: 'processing', label: 'Packed', icon: Package },
-                      { id: 'shipped', label: 'Shipped', icon: Truck },
-                      { id: 'delivered', label: 'Delivered', icon: Home },
-                    ]
-                ).map((step, i) => {
+                {[
+                  { id: 'pending', label: 'Order Placed', icon: CheckCircle },
+                  { id: 'processing', label: 'Packed', icon: Package },
+                  { id: 'shipped', label: 'Shipped', icon: Truck },
+                  { id: 'delivered', label: 'Delivered', icon: Home },
+                ].map((step, i) => {
                   const statuses = ['pending', 'processing', 'shipped', 'delivered'];
                   const currentIndex = statuses.indexOf(order.status);
                   const isActive = i <= currentIndex;

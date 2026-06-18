@@ -32,13 +32,14 @@ export default function Products() {
   const { 
     t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, 
     simulatedRole, config = [], products, setProducts, fetchProducts, isLoadingProducts, isOnline, fetchProductsError,
-    categories: globalCategories, fetchCategories
+    categories: globalCategories, fetchCategories, prefetchProduct
   } = useStore();
   
   const [loadingButtons, setLoadingButtons] = useState<Record<number, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleAddToCart = async (product: Product) => {
+    triggerFeedback('medium');
     setLoadingButtons(prev => ({ ...prev, [product.id]: true }));
     try {
       await addToCart(product);
@@ -898,6 +899,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
         </AnimatePresence>
 
 
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Full-Width Grid Content */}
         <div className="w-full">
       {loadFailed ? (
@@ -924,7 +926,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
         className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6"
       >
         <AnimatePresence mode="popLayout">
-        {filteredProducts.map((product) => {
+        {filteredProducts.map((product, idx) => {
           const cartItem = (cart || []).find(item => item.id === product.id);
           
           return (
@@ -935,14 +937,14 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               whileHover={{ 
-                y: -10,
-                transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] }
+                scale: 1.02,
+                transition: { duration: 0.2 }
               }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-2xl hover:shadow-stone-200/50 hover:border-primary/20 transition-all duration-300 flex flex-col p-3 z-0 hover:z-10"
+              className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-100 hover:shadow-xl hover:border-primary/20 transition-all duration-300 flex flex-col p-3 z-0"
             >
               <Link 
                 to={`/product/${product.id}`} 
+                onMouseEnter={() => prefetchProduct(product.id)}
                 className="relative aspect-square w-full rounded-2xl overflow-hidden block group/image mb-3 bg-stone-50"
               >
                 {showImages ? (
@@ -950,6 +952,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                     src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
                     alt={product.name}
                     className="w-full h-full object-cover transition-transform duration-700 group-hover/image:scale-110"
+                    loading={idx < 6 ? "eager" : "lazy"}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-stone-100 text-stone-400">
@@ -969,7 +972,11 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
               <div className="flex flex-col flex-1 space-y-2">
                 <div className="flex-1">
                   <span className="text-[8px] font-black uppercase tracking-widest text-primary/60 mb-1 block">{product.category}</span>
-                  <Link to={`/product/${product.id}`} className="text-xs font-bold text-stone-900 line-clamp-1 hover:text-primary transition-colors">
+                  <Link 
+                    to={`/product/${product.id}`} 
+                    onMouseEnter={() => prefetchProduct(product.id)}
+                    className="text-xs font-bold text-stone-900 line-clamp-1 hover:text-primary transition-colors"
+                  >
                     {product.name}
                   </Link>
                 </div>
@@ -1130,6 +1137,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
           </a>
         </motion.div>
       )}
+      </div>
       </div>
     </div>
   </div>

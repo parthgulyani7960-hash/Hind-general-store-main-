@@ -5,6 +5,7 @@ import { cn } from '@/types';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, formatPhoneNumber } from '@/lib/utils';
+import { triggerFeedback } from '@/lib/feedback';
 
 interface CustomerSupportModalsProps {
   customerModal: { open: boolean; user: any };
@@ -124,7 +125,10 @@ export const CustomerSupportModals: React.FC<CustomerSupportModalsProps> = ({
                   <div className="grid grid-cols-2 gap-3">
                      <button 
                        onClick={() => {
-                          if (window.confirm("CRITICAL: Reset all wallet tokens to zero?")) {
+                          const confirmed = window.confirm("CRITICAL: Reset all wallet tokens to zero?");
+                          triggerFeedback('medium');
+                          if (confirmed) {
+                             triggerFeedback('heavy');
                              handleUserUpdate(customerModal.user.id, { wallet_balance: 0 });
                           }
                        }}
@@ -134,7 +138,10 @@ export const CustomerSupportModals: React.FC<CustomerSupportModalsProps> = ({
                      </button>
                      <button 
                        onClick={() => {
-                          if (window.confirm("CRITICAL: Clear all khata liabilities?")) {
+                          const confirmed = window.confirm("CRITICAL: Clear all khata liabilities?");
+                          triggerFeedback('medium');
+                          if (confirmed) {
+                             triggerFeedback('heavy');
                              handleUserUpdate(customerModal.user.id, { khata_balance: 0 });
                           }
                        }}
@@ -145,7 +152,10 @@ export const CustomerSupportModals: React.FC<CustomerSupportModalsProps> = ({
                      <button 
                        onClick={() => {
                           const newStatus = customerModal.user.status === 'banned' ? 'active' : 'banned';
-                          if (window.confirm(`Protocol: ${newStatus === 'banned' ? 'Deactivate and Ban' : 'Reactivate'} user?`)) {
+                          const confirmed = window.confirm(`Protocol: ${newStatus === 'banned' ? 'Deactivate and Ban' : 'Reactivate'} user?`);
+                          triggerFeedback('medium');
+                          if (confirmed) {
+                             triggerFeedback('heavy');
                              handleUserUpdate(customerModal.user.id, { status: newStatus });
                           }
                        }}
@@ -292,13 +302,17 @@ export const CustomerSupportModals: React.FC<CustomerSupportModalsProps> = ({
                   </div>
                   <div className="flex flex-col space-y-2">
                     <button 
-                      onClick={() => setWalletModal({ open: true, userId: customerModal.user.id })}
+                      onClick={() => {
+                        triggerFeedback('medium');
+                        setWalletModal({ open: true, userId: customerModal.user.id });
+                      }}
                       className="w-full py-2 bg-primary text-white rounded-xl font-bold hover:bg-primary/95 text-sm"
                     >
                       Manage Funds
                     </button>
                     <button 
                       onClick={async () => {
+                        triggerFeedback('medium');
                         const { generateUserExportPDF } = await import('@/services/pdfService');
                         setExportProgress({ open: true, progress: 10, label: 'Accessing secure user nodes...' });
                         try {
@@ -394,7 +408,10 @@ export const CustomerSupportModals: React.FC<CustomerSupportModalsProps> = ({
                     <p><span className="font-bold">Last Known IP:</span> (Logged securely)</p>
                     <button 
                       onClick={async () => {
-                        if(confirm('Are you absolutely sure? This will delete all user data and cannot be undone.')) {
+                        const confirmed = confirm('Are you absolutely sure? This will delete all user data and cannot be undone.');
+                        triggerFeedback('medium');
+                        if(confirmed) {
+                          triggerFeedback('heavy');
                           try {
                             const data = await fetchWithHandling<any>(`/api/admin/users/${customerModal.user.id}`, { 
                               method: 'DELETE',
@@ -463,7 +480,10 @@ export const CustomerSupportModals: React.FC<CustomerSupportModalsProps> = ({
                 Cancel
               </button>
               <button 
-                onClick={handleRespondReview}
+                onClick={() => {
+                  triggerFeedback('medium');
+                  handleRespondReview();
+                }}
                 disabled={!reviewResponse}
                 className="px-6 py-2 bg-primary text-white rounded-xl font-bold hover:bg-primary/95 shadow-lg disabled:opacity-50"
               >

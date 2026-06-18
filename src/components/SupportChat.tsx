@@ -29,7 +29,7 @@ export default function SupportChat({ user }: SupportChatProps) {
     if (!user?.id) return;
 
     const ticketsRef = collection(db, 'tickets');
-    const q = query(ticketsRef, where('user_id', '==', user.id), orderBy('created_at', 'desc'));
+    const q = query(ticketsRef, where('user_id', '==', String(user.id)), orderBy('created_at', 'desc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const tks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

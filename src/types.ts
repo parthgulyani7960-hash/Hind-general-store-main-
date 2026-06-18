@@ -113,10 +113,10 @@ export interface Order {
   payment_status?: 'paid' | 'pending' | 'failed' | 'refunded';
   address: string;
   payment_method: string;
+  delivery_type?: 'delivery' | 'pickup' | 'standard';
   payment_id?: string;
   payment_screenshot?: string;
   rejection_reason?: string;
-  delivery_type: 'home' | 'pickup';
   notes?: string;
   admin_notes?: string;
   created_at: string;

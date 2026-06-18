@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogOut, AlertTriangle, X } from 'lucide-react';
+import { triggerFeedback } from '@/lib/feedback';
 
 interface ConfirmLogoutDialogProps {
   isOpen: boolean;
@@ -63,7 +64,7 @@ export default function ConfirmLogoutDialog({ isOpen, onClose, onConfirm }: Conf
                 Cancel
               </button>
               <button
-                onClick={() => { onConfirm(); onClose(); }}
+                onClick={() => { triggerFeedback('heavy'); onConfirm(); onClose(); }}
                 className="flex-1 py-3 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
               >
                 <LogOut className="w-4 h-4" />

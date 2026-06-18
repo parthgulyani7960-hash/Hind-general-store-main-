@@ -5,6 +5,7 @@ import { cn } from '@/types';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders, formatPhoneNumber } from '@/lib/utils';
+import { triggerFeedback } from '@/lib/feedback';
 import { motion } from 'motion/react';
 
 interface OrderModalsProps {
@@ -48,6 +49,14 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                 )}>
                   {orderModal.order.payment_status ? orderModal.order.payment_status.toUpperCase() : 'PENDING'}
                 </span>
+                {orderModal.order.delivery_type && (
+                  <span className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm",
+                    orderModal.order.delivery_type === 'pickup' ? "bg-orange-500 text-white" : "bg-blue-500 text-white"
+                  )}>
+                    {orderModal.order.delivery_type === 'pickup' ? 'PICKUP' : 'DELIVERY'}
+                  </span>
+                )}
               </div>
               <p className="text-stone-500">{new Date(orderModal.order.created_at).toLocaleString()}</p>
             </div>
@@ -183,13 +192,19 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                       {orderModal.order.payment_status === 'verifying' && (
                          <div className="flex items-center gap-2 mt-2">
                            <button 
-                             onClick={() => handleApproveOrderPayment(orderModal.order.id)}
+                             onClick={() => {
+                               triggerFeedback('medium');
+                               handleApproveOrderPayment(orderModal.order.id);
+                             }}
                              className="flex-1 py-3 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
                            >
                              Verify & Approve
                            </button>
                            <button 
-                             onClick={() => updateOrderStatus(orderModal.order.id, 'failed')}
+                             onClick={() => {
+                               triggerFeedback('heavy');
+                               updateOrderStatus(orderModal.order.id, 'failed');
+                             }}
                              className="px-4 py-3 bg-red-50 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-100 transition-all"
                            >
                              Invalid
@@ -320,6 +335,7 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                   />
                   <button 
                     onClick={async () => {
+                      triggerFeedback('medium');
                       const tracking_id = (document.getElementById(`tracking-id-${orderModal.order.id}`) as HTMLInputElement).value;
                       try {
                         const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/tracking`, {
@@ -485,7 +501,10 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                     <div className="flex flex-col gap-3 pt-2">
                       <button 
                         onClick={async () => {
-                          if (!window.confirm('Mark this payment as RECEIVED and proceed with fulfillment?')) return;
+                          const confirmed = window.confirm('Mark this payment as RECEIVED and proceed with fulfillment?');
+                          triggerFeedback('medium');
+                          if (!confirmed) return;
+                          triggerFeedback('heavy');
                           try {
                             const targetStatus = orderModal.order.status === 'pending' || orderModal.order.status === 'verifying' ? 'processing' : orderModal.order.status;
                             const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
@@ -511,7 +530,9 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                         <button 
                           onClick={async () => {
                             const reason = prompt('Enter rejection reason (User will be notified to retry):');
+                            triggerFeedback('medium');
                             if (reason) {
+                              triggerFeedback('heavy');
                               try {
                                 const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/fail-payment`, {
                                   method: 'POST',
@@ -535,7 +556,9 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                         <button 
                           onClick={async () => {
                             const reason = prompt('Enter cancellation reason:');
+                            triggerFeedback('medium');
                             if (reason) {
+                              triggerFeedback('heavy');
                               try {
                                 const data = await fetchWithHandling<any>(`/api/admin/orders/${orderModal.order.id}/status`, {
                                   method: 'POST',
@@ -568,6 +591,7 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                   className="w-full bg-stone-50 rounded-xl px-4 py-2 text-sm font-bold text-stone-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   value={orderModal.order.status}
                   onChange={async (e) => {
+                    triggerFeedback('light');
                     const newStatus = e.target.value;
                     await updateOrderStatus(orderModal.order.id, newStatus);
                     setOrderModal(prev => ({

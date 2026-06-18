@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { getFirestore, collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer, orderBy } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, getDoc, setDoc, updateDoc, deleteDoc, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer, orderBy, onSnapshot, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { errorService, ErrorType } from './lib/incidentReporting';
 
@@ -259,13 +259,20 @@ const onIdTokenChanged = (authInstance: any, next: any, error?: any, completed?:
 export { 
   onAuthStateChanged,
   onIdTokenChanged,
+  doc,
   collection, 
   getDocs, 
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
   query, 
   where, 
   limit,
   orderBy,
+  onSnapshot,
   addDoc, 
+  writeBatch,
   serverTimestamp,
   ref, 
   uploadBytesResumable, 

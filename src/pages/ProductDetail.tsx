@@ -7,6 +7,8 @@ import {
   ChevronLeft, ChevronRight, X, MapPin, Trash2, List, ShoppingBag,
   CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2, Loader2
 } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy, limit, doc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import { ImageGalleryModal } from '@/components/ImageGalleryModal';
 import { ReviewSection } from '@/components/ReviewSection';
 import { Product, Review, cn } from '@/types';
@@ -14,7 +16,7 @@ import { useStore } from '@/StoreContext';
 import { ProgressiveImage } from '@/components/ui/ProgressiveImage';
 import { getAuthHeaders } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { triggerFeedback } from '@/App';
+import { triggerFeedback } from '@/lib/feedback';
 import { handleAppError } from '@/lib/incidentUtils';
 import { fetchWithHandling } from '@/lib/api';
 import AppCrashBoundary from '@/components/AppCrashBoundary';
@@ -53,7 +55,6 @@ export default function ProductDetail() {
       navigate('/login');
       return;
     }
-    triggerFeedback('medium');
     toggleWishlist(product.id);
   };
 
@@ -147,14 +148,41 @@ export default function ProductDetail() {
   };
 
   useEffect(() => {
+    if (!id) return;
     setProduct(null);
     setLoading(true);
-    fetchProduct();
+    
+    // Proactive initial fetches
     fetchReviews();
     fetchVariants();
     fetchRelatedProducts();
+
+    // Setup real-time listener for the product details
+    const productRef = doc(db, 'products', id);
+    const unsubscribe = onSnapshot(productRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = { id: docSnap.id, ...docSnap.data() } as Product;
+            setProduct(data);
+            setLoading(false);
+            
+            // Scroll logic if needed
+            if (window.location.hash === '#reviews') {
+                setTimeout(() => {
+                  const el = document.getElementById('reviews');
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 300);
+            }
+        }
+    }, (err) => {
+        console.warn('Firestore Product subscription failed, falling back to REST:', err);
+        fetchProduct();
+    });
+
     setQuantity(1);
-    window.scrollTo(0, 0);
+    
+    return () => {
+        unsubscribe();
+    };
   }, [id]);
 
   const allImages = product 
@@ -331,6 +359,7 @@ export default function ProductDetail() {
       toast.error('Please login to leave a review');
       return;
     }
+    triggerFeedback('medium');
     try {
       const data = await fetchWithHandling<any>('/api/reviews', {
         method: 'POST',
@@ -419,7 +448,7 @@ export default function ProductDetail() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="relative rounded-3xl overflow-hidden shadow-lg border border-stone-100 bg-white aspect-square group"
+            className="relative rounded-3xl overflow-hidden border border-stone-100 bg-white aspect-square max-h-[50vh] md:max-h-[60vh] group shadow-sm mx-auto"
           >
             {/* Zoom trigger */}
             <button
@@ -434,7 +463,8 @@ export default function ProductDetail() {
                   <ProgressiveImage
                     src={allImages[activeImage]} 
                     alt={product.name}
-                    className="w-full h-full"
+                    className="w-full h-full object-contain"
+                    loading="eager"
                   />
                   {/* Note: Drag functionality removed for better LCP, navigation via arrows is preserved */}
                 </div>
@@ -704,6 +734,7 @@ export default function ProductDetail() {
                   isLoading={addingToCart || isSyncingCart}
                   onClick={async () => {
                     setAddingToCart(true);
+                    triggerFeedback('medium');
                     addToCart(product, selectedVariant, quantity);
                     await new Promise(resolve => setTimeout(resolve, 600));
                     setAddingToCart(false);
@@ -717,6 +748,7 @@ export default function ProductDetail() {
                 
                 <Button 
                   onClick={() => {
+                    triggerFeedback('medium');
                     addToCart(product, selectedVariant, quantity);
                     navigate('/cart');
                   }}
@@ -740,7 +772,10 @@ export default function ProductDetail() {
               </button>
               
               <button 
-                onClick={handleToggleWishlist}
+                onClick={() => {
+                  triggerFeedback('light');
+                  handleToggleWishlist();
+                }}
                 className={cn(
                   "flex-1 px-6 py-4 rounded-xl transition-all flex items-center justify-center space-x-2 font-bold min-h-[56px] mobile-active-state",
                   isInWishlist ? "bg-red-50 text-red-500 border border-red-200 hover:bg-red-100" : "bg-stone-100 text-stone-600 border border-transparent hover:bg-stone-200"
@@ -846,6 +881,7 @@ export default function ProductDetail() {
                       <button 
                         onClick={(e) => {
                           e.preventDefault();
+                          triggerFeedback('light');
                           toggleWishlist(p.id);
                         }}
                         className={cn(
@@ -865,7 +901,10 @@ export default function ProductDetail() {
                       </div>
                       <p className="text-xs text-stone-500 line-clamp-2">{p.description}</p>
                       <button 
-                        onClick={() => addToCart(p)}
+                        onClick={() => {
+                          triggerFeedback('medium');
+                          addToCart(p);
+                        }}
                         className="w-full py-2 bg-stone-50 text-primary rounded-xl text-sm font-bold hover:bg-primary hover:text-white transition-all flex items-center justify-center space-x-2"
                       >
                         <ShoppingCart size={14} />
