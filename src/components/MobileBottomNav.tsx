@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Home, ShoppingBag, ShoppingCart, User, Heart } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
-import { cn } from '@/types';
+import { triggerFeedback } from '@/lib/feedback';
+import { cn } from '@/lib/utils';
 
 export default function MobileBottomNav() {
   const location = useLocation();
@@ -12,18 +13,42 @@ export default function MobileBottomNav() {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
-    // Detect if keyboard is visible by checking viewport height change
-    const originalHeight = window.innerHeight;
-    const handleResize = () => {
-      if (window.innerHeight < originalHeight * 0.8) {
-        setIsVisible(false);
-      } else {
-        setIsVisible(true);
+    // Detect if keyboard is visible using Visual Viewport API if available
+    // Fallback to window resize for older browsers
+    const handleViewportChange = () => {
+      if (window.visualViewport) {
+        // If the viewport height is significantly less than the window innerHeight, 
+        // it means something (usually the keyboard) is taking up space.
+        const isKeyboardOpen = window.visualViewport.height < window.innerHeight * 0.85;
+        setIsVisible(!isKeyboardOpen);
       }
     };
 
+    const originalHeight = window.innerHeight;
+    const handleResize = () => {
+      if (!window.visualViewport) {
+        if (window.innerHeight < originalHeight * 0.8) {
+          setIsVisible(false);
+        } else {
+          setIsVisible(true);
+        }
+      }
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportChange);
+      window.visualViewport.addEventListener('scroll', handleViewportChange);
+    }
+    
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportChange);
+        window.visualViewport.removeEventListener('scroll', handleViewportChange);
+      }
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   if (!isVisible) return null;
@@ -49,6 +74,7 @@ export default function MobileBottomNav() {
             <Link 
               key={item.path} 
               to={item.path}
+              onClick={() => triggerFeedback('light')}
               className="relative flex flex-col items-center justify-center p-2 pt-3 group outline-none min-w-[64px]"
             >
               <div 

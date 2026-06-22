@@ -107,11 +107,15 @@ interface StoreContextType {
   fetchAnnouncements: () => Promise<void>;
   prefetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string }) => void;
   prefetchProduct: (productId: string | number) => void;
+  startupPhase: number;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    console.log('[StoreProvider] Initialized (mounted)');
+  }, []);
   const { language, setLanguage, t } = useLanguage();
   const { mutate: swrMutate } = useSWRConfig();
   // 1. State and Refs
@@ -119,26 +123,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
     try {
       const hasToken = !!localStorage.getItem('hgs_token');
-      // If we have a token but no user, we MUST checkauth or we'll render empty/protected routes prematurely
-      const hasUser = !!localStorage.getItem('hgs_user');
-      if (hasToken && !hasUser) return true;
+      console.log('[StoreProvider] Initial Auth Checking:', hasToken);
+      // If we have a token, we MUST verify it regardless of whether we have a local user cache
+      if (hasToken) return true;
       return false;
-    } catch (e) {
+    } catch {
       return false;
     }
   });
   const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(() => {
     try {
       const hasToken = !!localStorage.getItem('hgs_token');
-      const hasUser = !!localStorage.getItem('hgs_user');
-      if ((hasToken && hasUser) || !hasToken) {
-        return true;
-      }
-    } catch (e) {}
-    return false;
+      // Verification hasn't happened yet if we have a token
+      if (hasToken) return false;
+      return true;
+    } catch {
+      return true;
+    }
   });
   const [dbError, setDbError] = useState(false);
   const [isApiUp, setIsApiUp] = useState(true);
+  const [startupPhase, setStartupPhase] = useState(1);
   const [categories, setCategories] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem('hgs_categories');
@@ -264,31 +269,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [sound]);
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const { isOnline, latency } = useNetwork();
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return /Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(navigator.userAgent) || window.innerWidth < 768;
-    }
-    return false;
-  });
-  const [isTablet, setIsTablet] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return /(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(navigator.userAgent);
-    }
-    return false;
-  });
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
   const [lastAddedId, setLastAddedId] = useState<number | null>(null);
 
-  // Update device type states on resize
+  // Update device type states on mount and on resize
   useEffect(() => {
-    const handleResize = () => {
+    const checkDevice = () => {
       const ua = navigator.userAgent;
       const width = window.innerWidth;
       setIsMobile(/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(ua) || width < 768);
       setIsTablet(/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua));
     };
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    checkDevice(); // Initial check
+    window.addEventListener('resize', checkDevice);
+    return () => window.removeEventListener('resize', checkDevice);
   }, []);
 
   // 2. Helper Functions (useCallbacks and async functions)
@@ -337,6 +333,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       logger.debug(`Fetching products SWR update (Page ${page})...`);
       const data = await fetchWithHandling<Product[]>(`/api/products?${queryParams.toString()}`);
       
+      console.log('Fetched products data:', data);
+
       if (data) {
         // Save to cache
         clientProductsCacheRef.current[cacheKey] = {
@@ -367,7 +365,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoadingProducts(false);
     }
-  }, [isLoadingProducts]);
+  }, []);
 
   const prefetchProducts = React.useCallback((params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string }) => {
     const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance' } = params || {};
@@ -509,6 +507,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       authRunningRef.current = false;
       setIsAuthChecking(false);
+      setIsInitialAuthPerformed(true);
     }
   }, []);
 
@@ -657,8 +656,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const addToCart = async (product: Product, variant?: any, quantity: number = 1) => {
     isCartCacheDirtyRef.current = true;
     
-    // Artificial delay to simulate cloud inventory lock (User Request: "Add some delay and lag")
-    await new Promise(resolve => setTimeout(resolve, 350));
+    // Speed up the artificial delay to proceed blazingly fast
+    await new Promise(resolve => setTimeout(resolve, 10));
     
     setCart(prev => {
         const existing = prev.find(item => item.id === product.id && (variant ? item.variantId === variant.id : !item.variantId));
@@ -793,7 +792,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast.error(err.message || 'Failed to update profile');
     }
   };
-  const subscribeNewsletter = async (email: string): Promise<boolean> => {
+  const subscribeNewsletter = React.useCallback(async (email: string): Promise<boolean> => {
     if (!email || !email.includes('@')) {
       toast.error('Please enter a valid email address.');
       return false;
@@ -819,9 +818,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast.error(err.message || 'Network error during subscription.');
       return false;
     }
-  };
+  }, [user]);
 
-  const unsubscribeNewsletter = async (email: string): Promise<boolean> => {
+  const unsubscribeNewsletter = React.useCallback(async (email: string): Promise<boolean> => {
     if (!email || !email.includes('@')) {
       toast.error('Please enter a valid email address.');
       return false;
@@ -847,9 +846,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast.error(err.message || 'Network error during unsubscription.');
       return false;
     }
-  };
+  }, [user]);
 
-  const checkNewsletterStatus = async (email: string): Promise<boolean> => {
+  const checkNewsletterStatus = React.useCallback(async (email: string): Promise<boolean> => {
     if (!email || !email.includes('@')) {
       return false;
     }
@@ -867,7 +866,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       console.error('Newsletter status check error:', err);
       return false;
     }
-  };
+  }, [user]);
   const fetchCategories = React.useCallback(async () => {
     if (isLoadingCategoriesRef.current) return;
     isLoadingCategoriesRef.current = true;
@@ -898,8 +897,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Config failure handled silently
     }
   }, []);
-  const logActivity = async (t: string, d: string) => {};
-  const markAlertAsRead = async (id: number) => {};
+  const logActivity = React.useCallback(async (type: string, description: string) => {
+    if (!user) return;
+    try {
+      fetchWithHandling('/api/admin/activities/log', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ type, description, user_id: user.id })
+      }).catch(() => {});
+    } catch (err) {
+      // Background logging fails silently
+    }
+  }, [user]);
+
+  const markAlertAsRead = React.useCallback(async (id: number) => {
+    setReadNotificationIds(prev => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      localStorage.setItem('read_notifications', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   // 3. Effects
   // Real-time User Data Hook
@@ -1058,9 +1076,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           const token = await firebaseUser.getIdToken();
-          if (token !== localStorage.getItem('hgs_token')) {
+          const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
+          // If token changed OR we current have no user state, we must authorize
+          if (hasExpiredTokenChange || !user) {
             localStorage.setItem('hgs_token', token);
             await checkAuth(token);
+          } else {
+            setIsInitialAuthPerformed(true);
+            setIsAuthChecking(false);
           }
         } else {
           if (localStorage.getItem('hgs_token')) {
@@ -1068,6 +1091,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             localStorage.removeItem('hgs_user');
             setUser(null);
           }
+          setIsInitialAuthPerformed(true);
+          setIsAuthChecking(false);
         }
       });
     
@@ -1084,10 +1109,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Startup Orchestrator Effect
+  // Phase 1 to Phase 2 transition when auth verification finishes
   useEffect(() => {
-    if (user) fetchAddresses();
-    else setAddresses([]);
-  }, [user, fetchAddresses]);
+    if (startupPhase === 1) {
+      if (!isAuthChecking) {
+        setStartupPhase(2);
+      }
+    }
+  }, [isAuthChecking, startupPhase]);
+
+  // Phase 2 triggers
+  useEffect(() => {
+    if (startupPhase === 2) {
+      logger.info('[STARTUP_ORCHESTRATOR] Running Phase 2: Notifications & Settings');
+      Promise.all([
+        fetchNotifications().catch(err => logger.debug('[STARTUP] Initial Notifications failed:', err)),
+        fetchConfig().catch(err => logger.debug('[STARTUP] Initial Config/Settings failed:', err))
+      ]).then(() => {
+        // Delay moving to Phase 3 slightly to let rendering complete and relieve API load
+        setTimeout(() => {
+          setStartupPhase(3);
+        }, 400);
+      });
+    }
+  }, [startupPhase, fetchNotifications, fetchConfig]);
+
+  // Phase 3 triggers (Promotions, bulk discounts, announcements, addresses)
+  useEffect(() => {
+    if (startupPhase === 3) {
+      logger.info('[STARTUP_ORCHESTRATOR] Running Phase 3: Promotions, Bulk Discounts, Announcements, Addresses');
+      const promises: Promise<any>[] = [
+        fetchPromotions().catch(err => logger.debug('[STARTUP] Initial Promotions failed:', err)),
+        fetchBulkDiscounts().catch(err => logger.debug('[STARTUP] Initial Bulk Discounts failed:', err)),
+        fetchAnnouncements().catch(err => logger.debug('[STARTUP] Initial Announcements failed:', err))
+      ];
+      if (user) {
+        promises.push(fetchAddresses().catch(err => logger.debug('[STARTUP] Initial Addresses failed:', err)));
+      }
+      Promise.all(promises);
+    }
+  }, [startupPhase, user, fetchPromotions, fetchBulkDiscounts, fetchAnnouncements, fetchAddresses]);
+
+  useEffect(() => {
+    if (user) {
+      if (startupPhase >= 3) {
+        fetchAddresses();
+      }
+    } else {
+      setAddresses([]);
+    }
+  }, [user, fetchAddresses, startupPhase]);
 
   useEffect(() => {
     localStorage.setItem('hgs_cart', JSON.stringify(cart));
@@ -1171,6 +1243,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     };
     
+    if (startupPhase < 3) return;
+
     // Initial check
     checkApiHealth();
     
@@ -1178,7 +1252,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const interval = setInterval(checkApiHealth, 45000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [startupPhase]);
 
   // 4. Context Provider
   const contextValue = React.useMemo(() => ({
@@ -1199,12 +1273,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isApiUp, setIsApiUp,
     categories, setCategories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements,
-    prefetchProducts, prefetchProduct
+    prefetchProducts, prefetchProduct,
+    startupPhase
   }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notifications, vibration, sound,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
-    announcements, fetchAnnouncements, prefetchProducts, prefetchProduct]);
+    announcements, fetchAnnouncements, prefetchProducts, prefetchProduct, startupPhase]);
 
   return (
     <StoreContext.Provider value={contextValue}>

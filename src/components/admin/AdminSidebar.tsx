@@ -77,6 +77,7 @@ const menuGroups = [
 interface AdminSidebarProps {
   activeTab: string;
   setActiveTab: (tab: any) => void;
+  onPrefetchTab?: (tab: string) => void;
   user: any;
   logout: () => void;
   isOpen: boolean;
@@ -100,7 +101,7 @@ interface AdminSidebarProps {
  * @param newUserCount - Numerical count of new user registrations.
  * @param isMinimized - Whether the sidebar is in a minimized collapsed state (desktop).
  */
-export default function AdminSidebar({ activeTab, setActiveTab, user, logout, isOpen, setIsOpen, lowStockCount = 0, newUserCount = 0, isMinimized }: AdminSidebarProps) {
+export default function AdminSidebar({ activeTab, setActiveTab, onPrefetchTab, user, logout, isOpen, setIsOpen, lowStockCount = 0, newUserCount = 0, isMinimized }: AdminSidebarProps) {
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -177,6 +178,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, user, logout, is
                         key={item.name}
                         whileHover={{ x: isMinimized ? 0 : 4 }}
                         whileTap={{ scale: 0.98 }}
+                        onMouseEnter={() => onPrefetchTab?.(item.name)}
                         onClick={(e) => { 
                           e.preventDefault();
                           if (item.name === 'Diagnostic Console') {

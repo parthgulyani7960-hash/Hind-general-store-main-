@@ -13,7 +13,7 @@ import LoadingFallback from '@/components/LoadingFallback';
 import AppCrashBoundary from '@/components/AppCrashBoundary';
 
 function HomeInner() {
-  const { user, simulatedRole, t, config = [], categories: globalCategories, fetchCategories, isLoadingCategories } = useStore();
+  const { user, simulatedRole, t, config = [], categories: globalCategories, fetchCategories, isLoadingCategories, startupPhase } = useStore();
   const navigate = useNavigate();
   const [localSearch, setLocalSearch] = React.useState('');
   const [banners, setBanners] = React.useState<any[]>([]);
@@ -36,6 +36,7 @@ function HomeInner() {
   }, [heroBanners.length]);
 
   React.useEffect(() => {
+    if (startupPhase < 3) return;
     const fetchHomeData = () => {
       // Trigger global categories fetch if empty
       if (!globalCategories || globalCategories.length === 0) {
@@ -58,7 +59,7 @@ function HomeInner() {
     };
 
     fetchHomeData();
-  }, [previewPromoId, globalCategories.length, fetchCategories]);
+  }, [previewPromoId, globalCategories.length, fetchCategories, startupPhase]);
 
   if (isLoadingCategories && globalCategories.length === 0) return <LoadingFallback message="Synchronizing categories..." fullScreen={false} />;
 

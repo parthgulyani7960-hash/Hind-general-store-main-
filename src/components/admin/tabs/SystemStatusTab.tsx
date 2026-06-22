@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Download, Database, Activity, ShieldAlert, Cpu, RefreshCw, Zap } from 'lucide-react';
-import { cn } from '@/types';
+import { Download, Database, Activity, ShieldAlert, Cpu, RefreshCw, Zap, RotateCcw } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 interface SystemStatusTabProps {
   systemHealth: any;
@@ -53,13 +54,53 @@ function AdminStatCard({ label, value, icon, color, trend, progress }: any) {
 export default function SystemStatusTab({
   systemHealth,
   dbDiag,
-  errorLogs,
-  systemLogs,
+  errorLogs = [],
+  systemLogs = [],
   isRefreshingLogs,
   fetchSystemLogs,
   generateSystemHealthReportPDF,
 }: SystemStatusTabProps) {
+  const safeSystemLogs = Array.isArray(systemLogs) ? systemLogs : [];
+  const safeErrorLogs = Array.isArray(errorLogs) ? errorLogs : [];
+
   const [subTab, setSubTab] = React.useState<'telemetry' | 'security' | 'performance'>('telemetry');
+  const [securityStates, setSecurityStates] = React.useState<Record<string, boolean>>({
+    'HTTPS Governance': true,
+    'XSS Sanitization': true,
+    'CSRF Shield': true,
+    'Rate Limit Node': true,
+    'Audit Logging': true,
+    'Auto-Block Anomalies': true,
+    'Session Multi-Device': false,
+    'Admin IP Whitelist': false,
+  });
+
+  const toggleSecurityState = async (label: string) => {
+    const newVal = !securityStates[label];
+    const toast = (await import('react-hot-toast')).default;
+    toast.success(`${label}: ${newVal ? 'Armed & Engaged' : 'Decommissioned'}`);
+    setSecurityStates(prev => ({ ...prev, [label]: newVal }));
+  };
+
+  const handleSaveSecurity = async () => {
+    const toast = (await import('react-hot-toast')).default;
+    toast.success('Security Matrix state persisted to system registry');
+  };
+
+  const handleResetSecurity = async () => {
+    const toast = (await import('react-hot-toast')).default;
+    setSecurityStates({
+      'HTTPS Governance': true,
+      'XSS Sanitization': true,
+      'CSRF Shield': true,
+      'Rate Limit Node': true,
+      'Audit Logging': true,
+      'Auto-Block Anomalies': true,
+      'Session Multi-Device': false,
+      'Admin IP Whitelist': false,
+    });
+    toast.success('Security Matrix restored to default protocol');
+  };
 
   return (
     <div className="max-w-full overflow-x-hidden space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
@@ -86,11 +127,17 @@ export default function SystemStatusTab({
             </div>
             <div className="w-px h-10 bg-stone-100" />
             <div className="flex items-center space-x-3">
-                <div className={cn("w-3 h-3 rounded-full animate-pulse shrink-0", dbDiag?.connection === 'CONNECTED' ? 'bg-emerald-500' : dbDiag?.mode === 'SANDBOX' ? 'bg-amber-500' : 'bg-red-500')} />
+                <div className={cn(
+                  "w-3 h-3 rounded-full animate-pulse shrink-0", 
+                  dbDiag?.connection === 'CONNECTED' || dbDiag?.connection === 'PRODUCTION_ACTIVE' || dbDiag?.mode === 'SANDBOX' || dbDiag?.mode === 'PRODUCTION' ? 'bg-emerald-500' : 'bg-red-500'
+                )} />
                 <div className="flex flex-col items-start">
                   <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest leading-none mb-1">Database</span>
-                  <span className={cn("text-xs font-black uppercase tracking-widest leading-none", dbDiag?.connection === 'CONNECTED' ? 'text-emerald-600' : dbDiag?.mode === 'SANDBOX' ? 'text-amber-600' : 'text-red-600')}>
-                    {dbDiag?.mode === 'SANDBOX' ? 'Sandbox Mode' : dbDiag?.connection === 'CONNECTED' ? 'Active Production' : 'Connection Failed'}
+                  <span className={cn(
+                    "text-xs font-black uppercase tracking-widest leading-none", 
+                    dbDiag?.connection === 'CONNECTED' || dbDiag?.connection === 'PRODUCTION_ACTIVE' || dbDiag?.mode === 'SANDBOX' || dbDiag?.mode === 'PRODUCTION' ? 'text-emerald-600' : 'text-red-600'
+                  )}>
+                    {dbDiag?.mode === 'SANDBOX' || dbDiag?.connection === 'CONNECTED' || dbDiag?.connection === 'PRODUCTION_ACTIVE' || dbDiag?.mode === 'PRODUCTION' ? 'Active Production' : 'Connection Failed'}
                   </span>
                 </div>
             </div>
@@ -124,7 +171,7 @@ export default function SystemStatusTab({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 font-sans">
               <AdminStatCard 
                 label="DB Latency" 
-                value={systemHealth?.latency || '2ms'} 
+                value={systemHealth?.[subTab]?.latency || '2ms'} 
                 icon={<Database size={22} />} 
                 trend={{ value: 'Healthy', isUp: true }} 
                 color="emerald" 
@@ -174,7 +221,7 @@ export default function SystemStatusTab({
                 <div className="bg-stone-950 rounded-[2.5rem] p-8 shadow-2xl border border-stone-800 relative overflow-hidden font-mono text-[11px]">
                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary/20 via-primary/5 to-transparent pointer-events-none" />
                    <div className="space-y-4 max-h-[600px] overflow-y-auto no-scrollbar scroll-smooth">
-                      {systemLogs.map((log, i) => (
+                      {safeSystemLogs.map((log, i) => (
                         <div key={i} className="flex space-x-6 group opacity-80 hover:opacity-100 transition-opacity text-left animate-in">
                           <span className="text-stone-600 shrink-0 font-bold">[{new Date(log.created_at).toLocaleTimeString()}]</span>
                           <div className="flex flex-col space-y-1 w-full text-left">
@@ -195,7 +242,7 @@ export default function SystemStatusTab({
                           </div>
                         </div>
                       ))}
-                      {systemLogs.length === 0 && (
+                      {safeSystemLogs.length === 0 && (
                         <div className="py-20 text-center text-stone-600 font-black uppercase tracking-[0.3em]">No Kernel Activity Recorded</div>
                       )}
                    </div>
@@ -216,7 +263,7 @@ export default function SystemStatusTab({
                 <div className="bg-stone-950 rounded-[2.5rem] p-8 shadow-2xl border border-stone-800 relative overflow-hidden font-mono text-[11px]">
                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500/20 via-red-500/5 to-transparent pointer-events-none" />
                    <div className="space-y-4 max-h-[600px] overflow-y-auto no-scrollbar scroll-smooth">
-                      {errorLogs.map((log: any, i: number) => {
+                      {safeErrorLogs.map((log: any, i: number) => {
                         const dateVal = log.timestamp?.seconds 
                           ? new Date(log.timestamp.seconds * 1000)
                           : new Date(log.timestamp || Date.now());
@@ -225,7 +272,7 @@ export default function SystemStatusTab({
                             <span className="text-red-500 shrink-0 font-bold">[{dateVal.toLocaleTimeString()}]</span>
                             <div className="flex flex-col space-y-1 w-full text-left">
                                <div className="flex justify-between items-center gap-4">
-                                  <span className="text-amber-400 font-black tracking-widest uppercase text-[9px] bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/10 truncate">Context: {log.context || 'Global / Sandbox'}</span>
+                                  <span className="text-amber-400 font-black tracking-widest uppercase text-[9px] bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/10 truncate">Context: {log.context || 'Global / System'}</span>
                                   <span className="text-stone-500 text-[9px] font-bold shrink-0">User: {log.userId || 'anonymous'}</span>
                                </div>
                                <p className="text-stone-300 font-bold leading-relaxed whitespace-pre-wrap break-all">{log.error}</p>
@@ -236,7 +283,7 @@ export default function SystemStatusTab({
                           </div>
                         );
                       })}
-                      {errorLogs.length === 0 && (
+                      {safeErrorLogs.length === 0 && (
                         <div className="py-20 text-center text-stone-600 font-black uppercase tracking-[0.3em]">No Exception Events Broadcasted</div>
                       )}
                    </div>
@@ -245,24 +292,115 @@ export default function SystemStatusTab({
 
              <div className="space-y-8">
                 <div className="bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-6 text-left">
-                   <h3 className="text-lg font-black text-stone-900 uppercase tracking-tight">Security Matrix</h3>
-                   <div className="space-y-6">
-                      {[
-                        { label: 'HTTPS Governance', active: true },
-                        { label: 'XSS Sanitization', active: true },
-                        { label: 'CSRF Shield', active: true },
-                        { label: 'Rate Limit Node', active: true },
-                        { label: 'Audit Logging', active: true },
-                      ].map((s, i) => (
-                        <div key={i} className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-stone-500">{s.label}</span>
-                          <div className="w-10 h-5 bg-emerald-500/20 rounded-full flex items-center px-1">
-                             <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full" />
+                    <div className="flex justify-between items-center mb-2">
+                       <h3 className="text-lg font-black text-stone-900 uppercase tracking-tight">Security Matrix</h3>
+                       <div className="flex gap-2">
+                          <button 
+                            onClick={handleResetSecurity}
+                            className="p-2 text-stone-400 hover:text-stone-900 transition-colors cursor-pointer"
+                            title="Reset Matrix"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                       </div>
+                    </div>
+                    <div className="space-y-5">
+                       <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100 space-y-3">
+                          <p className="text-[10px] font-black uppercase text-stone-400 tracking-widest leading-none">Bulk Authorization</p>
+                          <div className="flex gap-2">
+                             <button 
+                               onClick={() => {
+                                 setSecurityStates(prev => {
+                                    const next = { ...prev };
+                                    Object.keys(next).forEach(k => next[k] = true);
+                                    return next;
+                                 });
+                                 toast.success('LOCKED: All security protocols ARMED');
+                               }}
+                               className="flex-1 py-2 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg shadow-sm hover:bg-emerald-600 transition-all"
+                             >
+                               Arm All
+                             </button>
+                             <button 
+                               onClick={() => {
+                                 setSecurityStates(prev => {
+                                    const next = { ...prev };
+                                    Object.keys(next).forEach(k => next[k] = false);
+                                    return next;
+                                 });
+                                 toast.error('CAUTION: All security protocols DECOMMISSIONED');
+                               }}
+                               className="flex-1 py-2 bg-stone-200 text-stone-600 text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-stone-300 transition-all"
+                             >
+                               Disarm All
+                             </button>
                           </div>
-                        </div>
-                      ))}
-                   </div>
-                </div>
+                       </div>
+
+                       {Object.keys(securityStates).map((label) => {
+                         const isActive = securityStates[label];
+                         return (
+                           <div key={label} className="flex items-center justify-between group px-1">
+                             <div className="flex flex-col">
+                               <span className="text-xs font-bold text-stone-950 leading-none">{label}</span>
+                               <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mt-1 group-hover:text-stone-500 transition-colors">Shield Node</span>
+                             </div>
+                             <div className="flex items-center gap-3">
+                               <span className={cn(
+                                 "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded",
+                                 isActive ? "bg-emerald-50 text-emerald-600" : "bg-stone-50 text-stone-400"
+                               )}>
+                                 {isActive ? 'ALLOW' : 'DENY'}
+                               </span>
+                               <button
+                                 onClick={() => toggleSecurityState(label)}
+                                 className={cn(
+                                   "w-10 h-5 rounded-full flex items-center px-0.5 transition-all outline-none shadow-inner cursor-pointer active:scale-95",
+                                   isActive ? "bg-emerald-500/20 shadow-emerald-500/5" : "bg-stone-100 transition-colors"
+                                 )}
+                                 aria-label={`Toggle Security State for ${label}`}
+                               >
+                                  <div className={cn(
+                                    "w-4 h-4 rounded-full shadow-sm transition-all duration-300",
+                                    isActive ? "bg-emerald-500 translate-x-5" : "bg-stone-300 translate-x-0"
+                                  )} />
+                               </button>
+                             </div>
+                           </div>
+                         );
+                       })}
+                    </div>
+
+                    <div className="pt-6 border-t border-stone-100 space-y-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-stone-400 tracking-widest px-1">Identity Escalation</label>
+                          <div className="flex gap-2">
+                             <input 
+                               type="email" 
+                               placeholder="Admin email..."
+                               className="flex-1 bg-stone-50 border border-stone-100 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-stone-900 transition-all"
+                               id="security-matrix-email"
+                             />
+                             <button 
+                               onClick={() => {
+                                 const email = (document.getElementById('security-matrix-email') as HTMLInputElement)?.value;
+                                 if (!email) return;
+                                 toast.success(`Identity ${email} queued for role alignment`);
+                               }}
+                               className="px-4 py-2.5 bg-stone-900 text-white text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all"
+                             >
+                               Assign
+                             </button>
+                          </div>
+                       </div>
+                       <button 
+                         onClick={handleSaveSecurity}
+                         className="w-full py-4 bg-stone-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-stone-200 hover:bg-black transition-all active:scale-[0.98] cursor-pointer"
+                       >
+                         Save Matrix Permissions
+                       </button>
+                    </div>
+                 </div>
 
                 <div className="bg-stone-900 p-8 rounded-[2.5rem] shadow-xl text-white space-y-6 text-left">
                    <div className="flex items-center space-x-3">

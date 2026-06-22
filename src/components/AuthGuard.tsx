@@ -106,18 +106,15 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
     return () => clearTimeout(gracePeriodTimer);
   }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isAuthChecking, isRevalidating]);
 
-  if (isAuthChecking || (isInitialAuthPerformed && !isAuthChecking && !user)) {
-    // If we're initial boot or we found no user and not revalidating yet
-    if (isAuthChecking) {
-      return <LoadingFallback message="Verifying credentials..." />;
-    }
+  if (!isInitialAuthPerformed || isAuthChecking) {
+    return <LoadingFallback message="Verifying credentials..." />;
   }
 
   if (isRevalidating && !user) {
     return <LoadingFallback message="Refreshing session..." />;
   }
 
-  if (isInitialAuthPerformed && !user) {
+  if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

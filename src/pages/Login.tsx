@@ -101,12 +101,9 @@ export default function Login() {
         toast.dismiss('auth-loader');
         toast.success(`Welcome back, ${data.user.name || 'User'}!`);
         
-        // Short snappy micro-delay for visual feedback tick before routing
-        setTimeout(() => {
-          setUser(data.user);
-          const redirectUrl = getRedirectTarget(data.user);
-          navigate(redirectUrl, { replace: true });
-        }, 500);
+        setUser(data.user);
+        const redirectUrl = getRedirectTarget(data.user);
+        navigate(redirectUrl, { replace: true });
       } else {
         const msg = data?.message || 'Access request was declined by server.';
         setAuthError(msg);

@@ -7,7 +7,8 @@ const ENDPOINTS = [
   '/api/announcements',
   '/api/products',
   '/api/auth/me',
-  '/api/bugs/report'
+  '/api/bugs/report',
+  '/api/debug-firestore-permissions'
 ];
 
 async function probe() {

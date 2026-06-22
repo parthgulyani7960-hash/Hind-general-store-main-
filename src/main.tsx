@@ -14,6 +14,8 @@ function redactConsole() {
   return; // Disabled
 }
 
+console.log('[main.tsx] Starting execution...');
+
 try {
   redactConsole();
 } catch (e) {}
@@ -26,6 +28,25 @@ try {
 
     const performRefresh = async (): Promise<string | null> => {
         return await getOrRefreshToken();
+    };
+
+    const isTokenExpired = (token: string): boolean => {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return true;
+        const base64Url = parts[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          window.atob(base64)
+            .split('')
+            .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const payload = JSON.parse(jsonPayload);
+        return payload.exp ? (payload.exp * 1000 - Date.now() < 30000) : true;
+      } catch (e) {
+        return true;
+      }
     };
 
     Object.defineProperty(window, 'fetch', {
@@ -154,7 +175,14 @@ try {
         };
 
         try {
-          const currentToken = localStorage.getItem('hgs_token');
+          let currentToken = localStorage.getItem('hgs_token');
+          const isAuthAction = inputUrl.includes('/api/auth/firebase-login') || inputUrl.includes('/api/auth/register');
+          if (currentToken && !isExternal && !isAuthAction) {
+            if (isTokenExpired(currentToken)) {
+              console.warn(`[AUTH INTERCEPTOR] Token detected as expired or close to expiry for ${inputUrl}. Eagerly refreshing prior to request.`);
+              currentToken = await getOrRefreshToken();
+            }
+          }
           return await executeFetch(currentToken);
         } catch (err: any) {
           throw err;
@@ -179,17 +207,29 @@ setTimeout(() => {
   }
 }, 2000);
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+try {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <AppCrashBoundary>
+        <App />
+      </AppCrashBoundary>
+    </StrictMode>,
+  );
+} catch (e) {
+  console.error('[CRITICAL] Root render failed:', e);
+  const root = document.getElementById('root');
+  if (root) {
+    root.innerHTML = '<div style="padding: 20px; text-align: center;"><h1>Initialization Failed</h1><p>The application could not be rendered.</p></div>';
+  }
+}
 
 if (typeof window !== 'undefined' && (window as any).__markAppAsLoaded) {
   (window as any).__markAppAsLoaded();
 }
 
 // Register the custom Workbox ServiceWorker to dramatically speed up static loads and repeat visits
+// Disabled in current build phase to fix persistent lazy component load failures
+/*
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((registration) => {
@@ -199,4 +239,5 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+*/
 

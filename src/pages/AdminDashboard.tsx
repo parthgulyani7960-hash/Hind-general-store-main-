@@ -67,37 +67,6 @@ import { InventoryModals } from '@/components/admin/modals/InventoryModals';
 import { CustomerSupportModals } from '@/components/admin/modals/CustomerSupportModals';
 import { OrderModals } from '@/components/admin/modals/OrderModals';
 
-import LogisticsTab from '@/components/admin/tabs/LogisticsTab';
-import AuditLogsTab from '@/components/admin/tabs/AuditLogsTab';
-import RolesTab from '@/components/admin/tabs/RolesTab';
-import CategoriesTab from '@/components/admin/tabs/CategoriesTab';
-import PaymentSettingsTab from '@/components/admin/tabs/PaymentSettingsTab';
-import StoreSettingsTab from '@/components/admin/tabs/StoreSettingsTab';
-import SupportTicketsTab from '@/components/admin/tabs/SupportTicketsTab';
-import ExpensesTab from '@/components/admin/tabs/ExpensesTab';
-import CouponsTab from '@/components/admin/tabs/CouponsTab';
-import BulkDiscountsTab from '@/components/admin/tabs/BulkDiscountsTab';
-import ReturnsTab from '@/components/admin/tabs/ReturnsTab';
-import SuppliersTab from '@/components/admin/tabs/SuppliersTab';
-import ReviewsTab from '@/components/admin/tabs/ReviewsTab';
-import SuspiciousActivitiesTab from '@/components/admin/tabs/SuspiciousActivitiesTab';
-import AdminManagementTab from '@/components/admin/tabs/AdminManagementTab';
-import PromotionalRulesTab from '@/components/admin/tabs/PromotionalRulesTab';
-import SecurityDataTab from '@/components/admin/tabs/SecurityDataTab';
-import AdminSecurityTab from '@/components/admin/tabs/AdminSecurityTab';
-import AutomaticReportsTab from '@/components/admin/tabs/AutomaticReportsTab';
-import SystemStatusTab from '@/components/admin/tabs/SystemStatusTab';
-
-// Fix for default marker icon
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Api Monitor';
-
 import { lazyWithRetry } from '@/lib/lazyLoader';
 import { ComponentCrashBoundary } from '@/components/AppCrashBoundary';
 
@@ -115,6 +84,37 @@ const DataExportsTab = lazyWithRetry(() => import('@/components/admin/tabs/DataE
 const AnnouncementsTab = lazyWithRetry(() => import('@/components/admin/tabs/AnnouncementsTab'), 'Announcements');
 const PromotionsTab = lazyWithRetry(() => import('@/components/admin/tabs/PromotionsTab'), 'Promotions');
 const ApiMonitorTab = lazyWithRetry(() => import('@/components/admin/tabs/ApiMonitorTab'), 'ApiMonitor');
+
+const LogisticsTab = lazyWithRetry(() => import('@/components/admin/tabs/LogisticsTab'), 'Logistics');
+const AuditLogsTab = lazyWithRetry(() => import('@/components/admin/tabs/AuditLogsTab'), 'AuditLogs');
+const RolesTab = lazyWithRetry(() => import('@/components/admin/tabs/RolesTab'), 'Roles');
+const CategoriesTab = lazyWithRetry(() => import('@/components/admin/tabs/CategoriesTab'), 'Categories');
+const PaymentSettingsTab = lazyWithRetry(() => import('@/components/admin/tabs/PaymentSettingsTab'), 'PaymentSettings');
+const StoreSettingsTab = lazyWithRetry(() => import('@/components/admin/tabs/StoreSettingsTab'), 'StoreSettings');
+const SupportTicketsTab = lazyWithRetry(() => import('@/components/admin/tabs/SupportTicketsTab'), 'SupportTickets');
+const ExpensesTab = lazyWithRetry(() => import('@/components/admin/tabs/ExpensesTab'), 'Expenses');
+const CouponsTab = lazyWithRetry(() => import('@/components/admin/tabs/CouponsTab'), 'Coupons');
+const BulkDiscountsTab = lazyWithRetry(() => import('@/components/admin/tabs/BulkDiscountsTab'), 'BulkDiscounts');
+const ReturnsTab = lazyWithRetry(() => import('@/components/admin/tabs/ReturnsTab'), 'Returns');
+const SuppliersTab = lazyWithRetry(() => import('@/components/admin/tabs/SuppliersTab'), 'Suppliers');
+const ReviewsTab = lazyWithRetry(() => import('@/components/admin/tabs/ReviewsTab'), 'Reviews');
+const SuspiciousActivitiesTab = lazyWithRetry(() => import('@/components/admin/tabs/SuspiciousActivitiesTab'), 'SuspiciousActivities');
+const AdminManagementTab = lazyWithRetry(() => import('@/components/admin/tabs/AdminManagementTab'), 'AdminManagement');
+const PromotionalRulesTab = lazyWithRetry(() => import('@/components/admin/tabs/PromotionalRulesTab'), 'PromotionalRules');
+const SecurityDataTab = lazyWithRetry(() => import('@/components/admin/tabs/SecurityDataTab'), 'SecurityData');
+const AdminSecurityTab = lazyWithRetry(() => import('@/components/admin/tabs/AdminSecurityTab'), 'AdminSecurity');
+const AutomaticReportsTab = lazyWithRetry(() => import('@/components/admin/tabs/AutomaticReportsTab'), 'AutomaticReports');
+const SystemStatusTab = lazyWithRetry(() => import('@/components/admin/tabs/SystemStatusTab'), 'SystemStatus');
+
+// Fix for default marker icon
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Api Monitor';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -177,6 +177,56 @@ export default function AdminDashboard() {
       }
     }
   }, [location.search, navigate]);
+
+  // Route-based prefetching strategy to load heavy modules on tab hover
+  const prefetchedTabs = React.useRef<Set<string>>(new Set());
+  const prefetchTab = useCallback((tab: string) => {
+    if (prefetchedTabs.current.has(tab)) return;
+    
+    const prefetchLoaders: Record<string, () => Promise<any>> = {
+      'Analytics': () => import('@/components/admin/tabs/AnalyticsTab'),
+      'Orders': () => import('@/components/admin/tabs/OrdersTab'),
+      'Product Catalog': () => import('@/components/admin/tabs/ProductsTab'),
+      'Newsletter': () => import('@/components/admin/tabs/NewsletterTab'),
+      'Payments': () => import('@/components/admin/tabs/PaymentsTab'),
+      'Wallet Requests': () => import('@/components/admin/tabs/WalletRequestsTab'),
+      'System Logs': () => import('@/components/admin/tabs/SystemLogsTab'),
+      'UPI Webhook Logs': () => import('@/components/admin/tabs/UPIWebhookLogsTab'),
+      'Data Exports': () => import('@/components/admin/tabs/DataExportsTab'),
+      'Announcements': () => import('@/components/admin/tabs/AnnouncementsTab'),
+      'Promotions': () => import('@/components/admin/tabs/PromotionsTab'),
+      'Api Monitor': () => import('@/components/admin/tabs/ApiMonitorTab'),
+      'Automatic Reports': () => import('@/components/admin/tabs/AutomaticReportsTab'),
+      'System Status': () => import('@/components/admin/tabs/SystemStatusTab'),
+      'Audit Logs': () => import('@/components/admin/tabs/AuditLogsTab'),
+      'Roles': () => import('@/components/admin/tabs/RolesTab'),
+      'Categories': () => import('@/components/admin/tabs/CategoriesTab'),
+      'Payment Settings': () => import('@/components/admin/tabs/PaymentSettingsTab'),
+      'Store Settings': () => import('@/components/admin/tabs/StoreSettingsTab'),
+      'Support Tickets': () => import('@/components/admin/tabs/SupportTicketsTab'),
+      'Expenses': () => import('@/components/admin/tabs/ExpensesTab'),
+      'Coupons': () => import('@/components/admin/tabs/CouponsTab'),
+      'Bulk Discounts': () => import('@/components/admin/tabs/BulkDiscountsTab'),
+      'Returns': () => import('@/components/admin/tabs/ReturnsTab'),
+      'Suppliers': () => import('@/components/admin/tabs/SuppliersTab'),
+      'Reviews': () => import('@/components/admin/tabs/ReviewsTab'),
+      'Suspicious Activities': () => import('@/components/admin/tabs/SuspiciousActivitiesTab'),
+      'Admin Management': () => import('@/components/admin/tabs/AdminManagementTab'),
+      'Promotional Rules': () => import('@/components/admin/tabs/PromotionalRulesTab'),
+      'Security & Data': () => import('@/components/admin/tabs/SecurityDataTab'),
+      'Security Audit': () => import('@/components/admin/tabs/AdminSecurityTab'),
+    };
+
+    const loader = prefetchLoaders[tab];
+    if (loader) {
+      prefetchedTabs.current.add(tab);
+      console.log(`[PREFETCH] Prefetching chunk on hover: ${tab}`);
+      loader().catch((err: any) => {
+        console.warn(`[PREFETCH] Failed to prefetch chunk for ${tab}:`, err);
+        prefetchedTabs.current.delete(tab); // Reset so it can attempt prefetch again if hover occurs again
+      });
+    }
+  }, []);
 
   // Centralized event listener for diagnostic console
   useEffect(() => {
@@ -458,7 +508,7 @@ export default function AdminDashboard() {
   );
   
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 1000);
+    const timer = setTimeout(() => setDebouncedGlobalSearchQuery(globalSearchQuery), 150);
     return () => clearTimeout(timer);
   }, [globalSearchQuery]);
   
@@ -494,7 +544,7 @@ export default function AdminDashboard() {
   const [debouncedOrderSearchTerm, setDebouncedOrderSearchTerm] = useState('');
   
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedOrderSearchTerm(orderSearchTerm), 1000);
+    const timer = setTimeout(() => setDebouncedOrderSearchTerm(orderSearchTerm), 150);
     return () => clearTimeout(timer);
   }, [orderSearchTerm]);
   const [ordersViewMode, setOrdersViewMode] = useState<'table' | 'kanban'>('table');
@@ -561,7 +611,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setLoading(true);
-    const timer = setTimeout(() => setLoading(false), 500); 
+    const timer = setTimeout(() => setLoading(false), 10); 
     return () => clearTimeout(timer);
   }, [activeTab]);
 
@@ -623,7 +673,7 @@ export default function AdminDashboard() {
             case 'Orders':
               return (
                 <OrdersTab 
-                  orders={orders} 
+                  orders={orders || []} 
                   loading={loading}
                   fetchOrders={() => {
                     if (checkOffline()) return;
@@ -635,14 +685,14 @@ export default function AdminDashboard() {
                   fetchOrderDetailsModal={fetchOrderDetailsModal}
                   handleBulkOrderAction={handleBulkOrderAction}
                   asyncExportData={async (type) => { await handleGlobalExport(type, 'xlsx'); }}
-                  config={config}
+                  config={config || []}
                 />
               );
             case 'Product Catalog':
               return (
                 <ProductsTab 
-                  allProducts={allProducts}
-                  categories={categories}
+                  allProducts={allProducts || []}
+                  categories={categories || []}
                   loading={loading}
                   setProductModal={setProductModal}
                   setNewProduct={setNewProduct}
@@ -768,8 +818,8 @@ export default function AdminDashboard() {
             case 'Logistics':
               return (
                 <LogisticsTab
-                  orders={orders}
-                  runners={runners}
+                  orders={orders || []}
+                  runners={runners || []}
                   setRunnerModal={setRunnerModal}
                   handleAssignRunner={handleAssignRunner}
                 />
@@ -782,7 +832,7 @@ export default function AdminDashboard() {
                   fetchAuditLogs={fetchAuditLogs}
                   isFetchingAudit={isFetchingAudit}
                   auditLogLimit={auditLogLimit}
-                  auditLogs={auditLogs}
+                  auditLogs={auditLogs || []}
                   handleRevertAction={handleRevertAction}
                 />
               );
@@ -923,11 +973,11 @@ export default function AdminDashboard() {
             case 'Admin Management':
               return (
                 <AdminManagementTab
-                  admins={admins}
+                  admins={admins || []}
                   isAdminRefreshing={isAdminRefreshing}
                   fetchAdmins={fetchAdmins}
-                  auditLogs={auditLogs}
-                  deletionRequests={deletionRequests}
+                  auditLogs={auditLogs || []}
+                  deletionRequests={deletionRequests || []}
                   approveDeletion={approveDeletion}
                   rejectDeletion={rejectDeletion}
                 />
@@ -3780,6 +3830,7 @@ export default function AdminDashboard() {
     <AdminDashboardLayout
       activeTab={activeTab}
       setActiveTab={setActiveTab}
+      onPrefetchTab={prefetchTab}
       user={user}
       logout={logout}
       adminTheme={adminTheme}

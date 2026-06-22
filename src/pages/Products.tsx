@@ -175,25 +175,31 @@ export default function Products() {
     const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
     
     const base = (products || []).filter(p => {
-      const activePrice = getProductPrice(p, user?.role);
+      if (!p || typeof p !== 'object') return false;
+      const activePrice = typeof getProductPrice === 'function' ? getProductPrice(p, user?.role) : (p.retail_price || p.price || 0);
       
-      const searchableText = `${p.name} ${p.description} ${p.category}`.toLowerCase();
+      const pName = p.name || '';
+      const pDesc = p.description || '';
+      const pCat = p.category || '';
+      const searchableText = `${pName} ${pDesc} ${pCat}`.toLowerCase();
       const matchesSearch = searchTerms.every(term => searchableText.includes(term));
 
-      const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
+      const matchesCategory = selectedCategory === 'All' || pCat === selectedCategory;
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
-      const matchesMinPrice = activePrice >= Number(minPrice);
+      const matchesMinPrice = activePrice >= Number(minPrice || 0);
       const matchesMaxPrice = maxPrice === '' || activePrice <= Number(maxPrice);
-      const matchesSale = !onSaleOnly || p.discount > 0;
+      const matchesSale = !onSaleOnly || (p.discount || 0) > 0;
       const isListedAndActive = p.is_listed && !p.is_deleted && (p as any).deleted !== true;
       
       return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && isListedAndActive;
     });
 
     return base.sort((a, b) => {
+      if (!a || !b) return 0;
       // If there's a search term, rank by relevance score first
       if (searchTerms.length > 0 && sortBy === 'relevance') {
         const getScore = (product: Product) => {
+          if (!product) return 0;
           let score = 0;
           const name = (product.name || '').toLowerCase();
           const fullSearch = searchTerm.toLowerCase().trim();
@@ -206,9 +212,11 @@ export default function Products() {
         if (scoreDiff !== 0) return scoreDiff;
       }
 
-      const getFinalPrice = (p: Product) => {
-        const base = getProductPrice(p, user?.role);
-        return p.discount > 0 ? Math.round(base * (1 - p.discount / 100)) : base;
+      const getFinalPrice = (productObj: Product) => {
+        if (!productObj) return 0;
+        const basePrice = typeof getProductPrice === 'function' ? getProductPrice(productObj, user?.role) : (productObj.retail_price || productObj.price || 0);
+        const discountVal = productObj.discount || 0;
+        return discountVal > 0 ? Math.round(basePrice * (1 - discountVal / 100)) : basePrice;
       };
       const priceA = getFinalPrice(a);
       const priceB = getFinalPrice(b);
@@ -219,17 +227,17 @@ export default function Products() {
         case 'price-high': 
           return priceB - priceA;
         case 'rating': 
-          return (b.avg_rating || 0) - (a.avg_rating || 0);
+          return ((b.avg_rating || 0) - (a.avg_rating || 0));
         case 'popularity': 
-          return ((b as any).review_count || 0) - ((a as any).review_count || 0);
+          return (((b as any).review_count || 0) - ((a as any).review_count || 0));
         case 'newest': 
           return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-    case 'relevance': 
-    default:
-      return 0; // Default
-  }
-});
-}, [products, searchTerm, selectedCategory, selectedRating, minPrice, maxPrice, sortBy, onSaleOnly, getProductPrice, user?.role]);
+        case 'relevance': 
+        default:
+          return 0; // Default
+      }
+    });
+  }, [products, searchTerm, selectedCategory, selectedRating, minPrice, maxPrice, sortBy, onSaleOnly, getProductPrice, user?.role]);
 
 const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
   e.preventDefault();
@@ -928,7 +936,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
         <AnimatePresence mode="popLayout">
         {filteredProducts.map((product, idx) => {
           const cartItem = (cart || []).find(item => item.id === product.id);
-          
+          console.log('Rendering product:', product.id);
           return (
             <motion.div 
               key={product.id}

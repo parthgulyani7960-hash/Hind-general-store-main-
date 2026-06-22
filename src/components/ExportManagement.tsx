@@ -39,10 +39,10 @@ export function ExportManagement({ isOpen, onClose, orders, walletHistory }: Exp
     try {
       if (format === 'pdf') {
         setCompileStep('Contacting secure data vault...');
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 5));
 
         setCompileStep('Compiling official legal dossier metadata...');
-        await new Promise(r => setTimeout(r, 650));
+        await new Promise(r => setTimeout(r, 5));
 
         // Let's create custom filtered data based on user selectors
         const payload: any = {
@@ -59,7 +59,7 @@ export function ExportManagement({ isOpen, onClose, orders, walletHistory }: Exp
         const doc = await generateUserExportPDF(payload);
 
         setCompileStep('Writing file stream and initiating system download...');
-        await new Promise(r => setTimeout(r, 450));
+        await new Promise(r => setTimeout(r, 5));
 
         // Use clean save protocol
         const safeName = `Account_Dossier_HGS_${user?.id || 'User'}.pdf`;
@@ -70,7 +70,7 @@ export function ExportManagement({ isOpen, onClose, orders, walletHistory }: Exp
       } else {
         // Compile CSV
         setCompileStep('Auditing tabular rows...');
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 5));
 
         setCompileStep('Constructing comma-separated buffers...');
         const csvRows: string[] = [];
@@ -120,7 +120,7 @@ export function ExportManagement({ isOpen, onClose, orders, walletHistory }: Exp
         }
 
         setCompileStep('Injecting charset margins and firing download...');
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 5));
 
         const csvContent = csvRows.join("\n");
         const csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

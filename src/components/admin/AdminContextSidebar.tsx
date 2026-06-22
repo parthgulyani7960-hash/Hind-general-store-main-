@@ -5,6 +5,7 @@ import { cn } from '@/types';
 interface AdminContextSidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  onPrefetchTab?: (tab: string) => void;
 }
 
 const contextItems = [
@@ -13,7 +14,7 @@ const contextItems = [
   { name: 'Store Settings', label: 'General Settings', icon: Settings },
 ];
 
-export default function AdminContextSidebar({ activeTab, setActiveTab }: AdminContextSidebarProps) {
+export default function AdminContextSidebar({ activeTab, setActiveTab, onPrefetchTab }: AdminContextSidebarProps) {
   // Only show context sidebar if active tab is one of the target tabs
   const isActiveContext = contextItems.some(item => item.name === activeTab);
   
@@ -30,6 +31,7 @@ export default function AdminContextSidebar({ activeTab, setActiveTab }: AdminCo
           return (
             <button
               key={item.name}
+              onMouseEnter={() => onPrefetchTab?.(item.name)}
               onClick={() => setActiveTab(item.name)}
               className={cn(
                 "group flex w-full items-center justify-between px-4 py-3 rounded-2xl text-xs font-bold transition-all duration-300",

@@ -27,6 +27,7 @@ import { triggerFeedback } from '@/lib/feedback';
 import { getAuthHeaders, formatPhoneNumber, isValidPhone } from '@/lib/utils';
 import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
 import { autofillLocation } from '@/lib/geocoding';
+import { LocationStatus } from '@/components/LocationStatus';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -384,6 +385,49 @@ export default function Profile() {
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
 
+  // Controlled states for Address Book Modal input fields
+  const [modalLabel, setModalLabel] = useState('Home');
+  const [modalName, setModalName] = useState('');
+  const [modalPhone, setModalPhone] = useState('');
+  const [modalStreetAddress, setModalStreetAddress] = useState('');
+  const [modalPinCode, setModalPinCode] = useState('');
+  const [modalCity, setModalCity] = useState('');
+  const [modalState, setModalState] = useState('');
+  const [modalLat, setModalLat] = useState<number | null>(null);
+  const [modalLng, setModalLng] = useState<number | null>(null);
+
+  // States to track modal's LocationStatus component integrations
+  const [modalGpsLoading, setModalGpsLoading] = useState(false);
+  const [modalGpsError, setModalGpsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (showAddressModal) {
+      setModalGpsLoading(false);
+      setModalGpsError(null);
+      if (editingAddress) {
+        setModalLabel(editingAddress.label || 'Home');
+        setModalName(editingAddress.name || '');
+        setModalPhone(editingAddress.phone || '');
+        setModalStreetAddress(editingAddress.street_address || '');
+        setModalPinCode(editingAddress.pin_code || '');
+        setModalCity(editingAddress.city || '');
+        setModalState(editingAddress.state || '');
+        setModalLat(editingAddress.lat || null);
+        setModalLng(editingAddress.lng || null);
+      } else {
+        setModalLabel('Home');
+        setModalName('');
+        setModalPhone('');
+        setModalStreetAddress('');
+        setModalPinCode('');
+        setModalCity('');
+        setModalState('');
+        setModalLat(null);
+        setModalLng(null);
+      }
+    }
+  }, [showAddressModal, editingAddress]);
+
   const editSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -455,20 +499,30 @@ export default function Profile() {
         lat: data.latitude,
         lng: data.longitude
       }));
-
       toast.success(`Position Verified: ${data.city}, ${data.pin_code}`, { icon: '📍' });
-
-      // Manually update inputs if needed for some reason, though formData should drive it
-      const saInput = document.querySelector('input[name="street_address"]') as HTMLInputElement;
-      const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
-      const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
-      const pinInput = document.querySelector('input[name="pin_code"]') as HTMLInputElement;
-      if (saInput) saInput.value = data.address;
-      if (cityInput) cityInput.value = data.city;
-      if (stateInput) stateInput.value = data.state;
-      if (pinInput) pinInput.value = data.pin_code;
     } else {
       toast.error('Location services unavailable or permission denied.');
+    }
+  };
+
+  const getCurrentLocationForModal = async () => {
+    setModalGpsLoading(true);
+    setModalGpsError(null);
+    toast.loading('Fetching precise coordinates...', { id: 'modal-loc' });
+    const data = await autofillLocation(GOOGLE_MAPS_KEY);
+    if (data) {
+      setModalStreetAddress(data.address);
+      setModalCity(data.city);
+      setModalState(data.state);
+      setModalPinCode(data.pin_code);
+      setModalLat(data.latitude);
+      setModalLng(data.longitude);
+      setModalGpsLoading(false);
+      toast.success(`Position Locked: ${data.city}, ${data.pin_code}`, { id: 'modal-loc', icon: '📍' });
+    } else {
+      setModalGpsLoading(false);
+      setModalGpsError('Location services unavailable or permission denied.');
+      toast.error('Location services unavailable or permission denied.', { id: 'modal-loc' });
     }
   };
 
@@ -757,9 +811,12 @@ export default function Profile() {
   const [checkingNewsletter, setCheckingNewsletter] = useState(false);
   const [submittingNewsletter, setSubmittingNewsletter] = useState(false);
 
+  const lastCheckedEmailRef = React.useRef<string | null>(null);
+
   useEffect(() => {
     const fetchStatus = async () => {
-      if (user?.email) {
+      if (user?.email && lastCheckedEmailRef.current !== user.email) {
+        lastCheckedEmailRef.current = user.email;
         setCheckingNewsletter(true);
         const status = await checkNewsletterStatus(user.email);
         setIsSubscribed(status);
@@ -991,8 +1048,8 @@ export default function Profile() {
     const toastId = toast.loading('Synchronizing profile parameters with secure cloud vault...', { id: 'profile-save-pulse' });
     
     try {
-      // Artificial delay to simulate profile security validation (User Request: "Add some delay and lag")
-      await new Promise(resolve => setTimeout(resolve, 2800));
+      // Speed up the artificial delay to proceed blazingly fast
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       await updateProfile(formData);
       toast.success('Your profile has been securely updated.', { id: toastId });
@@ -1247,6 +1304,16 @@ export default function Profile() {
               <p className="text-3xl font-black text-white group-hover/stat:text-pink-400 transition-colors">{wishlist.length}</p>
               <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Saved Items</span>
             </button>
+            <div 
+              className="p-5 bg-white/5 border border-white/10 transition-all rounded-[2rem] text-center block w-full outline-none group/stat"
+            >
+               <div className="flex items-center justify-center gap-1.5 mb-2">
+                 <Star size={12} className="text-amber-400" />
+                 <p className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest font-mono">Loyalty</p>
+               </div>
+              <p className="text-3xl font-black text-white">{user.loyalty_points || 0}</p>
+              <span className="text-[8px] text-white/30 font-bold uppercase tracking-tighter">Rewards Points</span>
+            </div>
             <button 
               type="button"
               onClick={() => setActiveProfileTab('khata')}
@@ -1286,6 +1353,7 @@ export default function Profile() {
                 <label className="block text-sm font-bold text-stone-700 mb-1">Full Name</label>
                 <input 
                   type="text" 
+                  autoComplete="name"
                   className="input-field" 
                   value={formData.name}
                   onChange={(e) => setFormData({...formData, name: e.target.value})}
@@ -1324,6 +1392,8 @@ export default function Profile() {
                   <label className="block text-sm font-bold text-stone-700 mb-1">Phone Number</label>
                   <input 
                     type="tel" 
+                    inputMode="tel"
+                    autoComplete="tel"
                     className={cn(
                       "input-field",
                       formData.phone && !isValidPhone(formData.phone) ? "border-amber-400" : ""
@@ -1432,20 +1502,28 @@ export default function Profile() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-stone-700 mb-1">Pin Code</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={formData.pin_code}
-                      placeholder="6 digit PIN"
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                        setFormData({...formData, pin_code: val});
-                        if (val.length === 6) lookupPincode(val, 'profile');
-                      }}
-                    />
-                    <LocationPicker onLocationFound={(lat, lng) => setFormData({...formData, lat, lng})} />
-                  </div>
+                    <div className="relative group">
+                      <input 
+                        type="text" 
+                        className={cn(
+                          "input-field pr-10",
+                          formData.pin_code?.length === 6 ? "border-emerald-500 bg-emerald-50/10" : ""
+                        )} 
+                        value={formData.pin_code}
+                        placeholder="6 digit PIN"
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                          setFormData({...formData, pin_code: val});
+                          if (val.length === 6) lookupPincode(val, 'profile');
+                        }}
+                      />
+                      {formData.pin_code?.length === 6 && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500">
+                          <CheckCircle size={16} />
+                        </div>
+                      )}
+                      <LocationPicker onLocationFound={(lat, lng) => setFormData({...formData, lat, lng})} />
+                    </div>
                 </div>
               </div>
               <div>
@@ -2947,12 +3025,14 @@ export default function Profile() {
             </motion.div>
           </div>
         )}
-        {showAddressModal && (
+      </AnimatePresence>
+
+      {showAddressModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+               initial={{ scale: 0.9, opacity: 0 }}
+               animate={{ scale: 1, opacity: 1 }}
+               className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
             >
               <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
                 <h3 className="font-black text-xl text-stone-800 uppercase tracking-tight">
@@ -2976,13 +3056,16 @@ export default function Profile() {
                     const phone = data.phone as string;
                     if (!isValidPhone(phone)) {
                       toast.error('Please enter a valid 10-digit mobile number');
+                      setIsSavingAddress(false);
                       return;
                     }
 
                     await saveAddress({
                       ...data,
                       id: editingAddress?.id,
-                      is_default: data.is_default === 'on'
+                      is_default: data.is_default === 'on',
+                      lat: modalLat,
+                      lng: modalLng
                     } as any);
                     setShowAddressModal(false);
                   } catch (err: any) {
@@ -2994,13 +3077,16 @@ export default function Profile() {
                 }}
                 className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar"
               >
+                <input type="hidden" name="lat" value={modalLat || ''} />
+                <input type="hidden" name="lng" value={modalLng || ''} />
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">Address Nickname</label>
                     <div className="flex gap-2">
                       {['Home', 'Office', 'Shop', 'Other'].map(l => (
                         <label key={l} className="flex-1">
-                          <input type="radio" name="label" value={l} className="hidden peer" defaultChecked={editingAddress?.label === l || (!editingAddress?.label && l === 'Home')} />
+                          <input type="radio" name="label" value={l} className="hidden peer" checked={modalLabel === l} onChange={() => setModalLabel(l)} />
                           <div className="text-center py-2 rounded-xl border-2 border-stone-100 peer-checked:border-primary peer-checked:bg-primary/5 text-[10px] font-bold uppercase transition-all cursor-pointer">
                             {l}
                           </div>
@@ -3014,7 +3100,8 @@ export default function Profile() {
                     <input 
                       name="name"
                       required
-                      defaultValue={editingAddress?.name}
+                      value={modalName}
+                      onChange={(e) => setModalName(e.target.value)}
                       placeholder="Receiver's name"
                       className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 placeholder:text-stone-300"
                     />
@@ -3026,7 +3113,8 @@ export default function Profile() {
                       name="phone"
                       type="tel"
                       required
-                      defaultValue={editingAddress?.phone}
+                      value={modalPhone}
+                      onChange={(e) => setModalPhone(e.target.value)}
                       placeholder="10 digit number"
                       maxLength={10}
                       onKeyPress={(e) => {
@@ -3044,13 +3132,14 @@ export default function Profile() {
                       <input 
                         name="street_address"
                         required
-                        defaultValue={editingAddress?.street_address}
+                        value={modalStreetAddress}
+                        onChange={(e) => setModalStreetAddress(e.target.value)}
                         placeholder="e.g. H.No 123, Sector 4"
                         className="w-full px-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700 pr-10 placeholder:text-stone-300"
                       />
                       <button 
                         type="button"
-                        onClick={getCurrentLocation}
+                        onClick={getCurrentLocationForModal}
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-primary hover:bg-primary/10 rounded-lg transition-all"
                         title="Detect my current location"
                       >
@@ -3064,18 +3153,16 @@ export default function Profile() {
                     <input 
                       name="pin_code"
                       required
-                      defaultValue={editingAddress?.pin_code}
+                      value={modalPinCode}
                       placeholder="6 digit PIN"
                       onChange={async (e) => {
                         const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                        e.target.value = val;
+                        setModalPinCode(val);
                         if (val.length === 6) {
                           const data = await lookupPincode(val, 'address');
                           if (data) {
-                            const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement;
-                            const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement;
-                            if (cityInput) cityInput.value = data.city;
-                            if (stateInput) stateInput.value = data.state;
+                            setModalCity(data.city);
+                            setModalState(data.state);
                           }
                         }
                       }}
@@ -3085,12 +3172,27 @@ export default function Profile() {
 
                   <div>
                     <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">City / Town</label>
-                    <input name="city" required readOnly defaultValue={editingAddress?.city} className="w-full px-4 py-3 bg-stone-100 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-600" />
+                    <input name="city" required value={modalCity} onChange={(e) => setModalCity(e.target.value)} className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700" />
                   </div>
                   
                   <div className="col-span-2">
                     <label className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] mb-2 block">State</label>
-                    <input name="state" required readOnly defaultValue={editingAddress?.state} className="w-full px-4 py-3 bg-stone-100 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-600" />
+                    <input name="state" required value={modalState} onChange={(e) => setModalState(e.target.value)} className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-primary transition-all font-bold text-stone-700" />
+                  </div>
+
+                  <div className="col-span-2 space-y-1.5">
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] block">Verified GPS Coordinates</span>
+                    <LocationStatus
+                      status={
+                        modalGpsLoading ? 'fetching' :
+                        modalGpsError ? 'error' :
+                        (modalLat && modalLng) ? 'success' :
+                        'idle'
+                      }
+                      coords={modalLat && modalLng ? { lat: modalLat, lng: modalLng } : null}
+                      errorMessage={modalGpsError}
+                      onRetry={getCurrentLocationForModal}
+                    />
                   </div>
 
                   <div className="col-span-2">
@@ -3149,7 +3251,6 @@ export default function Profile() {
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {showEditOrderModal && editingOrder && (

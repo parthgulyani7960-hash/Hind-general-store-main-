@@ -52,18 +52,6 @@ export default function BackToTop() {
                   <span>Support</span>
                   <HelpCircle size={18} className="text-primary" />
                 </button>
-                <button
-                  onClick={() => {
-                    if (navigator.share) {
-                      navigator.share({ title: 'General Store Karyana Shop Store', url: window.location.href });
-                    }
-                    setIsOpen(false);
-                  }}
-                  className="flex items-center space-x-2 bg-white text-stone-700 py-3 px-5 rounded-2xl shadow-xl font-bold text-sm hover:bg-stone-50 transition-all border border-stone-100"
-                >
-                  <span>Share</span>
-                  <Share2 size={18} className="text-primary" />
-                </button>
               </motion.div>
             )}
           </AnimatePresence>

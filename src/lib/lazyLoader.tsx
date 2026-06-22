@@ -15,10 +15,13 @@ export function lazyWithRetry<T extends React.ComponentType<any>>(
         return await componentImport();
       } catch (error: any) {
         attempt++;
+        const errMessage = String(error?.message || error || '');
         const isChunkLoadError = error?.name === 'ChunkLoadError' || 
-                                error?.message?.includes('Loading chunk') ||
-                                error?.message?.includes('dynamically imported module') ||
-                                error?.message?.includes('Failed to fetch dynamically imported module');
+                                errMessage.includes('Chunk') ||
+                                errMessage.includes('Loading chunk') ||
+                                errMessage.includes('dynamically imported module') ||
+                                errMessage.includes('Failed to fetch') ||
+                                errMessage.includes('fetch');
         
         if (isChunkLoadError && attempt <= MAX_RETRIES) {
           const delay = attempt * 1000;

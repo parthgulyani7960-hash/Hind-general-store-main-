@@ -173,17 +173,7 @@ export default function Cart() {
           </p>
         </div>
 
-        {user && isOnline && (
-          <Button
-            onClick={handleManualRefresh}
-            isLoading={isRefreshing}
-            variant="secondary"
-            className="self-start sm:self-center px-5 py-2.5 bg-white border border-stone-100 hover:bg-stone-50 text-stone-700 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm active:scale-95"
-          >
-            <RefreshCw size={14} className={cn(isRefreshing && "animate-spin")} />
-            <span>Sync Bag</span>
-          </Button>
-        )}
+        {/* Manual Refresh removed to keep UI clean as requested: logic is now fully automatic on cart load */}
       </div>
 
       <div className="flex flex-col gap-8">
@@ -237,12 +227,12 @@ export default function Cart() {
               <motion.div 
                 key={`${item.id}-${item.selectedVariant?.id || 'base'}`}
                 layout
-                initial={{ opacity: 0, x: -20, scale: 0.95 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.2 } }}
                 transition={{ 
-                  duration: 0.4, 
-                  delay: index * 0.05,
+                  duration: 0.3, 
+                  delay: index * 0.03,
                   ease: [0.22, 1, 0.36, 1]
                 }}
                 className="bg-white p-2 sm:p-2.5 rounded-2xl border border-stone-100 flex items-center gap-2.5 sm:gap-3 hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/50 transition-all duration-300 group/item"
@@ -422,8 +412,8 @@ export default function Cart() {
                   
                   {totalBulkDiscount > 0 && (
                     <motion.div 
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
+                      initial={{ y: 8, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
                       className="flex justify-between text-emerald-600 text-[11px] font-black uppercase tracking-widest"
                     >
                       <span className="flex items-center"><Tag size={12} className="mr-2" /> Bulk Benefits</span>
@@ -433,8 +423,8 @@ export default function Cart() {
                   
                   {appliedCoupon && (
                     <motion.div 
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
+                      initial={{ y: 8, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
                       className="flex justify-between text-primary text-[11px] font-black uppercase tracking-widest"
                     >
                       <span className="flex items-center"><Tag size={12} className="mr-2" /> {appliedCoupon.code}</span>

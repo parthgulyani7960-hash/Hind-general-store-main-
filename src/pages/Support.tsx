@@ -121,19 +121,23 @@ export default function Support() {
         })
       });
 
-      // Also save to Firestore for real-time chat
-      if (data && (data.ticket_id || data?.id)) {
-        const ticketId = String(data.ticket_id || data.id || Date.now());
-        await addDoc(collection(db, 'tickets'), {
-          id: ticketId,
-          user_id: String(user?.id || ''), 
-          user_name: form.name,
-          subject: form.subject,
-          message: form.message,
-          status: 'open',
-          created_at: serverTimestamp(),
-          image_url: imageUrl
-        });
+      // Also save to Firestore for real-time chat, safely handling cases where client is not authenticated in Firebase direct SDK
+      if (data && (data.ticket_id || data?.id || data?.ticketId)) {
+        try {
+          const ticketId = String(data.ticket_id || data.id || data.ticketId || Date.now());
+          await addDoc(collection(db, 'tickets'), {
+            id: ticketId,
+            user_id: String(user?.id || ''), 
+            user_name: form.name,
+            subject: form.subject,
+            message: form.message,
+            status: 'open',
+            created_at: serverTimestamp(),
+            image_url: imageUrl
+          });
+        } catch (fsErr) {
+          console.warn('Silent fallback: Could not write ticket to Firestore directly, backend succeeded:', fsErr);
+        }
       }
 
       if (data) {
@@ -292,6 +296,7 @@ export default function Support() {
                       <label className="text-[11px] font-bold text-stone-700 uppercase tracking-widest px-1">Name</label>
                       <input 
                         type="text" required 
+                        autoComplete="name"
                         className="w-full bg-stone-50 border border-stone-200 rounded-2xl px-4 py-3 focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm outline-none font-bold" 
                         placeholder="Your Name"
                         value={form.name} onChange={e => setForm({...form, name: e.target.value})}
@@ -301,6 +306,8 @@ export default function Support() {
                       <label className="text-[11px] font-bold text-stone-700 uppercase tracking-widest px-1">Email</label>
                       <input 
                         type="email" required 
+                        autoComplete="email"
+                        inputMode="email"
                         className="w-full bg-stone-50 border border-stone-200 rounded-2xl px-4 py-3 focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm outline-none font-bold" 
                         placeholder="Email Address"
                         value={form.email} onChange={e => setForm({...form, email: e.target.value})}
@@ -312,6 +319,8 @@ export default function Support() {
                       <label className="text-[11px] font-bold text-stone-700 uppercase tracking-widest px-1">Mobile Number</label>
                       <input 
                         type="tel" required 
+                        autoComplete="tel"
+                        inputMode="tel"
                         className="w-full bg-stone-50 border border-stone-200 rounded-2xl px-4 py-3 focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm outline-none font-bold" 
                         placeholder="Mobile for contact"
                         value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}

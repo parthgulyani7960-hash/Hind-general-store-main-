@@ -90,7 +90,7 @@ export default function Promotions() {
                     </div>
                     <div className="flex items-center justify-between pt-4 border-t border-stone-50">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
-                        Added {new Date(promo.created_at).toLocaleDateString()}
+                        Added {promo.created_at ? new Date(promo.created_at).toLocaleDateString() : 'Recently'}
                       </span>
                       <SmartLink 
                         to={promo.link || '/products'} 

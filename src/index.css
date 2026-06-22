@@ -118,6 +118,17 @@ textarea {
   .recharts-responsive-container {
     @apply min-h-[250px] min-w-0;
   }
+
+  /* Dynamic Viewport Utility for Keyboard Support */
+  .dynamic-viewport-form {
+    height: 100svh;
+    height: -webkit-fill-available;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @layer base {

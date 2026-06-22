@@ -178,7 +178,7 @@ export class ErrorReportingService {
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private queuedReports: ErrorReport[] = [];
 
-  public report(reportData: Omit<ErrorReport, 'timestamp' | 'browser' | 'path'> & { severity?: Severity }): void {
+  public report(reportData: Omit<ErrorReport, 'timestamp' | 'browser' | 'path' | 'severity'> & { severity?: Severity }): void {
     const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
     if (isOffline) {
       console.warn(`[ErrorService] Suppressed automated background report (Offline Status): ${reportData.message}`);

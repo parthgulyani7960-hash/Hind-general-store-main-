@@ -41,28 +41,6 @@ export default defineConfig(({mode}) => {
     build: {
       sourcemap: true,
       chunkSizeWarningLimit: 1200,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            // Core UI Libraries
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
-            'vendor-ui': ['lucide-react', 'motion/react', 'react-hot-toast'],
-            
-            // Map engines (Only loaded for map views)
-            'vendor-maps': ['leaflet', 'react-leaflet', '@vis.gl/react-google-maps'],
-            
-            // Core data rendering/utils
-            'vendor-utils': ['date-fns', 'recharts', 'qrcode.react'],
-            
-            // Document exporters (PDF/Excel/Canvas) - split off from standard customer flow 
-            'vendor-exporter': ['xlsx', 'jspdf', 'jspdf-autotable', 'html2canvas'],
-            
-            // Rich Text / Editors
-            'vendor-editors': ['react-quill-new']
-          }
-        }
-      }
     }
   };
 });

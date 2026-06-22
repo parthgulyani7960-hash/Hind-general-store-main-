@@ -7,11 +7,13 @@ import { cn } from '@/types';
 
 export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
-  const { user, notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead } = useStore();
+  const { user, notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead, startupPhase } = useStore();
 
   useEffect(() => {
-    fetchNotifications();
-  }, [user?.id]);
+    if (startupPhase >= 2) {
+      fetchNotifications();
+    }
+  }, [user?.id, startupPhase]);
 
   const notifications = notificationsList || [];
   const unreadCount = unreadNotificationsCount || 0;

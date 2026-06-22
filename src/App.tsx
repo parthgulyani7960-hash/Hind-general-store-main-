@@ -309,13 +309,15 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <AppCrashBoundary>
-      <LanguageProvider>
-        <StoreProvider>
-          <AppContent />
-        </StoreProvider>
-      </LanguageProvider>
-    </AppCrashBoundary>
+    <Router>
+      <AppCrashBoundary>
+        <LanguageProvider>
+          <StoreProvider>
+            <AppContent />
+          </StoreProvider>
+        </LanguageProvider>
+      </AppCrashBoundary>
+    </Router>
   );
 }
 
@@ -323,112 +325,122 @@ import { useMobileInputFocus } from './hooks/useMobileInputFocus';
 
 function AppContent() {
   const store = useStore();
+  const location = useLocation();
   const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout } = store;
 
-  // Global mobile input behavior optimization
-  useMobileInputFocus(true);
+   const isAdmin = location.pathname.startsWith('/admin');
+   const isDelivery = location.pathname.startsWith('/delivery');
+   const isAuthPage = ['/login', '/signup', '/auth'].includes(location.pathname);
+   const isInvoice = location.pathname.startsWith('/invoice');
+   const hideFurniture = isAdmin || isDelivery || isAuthPage || isInvoice;
 
-  useEffect(() => {
-    // Notify the bootstrap monitor that the React application is mounting successfully
-    if (typeof window !== 'undefined') {
-      (window as any).__markAppAsLoaded?.();
-    }
+   // Global mobile input behavior optimization
+   useMobileInputFocus(true);
 
-    // Global error handler
-    const handleGlobalError = (event: ErrorEvent) => {
-      errorService.report({
-        type: ErrorType.SYSTEM_ERROR,
-        message: event.message || 'Global Runtime Error',
-        stack: event.error?.stack,
-        userId: String(store.user?.id || '')
-      });
-    };
+   useEffect(() => {
+     // Notify the bootstrap monitor that the React application is mounting successfully
+     if (typeof window !== 'undefined') {
+       (window as any).__markAppAsLoaded?.();
+     }
 
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      errorService.report({
-        type: ErrorType.SYSTEM_ERROR,
-        message: event.reason?.message || 'Unhandled Promise Rejection',
-        stack: event.reason?.stack || String(event.reason),
-        userId: String(store.user?.id || '')
-      });
-    };
+     // Global error handler
+     const handleGlobalError = (event: ErrorEvent) => {
+       errorService.report({
+         type: ErrorType.SYSTEM_ERROR,
+         message: event.message || 'Global Runtime Error',
+         stack: event.error?.stack,
+         userId: String(store.user?.id || '')
+       });
+     };
 
-    const handleSessionExpired = () => {
-      toast.error('Session expired, please sign in again');
-    };
+     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+       errorService.report({
+         type: ErrorType.SYSTEM_ERROR,
+         message: event.reason?.message || 'Unhandled Promise Rejection',
+         stack: event.reason?.stack || String(event.reason),
+         userId: String(store.user?.id || '')
+       });
+     };
 
-    window.addEventListener('error', handleGlobalError);
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-    window.addEventListener('session_expired', handleSessionExpired);
-    
-    return () => {
-      window.removeEventListener('error', handleGlobalError);
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-      window.removeEventListener('session_expired', handleSessionExpired);
-    };
-  }, [store.user?.id]);
+     const handleSessionExpired = () => {
+       toast.error('Session expired, please sign in again');
+     };
 
-  if (dbError) {
-    return <DbConnectionIssue />;
-  }
+     window.addEventListener('error', handleGlobalError);
+     window.addEventListener('unhandledrejection', handleUnhandledRejection);
+     window.addEventListener('session_expired', handleSessionExpired);
+     
+     return () => {
+       window.removeEventListener('error', handleGlobalError);
+       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+       window.removeEventListener('session_expired', handleSessionExpired);
+     };
+   }, [store.user?.id]);
 
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return;
-    
-    const handleResize = () => {
-      if (!window.visualViewport) return;
-      
-      const isVisible = window.visualViewport.height < window.innerHeight * 0.8;
-      setIsKeyboardVisible(isVisible);
+   if (dbError) {
+     return <DbConnectionIssue />;
+   }
 
-      if (isVisible) {
-        // Keyboard visible transition handled by useMobileInputFocus hook
-      }
-    };
-    
-    window.visualViewport.addEventListener('resize', handleResize);
-    return () => window.visualViewport?.removeEventListener('resize', handleResize);
-  }, []);
+   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+   
+   useEffect(() => {
+     if (typeof window === 'undefined' || !window.visualViewport) return;
+     
+     const handleResize = () => {
+       if (!window.visualViewport) return;
+       
+       const isVisible = window.visualViewport.height < window.innerHeight * 0.8;
+       setIsKeyboardVisible(isVisible);
 
-  return (
-    <Router>
-      <HeadOptimizer />
-      <ScrollToTopOnNavigate />
-      <Suspense fallback={null}>
-        <ReviewPromptNotification />
-      </Suspense>
-      <Suspense fallback={null}>
-        <FullScreenAlert />
-      </Suspense>
-      <div className={cn("min-h-screen flex flex-col pt-safe transition-all duration-300", adminTheme, isKeyboardVisible && "pb-0")}>
+       if (isVisible) {
+         // Keyboard visible transition handled by useMobileInputFocus hook
+       }
+     };
+     
+     window.visualViewport.addEventListener('resize', handleResize);
+     return () => window.visualViewport?.removeEventListener('resize', handleResize);
+   }, []);
+
+    return (
+      <div className={cn(
+        "min-h-screen flex flex-col transition-all duration-300", 
+        adminTheme, 
+        isKeyboardVisible && "pb-0",
+        isAdmin && "h-screen overflow-hidden"
+      )}>
+        <HeadOptimizer />
+        <ScrollToTopOnNavigate />
+        <Suspense fallback={<div className="p-4 text-center">Loading notifications...</div>}>
+          {!isAdmin && <ReviewPromptNotification />}
+        </Suspense>
+        <Suspense fallback={<div className="p-4 text-center">Loading alerts...</div>}>
+          {!isAdmin && <FullScreenAlert />}
+        </Suspense>
         <OfflineIndicator />
-        <TopPromotionTicker />
-        <GlobalProgressBar />
-        <Suspense fallback={null}>
-          <GlobalAnnouncements />
+        {!hideFurniture && <TopPromotionTicker />}
+        {!hideFurniture && <GlobalProgressBar />}
+        <Suspense fallback={<div className="p-4 text-center">Loading announcements...</div>}>
+          {!hideFurniture && <GlobalAnnouncements />}
         </Suspense>
         <ToastManager />
         <Toaster position="top-center" />
-        <Navbar />
-        <Suspense fallback={null}>
+        {!hideFurniture && <Navbar />}
+        <Suspense fallback={<div className="p-4 text-center">Loading logout dialog...</div>}>
           <ConfirmLogoutDialog 
             isOpen={showLogoutDialog} 
             onClose={() => setShowLogoutDialog(false)} 
             onConfirm={performLogout} 
           />
         </Suspense>
-        <main className="flex-1 pb-24 md:pb-0 relative">
+        <main className={cn("flex-1 relative", !hideFurniture && "pb-24 md:pb-0")}>
           <AnimatedRoutes />
         </main>
-        <MobileBottomNav />
+        {!hideFurniture && <MobileBottomNav />}
         <AdminDiagnosticPanel />
-        <Suspense fallback={null}>
-          <FloatingCart />
+        <Suspense fallback={<div className="p-4 text-center">Loading cart...</div>}>
+          {!hideFurniture && <FloatingCart />}
         </Suspense>
-        <BackToTop />
+        {!hideFurniture && <BackToTop />}
       </div>
-    </Router>
-  );
+    );
 }

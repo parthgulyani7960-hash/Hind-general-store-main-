@@ -118,13 +118,14 @@ export default function UserActivity() {
 
     // Real-time Khata History Listener 
     const khataRef = query(
-      collection(db, 'khata_history'), 
+      collection(db, 'wallet_transactions'), 
       where('user_id', '==', userIdStr), 
       orderBy('created_at', 'desc'),
       limit(50)
     );
     const unsubscribeKhata = onSnapshot(khataRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((d: any) => d.is_khata || (d.description && d.description.toLowerCase().includes('khata')));
       setKhataTx(data);
     }, (err) => {
       console.warn('Khata history real-time sync failed:', err);
@@ -161,12 +162,12 @@ export default function UserActivity() {
     if (!showReviewModal.orderId) return;
     setIsSubmittingReview(true);
     try {
-      const response = await fetchWithHandling<{ success: boolean; message?: string }>('/api/reviews/add', {
+      const response = await fetchWithHandling<{ success: boolean; message?: string }>('/api/reviews', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          userId: user?.id,
-          orderId: showReviewModal.orderId,
+          user_id: user?.id,
+          order_id: showReviewModal.orderId,
           rating: reviewRating,
           comment: reviewComment
         })

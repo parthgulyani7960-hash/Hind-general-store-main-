@@ -47,6 +47,10 @@ export interface User {
   notification_promotions?: boolean;
   status?: 'active' | 'disabled';
   last_login_at?: string;
+  loyalty_points?: number;
+  total_orders?: number;
+  total_spent?: number;
+  is_new?: boolean;
 }
 
 export interface Product {

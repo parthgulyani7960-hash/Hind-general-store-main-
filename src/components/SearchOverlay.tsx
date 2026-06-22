@@ -217,8 +217,8 @@ export default function SearchOverlay({
         <span>
           {parts.map((part, i) => 
             terms.some(t => part.toLowerCase().includes(t)) 
-              ? <mark key={i} className="bg-emerald-100/90 text-emerald-900 font-bold rounded px-0.5">{part}</mark> 
-              : part
+              ? <mark key={`highlight-${i}`} className="bg-emerald-100/90 text-emerald-900 font-bold rounded px-0.5">{part}</mark> 
+              : <React.Fragment key={`text-${i}`}>{part}</React.Fragment>
           )}
         </span>
       );
@@ -433,10 +433,10 @@ export default function SearchOverlay({
                                   </div>
                                   <div className="p-4 flex flex-col flex-1 relative">
                                      <span className="text-[10px] uppercase tracking-widest font-black text-primary mb-1 block line-clamp-1">{product.category}</span>
-                                     <h3 className="font-bold text-stone-900 text-sm mb-1 line-clamp-2 md:leading-snug min-h-[2.5rem] max-h-[2.5rem] overflow-hidden text-ellipsis break-words">{product.name}</h3>
+                                     <h3 className="font-bold text-stone-900 text-sm mb-1 line-clamp-2 md:leading-snug min-h-[2.5rem] max-h-[2.5rem] overflow-hidden text-ellipsis break-words">{highlightMatch(product.name, searchQuery)}</h3>
                                      <div className="flex items-center space-x-2 text-stone-400 text-xs mb-3">
                                        <div className="flex space-x-0.5 text-amber-400">
-                                          {[...Array(5)].map((_, i) => <Star key={i} size={10} fill={i < Math.floor(product.avg_rating || 0) ? "currentColor" : "none"} />)}
+                                          {[...Array(5)].map((_, i) => <Star key={`pstar-${product.id}-${i}`} size={10} fill={i < Math.floor(product.avg_rating || 0) ? "currentColor" : "none"} />)}
                                        </div>
                                      </div>
                                      <div className="mt-auto flex items-end justify-between pr-14">

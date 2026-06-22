@@ -286,28 +286,43 @@ export const OrderModals: React.FC<OrderModalsProps> = ({
                     <div className="text-sm text-stone-600 space-y-1 mb-4 bg-white p-4 rounded-xl border border-stone-100">
                       {(() => {
                         try {
-                          const addr = JSON.parse(orderModal.order.address);
-                          return (
-                            <>
-                              <p className="font-bold text-stone-800">{addr.name}</p>
-                              <p>{formatPhoneNumber(addr.phone)}</p>
-                              <p className="mt-1">{addr.address}</p>
-                              <p>{addr.city}, {addr.state} {addr.pincode}</p>
-                              {(orderModal.order.lat || addr.lat) && (
-                                <a 
-                                  href={`https://www.google.com/maps/search/?api=1&query=${orderModal.order.lat || addr.lat},${orderModal.order.lng || addr.lng}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center space-x-1 p-2 bg-primary/5 text-primary rounded-lg text-[10px] font-black uppercase tracking-widest mt-2 hover:bg-primary/10 transition-colors"
-                                >
-                                  <MapPin size={10} />
-                                  <span>View on Map (GPS: {(orderModal.order.lat || addr.lat).toFixed(4)}, {(orderModal.order.lng || addr.lng).toFixed(4)})</span>
-                                </a>
-                              )}
-                            </>
-                          );
+                          const addr = typeof orderModal.order.address === 'string' 
+                            ? JSON.parse(orderModal.order.address) 
+                            : orderModal.order.address;
+                          
+                          if (addr && typeof addr === 'object') {
+                            const latVal = orderModal.order.lat || addr.lat || (addr.coordinates && addr.coordinates.lat);
+                            const lngVal = orderModal.order.lng || addr.lng || (addr.coordinates && addr.coordinates.lng);
+                            
+                            return (
+                              <>
+                                <p className="font-bold text-stone-800">{addr.name || 'Recipient'}</p>
+                                {addr.phone && <p>{formatPhoneNumber(addr.phone)}</p>}
+                                <p className="mt-1">{addr.address || addr.street_address || 'No precise street address'}</p>
+                                <p>
+                                  {addr.city || ''}
+                                  {addr.city && addr.state ? ', ' : ''}
+                                  {addr.state || ''} 
+                                  {addr.pin_code || addr.pincode ? ` (${addr.pin_code || addr.pincode})` : ''}
+                                </p>
+                                {latVal && lngVal && (
+                                  <a 
+                                    href={`https://www.google.com/maps/search/?api=1&query=${latVal},${lngVal}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center space-x-1 p-2 bg-primary/5 text-primary rounded-lg text-[10px] font-black uppercase tracking-widest mt-2 hover:bg-primary/10 transition-colors"
+                                  >
+                                    <MapPin size={10} />
+                                    <span>View on Map (GPS: {Number(latVal).toFixed(6)}, {Number(lngVal).toFixed(6)})</span>
+                                  </a>
+                                )}
+                              </>
+                            );
+                          }
+                          
+                          return <p className="text-stone-800">{String(orderModal.order.address)}</p>;
                         } catch (e) {
-                          return <p>{orderModal.order.address}</p>;
+                          return <p className="text-stone-800">{String(orderModal.order.address)}</p>;
                         }
                       })()}
                     </div>

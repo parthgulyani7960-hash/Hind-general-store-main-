@@ -13,6 +13,7 @@ interface AdminDashboardLayoutProps {
   children: React.ReactNode;
   activeTab: string;
   setActiveTab: (tab: any) => void;
+  onPrefetchTab?: (tab: string) => void;
   user: any;
   logout: () => void;
   adminTheme: string;
@@ -52,7 +53,7 @@ interface AdminDashboardLayoutProps {
  * @param setIsAutoRefresh - Function to toggle automated background polling.
  */
 export default function AdminDashboardLayout({ 
-  children, activeTab, setActiveTab, user, logout, adminTheme, 
+  children, activeTab, setActiveTab, onPrefetchTab, user, logout, adminTheme, 
   sidebarOpen, setSidebarOpen, getDisplayLabel, stats, pendingOrdersCount = 0, extraHeader, loading,
   healthStatus = 'offline',
   syncStatus = 'synced',
@@ -100,10 +101,11 @@ export default function AdminDashboardLayout({
   const healthColorStr = healthColors[healthStatus || 'offline'];
 
   return (
-    <div className={cn("h-[calc(100vh-4.5rem)] bg-stone-50 flex overflow-hidden", adminTheme)}>
+    <div className={cn("h-full flex-1 flex overflow-hidden bg-stone-50", adminTheme)}>
       <AdminSidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        onPrefetchTab={onPrefetchTab}
         user={user}
         logout={logout}
         isOpen={sidebarOpen}
@@ -214,7 +216,7 @@ export default function AdminDashboardLayout({
         </header>
 
         <div className="flex-1 flex min-h-0">
-          <AdminContextSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <AdminContextSidebar activeTab={activeTab} setActiveTab={setActiveTab} onPrefetchTab={onPrefetchTab} />
           <main className="flex-1 min-h-0 w-full flex flex-col overflow-hidden">
             {loading ? (
               <div className="p-8">

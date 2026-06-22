@@ -103,8 +103,25 @@ export default function Navbar() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    const handleVisualViewportResize = () => {
+      if (window.visualViewport) {
+        // Detect keyboard by looking at vertical shrink
+        const isShrunk = window.visualViewport.height < window.innerHeight * 0.85;
+        setIsKeyboardVisible(isShrunk);
+      }
+    };
+
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', handleVisualViewportResize);
+      return () => vv.removeEventListener('resize', handleVisualViewportResize);
+    }
+  }, []);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -153,7 +170,10 @@ export default function Navbar() {
   const shouldShowNavbarSearch = !hideSearchRoutes.includes(location.pathname);
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-indigo-50 shadow-sm relative font-sans">
+    <nav className={cn(
+      "sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-indigo-50 shadow-sm relative font-sans transition-all duration-300",
+      isKeyboardVisible ? "opacity-0 -translate-y-full pointer-events-none md:opacity-100 md:translate-y-0 md:pointer-events-auto" : "opacity-100 translate-y-0"
+    )}>
       {/* Glow Rainbow Accent strip at the top */}
       <div className="h-[4px] bg-gradient-to-r from-teal-400 via-indigo-500 to-pink-500 w-full relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-teal-400 via-indigo-500 to-pink-500 mix-blend-overlay blur-sm animate-pulse opacity-85" />
