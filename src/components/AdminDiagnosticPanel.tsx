@@ -8,6 +8,7 @@ export const AdminDiagnosticPanel = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [profileLogs, setProfileLogs] = useState<any[]>([]);
   const [systemErrors, setSystemErrors] = useState<any[]>([]);
+  const [failedLogins, setFailedLogins] = useState<any[]>([]);
 
   // Security: only admins can view the diagnostic panel
   const isAdmin = user?.role === 'admin';
@@ -28,6 +29,29 @@ export const AdminDiagnosticPanel = () => {
     window.addEventListener('system_error', handleError);
     return () => window.removeEventListener('system_error', handleError);
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin || !isVisible) return;
+    const fetchFailedLogins = async () => {
+      try {
+        const token = localStorage.getItem('hgs_token');
+        const res = await fetch('/api/admin/security-logs?limit=10&type=failed_login', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setFailedLogins(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch failed logins diagnostics:', err);
+      }
+    };
+    fetchFailedLogins();
+    const interval = setInterval(fetchFailedLogins, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  }, [isAdmin, isVisible]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -52,7 +76,7 @@ export const AdminDiagnosticPanel = () => {
     };
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
-  }, [user, isAdmin, profileLogs, systemErrors]);
+  }, [user, isAdmin, profileLogs, systemErrors, isVisible]);
 
   if (!isAdmin || !isVisible || !diagnostics) return null;
 
@@ -101,6 +125,48 @@ export const AdminDiagnosticPanel = () => {
                 {err.component && <p className="text-[9px] text-gray-500">Component: {err.component}</p>}
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4">
+        <p className="text-amber-400 font-bold mb-1 underline">Recent Failed Logins (Brute-Force Monitor):</p>
+        {failedLogins.length === 0 ? (
+          <p className="text-gray-500 text-[10px]">No failed logins recorded...</p>
+        ) : (
+          <div className="space-y-2 max-h-[160px] overflow-y-auto no-scrollbar">
+            {failedLogins.map((log, i) => {
+              const maskIp = (ip?: string): string => {
+                if (!ip) return 'Unknown';
+                if (ip.includes(':')) {
+                  const parts = ip.split(':');
+                  if (parts.length > 2) {
+                    return `${parts.slice(0, 2).join(':')}:xxxx:xxxx:xxxx:xxxx`;
+                  }
+                  return 'xxxx:xxxx:xxxx:xxxx';
+                }
+                const parts = ip.split('.');
+                if (parts.length === 4) {
+                  return `${parts[0]}.${parts[1]}.${parts[2]}.xxx`;
+                }
+                return ip.replace(/\d+$/, 'xxx');
+              };
+
+              return (
+                <div key={log.id || i} className="p-1.5 rounded border border-amber-800 bg-amber-900/20 text-amber-300">
+                  <div className="flex justify-between text-[9px] font-semibold text-amber-400 mb-0.5">
+                    <span>IP: {maskIp(log.ip)}</span>
+                    <span className="text-gray-500">
+                      {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'N/A'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-stone-300 leading-tight break-words">{log.details}</p>
+                  {log.email && log.email !== 'N/A' && (
+                    <p className="text-[9px] text-stone-400 mt-0.5">User: {log.email}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

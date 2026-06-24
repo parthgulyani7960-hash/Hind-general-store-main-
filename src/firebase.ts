@@ -213,13 +213,22 @@ export const authReadyPromise = new Promise((resolve) => {
 });
 
 if (auth && typeof fbOnIdTokenChanged === 'function') {
-  const unsub = fbOnIdTokenChanged(auth, (user) => {
+  let unsub: (() => void) | undefined;
+  unsub = fbOnIdTokenChanged(auth, (user) => {
     resolveAuthReady(user);
-    unsub();
+    if (unsub) {
+      unsub();
+    } else {
+      setTimeout(() => unsub?.(), 0);
+    }
   }, (err) => {
     console.error('[Firebase] authReadyPromise check error:', err);
     resolveAuthReady(null);
-    unsub();
+    if (unsub) {
+      unsub();
+    } else {
+      setTimeout(() => unsub?.(), 0);
+    }
   });
 } else {
   resolveAuthReady(null);

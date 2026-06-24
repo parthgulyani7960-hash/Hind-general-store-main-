@@ -40,15 +40,28 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Strategy: Network First, falling back to cache for API requests
-  if (url.pathname.startsWith('/api/products') || url.pathname.startsWith('/api/categories')) {
+  // Strategy: Network First, falling back to cache for API requests (GET only)
+  const isApiGet = request.method === 'GET' && (
+    url.pathname.startsWith('/api/products') || 
+    url.pathname.startsWith('/api/categories') || 
+    url.pathname.startsWith('/api/cart') || 
+    url.pathname.startsWith('/api/settings') || 
+    url.pathname.startsWith('/api/promotions-rules') || 
+    url.pathname.startsWith('/api/bulk-discounts') || 
+    url.pathname.startsWith('/api/announcements') || 
+    url.pathname.startsWith('/api/addresses')
+  );
+
+  if (isApiGet) {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const clonedResponse = response.clone();
-          caches.open(API_CACHE_NAME).then((cache) => {
-            cache.put(request, clonedResponse);
-          });
+          if (response.status === 200) {
+            const clonedResponse = response.clone();
+            caches.open(API_CACHE_NAME).then((cache) => {
+              cache.put(request, clonedResponse);
+            });
+          }
           return response;
         })
         .catch(() => caches.match(request))

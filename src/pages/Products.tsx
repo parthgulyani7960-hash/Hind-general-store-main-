@@ -18,6 +18,7 @@ import { db as fsDb, handleFirestoreError, OperationType, collection, getDocs, q
 import { fetchWithHandling } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { ProductSkeleton } from '@/components/ui/Skeleton';
+import { ProductCrashBoundary } from '../components/AppCrashBoundary';
 import { io } from 'socket.io-client';
 
 export default function Products() {
@@ -32,7 +33,7 @@ export default function Products() {
   const { 
     t, addToCart, cart, updateQuantity, wishlist, toggleWishlist, user, getProductPrice, 
     simulatedRole, config = [], products, setProducts, fetchProducts, isLoadingProducts, isOnline, fetchProductsError,
-    categories: globalCategories, fetchCategories, prefetchProduct
+    categories: globalCategories, fetchCategories, prefetchProduct, getFrequentlyAccessedProducts
   } = useStore();
   
   const [loadingButtons, setLoadingButtons] = useState<Record<number, boolean>>({});
@@ -119,8 +120,7 @@ export default function Products() {
   const [hasMore, setHasMore] = useState(true);
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
-  // Reset pagination when filters change
-  useEffect(() => {
+  const handleRetry = React.useCallback(() => {
     setPage(1);
     setHasMore(true);
     fetchProducts({ 
@@ -129,12 +129,21 @@ export default function Products() {
       search: searchTerm, 
       category: selectedCategory, 
       sortBy: sortBy,
-      append: false 
+      append: false,
+      minPrice: minPrice || '0',
+      maxPrice: maxPrice || undefined,
+      rating: selectedRating,
+      onSaleOnly
     }).then(count => {
       if (count < 20) setHasMore(false);
       else setHasMore(true);
     });
-  }, [searchTerm, selectedCategory, sortBy]);
+  }, [fetchProducts, searchTerm, selectedCategory, sortBy, minPrice, maxPrice, selectedRating, onSaleOnly]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    handleRetry();
+  }, [searchTerm, selectedCategory, sortBy, minPrice, maxPrice, selectedRating, onSaleOnly]);
 
   // Infinite Scroll Observer
   useEffect(() => {
@@ -148,7 +157,11 @@ export default function Products() {
           search: searchTerm, 
           category: selectedCategory, 
           sortBy: sortBy,
-          append: true 
+          append: true,
+          minPrice: minPrice || '0',
+          maxPrice: maxPrice || undefined,
+          rating: selectedRating,
+          onSaleOnly
         }).then((count) => {
           if (count < 20) {
             setHasMore(false);
@@ -174,13 +187,19 @@ export default function Products() {
   const filteredProducts = useMemo(() => {
     const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
     
-    const base = (products || []).filter(p => {
+    const base = ((loadFailed && (products || []).length === 0) ? [] : (products || [])).filter(p => {
       if (!p || typeof p !== 'object') return false;
       const activePrice = typeof getProductPrice === 'function' ? getProductPrice(p, user?.role) : (p.retail_price || p.price || 0);
       
       const pName = p.name || '';
       const pDesc = p.description || '';
-      const pCat = p.category || '';
+      let pCat = p.category || '';
+      if (!pCat && (p as any).categoryId && Array.isArray(globalCategories)) {
+        const catObj = globalCategories.find((c: any) => c.id === (p as any).categoryId);
+        if (catObj) {
+          pCat = catObj.name || '';
+        }
+      }
       const searchableText = `${pName} ${pDesc} ${pCat}`.toLowerCase();
       const matchesSearch = searchTerms.every(term => searchableText.includes(term));
 
@@ -237,7 +256,7 @@ export default function Products() {
           return 0; // Default
       }
     });
-  }, [products, searchTerm, selectedCategory, selectedRating, minPrice, maxPrice, sortBy, onSaleOnly, getProductPrice, user?.role]);
+  }, [products, searchTerm, selectedCategory, selectedRating, minPrice, maxPrice, sortBy, onSaleOnly, getProductPrice, user?.role, loadFailed]);
 
 const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
   e.preventDefault();
@@ -624,6 +643,49 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
           </div>
 
           <div className="flex flex-col gap-3">
+            
+            {/* Recently Viewed / Frequently Accessed - Horizontal Scroll (visible when offline or no search active) */}
+            {!searchTerm && selectedCategory === 'All' && getFrequentlyAccessedProducts().length > 0 && (
+              <div className="py-2 mb-2 animate-in fade-in slide-in-from-left-4 duration-700">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center space-x-2">
+                    <Clock size={12} className="text-stone-400" />
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-stone-900">Recently Viewed</h3>
+                  </div>
+                  {!isOnline && (
+                    <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 flex items-center">
+                      Offline Mode
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 snap-x">
+                  {getFrequentlyAccessedProducts().map((p) => (
+                    <Link 
+                      key={p.id} 
+                      to={`/product/${p.id}`}
+                      className="flex-shrink-0 w-32 bg-white rounded-2xl border border-stone-100 p-2 hover:border-primary/20 hover:shadow-lg transition-all snap-start"
+                    >
+                      <div className="relative aspect-square rounded-xl overflow-hidden mb-2 bg-stone-50">
+                        {showImages ? (
+                          <img 
+                            src={p.image_url} 
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-stone-300">
+                            <Camera size={14} />
+                          </div>
+                        )}
+                      </div>
+                      <h4 className="text-[9px] font-black uppercase truncate text-stone-900 leading-tight">{p.name}</h4>
+                      <p className="text-[9px] font-bold text-stone-400 mt-0.5 italic">₹{p.price}</p>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Active Filter Chips */}
             {(selectedCategory !== 'All' || onSaleOnly || selectedRating !== null || minPrice !== '0' || sortBy !== 'relevance' || searchTerm) && (
@@ -910,14 +972,27 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Full-Width Grid Content */}
         <div className="w-full">
-      {loadFailed ? (
-        <div className="py-20 text-center">
-          <h3 className="text-xl font-bold text-stone-900 mb-4">Unable to load products</h3>
-          <button onClick={() => fetchProducts()} className="px-6 py-3 bg-stone-900 text-white rounded-xl font-bold">Retry Connection</button>
-        </div>
-      ) : !filteredProducts ? (
-        <div className="py-20 text-center">Loading...</div>
-      ) : (
+          <ProductCrashBoundary>
+            {loadFailed && (products || []).length === 0 ? (
+              <div className="py-20 text-center bg-white rounded-3xl border border-stone-100 p-8 shadow-sm">
+                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <RefreshCw className="animate-spin" size={24} />
+                </div>
+                <h3 className="text-xl font-bold text-stone-900 mb-2">Unable to load products</h3>
+                <p className="text-stone-500 text-sm max-w-md mx-auto mb-6">
+                  We are having trouble connecting to the catalog service. Please check your internet connection and try again.
+                </p>
+                <button onClick={handleRetry} className="px-6 py-3 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-bold transition-colors">
+                  Retry Connection
+                </button>
+              </div>
+            ) : isLoadingProducts && (products || []).length === 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6">
+                {[...Array(12)].map((_, i) => (
+                  <ProductSkeleton key={i} />
+                ))}
+              </div>
+            ) : (
         <motion.div 
         layout
         initial="hidden"
@@ -957,7 +1032,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
               >
                 {showImages ? (
                   <ProgressiveImage 
-                    src={product.image_url || `https://picsum.photos/seed/${product.id}/600/600`} 
+                    src={product.image_url || product.image || `https://picsum.photos/seed/${product.id}/600/600`} 
                     alt={product.name}
                     className="w-full h-full object-cover transition-transform duration-700 group-hover/image:scale-110"
                     loading={idx < 6 ? "eager" : "lazy"}
@@ -1017,23 +1092,53 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
         </AnimatePresence>
         
         {/* Infinite Scroll Sentinel */}
-        <div ref={scrollSentinelRef} className="col-span-full h-20 flex items-center justify-center">
-          {isLoadingProducts && (
+        <div ref={scrollSentinelRef} className="col-span-full py-6 flex flex-col items-center justify-center">
+          {loadFailed && (products || []).length > 0 ? (
+            <div className="text-center p-4 bg-red-50 border border-red-100 rounded-xl max-w-md w-full shadow-sm">
+              <p className="text-xs font-bold text-red-800">Connection error when loading more products.</p>
+              <button 
+                onClick={() => {
+                  const nextPage = page;
+                  fetchProducts({ 
+                    page: nextPage, 
+                    limit: 20, 
+                    search: searchTerm, 
+                    category: selectedCategory, 
+                    sortBy: sortBy,
+                    append: true,
+                    minPrice: minPrice || '0',
+                    maxPrice: maxPrice || undefined,
+                    rating: selectedRating,
+                    onSaleOnly
+                  }).then((count) => {
+                    if (count < 20) {
+                      setHasMore(false);
+                    }
+                  });
+                }} 
+                className="mt-2 px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-colors"
+              >
+                Retry Loading
+              </button>
+            </div>
+          ) : isLoadingProducts ? (
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
             >
               <Loader2 className="text-primary w-8 h-8" />
             </motion.div>
-          )}
-          {!hasMore && (
-            <p className="text-xs font-bold text-stone-400 uppercase tracking-[0.2em]">End of Collection</p>
+          ) : (
+            !hasMore && (
+              <p className="text-xs font-bold text-stone-400 uppercase tracking-[0.2em]">End of Collection</p>
+            )
           )}
         </div>
       </motion.div>
       )}
+      </ProductCrashBoundary>
 
-      {filteredProducts.length === 0 && !isLoadingProducts && (
+      {filteredProducts.length === 0 && !isLoadingProducts && !loadFailed && (
         <div className="flex flex-col items-center justify-center py-20 px-4">
           <div className="flex flex-col items-center text-center space-y-8 max-w-lg">
             <div className="relative">
@@ -1041,55 +1146,41 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                 <ShoppingBag className="text-stone-300" size={48} />
               </div>
               <div className="absolute -bottom-2 -right-2 bg-white p-2 rounded-full shadow-lg">
-                <Search size={20} className={cn("text-primary", loadFailed && "text-red-500")} />
+                <Search size={20} className="text-primary" />
               </div>
             </div>
             
             <div className="space-y-3">
               <h3 className="text-2xl font-black text-stone-900 uppercase tracking-tight">
-                {loadFailed ? 'Service Temporarily Offline' : 'No products match your search'}
+                No products match your search
               </h3>
               <p className="text-stone-500 font-medium leading-relaxed">
-                {loadFailed 
-                  ? 'We are currently unable to connect to the store database. The search service is temporarily offline, but all navigation menus and dashboard elements remain fully responsive.' 
-                  : "We couldn't find anything matching your current filters. Try adjusting your price range or exploring different categories."
-                }
+                We couldn't find anything matching your current filters. Try adjusting your price range or exploring different categories.
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full">
-              {loadFailed ? (
-                <button 
-                  onClick={() => fetchProducts()}
-                  className="flex-1 px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                >
-                  Retry Connection
-                </button>
-              ) : (
-                <>
-                  <button 
-                    onClick={() => {
-                      setSearchTerm('');
-                      setSelectedCategory('All');
-                      setSelectedRating(null);
-                      setMinPrice('0');
-                      setMaxPrice('');
-                      setOnSaleOnly(false);
-                      setSortBy('relevance');
-                      toast.success('Filters cleared');
-                    }}
-                    className="flex-1 px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    Reset All Filters
-                  </button>
-                  <button 
-                    onClick={() => setIsFilterOpen(true)}
-                    className="flex-1 px-8 py-4 bg-white text-stone-900 border-2 border-stone-100 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-stone-50 transition-all border-dashed"
-                  >
-                    Refine Selection
-                  </button>
-                </>
-              )}
+              <button 
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedCategory('All');
+                  setSelectedRating(null);
+                  setMinPrice('0');
+                  setMaxPrice('');
+                  setOnSaleOnly(false);
+                  setSortBy('relevance');
+                  toast.success('Filters cleared');
+                }}
+                className="flex-1 px-8 py-4 bg-primary text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                Reset All Filters
+              </button>
+              <button 
+                onClick={() => setIsFilterOpen(true)}
+                className="flex-1 px-8 py-4 bg-white text-stone-900 border-2 border-stone-100 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-stone-50 transition-all border-dashed"
+              >
+                Refine Selection
+              </button>
             </div>
           </div>
         </div>

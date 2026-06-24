@@ -1921,8 +1921,7 @@ export default function Profile() {
                     })()}
                   </div>
 
-                  {/* Chart representation */}
-                  {orders.length === 0 ? (
+                  {/* {orders.length === 0 ? (
                     <div className="py-8 text-center text-xs text-stone-400 select-none italic">
                       No order details available to generate spending trends.
                     </div>
@@ -1978,7 +1977,7 @@ export default function Profile() {
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
-                  )}
+                  )} */}
                 </motion.div>
 
                 <motion.div 

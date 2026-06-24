@@ -5,6 +5,7 @@ import { translations, Language } from './translations';
 import { useLanguage } from './LanguageContext';
 import { useSWRConfig } from 'swr';
 import { useNetwork } from './hooks/useNetwork';
+import { useProductCache } from './hooks/useProductCache';
 import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged, db, doc, onSnapshot, collection, query, orderBy, limit, where } from './firebase'; 
 import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
@@ -94,7 +95,7 @@ interface StoreContextType {
   setDbError: (val: boolean) => void;
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
-  fetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean }) => Promise<number>;
+  fetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean; minPrice?: string; maxPrice?: string; rating?: number | null; onSaleOnly?: boolean }) => Promise<number>;
   isLoadingProducts: boolean;
   fetchProductsError: string | null;
   isApiUp: boolean;
@@ -107,6 +108,9 @@ interface StoreContextType {
   fetchAnnouncements: () => Promise<void>;
   prefetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string }) => void;
   prefetchProduct: (productId: string | number) => void;
+  trackProductAccess: (product: Product) => void;
+  getCachedProduct: (id: string | number) => Product | undefined;
+  getFrequentlyAccessedProducts: () => Product[];
   startupPhase: number;
 }
 
@@ -118,6 +122,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const { language, setLanguage, t } = useLanguage();
   const { mutate: swrMutate } = useSWRConfig();
+  const { trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts } = useProductCache();
   // 1. State and Refs
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
@@ -288,10 +293,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // 2. Helper Functions (useCallbacks and async functions)
-  const fetchProducts = React.useCallback(async (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean }) => {
-    const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance', append = false } = params || {};
+  const fetchProducts = React.useCallback(async (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean; minPrice?: string; maxPrice?: string; rating?: number | null; onSaleOnly?: boolean }) => {
+    const { page = 1, limit = 20, search = '', category = 'All', sortBy = 'relevance', append = false, minPrice = '0', maxPrice = '', rating = null, onSaleOnly = false } = params || {};
     
-    const cacheKey = `${category}_${sortBy}_${search}_${page}_${limit}_${append}`;
+    const cacheKey = `${category}_${sortBy}_${search}_${page}_${limit}_${append}_${minPrice}_${maxPrice}_${rating}_${onSaleOnly}`;
     const cached = clientProductsCacheRef.current[cacheKey];
     const isCached = !!cached;
     const isStale = cached ? (Date.now() - cached.timestamp > 30000) : true;
@@ -327,7 +332,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         limit: limit.toString(),
         search,
         category,
-        sortBy
+        sortBy,
+        minPrice,
+        maxPrice,
+        ...(rating !== null && { rating: rating.toString() }),
+        onSaleOnly: onSaleOnly.toString()
       });
 
       logger.debug(`Fetching products SWR update (Page ${page})...`);
@@ -353,8 +362,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           localStorage.setItem('hgs_products', JSON.stringify(data));
         }
         return data.length;
+      } else {
+        throw new Error('Failed to retrieve products from server. Please check your connection or try again.');
       }
-      return 0;
     } catch (err: any) {
       console.error('Failed to fetch products:', err);
       // Only show error to user if they aren't looking at cached data
@@ -666,6 +676,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
         return [...prev, { ...product, variantId: variant?.id, quantity }];
     });
+    trackProductAccess(product);
     triggerFeedback('medium');
     toast.success('Added to cart');
   };
@@ -1173,7 +1184,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [cart, user, cartLoadedFromStorage, syncCartToBackend]); // Note: isOnline dependency removed as updates trigger frequent unwanted sync triggers
+  }, [cart, user, cartLoadedFromStorage, syncCartToBackend, isOnline]);
 
   // Track reconnection & login event triggers safely
   const previousOnlineRef = React.useRef<boolean>(isOnline);
@@ -1274,12 +1285,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     categories, setCategories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements,
     prefetchProducts, prefetchProduct,
+    trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts,
     startupPhase
   }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notifications, vibration, sound,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
-    announcements, fetchAnnouncements, prefetchProducts, prefetchProduct, startupPhase]);
+    announcements, fetchAnnouncements, prefetchProducts, prefetchProduct, trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts, startupPhase]);
 
   return (
     <StoreContext.Provider value={contextValue}>

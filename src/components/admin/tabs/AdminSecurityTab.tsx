@@ -60,6 +60,12 @@ export default function AdminSecurityTab({
   const [securityLogs, setSecurityLogs] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   
+  // PII Privacy States
+  const [revealSensitiveData, setRevealSensitiveData] = useState(false);
+  const [revealingPII, setRevealingPII] = useState(false);
+  const [revealReason, setRevealReason] = useState('Forensic investigation of recent anomalies');
+  const [showRevealModal, setShowRevealModal] = useState(false);
+  
   // Status check states
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -175,6 +181,70 @@ export default function AdminSecurityTab({
     } catch (err: any) {
       toast.error(err.message || 'Rollback failed.');
     }
+  };
+
+  const handleTogglePII = async () => {
+    if (revealSensitiveData) {
+      setRevealSensitiveData(false);
+      toast.success('Privacy protection re-enforced: Sensitive data masked.');
+      return;
+    }
+    
+    setRevealingPII(true);
+    try {
+      const res = await fetch('/api/admin/security/reveal-pii', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ reason: revealReason })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRevealSensitiveData(true);
+        setShowRevealModal(false);
+        toast.success('Sensitive data decrypted for forensic audit. Action logged.');
+      } else {
+        toast.error(data.message || 'Failed to authorize PII decrypt action.');
+      }
+    } catch (err: any) {
+      toast.error('Network error during PII audit request authorization.');
+    } finally {
+      setRevealingPII(false);
+    }
+  };
+
+  const formatIpAddress = (ip?: string): string => {
+    if (!ip) return 'Unknown';
+    if (revealSensitiveData) return ip;
+    if (ip.includes(':')) {
+      const parts = ip.split(':');
+      if (parts.length > 2) {
+        return `${parts.slice(0, 2).join(':')}:xxxx:xxxx:xxxx:xxxx`;
+      }
+      return 'xxxx:xxxx:xxxx:xxxx';
+    }
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      return `${parts[0]}.${parts[1]}.${parts[2]}.xxx`;
+    }
+    return ip.replace(/\d+$/, 'xxx');
+  };
+
+  const formatEmailAddress = (email?: string): string => {
+    if (!email || email === 'N/A') return 'N/A';
+    if (revealSensitiveData) return email;
+    const parts = email.split('@');
+    if (parts.length === 2) {
+      const name = parts[0];
+      const domain = parts[1];
+      if (name.length > 2) {
+        return `${name[0]}***${name[name.length - 1]}@${domain}`;
+      }
+      return `***@${domain}`;
+    }
+    return '***';
   };
 
   // CSV Export Utility
@@ -530,6 +600,27 @@ export default function AdminSecurityTab({
               </select>
             </div>
 
+            {/* PII Privacy Decrypt Controller */}
+            <button
+              onClick={() => {
+                if (revealSensitiveData) {
+                  handleTogglePII();
+                } else {
+                  setShowRevealModal(true);
+                }
+              }}
+              className={cn(
+                "flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all border shrink-0 active:scale-95",
+                revealSensitiveData
+                  ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100/80"
+                  : "bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100"
+              )}
+              title="Forensically decrypt masked database items"
+            >
+              <Lock size={13} className={cn(revealSensitiveData ? "text-red-500 animate-pulse" : "text-stone-400")} />
+              <span>{revealSensitiveData ? "PII Unmasked" : "Reveal PII"}</span>
+            </button>
+
             {/* Split Export Panel */}
             <div className="h-10 w-px bg-stone-200 mx-2 hidden sm:block" />
             
@@ -614,7 +705,7 @@ export default function AdminSecurityTab({
                             {log.details}
                           </td>
                           <td className="px-6 py-6 font-mono text-[10px] text-stone-400 font-bold text-center">
-                            {log.ip || '127.0.0.1'}
+                            {formatIpAddress(log.ip)}
                           </td>
                           <td className="px-6 py-6 text-xs text-stone-500 font-medium max-w-[200px] truncate" title={log.userAgent}>
                             {log.userAgent || 'WebBrowser Agent'}
@@ -679,13 +770,13 @@ export default function AdminSecurityTab({
                             </span>
                           </td>
                           <td className="px-6 py-6 text-sm font-black text-stone-900">
-                            {log.email || 'Anonymous/Unmapped'}
+                            {formatEmailAddress(log.email) || 'Anonymous/Unmapped'}
                           </td>
                           <td className="px-6 py-6 font-mono text-[10px] text-stone-400">
                             {log.userId || 'N/A'}
                           </td>
                           <td className="px-6 py-6 font-mono text-[10px] text-stone-400 text-center">
-                            {log.ip || '127.0.0.1'}
+                            {formatIpAddress(log.ip)}
                           </td>
                           <td className="px-6 py-6 text-xs text-stone-500 font-medium max-w-[150px] truncate" title={log.userAgent}>
                             {log.userAgent || 'Web Browser'}
@@ -890,6 +981,56 @@ export default function AdminSecurityTab({
                   </div>
                 </div>
 
+                {/* Recent Failed Login Attempts (Brute-Force Monitor) */}
+                <div className="space-y-6 pt-10 border-t border-stone-150/60 text-left">
+                  <div>
+                    <h4 className="text-xl font-black text-stone-900 tracking-tight flex items-center gap-2">
+                      <ShieldAlert size={20} className="text-amber-600" /> Recent Failed Logins (Brute-Force Analysis)
+                    </h4>
+                    <p className="text-xs text-stone-500 font-medium">Real-time surveillance stream showing timestamps and masked IP addresses to detect automated brute-force threat vectors.</p>
+                  </div>
+
+                  <div className="bg-stone-50 border border-stone-200/60 rounded-3xl overflow-hidden">
+                    <div className="max-h-[300px] overflow-y-auto pr-1">
+                      {securityLogs.filter(log => log.type === 'failed_login').length === 0 ? (
+                        <div className="p-8 text-center text-xs font-bold text-stone-400 font-mono">
+                          No failed login attempts detected in system logs.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-stone-150">
+                          {securityLogs
+                            .filter(log => log.type === 'failed_login')
+                            .slice(0, 15)
+                            .map((log: any, idx: number) => {
+                              return (
+                                <div key={log.id || idx} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-stone-100/50 transition-colors">
+                                  <div className="space-y-1 text-left">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-black rounded-md border border-amber-200/50 font-mono uppercase tracking-wider">
+                                        Failed Attempt
+                                      </span>
+                                      <span className="text-xs font-black text-stone-800 font-mono">IP: {formatIpAddress(log.ip)}</span>
+                                    </div>
+                                    <p className="text-xs font-medium text-stone-500">{log.details}</p>
+                                    {log.email && log.email !== 'N/A' && (
+                                      <p className="text-[10px] font-bold text-stone-400 font-mono">Target User Account: {formatEmailAddress(log.email)}</p>
+                                    )}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest font-mono">Detected At</p>
+                                    <p className="text-xs font-bold text-stone-700">
+                                      {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'N/A'}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Diagnostic Outcomes Dynamic Viewport */}
                 {diagnosticResults && (
                   <div className="space-y-6 pt-6 border-t border-stone-100 text-left animate-in fade-in duration-300">
@@ -1007,6 +1148,54 @@ export default function AdminSecurityTab({
           </AnimatePresence>
         )}
       </div>
+
+      {/* PII Forensic Reveal Reason Dialog Modal Overlay */}
+      {showRevealModal && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[2rem] max-w-md w-full p-8 border border-stone-150 shadow-2xl space-y-6 text-left"
+          >
+            <div className="flex items-center space-x-3 text-red-600">
+              <ShieldAlert size={28} />
+              <h3 className="text-xl font-black text-stone-900 tracking-tight">Security Audited Event Warning</h3>
+            </div>
+            <p className="text-xs text-stone-500 leading-relaxed font-medium">
+              You are requesting access to unmasked Personal Identifiable Information (PII) including fully legible email accounts and origin IP nodes.
+              <strong className="block mt-2 text-stone-800">This action requires a forensic justification and is recorded on the permanent audit log.</strong>
+            </p>
+            
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase text-stone-400 tracking-widest">Justification Reason</label>
+              <input 
+                type="text"
+                className="w-full px-4 py-3.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold outline-none focus:border-stone-950"
+                value={revealReason}
+                onChange={(e) => setRevealReason(e.target.value)}
+                placeholder="e.g. Audit of user session or transaction anomaly..."
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button 
+                onClick={() => setShowRevealModal(false)}
+                className="flex-1 px-4 py-3.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-stone-600 text-xs font-black uppercase tracking-wider transition-colors"
+              >
+                Abort Access
+              </button>
+              <button 
+                onClick={handleTogglePII}
+                disabled={revealingPII || !revealReason.trim()}
+                className="flex-1 px-4 py-3.5 bg-red-600 hover:bg-red-700 disabled:bg-stone-300 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2"
+              >
+                {revealingPII ? <Loader2 size={13} className="animate-spin" /> : <Lock size={13} />}
+                Authorize & Reveal
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
     </div>
   );

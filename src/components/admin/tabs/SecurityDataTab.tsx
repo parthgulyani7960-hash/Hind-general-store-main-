@@ -21,10 +21,15 @@ import {
   Cpu,
   Clock,
   UserCheck,
-  Ban
+  Ban,
+  ShieldAlert,
+  Unlock,
+  AlertTriangle,
+  FileCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { securityService, SecurityLog } from '@/services/securityService';
+import toast from 'react-hot-toast';
 
 interface SecurityDataTabProps {
   user: any;
@@ -46,6 +51,7 @@ function AdminStatCard({ label, value, icon, color, trend, progress }: any) {
         <div className={cn(
           "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 group-hover:scale-110 shadow-sm",
           color === 'emerald' ? "bg-emerald-50 text-emerald-500" :
+          color === 'red' ? "bg-red-50 text-red-500 animate-pulse" :
           color === 'purple' ? "bg-purple-50 text-purple-500" :
           color === 'orange' ? "bg-orange-50 text-orange-500" :
           "bg-stone-50 text-stone-500"
@@ -59,12 +65,13 @@ function AdminStatCard({ label, value, icon, color, trend, progress }: any) {
           <div className={cn(
             "h-full rounded-full transition-all duration-1000",
             color === 'emerald' ? "bg-emerald-500" :
+            color === 'red' ? "bg-red-500" :
             color === 'purple' ? "bg-purple-500" :
             color === 'orange' ? "bg-orange-500" :
             "bg-stone-500"
           )} style={{ width: `${progress}%` }} />
         </div>
-        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider">
+        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider font-mono">
           <span className="text-stone-400">{trend?.value}</span>
         </div>
       </div>
@@ -84,12 +91,30 @@ export default function SecurityDataTab({
   const [sessionMinutes, setSessionMinutes] = useState(0);
   const [isSyncingLogs, setIsSyncingLogs] = useState(false);
 
+  // Advanced Security Dashboard States
+  const [idsStatus, setIdsStatus] = useState<any>(null);
+  const [integrityStatus, setIntegrityStatus] = useState<any>(null);
+  const [loadingSecurityAction, setLoadingSecurityAction] = useState(false);
+  const [lockdownReason, setLockdownReason] = useState('');
+
   const fetchSecurityData = async () => {
     setIsSyncingLogs(true);
     try {
-      const logs = await securityService.getRecentLogs(15);
+      const logs = await securityService.getRecentLogs(25);
       setSecurityLogs(logs);
       setSessionMinutes(securityService.getSessionDuration());
+
+      // Fetch Live IDS and Integrity Status
+      const res = await fetch('/api/admin/security/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setIdsStatus(data.ids);
+          setIntegrityStatus(data.integrity);
+        }
+      }
+    } catch (err) {
+      console.error('[FRONTEND_SECURITY] Status fetch error:', err);
     } finally {
       setIsSyncingLogs(false);
     }
@@ -97,19 +122,269 @@ export default function SecurityDataTab({
 
   useEffect(() => {
     fetchSecurityData();
-    const interval = setInterval(fetchSecurityData, 30000); // 30s refresh
+    const interval = setInterval(fetchSecurityData, 15000); // 15s refresh
     return () => clearInterval(interval);
   }, []);
 
+  const handleTriggerLockdown = async () => {
+    const reason = lockdownReason.trim() || 'Manual emergency lockdown initiated by administrator';
+    setLoadingSecurityAction(true);
+    try {
+      const res = await fetch('/api/admin/security/trigger-lockdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || 'Store lockdown activated successfully!');
+        setLockdownReason('');
+        fetchSecurityData();
+      } else {
+        toast.error(data.message || 'Failed to trigger store lockdown.');
+      }
+    } catch (err) {
+      toast.error('Network error during lockdown transmission.');
+    } finally {
+      setLoadingSecurityAction(false);
+    }
+  };
+
+  const handleReleaseLockdown = async () => {
+    setLoadingSecurityAction(true);
+    try {
+      const res = await fetch('/api/admin/security/release-lockdown', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || 'Store lockdown de-escalated successfully!');
+        fetchSecurityData();
+      } else {
+        toast.error(data.message || 'Failed to release storefront lockdown.');
+      }
+    } catch (err) {
+      toast.error('Network error during lockdown release handshake.');
+    } finally {
+      setLoadingSecurityAction(false);
+    }
+  };
+
+  // Determine current security threat tier values
+  const threatTier = idsStatus?.threatLevel || 'LOW';
+  const isMaintenance = idsStatus?.isMaintenanceMode || false;
+
   return (
     <section className="max-w-full overflow-x-hidden space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 font-sans">
-        <AdminStatCard label="Security Node" value="ACTIVE" icon={<ShieldCheck size={22} />} color="emerald" trend={{ value: 'Protocol Live', isUp: true }} progress={100} />
-        <AdminStatCard label="Live Session" value={`${sessionMinutes}m`} icon={<Clock size={22} />} color="orange" trend={{ value: 'Current Uptime', isUp: true }} progress={75} />
-        <AdminStatCard label="Data Encryption" value="256-BIT" icon={<Fingerprint size={22} />} color="purple" trend={{ value: 'AES/GCM', isUp: true }} progress={100} />
-        <AdminStatCard label="Integrity Log" value={securityLogs.length.toString()} icon={<HistoryIcon size={22} />} color="stone" trend={{ value: 'Recent Bounds', isUp: true }} progress={Math.min(100, securityLogs.length * 10)} />
-      </div>
       
+      {/* 4 Stat Cards incorporating IDS Threat Data */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 font-sans">
+        <AdminStatCard 
+          label="Threat Index Index" 
+          value={threatTier} 
+          icon={threatTier === 'LOW' ? <ShieldCheck size={22} /> : <ShieldAlert size={22} />} 
+          color={threatTier === 'LOW' ? 'emerald' : 'red'} 
+          trend={{ value: `${idsStatus?.activeIncidents || 0} Incident Vectors` }} 
+          progress={threatTier === 'LOW' ? 10 : threatTier === 'MEDIUM' ? 40 : threatTier === 'HIGH' ? 75 : 100} 
+        />
+        <AdminStatCard 
+          label="Store Status" 
+          value={isMaintenance ? "MAINTENANCE" : "ACTIVE"} 
+          icon={<Server size={22} />} 
+          color={isMaintenance ? 'red' : 'emerald'} 
+          trend={{ value: isMaintenance ? 'Lockdown active' : 'Storefront live' }} 
+          progress={isMaintenance ? 100 : 100} 
+        />
+        <AdminStatCard 
+          label="Live Session" 
+          value={`${sessionMinutes}m`} 
+          icon={<Clock size={22} />} 
+          color="orange" 
+          trend={{ value: 'Audit rotation active' }} 
+          progress={75} 
+        />
+        <AdminStatCard 
+          label="File Integrity" 
+          value={integrityStatus?.valid ? "VERIFIED" : "COMPROMISED"} 
+          icon={<FileCheck size={22} />} 
+          color={integrityStatus?.valid ? 'purple' : 'red'} 
+          trend={{ value: `${integrityStatus?.checkedFiles?.length || 0} Core footprint nodes` }} 
+          progress={integrityStatus?.valid ? 100 : 50} 
+        />
+      </div>
+
+      {/* EMERGENCY LOCKDOWN / SYSTEM THREAT DASHBOARD */}
+      <div className="bg-white p-10 rounded-[3rem] border border-stone-100 shadow-sm text-left space-y-8">
+        <div className="flex items-center space-x-4 border-b border-stone-100 pb-6">
+          <div className={cn(
+            "w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg",
+            isMaintenance ? "bg-red-500 text-white animate-pulse" : "bg-stone-900 text-white"
+          )}>
+            <ShieldAlert size={22} />
+          </div>
+          <div>
+            <h3 className="text-xl font-black text-stone-900 tracking-tight">Intrusion Detection & Emergency Controls</h3>
+            <p className="text-xs text-stone-500 font-medium">Automatic/manual storefront isolation on high-risk threat triggers.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* Active Lockdown State details */}
+          <div className="space-y-6">
+            <div className={cn(
+              "p-8 rounded-[2.5rem] border flex flex-col justify-between h-full space-y-6",
+              isMaintenance ? "bg-red-50/50 border-red-100" : "bg-stone-50/50 border-stone-100"
+            )}>
+              <div className="space-y-2">
+                <span className={cn(
+                  "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                  isMaintenance ? "bg-red-100/60 text-red-600 border-red-200" : "bg-emerald-100/60 text-emerald-600 border-emerald-200"
+                )}>
+                  {isMaintenance ? 'Lockdown Enforced' : 'Store Secure'}
+                </span>
+                <h4 className="text-2xl font-black text-stone-900 leading-tight pt-2">
+                  {isMaintenance ? 'Automatic Isolation Engaged' : 'Storefront Operating Normally'}
+                </h4>
+                <p className="text-xs text-stone-500 font-medium leading-relaxed">
+                  {isMaintenance 
+                    ? `The server automatically suspended storefront customer access at ${idsStatus?.maintenanceTriggeredAt ? new Date(idsStatus.maintenanceTriggeredAt).toLocaleTimeString() : 'N/A'}. Reason: ${idsStatus?.maintenanceReason}`
+                    : 'System is monitoring logs and requests dynamically. In case of aggressive brute force, SQL injection, or signature tempering, storefront access will immediately trigger a lockdown.'
+                  }
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-4">
+                {isMaintenance ? (
+                  <button
+                    onClick={handleReleaseLockdown}
+                    disabled={loadingSecurityAction}
+                    className="w-full px-6 py-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-[0.2em] rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xl shadow-emerald-100 disabled:bg-stone-300"
+                  >
+                    {loadingSecurityAction ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+                    De-escalate & Unlock Store
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Specify lockdown audit reason..."
+                      value={lockdownReason}
+                      onChange={(e) => setLockdownReason(e.target.value)}
+                      className="w-full px-5 py-4 bg-white border border-stone-200 rounded-2xl text-xs font-semibold focus:outline-none focus:border-stone-400"
+                    />
+                    <button
+                      onClick={handleTriggerLockdown}
+                      disabled={loadingSecurityAction}
+                      className="w-full px-6 py-4 bg-stone-900 hover:bg-stone-800 text-white text-xs font-black uppercase tracking-[0.2em] rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xl shadow-stone-200 disabled:bg-stone-300"
+                    >
+                      {loadingSecurityAction ? <Loader2 size={16} className="animate-spin" /> : <ShieldAlert size={16} />}
+                      Force Manual Emergency Lockdown
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Core File Integrity Scan results */}
+          <div className="space-y-6">
+            <div className="p-8 bg-stone-50/50 rounded-[2.5rem] border border-stone-100 flex flex-col justify-between h-full space-y-4">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-sm font-black uppercase tracking-wider text-stone-700 flex items-center gap-2">
+                    <FileCheck size={16} className="text-purple-500" /> Core Footprint Audit
+                  </h4>
+                  <span className={cn(
+                    "text-[10px] font-black uppercase tracking-widest",
+                    integrityStatus?.valid ? "text-emerald-500" : "text-red-500"
+                  )}>
+                    {integrityStatus?.valid ? 'PASSED' : 'BREACHED'}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {integrityStatus?.checkedFiles?.map((file: string, idx: number) => {
+                    const isLeaked = integrityStatus?.errors?.some((err: string) => err.includes(file));
+                    return (
+                      <div key={idx} className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-stone-100 text-xs font-semibold">
+                        <span className="font-mono text-stone-600">{file}</span>
+                        <div className="flex items-center gap-2">
+                          <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", isLeaked ? "bg-red-500" : "bg-emerald-500")} />
+                          <span className={isLeaked ? "text-red-500 text-[10px] font-black uppercase tracking-wider" : "text-emerald-500 text-[10px] font-black uppercase tracking-wider"}>
+                            {isLeaked ? 'Modified / Empty' : 'Secure'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {integrityStatus?.errors?.length > 0 && (
+                  <div className="p-4 bg-red-50 rounded-2xl border border-red-100 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-red-800 flex items-center gap-1">
+                      <AlertTriangle size={12} /> System Breaches Found:
+                    </p>
+                    <ul className="text-[11px] text-red-900 font-medium list-disc list-inside space-y-1">
+                      {integrityStatus.errors.map((err: string, i: number) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* IP Reputation Tracker list */}
+        {idsStatus?.ipTrackers?.length > 0 && (
+          <div className="space-y-4 pt-4 border-t border-stone-100">
+            <h4 className="text-sm font-black text-stone-800 uppercase tracking-wider flex items-center gap-2">
+              <Ban size={15} className="text-red-500" /> IDS Active IP Tracker & Blacklists
+            </h4>
+            <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-stone-50 border-b border-stone-100 text-[10px] text-stone-400 uppercase font-black tracking-widest">
+                  <tr>
+                    <th className="px-6 py-4">IP Node Address</th>
+                    <th className="px-6 py-4">Threat Score</th>
+                    <th className="px-6 py-4">Failed Logins</th>
+                    <th className="px-6 py-4">Injections Blocked</th>
+                    <th className="px-6 py-4">Reputation Verdict</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 font-semibold text-stone-600">
+                  {idsStatus.ipTrackers.map((ipTracker: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-stone-50/40">
+                      <td className="px-6 py-4 font-mono font-bold text-stone-800">{ipTracker.ip}</td>
+                      <td className="px-6 py-4 font-black text-stone-900">{ipTracker.score}</td>
+                      <td className="px-6 py-4">{ipTracker.failedLogins}</td>
+                      <td className="px-6 py-4">{ipTracker.injectionAttempts}</td>
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1 w-fit",
+                          ipTracker.blocked 
+                            ? "bg-red-50 text-red-600 border border-red-100 animate-pulse" 
+                            : ipTracker.score >= 10 
+                            ? "bg-amber-50 text-amber-600 border border-amber-100" 
+                            : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                        )}>
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", ipTracker.blocked ? "bg-red-500" : ipTracker.score >= 10 ? "bg-amber-500" : "bg-emerald-500")} />
+                          {ipTracker.blocked ? `Blocked (${Math.round(ipTracker.blockedRemainingMs / 60000)}m left)` : ipTracker.score >= 10 ? 'Suspicious Node' : 'Reputable'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white p-10 rounded-[3rem] border border-stone-100 shadow-sm font-sans">
          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-12">
             <div className="flex items-center space-x-6">
@@ -124,7 +399,7 @@ export default function SecurityDataTab({
             <div className="flex items-center gap-3">
               <button 
                 onClick={fetchSecurityData}
-                className="p-3 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-stone-100 transition-colors"
+                className="p-3 bg-stone-50 rounded-2xl border border-stone-100 hover:bg-stone-100 transition-colors cursor-pointer"
                 title="Sync Security Chain"
               >
                 <RefreshCw size={16} className={cn("text-stone-500", isSyncingLogs && "animate-spin")} />
@@ -211,9 +486,9 @@ export default function SecurityDataTab({
                               <span className="text-[9px] font-mono text-white/30">{log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString() : new Date(log.timestamp).toLocaleTimeString()}</span>
                             </div>
                             <p className="text-xs font-bold leading-tight line-clamp-2 text-white/90">{log.details}</p>
-                            <div className="flex items-center gap-2 pt-1 opacity-40 group-hover:opacity-80 transition-opacity">
+                            <div className="flex items-center gap-2 pt-1 opacity-40 group-hover:opacity-80 transition-opacity font-mono">
                                <Fingerprint size={10} />
-                               <span className="text-[9px] font-mono uppercase tracking-tighter truncate">{log.userAgent?.split(' ')[0] || 'WebClient'}</span>
+                               <span className="text-[9px] uppercase tracking-tighter truncate">{log.userAgent?.split(' ')[0] || 'WebClient'}</span>
                             </div>
                           </div>
                         </motion.div>
@@ -295,7 +570,7 @@ export default function SecurityDataTab({
               ) : (
                  <>
                     <RefreshCw size={18} /> Deep Integrity Scan
-                 </>
+                  </>
               )}
            </button>
 
@@ -389,7 +664,7 @@ export default function SecurityDataTab({
                                        <td className="px-6 py-4">
                                           <div className="flex flex-col items-start">
                                              <p className="font-extrabold text-stone-800">{audUser.name}</p>
-                                             <p className="text-[10px] text-stone-400 font-mono">ID: {audUser.userId} | {audUser.email}</p>
+                                             <p className="text-[10px] text-stone-400 font-mono text-left">ID: {audUser.userId} | {audUser.email}</p>
                                           </div>
                                        </td>
                                        <td className="px-6 py-4 font-bold text-stone-700">₹{audUser.currentBalance.toFixed(2)}</td>

@@ -326,7 +326,7 @@ import { useMobileInputFocus } from './hooks/useMobileInputFocus';
 function AppContent() {
   const store = useStore();
   const location = useLocation();
-  const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout } = store;
+  const { adminTheme, dbError, showLogoutDialog, setShowLogoutDialog, performLogout, config } = store;
 
    const isAdmin = location.pathname.startsWith('/admin');
    const isDelivery = location.pathname.startsWith('/delivery');
@@ -345,6 +345,10 @@ function AppContent() {
 
      // Global error handler
      const handleGlobalError = (event: ErrorEvent) => {
+       const msg = (event.message || '').toLowerCase();
+       if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
+         return;
+       }
        errorService.report({
          type: ErrorType.SYSTEM_ERROR,
          message: event.message || 'Global Runtime Error',
@@ -354,6 +358,10 @@ function AppContent() {
      };
 
      const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+       const msg = (event.reason?.message || String(event.reason || '')).toLowerCase();
+       if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
+         return;
+       }
        errorService.report({
          type: ErrorType.SYSTEM_ERROR,
          message: event.reason?.message || 'Unhandled Promise Rejection',
@@ -417,10 +425,10 @@ function AppContent() {
           {!isAdmin && <FullScreenAlert />}
         </Suspense>
         <OfflineIndicator />
-        {!hideFurniture && <TopPromotionTicker />}
+        {!hideFurniture && (config.find(c => c.key === 'feature_top_bar_enabled')?.value !== 'false') && <TopPromotionTicker />}
         {!hideFurniture && <GlobalProgressBar />}
         <Suspense fallback={<div className="p-4 text-center">Loading announcements...</div>}>
-          {!hideFurniture && <GlobalAnnouncements />}
+          {!hideFurniture && (config.find(c => c.key === 'feature_announcement_bar_enabled')?.value !== 'false') && <GlobalAnnouncements />}
         </Suspense>
         <ToastManager />
         <Toaster position="top-center" />

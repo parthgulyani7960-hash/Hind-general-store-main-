@@ -264,17 +264,17 @@ export default function Invoice() {
         </div>
 
         <div className="overflow-x-auto no-scrollbar mb-12 relative z-10">
-          <table className="w-full text-left min-w-[650px] overflow-hidden rounded-2xl border border-stone-100">
+          <table className="w-full text-left min-w-[500px] sm:min-w-[650px] overflow-hidden rounded-2xl border border-stone-100">
             <thead>
               <tr className="bg-stone-900/90 text-white border-b border-stone-200">
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200">IDX</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 pl-2">Line Item / Description</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">MRP</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Discount</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Unit rate</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">GST (INC)</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">Qty</th>
-                <th className="py-4 px-4 text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Amount</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">IDX</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 pl-2">Description</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">MRP</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Disc.</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Rate</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">GST</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-center">Qty</th>
+                <th className="py-2.5 px-2.5 sm:py-4 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-stone-200 text-right">Amount</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100 bg-white">
@@ -284,35 +284,25 @@ export default function Invoice() {
                 const mrp = parseFloat(String(item.mrp || Math.ceil(unitPrice * 1.15)));
                 const discount = Math.max(0, mrp - unitPrice);
                 const amount = unitPrice * qty;
-                const gstInc = amount * 5 / 105; // 5% inclusive calculation for on-screen
+                const gstInc = amount * 5 / 105;
                 
                 return (
                   <tr key={i} className="hover:bg-emerald-500/[0.015] transition-colors group">
-                    <td className="py-5 px-4 font-mono font-bold text-stone-400 text-xs text-center">{String(i + 1).padStart(2, '0')}</td>
-                    <td className="py-5 px-4 pl-2">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-stone-100 rounded-lg flex items-center justify-center text-stone-500 group-hover:bg-stone-900 group-hover:text-white transition-all shadow-sm">
-                          <Receipt size={14} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-stone-900 text-xs tracking-tight">{item.name}</p>
-                          <p className="text-[9px] text-stone-400 font-bold uppercase tracking-tight">ID: {item.product_id || item.id}</p>
-                        </div>
-                      </div>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 font-mono font-bold text-stone-400 text-[10px] sm:text-xs text-center">{String(i + 1).padStart(2, '0')}</td>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 pl-2">
+                       <p className="font-bold text-stone-900 text-[10px] sm:text-xs tracking-tight truncate max-w-[120px] sm:max-w-none">{item.name}</p>
+                       <p className="text-[8px] sm:text-[9px] text-stone-400 font-bold uppercase tracking-tight">ID: {String(item.product_id || item.id).slice(-4)}</p>
                     </td>
-                    <td className="py-5 px-4 text-right font-bold text-stone-500 text-xs shadow-sm shadow-stone-50/5">₹{mrp.toFixed(2)}</td>
-                    <td className="py-5 px-4 text-right font-black text-rose-500 text-xs">
-                      {discount > 0 ? `-₹${discount.toFixed(2)}` : '₹0.00'}
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 text-right font-bold text-stone-500 text-[10px] sm:text-xs">₹{mrp.toFixed(2)}</td>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 text-right font-black text-rose-500 text-[10px] sm:text-xs">
+                      {discount > 0 ? `-₹${discount.toFixed(0)}` : '₹0'}
                     </td>
-                    <td className="py-5 px-4 text-right font-bold text-stone-700 text-xs">₹{unitPrice.toFixed(2)}</td>
-                    <td className="py-5 px-4 text-center">
-                      <div className="inline-flex flex-col text-center">
-                        <span className="text-[10px] font-black text-stone-800">5% rate</span>
-                        <span className="text-[9px] text-stone-400 font-bold leading-none mt-0.5">₹{gstInc.toFixed(2)}</span>
-                      </div>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 text-right font-bold text-stone-700 text-[10px] sm:text-xs">₹{unitPrice.toFixed(2)}</td>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 text-center">
+                       <span className="text-[9px] sm:text-[10px] font-black text-stone-800">5%</span>
                     </td>
-                    <td className="py-5 px-4 text-center font-mono font-black text-stone-900 text-xs">{qty}</td>
-                    <td className="py-5 px-4 text-right font-black text-emerald-600 text-sm tracking-tight">₹{amount.toFixed(2)}</td>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 text-center font-mono font-black text-stone-900 text-[10px] sm:text-xs">{qty}</td>
+                    <td className="py-3 px-2 sm:py-5 sm:px-4 text-right font-black text-emerald-600 text-[10px] sm:text-sm tracking-tight">₹{amount.toFixed(2)}</td>
                   </tr>
                 );
               })}

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import SmartLink from '@/components/SmartLink';
 import { cn } from '@/types';
 import { fetchWithHandling } from '@/lib/api';
+import { useStore } from '@/StoreContext';
 
 interface Promotion {
   id: number;
@@ -16,10 +17,16 @@ interface Promotion {
 }
 
 export default function Promotions() {
+  const { config = [] } = useStore();
+  const isPageEnabled = config.find(c => c.key === 'feature_promotions_page_enabled')?.value !== 'false';
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isPageEnabled) {
+      setLoading(false);
+      return;
+    }
     fetchWithHandling<Promotion[]>('/api/promotions')
       .then(data => {
         if (data) setPromotions(data);
@@ -32,6 +39,31 @@ export default function Promotions() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!isPageEnabled) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-stone-50 p-6 text-center">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white p-12 md:p-20 rounded-[3rem] border-2 border-dashed border-stone-200 max-w-2xl space-y-6 shadow-2xl shadow-stone-200/50"
+        >
+          <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 text-primary">
+            <Sparkles size={48} className="animate-pulse" />
+          </div>
+          <h2 className="text-4xl font-black text-stone-900 tracking-tighter">Promotions coming soon!</h2>
+          <p className="text-stone-500 font-medium text-lg leading-relaxed">
+            We are working on bringing you exclusive deals and exciting seasonal offers. 
+            Check back soon to discover the best discounts at New Hind General Store!
+          </p>
+          <Link to="/" className="btn-primary px-10 py-4 inline-flex items-center gap-2">
+            <ShoppingBag size={20} />
+            <span>Go Back Shopping</span>
+          </Link>
+        </motion.div>
       </div>
     );
   }

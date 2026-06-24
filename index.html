@@ -22,6 +22,11 @@
       // Handle Early Errors (before React initializes)
       function handleEarlyError(event) {
         const error = event.error || { message: event.message || 'Script Load Error or Syntax Error', stack: 'No stack trace available' };
+        const msg = (error.message || event.message || '').toLowerCase();
+        if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
+          // Ignore benign dev environment errors
+          return;
+        }
         window.__bootErrors.push(error);
         console.error('[EARLY BOOT ERROR DETECTED]', error);
         
@@ -30,6 +35,12 @@
       }
 
       function handleEarlyRejection(event) {
+        const reason = event.reason;
+        const msg = (reason ? (reason.message || String(reason)) : '').toLowerCase();
+        if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
+          // Ignore benign dev environment errors
+          return;
+        }
         const error = event.reason || new Error(String(event.reason || 'Unhandled rejection'));
         window.__bootErrors.push(error);
         console.error('[EARLY REJECTION DETECTED]', error);

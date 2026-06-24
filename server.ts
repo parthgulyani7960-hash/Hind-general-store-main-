@@ -108,6 +108,18 @@ console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
 import { validateEnvironment as validateEnvCheck } from './src/lib/envCheck';
 import { logger } from './src/lib/logger';
+import {
+  sanitizeInput,
+  signQRCode,
+  verifyQRCode,
+  validateBase64Image,
+  registerSecurityIncident,
+  isIpBlocked,
+  getSystemSecurityStatus,
+  releaseLockdown,
+  verifySystemIntegrity,
+  triggerLockdown
+} from './src/lib/securityAudit';
 
 console.log('[BOOT] Dotenv loaded');
 validateEnvCheck();
@@ -1172,17 +1184,100 @@ app.use((req, res, next) => {
   next();
 });
 
-// Security Headers
+// Enhanced Security Headers, CSP, IDS, CSRF & Maintenance Mode
 app.use((req, res, next) => {
+  const ip = req.ip || 'unknown';
+
+  // 1. Intrusion Detection System: Block check
+  if (isIpBlocked(ip)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access Denied: Your IP address has been temporarily blacklisted due to repeated security anomalies.'
+    });
+  }
+
+  // 2. Global Content Security Policy & Security Headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'ALLOW-FROM https://ai.studio');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss: ws:; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.googleusercontent.com;"
+  );
+
+  // 3. Automated Maintenance Mode Check
+  const status = getSystemSecurityStatus();
+  const isAdminRequest = req.path.startsWith('/api/admin') || (req.session as any)?.role === 'admin';
+  const isExcludedRoute = req.path === '/api/health' || req.path === '/api/boot-status' || req.path.includes('/vite') || req.path.includes('/ws');
+
+  if (status.isMaintenanceMode && !isAdminRequest && !isExcludedRoute) {
+    return res.status(503).json({
+      success: false,
+      message: 'EMERGENCY SECURITY MAINTENANCE: The storefront has temporarily locked down due to active threat mitigation. All services are disabled except for administrative nodes.',
+      reason: status.maintenanceReason,
+      triggeredAt: status.maintenanceTriggeredAt
+    });
+  }
+
+  // 4. CSRF Header / Origin Integrity Verification
+  const stateChangingMethods = ['POST', 'PUT', 'DELETE'];
+  if (stateChangingMethods.includes(req.method)) {
+    const origin = req.headers.origin || '';
+    const referer = req.headers.referer || '';
+    
+    // Validate Origin or Referer if present to block external CSRF scripts
+    const allowedPatterns = [
+      'localhost',
+      '127.0.0.1',
+      '.google.com',
+      '.googleusercontent.com',
+      '.run.app',
+      '.aistudio.google'
+    ];
+    
+    const hasValidOrigin = origin && allowedPatterns.some(pat => origin.includes(pat));
+    const hasValidReferer = referer && allowedPatterns.some(pat => referer.includes(pat));
+
+    if ((origin && !hasValidOrigin) || (referer && !hasValidReferer)) {
+      console.warn(`[CSRF_ATTEMPT] Blocked request to ${req.path} from origin: ${origin}, referer: ${referer}`);
+      registerSecurityIncident(ip, 'csrf_tamper', `CSRF attempt blocked on ${req.method} ${req.path} from origin: ${origin}`);
+      return res.status(403).json({ success: false, message: 'Security Handshake Fail: CSRF Origin verification failure.' });
+    }
+  }
+
+  // 5. Query & Body SQL/NoSQL Injection Check
+  const requestPayloadString = JSON.stringify(req.body || {}) + JSON.stringify(req.query || {});
+  const injectionSignatures = [
+    '<script',
+    'javascript:',
+    'onload=',
+    'onerror=',
+    'UNION SELECT',
+    'OR 1=1',
+    "'; DROP TABLE",
+    '${',
+    '$gt',
+    '$ne'
+  ];
+
+  const hasInjection = injectionSignatures.some(sig => requestPayloadString.includes(sig));
+  if (hasInjection) {
+    console.warn(`[INJECTION_ATTEMPT] Malicious signature detected from IP ${ip} on path ${req.path}`);
+    registerSecurityIncident(ip, 'injection_attempt', `SQL/NoSQL/XSS Script injection pattern detected on ${req.method} ${req.path}`);
+  }
+
+  // 6. XSS Protection: Clean request body inputs
+  if (req.body && typeof req.body === 'object') {
+    req.body = sanitizeInput(req.body);
+  }
+
   next();
 });
 
-// Basic Rate Limiting to prevent automated misuse
+// Basic Rate Limiting to prevent automated misuse (reduced to secure values)
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS = 10000; // per minute per IP (increased further to prevent 429 spam in high-traffic preview)
+const MAX_REQUESTS = 300; // secure rate limiting bounds per minute per IP
 
 app.use((req, res, next) => {
   const ip = req.ip || 'unknown';
@@ -1207,7 +1302,8 @@ app.use((req, res, next) => {
       limit.count++;
       if (limit.count > MAX_REQUESTS) {
         console.warn(`[RATE_LIMIT] Exceeded for IP: ${ip} (${limit.count} > ${MAX_REQUESTS}) for path ${req.path}`);
-        return res.status(429).json({ success: false, message: 'Your request speed is significantly higher than average. Please wait one minute before trying again.' });
+        registerSecurityIncident(ip, 'api_abuse', `Rate limit exceeded: ${limit.count} requests in 1 minute`);
+        return res.status(429).json({ success: false, message: 'Too many requests. Please slow down and try again in one minute.' });
       }
     }
   } else {
@@ -1849,6 +1945,38 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
   app.use(cookieSession(cookieConfig));
   console.log('[BOOT] Session middleware initialized successfully');
+
+  // Device-based Session Tracking & Hijack Prevention Middleware
+  app.use((req, res, next) => {
+    if (req.session && req.session.userId) {
+      const currentIp = req.ip || 'unknown';
+      const currentUserAgent = req.headers['user-agent'] || 'unknown';
+      
+      const sessionIp = (req.session as any).ip;
+      const sessionUserAgent = (req.session as any).userAgent;
+      
+      if (!sessionIp || !sessionUserAgent) {
+        // First request with session, initialize device tracking
+        (req.session as any).ip = currentIp;
+        (req.session as any).userAgent = currentUserAgent;
+        (req.session as any).createdAt = Date.now();
+      } else {
+        // Device matching checks
+        const isDeviceHijacked = sessionUserAgent !== currentUserAgent;
+        // Check Class C subnet IP match to allow minor network switches
+        const getSubnet = (ipStr: string) => ipStr.split('.').slice(0, 3).join('.');
+        const isIpHijacked = getSubnet(sessionIp) !== getSubnet(currentIp) && sessionIp !== 'unknown' && currentIp !== 'unknown';
+        
+        if (isDeviceHijacked || isIpHijacked) {
+          console.warn(`[SESSION_HIJACK] Suspicious mismatch. Expected IP: ${sessionIp} / UA: ${sessionUserAgent}. Got IP: ${currentIp} / UA: ${currentUserAgent}. Destroying session.`);
+          registerSecurityIncident(currentIp, 'csrf_tamper', `Session hijacking attempt detected. UserAgent or IP Class-C mismatch.`);
+          req.session = null; // Destroy session cookie
+          return res.status(401).json({ success: false, message: 'Security Breach Mitigated: Session destroyed due to device/network discrepancy.' });
+        }
+      }
+    }
+    next();
+  });
 
   // Token-based fallback for iframe / cross-site environments
   app.use(async (req, res, next) => {
@@ -2609,6 +2737,15 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   app.post('/api/orders/:id/payment-proof', requireAuth, async (req, res) => {
     const { id } = req.params;
     const { utr, screenshot } = req.body;
+    
+    if (screenshot) {
+      const validation = validateBase64Image(screenshot);
+      if (!validation.valid) {
+        console.error(`[IMAGE_VALIDATION_FAILED] ${validation.error}`);
+        registerSecurityIncident(req.ip || 'unknown', 'file_attack', `Image validation failed on order proof: ${validation.error}`);
+        return res.status(400).json({ success: false, message: validation.error });
+      }
+    }
     
     try {
       const orderRef = getFirestoreInstance().collection('orders').doc(id);
@@ -3966,6 +4103,16 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         }
 
         logSuspicious(null, 'JWT_VERIFY_FAILED', `Token verification failed: ${verifyErr.message}. IP: ${req.ip}`);
+        if (isFirebaseReady) {
+          getFirestoreInstance().collection('security_logs').add({
+            type: 'failed_login',
+            details: `Token verification failed: ${verifyErr.message}`,
+            ip: req.ip || 'unknown',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            userAgent: req.headers['user-agent'] || 'Server',
+            email: 'Unknown'
+          }).catch(err => console.error('Failed to log failed_login:', err));
+        }
         return res.status(401).json({ success: false, message: 'Invalid or expired session token.' });
       }
       
@@ -3973,6 +4120,16 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       
       if (!email) {
         logSuspicious(null, 'MALFORMED_AUTH', `Firebase login attempt without email. IP: ${req.ip}`);
+        if (isFirebaseReady) {
+          getFirestoreInstance().collection('security_logs').add({
+            type: 'failed_login',
+            details: `Malformed auth missing email`,
+            ip: req.ip || 'unknown',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            userAgent: req.headers['user-agent'] || 'Server',
+            email: 'Unknown'
+          }).catch(err => console.error('Failed to log failed_login:', err));
+        }
         return res.status(400).json({ success: false, message: 'Google account must have an email' });
       }
 
@@ -3999,6 +4156,17 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
       if (user.status === 'disabled') {
         console.warn(`[AUTH] Login attempt by disabled user: ${user.email}`);
+        if (isFirebaseReady) {
+          getFirestoreInstance().collection('security_logs').add({
+            type: 'failed_login',
+            details: `Suspended account access attempted for: ${user.email}`,
+            ip: req.ip || 'unknown',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            userAgent: req.headers['user-agent'] || 'Server',
+            email: user.email,
+            userId: user.id
+          }).catch(err => console.error('Failed to log failed_login:', err));
+        }
         return res.status(403).json({ success: false, message: 'Your account has been suspended.' });
       }
 
@@ -4050,6 +4218,14 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
               const newLockedUntil = newCount >= 5 ? Date.now() + 600000 : 0; // Lock for 10 mins
               await attemptsRef.update({ count: newCount, lockedUntil: newLockedUntil });
           }
+          getFirestoreInstance().collection('security_logs').add({
+            type: 'failed_login',
+            details: `Authentication Failure: ${e.message}`,
+            ip: ip,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            userAgent: req.headers['user-agent'] || 'Server',
+            email: 'Unknown'
+          }).catch(err => console.error('Failed to log failed_login:', err));
         } catch (err) {
           console.error('Failed to update login attempts (likely database unavailable)', err);
         }
@@ -5491,6 +5667,15 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
     if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
 
+    if (screenshot) {
+      const validation = validateBase64Image(screenshot);
+      if (!validation.valid) {
+        console.error(`[IMAGE_VALIDATION_FAILED] ${validation.error}`);
+        registerSecurityIncident(req.ip || 'unknown', 'file_attack', `Image validation failed on wallet topup screenshot: ${validation.error}`);
+        return res.status(400).json({ success: false, message: validation.error });
+      }
+    }
+
     if (amount > 20000) {
       if (typeof logSuspicious === 'function') {
         logSuspicious(userId, 'LARGE_WALLET_REQUEST', `User requested wallet top-up of ₹${amount}. Payment ID: ${paymentId}`, req.ip);
@@ -5545,6 +5730,9 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       // Generate SHA-256 hash using crypto
       const hash = crypto.createHash('sha256').update(qr_string).digest('hex');
 
+      // Cryptographically sign the QR string using HMAC-SHA256 to prevent tampering
+      const signature = signQRCode(qr_string, process.env.SESSION_SECRET || 'hind-store-secret-2024');
+
       // Fetch user name
       let userName = 'Anonymous';
       if (userId !== 'anonymous') {
@@ -5556,6 +5744,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
          id: txnId,
          qr_string,
          hash,
+         signature,
          amount: Number(amount),
          upi_id: upiId,
          user_id: String(userId),
@@ -5586,6 +5775,17 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
          return res.status(404).json({ success: false, message: 'QR not found' });
       }
       const data = doc.data()!;
+      
+      // Validate cryptographic QR signature to prevent dynamic tampering
+      if (data.signature && data.qr_string) {
+        const isValid = verifyQRCode(data.qr_string, data.signature, process.env.SESSION_SECRET || 'hind-store-secret-2024');
+        if (!isValid) {
+          console.error(`[QR_TAMPER_DETECTED] Transaction ID: ${id} signature mismatch!`);
+          registerSecurityIncident(req.ip || 'unknown', 'file_attack', `Tamper Attempt: QR Signature validation failed for txn ${id}`);
+          return res.status(400).json({ success: false, message: 'Security Handshake Fail: QR validation failure.' });
+        }
+      }
+
       res.json({
          success: true,
          status: data.status,
@@ -5630,9 +5830,14 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       const search = (req.query.search as string || '').toLowerCase().trim();
       const category = req.query.category as string || 'All';
       const sortBy = req.query.sortBy as string || 'relevance';
+      const minPrice = parseFloat(req.query.minPrice as string) || 0;
+      const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : null;
+      const rating = req.query.rating ? parseInt(req.query.rating as string) : null;
+      const onSaleOnly = req.query.onSaleOnly === 'true';
+      console.log(`[API] Products request received: page=${page}, limit=${limit}, search=${search}, category=${category}, sortBy=${sortBy}, minPrice=${minPrice}, maxPrice=${maxPrice}, rating=${rating}, onSaleOnly=${onSaleOnly}`);
 
       // 2. SWR / Cache hit for specific paginated parameters
-      const cacheKey = `products_${category}_${sortBy}_${search}_${page}_${limit}`;
+      const cacheKey = `products_${category}_${sortBy}_${search}_${page}_${limit}_${minPrice}_${maxPrice}_${rating}_${onSaleOnly}`;
       if (!(global as any).prodCache) (global as any).prodCache = {};
       const cachedResult = (global as any).prodCache[cacheKey];
       if (cachedResult && (Date.now() - cachedResult.ts < 10000)) { // 10 second cache TTL for the exact config
@@ -5648,11 +5853,35 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       } else {
         const db = getFirestoreInstance();
         const snapshot = await db.collection('products').get();
+        
+        // Fetch categories to resolve categoryId
+        const catSnapshot = await db.collection('categories').get();
+        const categoriesMap = new Map<string, string>();
+        categoriesMap.set("cat_1", "Grains & Flours");
+        categoriesMap.set("cat_2", "Spices");
+        categoriesMap.set("cat_3", "Oils & Ghee");
+        catSnapshot.docs.forEach(doc => {
+          const catData = doc.data();
+          if (catData.name) {
+            categoriesMap.set(doc.id, catData.name);
+          }
+        });
+
         allFetchedProducts = snapshot.docs.map(doc => {
           const data = doc.data();
+          let pCategory = data.category || '';
+          if (!pCategory && data.categoryId) {
+            pCategory = categoriesMap.get(data.categoryId) || '';
+          }
+          let pImageUrl = data.image_url || '';
+          if (!pImageUrl && data.image) {
+            pImageUrl = data.image;
+          }
           return {
             id: doc.id,
             ...data,
+            category: pCategory,
+            image_url: pImageUrl,
             avg_rating: data.avg_rating || 0,
             review_count: data.review_count || 0
           } as any;
@@ -5669,11 +5898,6 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         filtered = filtered.filter(p => p.category === category);
       }
       
-      // 5. Exclude unlisted or deleted products for non-admins
-      if (req.session?.role !== 'admin') {
-        filtered = filtered.filter(p => (p.is_listed !== 0 && p.is_listed !== false && !p.is_deleted));
-      }
-
       // 6. Apply Search
       if (search) {
         const terms = search.split(' ');
@@ -5681,6 +5905,21 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
           const text = `${p.name} ${p.description} ${p.category}`.toLowerCase();
           return terms.every(t => text.includes(t));
         });
+      }
+
+      // Add new filters
+      filtered = filtered.filter(p => {
+        const price = parseFloat(p.retail_price || p.price || 0);
+        const matchesMin = price >= minPrice;
+        const matchesMax = maxPrice === null || price <= maxPrice;
+        const matchesRating = rating === null || Math.floor(parseFloat(p.avg_rating || 0)) >= rating;
+        const matchesSale = !onSaleOnly || parseFloat(p.discount || 0) > 0;
+        return matchesMin && matchesMax && matchesRating && matchesSale;
+      });
+
+      // 5. Exclude unlisted or deleted products for non-admins
+      if (req.session?.role !== 'admin') {
+        filtered = filtered.filter(p => (p.is_listed !== 0 && p.is_listed !== false && !p.is_deleted));
       }
 
       // 7. Sorting
@@ -7746,6 +7985,15 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   app.post('/api/orders', async (req, res) => {
     const { user_id, total, subtotal, discount, delivery_fee, address, payment_method, payment_id, payment_utr, payment_ref, payment_screenshot, delivery_type, notes, items, coupon_code } = req.body;
     
+    if (payment_screenshot) {
+      const validation = validateBase64Image(payment_screenshot);
+      if (!validation.valid) {
+        console.error(`[IMAGE_VALIDATION_FAILED] ${validation.error}`);
+        registerSecurityIncident(req.ip || 'unknown', 'file_attack', `Image validation failed on order creation screenshot: ${validation.error}`);
+        return res.status(400).json({ success: false, message: validation.error });
+      }
+    }
+    
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Invalid order data: No items provided' });
     }
@@ -8876,6 +9124,39 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
   });
 
+  app.get('/api/admin/security/status', requireAdmin, async (req, res) => {
+    try {
+      const idsStatus = getSystemSecurityStatus();
+      const integrity = verifySystemIntegrity();
+      res.json({
+        success: true,
+        ids: idsStatus,
+        integrity: integrity
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/release-lockdown', requireAdmin, async (req, res) => {
+    try {
+      releaseLockdown();
+      res.json({ success: true, message: 'Emergency security lockdown released successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/trigger-lockdown', requireAdmin, async (req, res) => {
+    const { reason } = req.body;
+    try {
+      triggerLockdown(reason || 'Manual lockdown triggered by administrator');
+      res.json({ success: true, message: 'Emergency security lockdown initiated.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.get('/api/admin/security-logs', requireAdmin, async (req, res) => {
     const { limit = 100, type } = req.query;
     try {
@@ -8898,6 +9179,17 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
          };
       });
       res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/reveal-pii', requireAdmin, async (req, res) => {
+    try {
+      const adminId = (req as any).user?.id || 'unknown';
+      const adminEmail = (req as any).user?.email || 'unknown';
+      await logAudit(adminId, 'REVEAL_PII_LOGS', 'SECURITY_SYSTEM', 'security_logs', { adminEmail, reason: req.body?.reason || 'Ad-hoc forensic investigation' }, req);
+      res.json({ success: true, message: 'PII access logged successfully' });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }

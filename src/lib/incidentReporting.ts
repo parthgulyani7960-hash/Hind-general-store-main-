@@ -111,7 +111,8 @@ export class ErrorReportingService {
     // Global uncaught JS exceptions
     window.addEventListener('error', (event) => {
       try {
-        if (event.message?.includes('ResizeObserver') || event.message?.includes('Extension')) {
+        const msg = (event.message || '').toLowerCase();
+        if (msg.includes('resizeobserver') || msg.includes('extension') || msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
           return;
         }
         
@@ -152,8 +153,12 @@ export class ErrorReportingService {
       try {
         const reason = event.reason;
         const error: any = reason instanceof Error ? reason : {};
-        const name = error.name || 'PromiseRejection';
         const message = reason instanceof Error ? reason.message : String(reason);
+        const msgLower = (message || '').toLowerCase();
+        if (msgLower.includes('websocket') || msgLower.includes('vite') || msgLower.includes('hmr') || msgLower.includes('closed without opened')) {
+          return;
+        }
+        const name = error.name || 'PromiseRejection';
         const stack = reason instanceof Error ? reason.stack : undefined;
         const route = window.location.pathname;
 

@@ -11,6 +11,7 @@ import { signInWithGoogle, handleAuthError } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { triggerFeedback } from '@/lib/feedback';
+import { securityService } from '@/services/securityService';
 
 /**
  * Premium, High-Fidelity Login View for Hind Store
@@ -108,6 +109,7 @@ export default function Login() {
         const msg = data?.message || 'Access request was declined by server.';
         setAuthError(msg);
         toast.error(msg, { id: 'auth-loader' });
+        securityService.trackAuth('failed_login', { email: 'Unknown (Declined)' });
       }
     } catch (err: any) {
       toast.dismiss('auth-loader');
@@ -115,6 +117,7 @@ export default function Login() {
       const errorMessage = handleAuthError(err);
       setAuthError(errorMessage);
       toast.error(`${errorMessage} Please try again.`);
+      securityService.trackAuth('failed_login', { email: 'Unknown (Google Exception)' });
     } finally {
       setLoading(false);
     }

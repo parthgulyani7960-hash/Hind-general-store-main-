@@ -320,7 +320,7 @@ export default function UserActivity() {
                       <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-50">
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-black text-stone-900 uppercase tracking-tight">#{String(o.id).slice(-6).toUpperCase()}</span>
+                            <span className="text-[10px] font-black text-stone-900 uppercase tracking-tight">#{o.order_id || String(o.id).slice(-6).toUpperCase()}</span>
                             <button 
                               onClick={() => {
                                 navigator.clipboard.writeText(String(o.id));

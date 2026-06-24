@@ -43,7 +43,7 @@ export default function ProductDetail() {
   const [addingToCart, setAddingToCart] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config = [], isSyncingCart } = useStore();
+  const { addToCart, user, cart, updateQuantity, bulkDiscounts, getProductPrice, simulatedRole, wishlist, toggleWishlist, t, config = [], isSyncingCart, trackProductAccess, getCachedProduct } = useStore();
   const showImages = (config || []).find(c => c.key === 'feature_show_product_images')?.value !== 'false';
   const navigate = useNavigate();
   const activeRole = simulatedRole || user?.role;
@@ -106,6 +106,7 @@ export default function ProductDetail() {
       .then(data => {
         if (data) {
           setProduct(data);
+          trackProductAccess(data);
           if (window.location.hash === '#reviews') {
             setTimeout(() => {
               const el = document.getElementById('reviews');
@@ -114,10 +115,24 @@ export default function ProductDetail() {
           } else {
             window.scrollTo({ top: 0, behavior: 'instant' });
           }
+        } else {
+          // If response is empty or null, check if cached is available
+          const cached = getCachedProduct(id);
+          if (cached) {
+            setProduct(cached);
+            toast.success('Viewing cached offline product details');
+          }
         }
       })
       .catch(err => {
-        console.error(err);
+        console.error('Failed to fetch product details, trying cache fallback:', err);
+        const cached = getCachedProduct(id);
+        if (cached) {
+          setProduct(cached);
+          toast.success('Viewing cached offline product details');
+        } else {
+          toast.error('Product details unavailable offline');
+        }
       })
       .finally(() => setLoading(false));
   };

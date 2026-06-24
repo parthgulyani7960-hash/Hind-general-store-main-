@@ -14,6 +14,9 @@ const FEATURES = [
   { key: 'feature_wholesaler_enabled', label: 'Wholesaler Module', description: 'Enable the wholesaler B2B dashboard and features.' },
   { key: 'feature_bulk_discount_enabled', label: 'Bulk Discount Module', description: 'Allow setting tiered pricing for bulk orders.' },
   { key: 'feature_khata_enabled', label: 'Khata System (Credit)', description: 'Enable credit management for trusted customers.' },
+  { key: 'feature_top_bar_enabled', label: 'Top Promotion Bar', description: 'Enable or disable the animated ticker bar at the very top.' },
+  { key: 'feature_announcement_bar_enabled', label: 'Announcement Bar', description: 'Enable or disable the global announcement bar.' },
+  { key: 'feature_promotions_page_enabled', label: 'Promotions Page Active', description: 'If disabled, users see a "Coming Soon" message on the promotions page.' },
   { key: 'feature_delivery_areas_enabled', label: 'Delivery Areas (Zones)', description: 'Restrict services based on geographic zones.' },
   { key: 'feature_show_product_images', label: 'Display Product Images', description: 'Enable or disable the display of product images across the site.' },
 ];
