@@ -66,8 +66,14 @@ export default function AdminStatCard({
 
   const trendColors = trend?.isUp ? 'text-emerald-500' : (trend?.color || 'text-red-500');
 
+const cardVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.5 } }
+  };
+
   return (
     <motion.div 
+      variants={cardVariants}
       whileHover={onClick ? { y: -5 } : {}}
       onClick={onClick}
       className={cn(

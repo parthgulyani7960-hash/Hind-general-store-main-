@@ -16,13 +16,26 @@ export default function OverviewMetricsGrid({ stats }: OverviewMetricsGridProps)
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <motion.div 
+      initial="hidden"
+      animate="show"
+      variants={{
+        hidden: { opacity: 0 },
+        show: {
+          opacity: 1,
+          transition: {
+            staggerChildren: 0.1
+          }
+        }
+      }}
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+    >
       {metrics.map((stat, i) => (
         <motion.div 
           key={i}
           variants={{
             hidden: { opacity: 0, y: 20 },
-            show: { opacity: 1, y: 0 }
+            show: { opacity: 1, y: 0, transition: { duration: 0.5 } }
           }}
           whileHover={{ y: -5 }}
           className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 transition-all group relative overflow-hidden"
@@ -48,6 +61,6 @@ export default function OverviewMetricsGrid({ stats }: OverviewMetricsGridProps)
           <h3 className="text-3xl font-black text-stone-900 tracking-tighter">{stat.value}</h3>
         </motion.div>
       ))}
-    </div>
+    </motion.div>
   );
 }

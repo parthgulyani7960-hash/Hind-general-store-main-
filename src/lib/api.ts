@@ -72,8 +72,8 @@ const fetchWithHandlingInternal = async <T>(
     clearTimeout(timeoutId);
     window.dispatchEvent(new CustomEvent('api_loading_stop'));
     
-    // Diagnostic logging for profile endpoint
-    if (url.includes('/api/user/profile')) {
+    // Diagnostic logging for all admin requests or errors
+    if (url.includes('/api/admin') || !res.ok) {
       window.dispatchEvent(new CustomEvent('diagnostic_api_log', {
         detail: {
           url,
@@ -234,20 +234,18 @@ const fetchWithHandlingInternal = async <T>(
     }
     logger.error(`API Error [${url}]`, err);
     
-    // Diagnostic logging for profile endpoint network error
-    if (url.includes('/api/user/profile')) {
-      window.dispatchEvent(new CustomEvent('diagnostic_api_log', {
-        detail: {
-          url,
-          method: options.method || 'GET',
-          status: err.status || 0,
-          statusText: 'Network Error',
-          ok: false,
-          error: err.message,
-          timestamp: new Date().toISOString()
-        }
-      }));
-    }
+    // Diagnostic logging for error
+    window.dispatchEvent(new CustomEvent('diagnostic_api_log', {
+      detail: {
+        url,
+        method: options.method || 'GET',
+        status: err.status || 0,
+        statusText: 'Network Error',
+        ok: false,
+        error: err.message,
+        timestamp: new Date().toISOString()
+      }
+    }));
     
     // Check if it's a network offline/unreachable error
     const isNetworkError = err instanceof TypeError || 

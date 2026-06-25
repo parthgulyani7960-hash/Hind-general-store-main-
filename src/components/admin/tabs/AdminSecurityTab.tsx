@@ -25,7 +25,9 @@ import {
   SearchCode,
   SlidersHorizontal,
   FileJson,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Wrench,
+  Network
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -54,11 +56,12 @@ export default function AdminSecurityTab({
 }: AdminSecurityTabProps) {
   
   // Tab states
-  const [activeSubTab, setActiveSubTab] = useState<'events' | 'logins' | 'actions' | 'diagnostics'>('events');
+  const [activeSubTab, setActiveSubTab] = useState<'events' | 'logins' | 'actions' | 'diagnostics' | 'command'>('events');
   
   // Data States
   const [securityLogs, setSecurityLogs] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [securityStatus, setSecurityStatus] = useState<any>(null);
   
   // PII Privacy States
   const [revealSensitiveData, setRevealSensitiveData] = useState(false);
@@ -68,8 +71,10 @@ export default function AdminSecurityTab({
   
   // Status check states
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+  const [isLockingDown, setIsLockingDown] = useState(false);
+
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [logLimit, setLogLimit] = useState<number>(100);
@@ -84,6 +89,97 @@ export default function AdminSecurityTab({
     anomaliesResolved: 0
   });
 
+  // Command center actions
+  const fetchSecurityStatus = async () => {
+    setLoadingStatus(true);
+    try {
+      const data = await fetchWithHandling<any>('/api/admin/security/status', {
+        headers: getAuthHeaders()
+      });
+      if (data && data.success) {
+        setSecurityStatus(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch security status:', err);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  const handleTriggerLockdown = async () => {
+    const reason = window.prompt('Enter emergency lockdown reason (will be visible to users):', 'Emergency security maintenance in progress');
+    if (reason === null) return;
+
+    setIsLockingDown(true);
+    try {
+      const res = await fetchWithHandling<any>('/api/admin/security/trigger-lockdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ reason })
+      });
+      if (res && res.success) {
+        toast.success('SECURITY LOCKDOWN ENFORCED SUCCESSFULLY');
+        fetchSecurityStatus();
+      }
+    } catch (err: any) {
+      toast.error('Failed to initiate lockdown: ' + err.message);
+    } finally {
+      setIsLockingDown(false);
+    }
+  };
+
+  const handleReleaseLockdown = async () => {
+    if (!window.confirm('Are you sure you want to release the emergency lockdown?')) return;
+    
+    try {
+      const res = await fetchWithHandling<any>('/api/admin/security/release-lockdown', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (res && res.success) {
+        toast.success('Security lockdown released. Systems operational.');
+        fetchSecurityStatus();
+      }
+    } catch (err: any) {
+      toast.error('Failed to release lockdown: ' + err.message);
+    }
+  };
+
+  const handleBlockIp = async (ip: string) => {
+    const duration = window.prompt(`Enter block duration for ${ip} (in minutes):`, '60');
+    if (duration === null) return;
+    
+    try {
+      const res = await fetchWithHandling<any>('/api/admin/security/block-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ ip, duration: parseInt(duration) })
+      });
+      if (res && res.success) {
+        toast.success(`IP ${ip} blocked successfully.`);
+        fetchSecurityStatus();
+      }
+    } catch (err: any) {
+      toast.error('Failed to block IP: ' + err.message);
+    }
+  };
+
+  const handleUnblockIp = async (ip: string) => {
+    try {
+      const res = await fetchWithHandling<any>('/api/admin/security/unblock-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ ip })
+      });
+      if (res && res.success) {
+        toast.success(`IP ${ip} unblocked.`);
+        fetchSecurityStatus();
+      }
+    } catch (err: any) {
+      toast.error('Failed to unblock IP: ' + err.message);
+    }
+  };
+  
   // Fetch security event logs from the server
   const fetchSecurityLogsFromServer = async () => {
     try {
@@ -149,6 +245,14 @@ export default function AdminSecurityTab({
   useEffect(() => {
     syncLogs();
   }, [logLimit, eventTypeFilter, actionTypeFilter]);
+
+  useEffect(() => {
+    if (activeSubTab === 'command') {
+      fetchSecurityStatus();
+      const interval = setInterval(fetchSecurityStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeSubTab]);
 
   // Recalculate quick stats dynamically whenever logs change
   useEffect(() => {
@@ -513,6 +617,7 @@ export default function AdminSecurityTab({
       {/* Sub-Tabs Grid Navigation */}
       <div className="bg-stone-100 p-1.5 rounded-2xl w-fit flex flex-wrap gap-1.5 border border-stone-200/50">
         {[
+          { id: 'command', label: 'Command Center', icon: <ShieldAlert size={16} /> },
           { id: 'events', label: 'Security Events', icon: <Fingerprint size={16} /> },
           { id: 'logins', label: 'Login History', icon: <HistoryIcon size={16} /> },
           { id: 'actions', label: 'Action Audits', icon: <Activity size={16} /> },
@@ -658,6 +763,329 @@ export default function AdminSecurityTab({
         ) : (
           <AnimatePresence mode="wait">
             
+            {/* SUB-TAB 0: COMMAND CENTER (High Security Panels) */}
+            {activeSubTab === 'command' && (
+              <motion.div
+                key="command"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                className="p-8 space-y-8"
+              >
+                {/* 1. Global Security Status Bar */}
+                <div className={cn(
+                  "p-8 rounded-[2rem] border-2 flex flex-col md:flex-row items-center justify-between gap-6 transition-all duration-500",
+                  securityStatus?.ids?.threatLevel === 'CRITICAL' || securityStatus?.ids?.isMaintenanceMode
+                    ? "bg-red-50 border-red-500 shadow-[0_0_40px_rgba(239,68,68,0.2)]" 
+                    : securityStatus?.ids?.threatLevel === 'HIGH'
+                    ? "bg-amber-50 border-amber-500"
+                    : "bg-emerald-50 border-emerald-500"
+                )}>
+                  <div className="flex items-center gap-6">
+                    <div className={cn(
+                      "w-20 h-20 rounded-3xl flex items-center justify-center shadow-lg",
+                      securityStatus?.ids?.threatLevel === 'CRITICAL' || securityStatus?.ids?.isMaintenanceMode
+                        ? "bg-red-500 text-white animate-pulse" 
+                        : securityStatus?.ids?.threatLevel === 'HIGH'
+                        ? "bg-amber-500 text-white"
+                        : "bg-emerald-500 text-white"
+                    )}>
+                      {securityStatus?.ids?.isMaintenanceMode ? <ShieldAlert size={40} /> : <ShieldCheck size={40} />}
+                    </div>
+                    <div>
+                      <h3 className="text-3xl font-black text-stone-900 tracking-tight flex items-center gap-3">
+                        System Security Posture: {securityStatus?.ids?.threatLevel || 'SECURE'}
+                        {securityStatus?.ids?.isMaintenanceMode && (
+                          <span className="text-xs bg-red-600 text-white px-3 py-1 rounded-full uppercase tracking-widest font-black animate-bounce">
+                            Live Lockdown
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-stone-500 font-medium text-lg">
+                        {securityStatus?.ids?.isMaintenanceMode 
+                          ? `Reason: ${securityStatus?.ids?.maintenanceReason || 'Manual Emergency Override'}`
+                          : "Real-time IDS monitoring active. All nodes reporting normal operation."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {securityStatus?.ids?.isMaintenanceMode ? (
+                      <button 
+                        onClick={handleReleaseLockdown}
+                        className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase tracking-wider shadow-xl shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-2"
+                      >
+                        <RefreshCw size={18} />
+                        Release Lockdown
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleTriggerLockdown}
+                        className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-wider shadow-xl shadow-red-600/20 transition-all active:scale-95 flex items-center gap-2"
+                        disabled={isLockingDown}
+                      >
+                        <ShieldAlert size={18} />
+                        {isLockingDown ? 'Initiating...' : 'Trigger Lockdown'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Grid of Insight Panels */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 text-left">
+                  
+                  {/* IDS & Threat Metrics */}
+                  <div className="bg-white border border-stone-200 rounded-[2.5rem] overflow-hidden flex flex-col shadow-sm">
+                    <div className="p-6 border-b border-stone-100 bg-stone-50/50 flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-stone-900 flex items-center gap-2">
+                        <Activity size={16} className="text-indigo-500" />
+                        IDS Threat Metrics
+                      </h4>
+                      <span className="text-[10px] font-black text-stone-400">REAL-TIME</span>
+                    </div>
+                    <div className="p-8 space-y-6 flex-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-bold text-stone-500">Active Threat Score</span>
+                        <span className={cn(
+                          "text-2xl font-black font-mono",
+                          (securityStatus?.ids?.totalThreatScore || 0) > 0 ? "text-amber-600" : "text-emerald-600"
+                        )}>
+                          {securityStatus?.ids?.totalThreatScore || 0}
+                        </span>
+                      </div>
+                      <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                        <motion.div 
+                          className="h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-red-500"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(100, (securityStatus?.ids?.totalThreatScore || 0))}%` }}
+                        />
+                      </div>
+                      
+                      <div className="space-y-4 pt-4">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-stone-400 uppercase">Anomalous Nodes</span>
+                          <span className="font-black text-stone-900">{securityStatus?.ids?.activeIncidents || 0} IPs</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-stone-400 uppercase">Score Thresholds</span>
+                          <span className="font-black text-stone-900">
+                            {securityStatus?.ids?.scoreLimits?.SUSPICIOUS} / {securityStatus?.ids?.scoreLimits?.BLOCKED} / {securityStatus?.ids?.scoreLimits?.CRITICAL}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System Integrity Panel */}
+                  <div className="bg-white border border-stone-200 rounded-[2.5rem] overflow-hidden flex flex-col shadow-sm">
+                    <div className="p-6 border-b border-stone-100 bg-stone-50/50 flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-stone-900 flex items-center gap-2">
+                        <Network size={16} className="text-blue-500" />
+                        Core Integrity Scan
+                      </h4>
+                      <div className="flex items-center gap-1.5">
+                        <div className={cn("w-2 h-2 rounded-full", securityStatus?.integrity?.valid ? "bg-emerald-500" : "bg-red-500")} />
+                        <span className="text-[10px] font-black text-stone-400">CONTINUOUS</span>
+                      </div>
+                    </div>
+                    <div className="p-8 space-y-4 flex-1">
+                      <div className="space-y-3">
+                        {securityStatus?.integrity?.checkedFiles?.map((file: string) => (
+                          <div key={file} className="flex items-center justify-between text-xs p-3 bg-stone-50 rounded-xl border border-stone-100">
+                            <span className="font-mono text-stone-500">{file}</span>
+                            <span className="text-emerald-600 font-black uppercase tracking-widest flex items-center gap-1">
+                              <CheckCircle2 size={10} /> VERIFIED
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {!securityStatus?.integrity?.valid && (
+                        <div className="mt-4 p-4 bg-red-50 rounded-2xl border border-red-100 space-y-2">
+                          <p className="text-[10px] font-black text-red-800 uppercase tracking-widest flex items-center gap-2">
+                            <AlertCircle size={14} /> Integrity Breach Detected
+                          </p>
+                          <ul className="text-[10px] text-red-600 font-bold space-y-1">
+                            {securityStatus?.integrity?.errors?.map((err: string, i: number) => (
+                              <li key={i}>• {err}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Manual Intervention */}
+                  <div className="bg-white border border-stone-200 rounded-[2.5rem] overflow-hidden flex flex-col shadow-sm">
+                    <div className="p-6 border-b border-stone-100 bg-stone-50/50 flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-stone-900 flex items-center gap-2">
+                        <Wrench size={16} className="text-amber-500" />
+                        Manual Intervention
+                      </h4>
+                    </div>
+                    <div className="p-8 space-y-4 flex-1">
+                      <p className="text-xs text-stone-500 font-medium leading-relaxed">
+                        Manually override security protocols or force isolation of suspicious network nodes.
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 pt-2">
+                        <button 
+                          onClick={() => {
+                            const ip = window.prompt('Enter IP address to block:');
+                            if (ip) handleBlockIp(ip);
+                          }}
+                          className="w-full py-4 px-6 bg-stone-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-stone-800 transition-all flex items-center justify-center gap-2"
+                        >
+                          <XCircle size={14} /> Block Specific IP Node
+                        </button>
+                        <button 
+                          onClick={runWalletDiagnostics}
+                          disabled={loadingDiagnostics}
+                          className="w-full py-4 px-6 bg-white border border-stone-200 text-stone-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-stone-50 transition-all flex items-center justify-center gap-2"
+                        >
+                          <SearchCode size={14} /> 
+                          {loadingDiagnostics ? 'Scanning...' : 'Deep Integrity Scan'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Database Shield Panel */}
+                  <div className="bg-stone-900 text-white rounded-[2.5rem] overflow-hidden flex flex-col shadow-xl">
+                    <div className="p-6 border-b border-white/10 bg-white/5 flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                        <Database size={16} className="text-blue-400" />
+                        Database Shield
+                      </h4>
+                      <span className="text-[10px] font-black text-emerald-400">HARDENED</span>
+                    </div>
+                    <div className="p-8 space-y-5 flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-400">Read-Only Mode</span>
+                        <div className="w-10 h-5 bg-stone-800 rounded-full flex items-center px-0.5 cursor-pointer">
+                           <div className="w-4 h-4 bg-stone-600 rounded-full" />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-400">Query Sanitization</span>
+                        <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">ENABLED</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-400">Auto-Backup Frequency</span>
+                        <span className="text-[10px] font-black text-stone-200 uppercase tracking-widest">EVERY 4H</span>
+                      </div>
+                      <div className="pt-4">
+                        <button className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all">
+                          Force Cloud Snapshot
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Real-time Threat Tracker (IP Table) */}
+                <div className="bg-white border border-stone-200 rounded-[2.5rem] overflow-hidden shadow-sm text-left">
+                  <div className="p-8 border-b border-stone-100 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-black text-stone-900 tracking-tight">Anomalous Network Node Activity</h4>
+                      <p className="text-sm text-stone-500 font-medium">Real-time telemetry from detected threat actors and suspicious origins.</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                       <span className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Active Nodes:</span>
+                       <span className="text-xl font-black text-stone-950">{(securityStatus?.ids?.ipTrackers || []).length}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-stone-50 text-[10px] font-black text-stone-400 uppercase tracking-widest border-b border-stone-100">
+                        <tr>
+                          <th className="px-8 py-5">Node IP Origin</th>
+                          <th className="px-6 py-5">Threat Score</th>
+                          <th className="px-6 py-5">Incidents Breakdown</th>
+                          <th className="px-6 py-5">Current Status</th>
+                          <th className="px-8 py-5 text-right">Intervention</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {(!securityStatus?.ids?.ipTrackers || securityStatus.ids.ipTrackers.length === 0) ? (
+                          <tr>
+                            <td colSpan={5} className="px-8 py-20 text-center text-stone-400 font-bold uppercase tracking-widest text-xs italic">
+                              All external nodes reporting zero threat level. Global perimeter secure.
+                            </td>
+                          </tr>
+                        ) : (
+                          securityStatus.ids.ipTrackers.sort((a: any, b: any) => b.score - a.score).map((tracker: any) => (
+                            <tr key={tracker.ip} className={cn("hover:bg-stone-50/50 transition-colors", tracker.blocked && "bg-red-50/20")}>
+                              <td className="px-8 py-6 font-mono text-xs font-black text-stone-800">
+                                {formatIpAddress(tracker.ip)}
+                              </td>
+                              <td className="px-6 py-6">
+                                <div className="flex items-center gap-3">
+                                  <span className={cn(
+                                    "text-lg font-black font-mono",
+                                    tracker.score >= 50 ? "text-red-600" : "text-amber-600"
+                                  )}>
+                                    {tracker.score}
+                                  </span>
+                                  <div className="w-24 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                                    <div 
+                                      className={cn("h-full", tracker.score >= 50 ? "bg-red-500" : "bg-amber-500")}
+                                      style={{ width: `${Math.min(100, tracker.score)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-6">
+                                <div className="flex flex-wrap gap-2">
+                                  {tracker.failedLogins > 0 && <span className="px-2 py-0.5 bg-stone-100 text-stone-600 text-[9px] font-black rounded uppercase">Login: {tracker.failedLogins}</span>}
+                                  {tracker.injectionAttempts > 0 && <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[9px] font-black rounded uppercase">Injection: {tracker.injectionAttempts}</span>}
+                                  {tracker.unauthorizedAttempts > 0 && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black rounded uppercase">Auth: {tracker.unauthorizedAttempts}</span>}
+                                </div>
+                              </td>
+                              <td className="px-6 py-6">
+                                {tracker.blocked ? (
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] font-black text-red-600 uppercase tracking-widest flex items-center gap-1">
+                                      <Lock size={10} /> Blacklisted
+                                    </span>
+                                    <span className="text-[9px] font-bold text-stone-400">
+                                      Expires in {Math.round(tracker.blockedRemainingMs / 60000)}m
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1">
+                                    <Globe size={10} /> Monitored
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-8 py-6 text-right">
+                                {tracker.blocked ? (
+                                  <button 
+                                    onClick={() => handleUnblockIp(tracker.ip)}
+                                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                                    title="Unblock Node"
+                                  >
+                                    <UserCheck size={18} />
+                                  </button>
+                                ) : (
+                                  <button 
+                                    onClick={() => handleBlockIp(tracker.ip)}
+                                    className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                    title="Block Node"
+                                  >
+                                    <UserX size={18} />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* SUB-TAB 1: SECURITY EVENTS */}
             {activeSubTab === 'events' && (
               <motion.div

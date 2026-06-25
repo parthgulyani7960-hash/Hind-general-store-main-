@@ -89,7 +89,18 @@ export default function OverviewTab({
         </div>
 
         {/* Core Operational metrics Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <motion.div 
+          variants={{
+            hidden: { opacity: 0 },
+            show: {
+              opacity: 1,
+              transition: {
+                staggerChildren: 0.1
+              }
+            }
+          }}
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+        >
           {loading ? (
             [...Array(4)].map((_, i) => <StatSkeleton key={i} />)
           ) : [
@@ -110,7 +121,7 @@ export default function OverviewTab({
               />
             );
           })}
-        </div>
+        </motion.div>
 
         <section className="bg-stone-50 p-10 rounded-[3rem] border border-dashed border-stone-200">
            <div className="flex items-center space-x-4 mb-8">

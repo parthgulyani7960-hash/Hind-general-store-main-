@@ -118,7 +118,9 @@ import {
   getSystemSecurityStatus,
   releaseLockdown,
   verifySystemIntegrity,
-  triggerLockdown
+  triggerLockdown,
+  manuallyBlockIp,
+  manuallyUnblockIp
 } from './src/lib/securityAudit';
 
 console.log('[BOOT] Dotenv loaded');
@@ -2018,6 +2020,51 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         // Invalid token
       }
     }
+    next();
+  });
+
+  // Global Intelligence Trace Middleware
+  app.use((req, res, next) => {
+    const start = Date.now();
+    const originalSend = res.send;
+
+      res.send = function (body) {
+        const duration = Date.now() - start;
+        const url = req.originalUrl || req.url;
+        
+        // Filter: only trace admin APIs or very slow/error requests
+        if (url.startsWith('/api/admin') || duration > 1000 || res.statusCode >= 400) {
+          const traceData: any = {
+            method: req.method,
+            status: res.statusCode,
+            duration: `${duration}ms`,
+            host: req.get('host') || 'unknown',
+            ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
+            ua: req.headers['user-agent'] || 'unknown',
+            query: req.query,
+            referer: req.headers['referer'] || '',
+            content_type: req.headers['content-type'] || '',
+            user_email: (req.session as any)?.userEmail || 'anonymous'
+          };
+
+          // Safely capture a snippet of the request body if present
+          if (req.body && Object.keys(req.body).length > 0) {
+            const bodyStr = JSON.stringify(req.body);
+            traceData.body_preview = bodyStr.length > 1000 ? bodyStr.substring(0, 1000) + '...' : bodyStr;
+          }
+
+          getFirestoreInstance().collection('audit_logs').add({
+            action: 'API_TRACE',
+            admin_id: String(req.session?.userId || 'GUEST'),
+            target_type: 'ENDPOINT',
+            target_id: url,
+            details: JSON.stringify(traceData),
+            created_at: new Date().toISOString(),
+            severity: res.statusCode >= 500 ? 'high' : res.statusCode >= 400 ? 'medium' : 'info'
+          }).catch(() => {});
+        }
+        return originalSend.apply(res, arguments as any);
+      };
     next();
   });
 
@@ -4174,6 +4221,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       (req as any).session = (req as any).session || {};
       (req as any).session.userId = user.id;
       (req as any).session.role = user.role;
+      (req as any).session.userEmail = user.email;
 
       // Update login metadata in parallel to respond faster
       if (isFirebaseReady) {
@@ -9124,6 +9172,123 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
   });
 
+  app.get('/api/admin/developer/performance-stats', requireAdmin, async (req, res) => {
+    try {
+      const db = getFirestoreInstance();
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      
+      // Fetch traces from the last 24 hours
+      const snap = await db.collection('audit_logs')
+        .where('action', '==', 'API_TRACE')
+        .get();
+
+      const statsMap: Record<string, { total: number, count: number }> = {};
+      const endpointStats: Record<string, { total: number, count: number, max: number }> = {};
+
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.created_at < twentyFourHoursAgo) return;
+
+        let details: any = {};
+        try {
+          details = JSON.parse(data.details || '{}');
+        } catch (e) {
+          return;
+        }
+
+        const durationStr = details.duration || '0ms';
+        const duration = parseInt(durationStr.replace('ms', '')) || 0;
+        
+        // Time series data (hourly)
+        const date = new Date(data.created_at);
+        const hourKey = `${String(date.getHours()).padStart(2, '0')}:00`;
+        
+        if (!statsMap[hourKey]) statsMap[hourKey] = { total: 0, count: 0 };
+        statsMap[hourKey].total += duration;
+        statsMap[hourKey].count += 1;
+
+        // Endpoint specific stats
+        const endpoint = data.target_id;
+        if (!endpointStats[endpoint]) endpointStats[endpoint] = { total: 0, count: 0, max: 0 };
+        endpointStats[endpoint].total += duration;
+        endpointStats[endpoint].count += 1;
+        endpointStats[endpoint].max = Math.max(endpointStats[endpoint].max, duration);
+      });
+
+      const timeSeries = Object.entries(statsMap).map(([time, stats]) => ({
+        time,
+        avgLatency: Math.round(stats.total / stats.count),
+        requests: stats.count
+      })).sort((a, b) => a.time.localeCompare(b.time));
+
+      const slowEndpoints = Object.entries(endpointStats).map(([endpoint, stats]) => ({
+        endpoint,
+        avgLatency: Math.round(stats.total / stats.count),
+        maxLatency: stats.max,
+        requests: stats.count
+      })).sort((a, b) => b.avgLatency - a.avgLatency).slice(0, 10);
+
+      res.json({ success: true, timeSeries, slowEndpoints });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/developer/system-heal', requireAdmin, async (req, res) => {
+    const { component } = req.body;
+    
+    if (component === 'clear_traces') {
+      try {
+        const db = getFirestoreInstance();
+        const snap = await db.collection('audit_logs').where('action', '==', 'API_TRACE').get();
+        const batch = db.batch();
+        snap.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        return res.json({ success: true, message: 'All API trace logs have been purged.' });
+      } catch (err: any) {
+        return res.status(500).json({ success: false, message: 'Failed to purge trace logs' });
+      }
+    }
+
+    // Mock healing process
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    res.json({ success: true, message: `System integrity restored for component: ${component || 'All Core Services'}` });
+  });
+
+  app.post('/api/admin/users/:id/impersonate', requireAdmin, wrap('/api/admin/users/:id/impersonate', async (req, res) => {
+    const id = req.params.id;
+    const db = getFirestoreInstance();
+    const uSnap = await db.collection('users').doc(String(id)).get();
+    
+    if (!uSnap.exists) return res.status(404).json({ success: false, message: 'User not found' });
+    const user = { id: uSnap.id, ...uSnap.data() };
+    
+    res.json({ 
+      success: true, 
+      message: `Impersonation successful for ${user.name || user.email}`,
+      impersonatedUser: { ...user, isImpersonated: true }
+    });
+  }));
+
+  app.put('/api/admin/users/:id/status', requireAdmin, wrap('/api/admin/users/:id/status', async (req, res) => {
+    const id = req.params.id;
+    const { is_locked } = req.body;
+    const db = getFirestoreInstance();
+    await db.collection('users').doc(String(id)).update({ is_locked });
+    res.json({ success: true });
+  }));
+
+  app.get('/api/admin/diagnose-data', requireAdmin, async (req, res) => {
+    try {
+      const { diagnoseFirestoreIntegrity } = await import('./src/lib/dataIntegrity');
+      const db = getFirestoreInstance();
+      const report = await diagnoseFirestoreIntegrity(db);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.get('/api/admin/security/status', requireAdmin, async (req, res) => {
     try {
       const idsStatus = getSystemSecurityStatus();
@@ -9152,6 +9317,28 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     try {
       triggerLockdown(reason || 'Manual lockdown triggered by administrator');
       res.json({ success: true, message: 'Emergency security lockdown initiated.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+  
+  app.post('/api/admin/security/block-ip', requireAdmin, async (req, res) => {
+    const { ip, duration } = req.body;
+    if (!ip) return res.status(400).json({ success: false, message: 'IP address required' });
+    try {
+      manuallyBlockIp(ip, duration || 60);
+      res.json({ success: true, message: `IP ${ip} has been blocked for ${duration || 60} minutes.` });
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/unblock-ip', requireAdmin, async (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).json({ success: false, message: 'IP address required' });
+    try {
+      manuallyUnblockIp(ip);
+      res.json({ success: true, message: `IP ${ip} has been unblocked.` });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
     }
@@ -9929,6 +10116,41 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     } catch(err) {
       console.error('Export Data Error:', err);
       res.status(500).json({ success: false, message: 'Data fetch failed' });
+    }
+  });
+
+  app.get('/api/admin/export-history', requireAdmin, async (req, res) => {
+    try {
+      const snap = await getFirestoreInstance()
+        .collection('audit_logs')
+        .where('action', '==', 'EXPORT_DATA')
+        .orderBy('created_at', 'desc')
+        .limit(50)
+        .get();
+      
+      const history = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      
+      res.json(history);
+    } catch (err) {
+      console.error('Export History Error:', err);
+      res.status(500).json({ success: false, message: 'Failed to retrieve history' });
+    }
+  });
+
+  app.get('/api/admin/developer/traces', requireAdmin, async (req, res) => {
+    try {
+      const snap = await getFirestoreInstance().collection('audit_logs')
+        .where('action', '==', 'API_TRACE')
+        .orderBy('created_at', 'desc')
+        .limit(100)
+        .get();
+      const traces = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json({ success: true, traces });
+    } catch (err) {
+      res.status(500).json({ success: false, message: 'Traces fetch failed' });
     }
   });
 

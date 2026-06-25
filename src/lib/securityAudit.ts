@@ -268,6 +268,41 @@ export function releaseLockdown() {
   console.log(`Security lockdown cleared by administrator.`);
 }
 
+/**
+ * Manually block an IP address
+ */
+export function manuallyBlockIp(ip: string, durationMinutes: number = 60) {
+  const now = Date.now();
+  let tracker = threatMap.get(ip);
+  if (!tracker) {
+    tracker = {
+      failedLogins: 0,
+      requestCount: 0,
+      unauthorizedAttempts: 0,
+      injectionAttempts: 0,
+      lastSeen: now,
+      score: SCORE_LIMITS.BLOCKED,
+    };
+    threatMap.set(ip, tracker);
+  } else {
+    tracker.score = Math.max(tracker.score, SCORE_LIMITS.BLOCKED);
+  }
+  tracker.blockedUntil = now + durationMinutes * 60 * 1000;
+  recalculateSystemThreatLevel();
+}
+
+/**
+ * Manually unblock an IP address
+ */
+export function manuallyUnblockIp(ip: string) {
+  const tracker = threatMap.get(ip);
+  if (tracker) {
+    tracker.blockedUntil = undefined;
+    tracker.score = 0;
+    recalculateSystemThreatLevel();
+  }
+}
+
 export function getSystemSecurityStatus() {
   let activeIncidents = 0;
   let totalScore = 0;

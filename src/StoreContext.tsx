@@ -93,6 +93,9 @@ interface StoreContextType {
   showImages: boolean;
   dbError: boolean;
   setDbError: (val: boolean) => void;
+  diagnosticLogs: any[];
+  runtimeErrors: any[];
+  clearDiagnostics: () => void;
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   fetchProducts: (params?: { page?: number; limit?: number; search?: string; category?: string; sortBy?: string; append?: boolean; minPrice?: string; maxPrice?: string; rating?: number | null; onSaleOnly?: boolean }) => Promise<number>;
@@ -149,6 +152,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [dbError, setDbError] = useState(false);
   const [isApiUp, setIsApiUp] = useState(true);
   const [startupPhase, setStartupPhase] = useState(1);
+  const [diagnosticLogs, setDiagnosticLogs] = useState<any[]>([]);
+  const [runtimeErrors, setRuntimeErrors] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem('hgs_categories');
@@ -254,6 +259,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      if (user) {
+        localStorage.setItem('hgs_user', JSON.stringify(user));
+        // If it's an impersonated user, we also need to set the token or handle it
+        if ((user as any).isImpersonated) {
+          // This is a bit of a hack for the demo
+          localStorage.setItem('hgs_token', 'impersonated_token');
+        }
+      } else {
+        localStorage.removeItem('hgs_user');
+      }
+    } catch {}
+  }, [user]);
 
   useEffect(() => {
     try {
@@ -1046,6 +1066,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, [user?.id, user?.role]);
 
+  const latestNotificationRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (notificationsList.length > 0) {
+      if (latestNotificationRef.current === null) {
+        latestNotificationRef.current = notificationsList[0].id;
+        return;
+      }
+      
+      const latest = notificationsList[0];
+      if (latest.id !== latestNotificationRef.current) {
+        if (latest.type === 'critical' || latest.priority === 'high') {
+          toast.error(latest.message || latest.title, { duration: 5000 });
+        }
+        latestNotificationRef.current = latest.id;
+      }
+    }
+  }, [notificationsList]);
+
   const [previousRole, setPreviousRole] = React.useState(user?.role || 'retailer');
   useEffect(() => {
     if (user && user.role === 'wholesaler' && previousRole !== 'wholesaler') {
@@ -1265,6 +1303,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [startupPhase]);
 
+  useEffect(() => {
+    const handleDiagnosticLog = (e: any) => {
+      setDiagnosticLogs(prev => [e.detail, ...prev].slice(0, 50));
+    };
+    const handleSystemError = (e: any) => {
+      setRuntimeErrors(prev => [e.detail, ...prev].slice(0, 50));
+    };
+
+    window.addEventListener('diagnostic_api_log', handleDiagnosticLog);
+    window.addEventListener('system_error', handleSystemError);
+
+    return () => {
+      window.removeEventListener('diagnostic_api_log', handleDiagnosticLog);
+      window.removeEventListener('system_error', handleSystemError);
+    };
+  }, []);
+
   // 4. Context Provider
   const contextValue = React.useMemo(() => ({
     user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout, performLogout, showLogoutDialog, setShowLogoutDialog,
@@ -1279,6 +1334,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
     isAuthChecking, isRevalidating, setIsRevalidating, isInitialAuthPerformed, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError,
+    diagnosticLogs, runtimeErrors,
+    clearDiagnostics: () => {
+      setDiagnosticLogs([]);
+      setRuntimeErrors([]);
+    },
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError,
     isApiUp, setIsApiUp,
@@ -1289,6 +1349,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     startupPhase
   }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notifications, vibration, sound,
+    diagnosticLogs, runtimeErrors,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements, prefetchProducts, prefetchProduct, trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts, startupPhase]);

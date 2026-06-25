@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { 
   Users, Search, RefreshCw, Eye, MoreVertical, 
   ShoppingBag, History, Plus, MessageCircle, Bell,
-  ShieldCheck, Clock, AlertCircle, IndianRupee, Activity, LayoutDashboard, Database
+  ShieldCheck, Clock, AlertCircle, IndianRupee, Activity, LayoutDashboard, Database,
+  UserX, LogIn, Unlock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatPhoneNumber } from '@/lib/utils';
 import ExportTriggerButton from '@/components/admin/ExportTriggerButton';
+import { useStore } from '@/StoreContext';
 
 interface CustomersTabProps {
     users: any[];
@@ -33,9 +35,48 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
     getAuthHeaders,
     toast
 }) => {
+    const { setUser } = useStore();
     const [customerSearchTerm, setCustomerSearchTerm] = useState('');
     const [selectedSegment, setSelectedSegment] = useState('all');
     const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
+
+    const handleImpersonate = async (user: any) => {
+      if (!window.confirm(`Are you sure you want to impersonate ${user.name}? This will switch your view to theirs.`)) return;
+      
+      try {
+        const res = await fetchWithHandling<any>(`/api/admin/users/${user.id}/impersonate`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res && res.success) {
+          toast.success(`Now viewing as ${user.name}`);
+          setUser(res.impersonatedUser);
+          // In a real app we might redirect to home
+          window.location.href = '/';
+        }
+      } catch (err: any) {
+        toast.error('Impersonation failed: ' + err.message);
+      }
+    };
+
+    const handleToggleLock = async (user: any) => {
+      const action = user.is_locked ? 'unlock' : 'lock';
+      if (!window.confirm(`Are you sure you want to ${action} ${user.name}'s account?`)) return;
+
+      try {
+        const res = await fetchWithHandling<any>(`/api/admin/users/${user.id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ is_locked: !user.is_locked })
+        });
+        if (res && res.success) {
+          toast.success(`Account ${user.is_locked ? 'unlocked' : 'locked'} successfully`);
+          setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_locked: !u.is_locked } : u));
+        }
+      } catch (err: any) {
+        toast.error('Failed to update account status');
+      }
+    };
 
     const displayPhoneNumber = (phone: string | null | undefined) => {
         return formatPhoneNumber(phone);
@@ -180,6 +221,23 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
                             </span>
                         </td>
                         <td className="px-8 py-6 text-right flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => handleToggleLock(u)}
+                            className={cn(
+                              "p-3 rounded-2xl transition-all",
+                              u.is_locked ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-stone-50 text-stone-500 hover:text-stone-900"
+                            )}
+                            title={u.is_locked ? 'Unlock Account' : 'Lock Account'}
+                          >
+                            {u.is_locked ? <Unlock size={18} /> : <UserX size={18} />}
+                          </button>
+                          <button 
+                            onClick={() => handleImpersonate(u)}
+                            className="p-3 bg-stone-50 text-stone-500 hover:text-indigo-600 rounded-2xl transition-all"
+                            title="Impersonate User"
+                          >
+                            <LogIn size={18} />
+                          </button>
                           <button 
                             onClick={() => setWalletModal({ open: true, user: u })}
                             className="p-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-2xl transition-all"

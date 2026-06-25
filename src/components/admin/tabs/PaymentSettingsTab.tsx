@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image as ImageIcon, Upload } from 'lucide-react';
 import { cn } from '@/types';
+import InfoButton from '@/components/InfoButton';
 
 interface PaymentSettingsTabProps {
   config: any[];
@@ -17,7 +18,13 @@ export default function PaymentSettingsTab({
     <div className="max-w-full overflow-x-hidden max-w-2xl space-y-6 font-sans pb-10 pr-2">
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-bold text-stone-900">UPI Payment Details</h3>
+          <div className="flex items-center">
+            <h3 className="text-xl font-bold text-stone-900">UPI Payment Details</h3>
+            <InfoButton 
+              title="UPI Integration"
+              content="Configure your Unified Payments Interface (UPI) identifiers. This data is used to generate QR codes and payment prompts for customers during checkout."
+            />
+          </div>
           <div className="flex items-center space-x-6">
             <div className="flex items-center space-x-2">
               <span className="text-xs font-bold text-stone-500 uppercase">Enable UPI</span>
@@ -39,7 +46,13 @@ export default function PaymentSettingsTab({
 
         <div className="space-y-4">
           <div className="bg-primary/5 p-4 rounded-2xl border border-primary/10 mb-4">
-            <label className="block text-xs font-black text-primary uppercase tracking-widest mb-2 text-left">Verification Mode</label>
+            <div className="flex items-center mb-2">
+              <label className="block text-xs font-black text-primary uppercase tracking-widest text-left">Verification Mode</label>
+              <InfoButton 
+                title="Verification Engine"
+                content="Choose between manual oversight where you verify every screenshot, or automated detection which uses advanced pattern matching to confirm payments."
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <button 
                 onClick={() => updateSetting('upi_verification_mode', 'manual')}

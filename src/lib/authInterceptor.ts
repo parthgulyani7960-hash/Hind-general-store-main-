@@ -2,8 +2,17 @@ import { auth, authReadyPromise } from '@/firebase';
 import { logger } from './logger';
 
 let refreshPromise: Promise<string | null> | null = null;
+let refreshAttemptCount = 0;
+const MAX_REFRESH_RETRIES = 1;
 
 const performRefresh = async (): Promise<string | null> => {
+    if (refreshAttemptCount >= MAX_REFRESH_RETRIES) {
+        logger.error('[AUTH] Max refresh retries reached');
+        refreshAttemptCount = 0;
+        return null;
+    }
+    refreshAttemptCount++;
+
     logger.info('[AUTH] Token refresh started, checking readiness...');
     let readinessTimeoutId: any = null;
     let tokenTimeoutId: any = null;
@@ -35,9 +44,11 @@ const performRefresh = async (): Promise<string | null> => {
 
             if (newToken) {
                 localStorage.setItem('hgs_token', newToken);
-                logger.info('[AUTH] Token refreshed successfully');
+                logger.info('[AUTH] Token refreshed successfully for user:', user.uid);
+                refreshAttemptCount = 0; // Reset on success
                 return newToken;
             }
+            logger.warn('[AUTH] No token returned for user:', user.uid);
             return null;
         } else {
             logger.warn('[AUTH] No user found for refresh');
@@ -46,19 +57,26 @@ const performRefresh = async (): Promise<string | null> => {
             return null;
         }
     } catch (err) {
-        logger.error('[AUTH] Token refresh failed:', err);
+        logger.error('[AUTH] Token refresh failed with error:', err);
         throw err;
     } finally {
         if (readinessTimeoutId) clearTimeout(readinessTimeoutId);
         if (tokenTimeoutId) clearTimeout(tokenTimeoutId);
-        refreshPromise = null;
     }
 };
 
 export const getOrRefreshToken = async (): Promise<string | null> => {
     if (refreshPromise) {
+        logger.info('[AUTH] Return existing refresh promise');
         return refreshPromise;
     }
+    
     refreshPromise = performRefresh();
-    return refreshPromise;
+    
+    try {
+        const token = await refreshPromise;
+        return token;
+    } finally {
+        refreshPromise = null;
+    }
 };

@@ -11,8 +11,6 @@ import MobileBottomNav from './components/MobileBottomNav';
 import BackToTop from './components/BackToTop';
 import AuthGuard from './components/AuthGuard';
 import { TopPromotionTicker } from './components/TopPromotionTicker';
-import { AdminDiagnosticPanel } from './components/AdminDiagnosticPanel';
-
 import { triggerFeedback } from './lib/feedback';
 export { triggerFeedback };
 import { useStore, StoreProvider } from './StoreContext';
@@ -349,6 +347,10 @@ function AppContent() {
        if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
          return;
        }
+       // Dispatch for DiagnosticsTab
+       window.dispatchEvent(new CustomEvent('system_error', {
+         detail: { type: 'Uncaught Exception', message: event.message, component: 'Window' }
+       }));
        errorService.report({
          type: ErrorType.SYSTEM_ERROR,
          message: event.message || 'Global Runtime Error',
@@ -362,6 +364,10 @@ function AppContent() {
        if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
          return;
        }
+       // Dispatch for DiagnosticsTab
+       window.dispatchEvent(new CustomEvent('system_error', {
+         detail: { type: 'Unhandled Rejection', message: event.reason?.message || String(event.reason), component: 'Promise' }
+       }));
        errorService.report({
          type: ErrorType.SYSTEM_ERROR,
          message: event.reason?.message || 'Unhandled Promise Rejection',
@@ -444,7 +450,6 @@ function AppContent() {
           <AnimatedRoutes />
         </main>
         {!hideFurniture && <MobileBottomNav />}
-        <AdminDiagnosticPanel />
         <Suspense fallback={<div className="p-4 text-center">Loading cart...</div>}>
           {!hideFurniture && <FloatingCart />}
         </Suspense>

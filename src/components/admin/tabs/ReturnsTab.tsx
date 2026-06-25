@@ -30,6 +30,9 @@ export default function ReturnsTab({
   const damagedCount = returns.filter(r => r.reason?.toLowerCase().includes('damaged')).length;
   const incorrectCount = returns.filter(r => r.reason?.toLowerCase().includes('incorrect')).length;
   const mindCount = returns.filter(r => r.reason?.toLowerCase().includes('mind') || r.reason?.toLowerCase().includes('change') || r.reason?.toLowerCase().includes('customer')).length;
+  
+  // Dynamic Score Calculation (Simulated weighted score)
+  const healthScore = Math.max(0, 100 - (damagedCount * 2) - (incorrectCount * 1)).toFixed(1);
 
   return (
     <div className="max-w-full overflow-x-hidden space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-10 pr-2">
@@ -45,8 +48,13 @@ export default function ReturnsTab({
            </div>
            <div className="w-px h-10 bg-stone-100" />
            <div className="flex flex-col items-start">
-             <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Health Score</span>
-             <span className="text-2xl font-black text-emerald-500">99.2%</span>
+             <span className="text-[10px] uppercase font-black text-stone-400 tracking-widest leading-none mb-1">Fulfillment Quality</span>
+             <span className={cn(
+               "text-2xl font-black transition-colors",
+               Number(healthScore) > 95 ? "text-emerald-500" : Number(healthScore) > 85 ? "text-amber-500" : "text-red-500"
+             )}>
+               {healthScore}%
+             </span>
            </div>
         </div>
       </header>

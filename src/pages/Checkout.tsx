@@ -234,11 +234,21 @@ export default function Checkout() {
   const steps = [
     { id: 1, label: 'Method' },
     { id: 2, label: 'Details' },
-    { id: 3, label: 'Review' },
-    { id: 4, label: 'Success' },
+    { id: 3, label: 'Payment' },
+    { id: 4, label: 'Review' },
+    { id: 5, label: 'Success' },
   ];
 
   const renderStep = () => {
+    const { config: storeConfig } = useStore();
+    const upiId = storeConfig?.find(c => c.key === 'upi_id')?.value;
+    const upiName = storeConfig?.find(c => c.key === 'upi_name')?.value;
+    const upiQr = storeConfig?.find(c => c.key === 'upi_qr')?.value;
+    const bankName = storeConfig?.find(c => c.key === 'bank_name')?.value;
+    const accHolder = storeConfig?.find(c => c.key === 'account_holder')?.value;
+    const accNumber = storeConfig?.find(c => c.key === 'account_number')?.value;
+    const ifscCode = storeConfig?.find(c => c.key === 'ifsc_code')?.value;
+
     if (errorHeader) return (
       <motion.div 
         initial={{ opacity: 0, y: 10 }}
@@ -736,9 +746,113 @@ export default function Checkout() {
           </div>
         );
 
-      case 3: return <div className="space-y-6">
+      case 3: 
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">3</div>
+              <h2 className="text-xl font-black tracking-tight text-stone-900">Payment Information</h2>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-stone-50 p-6 rounded-3xl border border-stone-100 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black text-stone-900 uppercase tracking-widest">UPI Payment</h3>
+                  <span className="text-[8px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-black uppercase">Instant</span>
+                </div>
+                
+                {upiQr && (
+                  <div className="flex justify-center py-2">
+                    <img src={upiQr} alt="Payment QR" className="w-48 h-48 object-contain rounded-2xl shadow-xl border-4 border-white" />
+                  </div>
+                )}
+                
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">UPI Identifier</p>
+                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-stone-100">
+                      <p className="text-xs font-black text-stone-900 truncate pr-2">{upiId || 'N/A'}</p>
+                      <button 
+                        onClick={() => {
+                          if (upiId) {
+                            navigator.clipboard.writeText(upiId);
+                            toast.success('UPI ID Copied');
+                          }
+                        }}
+                        className="text-[10px] font-black text-primary uppercase"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Receiver Name</p>
+                    <p className="text-xs font-bold text-stone-700">{upiName || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {(bankName || accNumber) && (
+                <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-sm">
+                  <h3 className="text-sm font-black text-stone-900 uppercase tracking-widest">Bank Transfer</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Bank Name</p>
+                      <p className="text-xs font-bold text-stone-900">{bankName || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">IFSC Code</p>
+                      <p className="text-xs font-bold text-stone-900 uppercase">{ifscCode || 'N/A'}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Account Number</p>
+                      <div className="flex items-center justify-between bg-stone-50 p-3 rounded-xl border border-stone-100">
+                        <p className="text-xs font-mono font-black text-stone-900">{accNumber || 'N/A'}</p>
+                        <button 
+                          onClick={() => {
+                            if (accNumber) {
+                              navigator.clipboard.writeText(accNumber);
+                              toast.success('Acc Number Copied');
+                            }
+                          }}
+                          className="text-[10px] font-black text-primary uppercase"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Account Holder</p>
+                      <p className="text-xs font-bold text-stone-900">{accHolder || 'N/A'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Button 
+              variant="primary"
+              className="w-full p-5 rounded-2xl bg-stone-900 text-white font-black uppercase tracking-widest shadow-xl shadow-stone-900/10 active:scale-95 transition-all" 
+              onClick={() => {
+                triggerFeedback('medium');
+                setStep(4);
+              }}
+            >
+              Confirm Details & Proceed
+            </Button>
+            <Button 
+              variant="ghost"
+              className="w-full py-2 text-stone-400 font-extrabold uppercase text-[10px] tracking-widest" 
+              onClick={() => setStep(2)}
+            >
+              Go Back
+            </Button>
+          </div>
+        );
+
+      case 4: return <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">3</div>
+          <div className="w-8 h-8 bg-stone-900 text-white rounded-lg flex items-center justify-center font-black">4</div>
           <h2 className="text-xl font-black tracking-tight text-stone-900">Secure Order Review</h2>
         </div>
 
@@ -814,14 +928,14 @@ export default function Checkout() {
           <Button 
             variant="ghost"
             className="w-full py-4 text-stone-400 font-extrabold uppercase text-[10px] tracking-widest hover:text-stone-900" 
-            onClick={() => setStep(2)}
+            onClick={() => setStep(3)}
           >
-            Modify Details
+            Modify Payment/Details
           </Button>
         )}
       </div>;
 
-      case 4: return <motion.div 
+      case 5: return <motion.div 
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         className="space-y-8 text-center py-6"

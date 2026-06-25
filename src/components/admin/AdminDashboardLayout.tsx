@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Activity, Sparkles, Bell, RefreshCw } from 'lucide-react';
+import { Menu, Activity, Sparkles, Bell, RefreshCw, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
@@ -29,6 +29,10 @@ interface AdminDashboardLayoutProps {
   onRefresh?: () => void;
   isAutoRefresh?: boolean;
   setIsAutoRefresh?: (val: boolean) => void;
+  isMinimized: boolean;
+  setIsMinimized: (val: boolean) => void;
+  isMaintenance: boolean;
+  toggleMaintenance: () => Promise<void>;
 }
 
 /**
@@ -51,6 +55,8 @@ interface AdminDashboardLayoutProps {
  * @param onRefresh - Optional function to manually refresh dashboard data.
  * @param isAutoRefresh - Whether automated background polling is active.
  * @param setIsAutoRefresh - Function to toggle automated background polling.
+ * @param isMaintenance - Current maintenance mode status.
+ * @param toggleMaintenance - Function to toggle maintenance mode.
  */
 export default function AdminDashboardLayout({ 
   children, activeTab, setActiveTab, onPrefetchTab, user, logout, adminTheme, 
@@ -59,11 +65,14 @@ export default function AdminDashboardLayout({
   syncStatus = 'synced',
   onRefresh,
   isAutoRefresh,
-  setIsAutoRefresh
+  setIsAutoRefresh,
+  isMinimized,
+  setIsMinimized,
+  isMaintenance,
+  toggleMaintenance
 }: AdminDashboardLayoutProps) {
 
   const navigate = useNavigate();
-  const [isMinimized, setIsMinimized] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   const handleManualRefresh = async () => {
@@ -102,18 +111,19 @@ export default function AdminDashboardLayout({
 
   return (
     <div className={cn("h-full flex-1 flex overflow-hidden bg-stone-50", adminTheme)}>
-      <AdminSidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onPrefetchTab={onPrefetchTab}
-        user={user}
-        logout={logout}
-        isOpen={sidebarOpen}
-        setIsOpen={setSidebarOpen}
-        lowStockCount={stats?.lowStock || 0} 
-        newUserCount={stats?.newUserCount || 0}
-        isMinimized={isMinimized}
-      />
+        <AdminSidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onPrefetchTab={onPrefetchTab}
+          user={user}
+          logout={logout}
+          isOpen={sidebarOpen}
+          setIsOpen={setSidebarOpen}
+          lowStockCount={stats?.lowStock || 0} 
+          newUserCount={stats?.newUserCount || 0}
+          isMinimized={isMinimized}
+          setIsMinimized={setIsMinimized}
+        />
 
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative">
         <header className="h-24 bg-white border-b border-stone-100 flex items-center justify-between px-6 md:px-10 sticky top-0 z-40 w-full">
@@ -139,37 +149,11 @@ export default function AdminDashboardLayout({
           
           <div className="flex items-center gap-6">
             <div className="hidden lg:flex items-center gap-4 bg-stone-50 border border-stone-100 p-1.5 rounded-2xl">
-               <button 
-                 onClick={handleManualRefresh}
-                 disabled={isRefreshing}
-                 className={cn(
-                   "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95",
-                   isRefreshing ? "bg-stone-200 text-stone-400 cursor-not-allowed" : "bg-white text-stone-600 hover:text-stone-950 shadow-sm border border-stone-200"
-                 )}
-               >
-                 <RefreshCw size={12} className={cn(isRefreshing && "animate-spin")} />
-                 <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
-               </button>
-               
-               {setIsAutoRefresh && (
-                 <div className="flex items-center gap-3 px-3">
-                   <div 
-                     onClick={() => setIsAutoRefresh(!isAutoRefresh)}
-                     className={cn(
-                       "w-8 h-4 rounded-full relative transition-all cursor-pointer",
-                       isAutoRefresh ? "bg-emerald-500" : "bg-stone-300"
-                     )}
-                   >
-                     <div className={cn(
-                       "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
-                       isAutoRefresh ? "left-4.5" : "left-0.5"
-                     )} />
-                   </div>
-                   <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest whitespace-nowrap">
-                     Auto
-                   </span>
-                 </div>
-               )}
+               <div className="flex items-center gap-3 px-3">
+                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest whitespace-nowrap">
+                    60s Sync Active
+                  </span>
+               </div>
             </div>
 
             <button 
@@ -201,6 +185,16 @@ export default function AdminDashboardLayout({
                    {(stats?.lowStock || 0) + pendingOrdersCount}
                  </span>
                )}
+            </button>
+            <button 
+               onClick={toggleMaintenance}
+               className={cn(
+                 "p-3 rounded-2xl transition-all border",
+                 isMaintenance ? "bg-red-100 border-red-200 text-red-600 hover:bg-red-200" : "bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100"
+               )}
+               title={isMaintenance ? "Disable Maintenance Mode" : "Enable Maintenance Mode"}
+            >
+               <Server size={20} />
             </button>
             <button 
                onClick={() => {

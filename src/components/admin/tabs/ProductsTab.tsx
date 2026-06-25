@@ -183,7 +183,20 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
 
         <div className="flex-1 space-y-8 pb-10">
           {/* Intelligence Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <motion.div 
+            initial="hidden"
+            animate="show"
+            variants={{
+              hidden: { opacity: 0 },
+              show: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.1
+                }
+              }
+            }}
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+          >
             <AdminStatCard 
               label="Total SKU Catalog" 
               value={allProducts.length} 
@@ -216,7 +229,7 @@ const ProductsTab: React.FC<ProductsTabProps> = ({
               trend={{ value: 'Mitigation', isUp: true }}
               progress={15}
             />
-          </div>
+          </motion.div>
 
           {/* Global Catalog Utility Bar */}
           <div className="flex flex-col lg:flex-row gap-6 items-center">

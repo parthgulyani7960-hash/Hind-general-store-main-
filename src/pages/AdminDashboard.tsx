@@ -83,7 +83,8 @@ const UPIWebhookLogsTab = lazyWithRetry(() => import('@/components/admin/tabs/UP
 const DataExportsTab = lazyWithRetry(() => import('@/components/admin/tabs/DataExportsTab'), 'Exports');
 const AnnouncementsTab = lazyWithRetry(() => import('@/components/admin/tabs/AnnouncementsTab'), 'Announcements');
 const PromotionsTab = lazyWithRetry(() => import('@/components/admin/tabs/PromotionsTab'), 'Promotions');
-const ApiMonitorTab = lazyWithRetry(() => import('@/components/admin/tabs/ApiMonitorTab'), 'ApiMonitor');
+const DiagnosticsTab = lazyWithRetry(() => import('@/components/admin/tabs/DiagnosticsTab'), 'Diagnostics');
+const PerformanceMonitorTab = lazyWithRetry(() => import('@/components/admin/tabs/PerformanceMonitorTab'), 'PerformanceMonitor');
 
 const LogisticsTab = lazyWithRetry(() => import('@/components/admin/tabs/LogisticsTab'), 'Logistics');
 const AuditLogsTab = lazyWithRetry(() => import('@/components/admin/tabs/AuditLogsTab'), 'AuditLogs');
@@ -105,6 +106,7 @@ const SecurityDataTab = lazyWithRetry(() => import('@/components/admin/tabs/Secu
 const AdminSecurityTab = lazyWithRetry(() => import('@/components/admin/tabs/AdminSecurityTab'), 'AdminSecurity');
 const AutomaticReportsTab = lazyWithRetry(() => import('@/components/admin/tabs/AutomaticReportsTab'), 'AutomaticReports');
 const SystemStatusTab = lazyWithRetry(() => import('@/components/admin/tabs/SystemStatusTab'), 'SystemStatus');
+const DownloadsTab = lazyWithRetry(() => import('@/components/admin/tabs/DownloadsTab'), 'Downloads');
 
 // Fix for default marker icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -114,7 +116,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Api Monitor';
+type Tab = 'Overview' | 'Analytics' | 'Announcements' | 'Notifications' | 'Orders' | 'Logistics' | 'Product Catalog' | 'Categories' | 'Customers' | 'Wallet Requests' | 'Payments' | 'Reviews' | 'Coupons' | 'Newsletter' | 'Roles' | 'Support Tickets' | 'Expenses' | 'Store Settings' | 'Payment Settings' | 'System Status' | 'System Logs' | 'Suspicious Activities' | 'Promotions' | 'Bulk Discounts' | 'Feature Toggles' | 'Suppliers' | 'Returns' | 'Audit Logs' | 'Automatic Reports' | 'Admin Management' | 'Data Exports' | 'Security & Data' | 'Security Audit' | 'Promotional Rules' | 'Purchase Orders' | 'Order Batching' | 'UPI Webhook Logs' | 'Downloads' | 'Diagnostics' | 'Performance Monitor';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -127,6 +129,8 @@ export default function AdminDashboard() {
     setSimulatedRole, 
     logout, 
     hasPermission,
+    isMaintenance,
+    setMaintenance,
     fetchProducts: refetchGlobalProducts,
     fetchCategories: refetchGlobalCategories,
     fetchPromotions: refetchGlobalPromotions,
@@ -195,7 +199,6 @@ export default function AdminDashboard() {
       'Data Exports': () => import('@/components/admin/tabs/DataExportsTab'),
       'Announcements': () => import('@/components/admin/tabs/AnnouncementsTab'),
       'Promotions': () => import('@/components/admin/tabs/PromotionsTab'),
-      'Api Monitor': () => import('@/components/admin/tabs/ApiMonitorTab'),
       'Automatic Reports': () => import('@/components/admin/tabs/AutomaticReportsTab'),
       'System Status': () => import('@/components/admin/tabs/SystemStatusTab'),
       'Audit Logs': () => import('@/components/admin/tabs/AuditLogsTab'),
@@ -215,6 +218,8 @@ export default function AdminDashboard() {
       'Promotional Rules': () => import('@/components/admin/tabs/PromotionalRulesTab'),
       'Security & Data': () => import('@/components/admin/tabs/SecurityDataTab'),
       'Security Audit': () => import('@/components/admin/tabs/AdminSecurityTab'),
+      'Diagnostics': () => import('@/components/admin/tabs/DiagnosticsTab'),
+      'Performance Monitor': () => import('@/components/admin/tabs/PerformanceMonitorTab'),
     };
 
     const loader = prefetchLoaders[tab];
@@ -228,10 +233,10 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  // Centralized event listener for diagnostic console
+  // Centralized event listener for diagnostic console redirect
   useEffect(() => {
     const handleOpenDiagnostics = () => {
-      setActiveTab('System Logs');
+      setActiveTab('Diagnostics');
     };
     window.addEventListener('open-diagnostic-console', handleOpenDiagnostics);
     return () => window.removeEventListener('open-diagnostic-console', handleOpenDiagnostics);
@@ -246,7 +251,7 @@ export default function AdminDashboard() {
     'Feature Toggles', 'Suppliers', 'Returns', 'Audit Logs', 
     'Automatic Reports', 'Admin Management', 'Data Exports', 
     'Security & Data', 'Security Audit', 'Promotional Rules', 'Purchase Orders', 
-    'Order Batching', 'UPI Webhook Logs', 'Notifications'
+    'Order Batching', 'UPI Webhook Logs', 'Notifications', 'Diagnostics', 'Performance Monitor'
   ];
 
   // 1. Initial tab from URL
@@ -357,6 +362,16 @@ export default function AdminDashboard() {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [debouncedGlobalSearchQuery, setDebouncedGlobalSearchQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false); // Default closed on mobile
+  const [isMinimized, setIsMinimized] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('admin_sidebar_minimized') === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('admin_sidebar_minimized', String(isMinimized));
+  }, [isMinimized]);
   const [exportModal, setExportModal] = useState({ open: false, type: 'orders' as any });
   const [exportFormat, setExportFormat] = useState<'pdf' | 'csv' | 'xlsx' | 'json'>('pdf');
   const [tncContent, setTncContent] = useState('');
@@ -588,20 +603,28 @@ export default function AdminDashboard() {
 
     let mounted = true;
 
-    // Centralized interval (Reduced frequency: every 30s for health/stats)
-    // Only happens if the document is visible to save battery and network
+    // Centralized interval (60s auto-refresh for all active data)
     const pollingInterval = setInterval(() => {
-      if (!mounted || !navigator.onLine || document.hidden || !isAutoRefresh) return;
+      if (!mounted || !navigator.onLine || document.hidden) return;
       
-      // Health check runs every 30s
+      // Auto-refresh core data
+      fetchStats(true);
       checkHealth();
-
-      // Stats fetch runs every 30s as well
-      const needsStats = activeTabRef.current === 'Overview' || activeTabRef.current === 'Analytics';
-      if (needsStats) {
-        fetchStats(true); 
+      
+      // Fetch data based on active tab
+      switch (activeTabRef.current) {
+        case 'Orders':
+          adminService.getOrders(getAuthHeaders()).then(data => { if (data) setOrders(data); });
+          break;
+        case 'Product Catalog':
+          adminService.getProducts(getAuthHeaders()).then(data => { if (data) setAllProducts(data); });
+          break;
+        case 'Customers':
+          adminService.getUsers(getAuthHeaders()).then(data => { if (data) setUsers(data); });
+          break;
+        // Add other tabs as needed
       }
-    }, 30000);
+    }, 60000);
 
     return () => {
       mounted = false;
@@ -723,8 +746,10 @@ export default function AdminDashboard() {
               return <NewsletterTab />;
             case 'UPI Webhook Logs':
               return <UPIWebhookLogsTab />;
-            case 'Api Monitor':
-              return <ApiMonitorTab />;
+            case 'Diagnostics':
+              return <DiagnosticsTab />;
+            case 'Performance Monitor':
+              return <PerformanceMonitorTab />;
             case 'System Logs':
               return <SystemLogsTab />;
             case 'Data Exports':
@@ -1039,6 +1064,8 @@ export default function AdminDashboard() {
                   generateSystemHealthReportPDF={generateSystemHealthReportPDF}
                 />
               );
+            case 'Downloads':
+              return <DownloadsTab />;
             default: 
               return <div className="p-8 text-stone-500">Feature {activeTab} not yet fully redesigned.</div>;
           }
@@ -3826,6 +3853,28 @@ export default function AdminDashboard() {
     }
   };
 
+  const toggleMaintenance = async () => {
+    const newValue = !isMaintenance;
+    try {
+      const response = await fetchWithHandling<any>('/api/admin/settings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify({ key: 'maintenance_mode', value: String(newValue) })
+      });
+      if (response && response.success) {
+        setMaintenance(newValue);
+        toast.success(`Maintenance mode ${newValue ? 'enabled' : 'disabled'}`);
+      } else {
+        toast.error('Failed to toggle maintenance mode');
+      }
+    } catch (err) {
+      toast.error('Failed to toggle maintenance mode');
+    }
+  };
+
   return (
     <AdminDashboardLayout
       activeTab={activeTab}
@@ -3836,6 +3885,10 @@ export default function AdminDashboard() {
       adminTheme={adminTheme}
       sidebarOpen={sidebarOpen}
       setSidebarOpen={setSidebarOpen}
+      isMinimized={isMinimized}
+      setIsMinimized={setIsMinimized}
+      isMaintenance={isMaintenance}
+      toggleMaintenance={toggleMaintenance}
       getDisplayLabel={getDisplayLabel}
       stats={stats}
       extraHeader={SearchUI}
@@ -3995,6 +4048,7 @@ export default function AdminDashboard() {
         updateOrderStatus={updateOrderStatus}
         fetchOrders={fetchOrders}
       />
+
 
       {/* Legacy Inventory & History Modals replaced */}
 

@@ -1,12 +1,13 @@
 import React from 'react';
 import ModalContainer from '@/components/ui/ModalContainer';
 import ProductImageManager from '@/components/admin/ProductImageManager';
-import { Settings, Layers, Trash2, Plus, Loader2 } from 'lucide-react';
+import { Settings, Layers, Trash2, Plus, Loader2, Info, ShoppingCart, Tag, Box, Truck } from 'lucide-react';
 import { cn } from '@/types';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/utils';
 import { triggerFeedback } from '@/lib/feedback';
+import InfoButton from '@/components/InfoButton';
 
 interface InventoryModalsProps {
   productModal: { open: boolean; mode: 'add' | 'edit' };
@@ -108,7 +109,7 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
         isOpen={productModal.open}
         onClose={() => setProductModal({ open: false, mode: 'add' })}
         title={productModal.mode === 'add' ? 'Add New Product' : 'Edit Product'}
-        size="md"
+        size="full"
       >
         <div className="p-8 pb-10">
           <form 
@@ -116,340 +117,336 @@ export const InventoryModals: React.FC<InventoryModalsProps> = ({
               triggerFeedback('medium');
               handleProductSubmit(e);
             }} 
-            className="space-y-4"
+            className="space-y-10 text-left"
           >
-            <div>
-              <label className="block text-sm font-bold text-stone-700 mb-2">Product Name</label>
-              <input 
-                type="text" 
-                required
-                className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                placeholder="e.g., Fresh Tomatoes"
-                value={newProduct.name || ''}
-                onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-stone-700 mb-2">Description</label>
-              <textarea 
-                required
-                className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[100px] py-3"
-                placeholder="Product description..."
-                value={newProduct.description || ''}
-                onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
-              />
-            </div>
+            {/* Section 1: Core Identity */}
+            <section className="space-y-6">
+              <div className="flex items-center gap-3 border-b border-stone-100 pb-4">
+                <div className="p-2 bg-stone-900 text-white rounded-xl">
+                  <Tag size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-stone-900 uppercase tracking-widest">Product Identity</h3>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">Basic information and visualization</p>
+                </div>
+              </div>
 
-            <div>
-              <label className="block text-sm font-bold text-stone-700 mb-2">Product Images</label>
-              <ProductImageManager 
-                allImages={newProduct.images || []} 
-                primaryImage={newProduct.image || ''} 
-                onUpdate={(allImages, primaryImage) => {
-                  setNewProduct({ ...newProduct, images: allImages || [], image: primaryImage || '' });
-                }}
-              />
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Product Designation</label>
+                      <InfoButton content="The primary name displayed to customers. Use clear, descriptive labels." />
+                    </div>
+                    <input 
+                      type="text" 
+                      required
+                      className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 placeholder-stone-300 focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+                      placeholder="e.g., Organic Farm Fresh Tomatoes"
+                      value={newProduct.name || ''}
+                      onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Narrative Description</label>
+                      <InfoButton content="Detailed information about product benefits, origins, or usage instructions." />
+                    </div>
+                    <textarea 
+                      required
+                      className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 placeholder-stone-300 focus:ring-2 focus:ring-primary/20 min-h-[140px] transition-all shadow-inner"
+                      placeholder="Describe the product details..."
+                      value={newProduct.description || ''}
+                      onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
+                    />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Retail Price (₹)</label>
-                <input 
-                  type="number" 
-                  required
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.retail_price || ''}
-                  onChange={(e) => setNewProduct({...newProduct, retail_price: e.target.value})}
-                />
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-left">Visual Assets</label>
+                    <InfoButton content="Upload high-quality images. The first image will be used as the primary display thumbnail." />
+                  </div>
+                  <div className="bg-stone-50 rounded-[2rem] p-4 border border-stone-100 min-h-[220px]">
+                    <ProductImageManager 
+                      allImages={newProduct.images || []} 
+                      primaryImage={newProduct.image || ''} 
+                      onUpdate={(allImages, primaryImage) => {
+                        setNewProduct({ ...newProduct, images: allImages || [], image: primaryImage || '' });
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Wholesale Price (₹)</label>
-                <input 
-                  type="number" 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.wholesale_price || ''}
-                  onChange={(e) => setNewProduct({...newProduct, wholesale_price: e.target.value})}
-                />
+            </section>
+
+            {/* Section 2: Economics & Fulfillment */}
+            <section className="space-y-6">
+              <div className="flex items-center gap-3 border-b border-stone-100 pb-4">
+                <div className="p-2 bg-stone-900 text-white rounded-xl">
+                  <ShoppingCart size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-stone-900 uppercase tracking-widest">Economics & Logic</h3>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">Pricing structures and inventory governance</p>
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Discount (%)</label>
-                <input 
-                  type="number" 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.discount || ''}
-                  onChange={(e) => setNewProduct({...newProduct, discount: e.target.value})}
-                />
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Retail Price (₹)</label>
+                  <input 
+                    type="number" 
+                    required
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all"
+                    value={newProduct.retail_price || ''}
+                    onChange={(e) => setNewProduct({...newProduct, retail_price: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Wholesale (₹)</label>
+                  <input 
+                    type="number" 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all"
+                    value={newProduct.wholesale_price || ''}
+                    onChange={(e) => setNewProduct({...newProduct, wholesale_price: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Discount (%)</label>
+                  <input 
+                    type="number" 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all"
+                    value={newProduct.discount || ''}
+                    onChange={(e) => setNewProduct({...newProduct, discount: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Available Stock</label>
+                  <input 
+                    type="number" 
+                    required
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all"
+                    value={newProduct.stock || ''}
+                    onChange={(e) => setNewProduct({...newProduct, stock: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Reorder Pt</label>
+                    <InfoButton content="System will trigger an alert when stock drops below this specific value." />
+                  </div>
+                  <input 
+                    type="number" 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all"
+                    value={newProduct.reorder_point || ''}
+                    onChange={(e) => setNewProduct({...newProduct, reorder_point: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Max Order Limit</label>
+                  <input 
+                    type="number" 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all"
+                    value={newProduct.max_qty || ''}
+                    onChange={(e) => setNewProduct({...newProduct, max_qty: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Category Segment</label>
+                  <select 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer appearance-none"
+                    value={newProduct.category || ''}
+                    onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
+                  >
+                    <option value="">Select Category</option>
+                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2 pl-2">Measurement Unit</label>
+                  <select 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-stone-800 focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer appearance-none"
+                    value={newProduct.unit || 'kg'}
+                    onChange={(e) => setNewProduct({...newProduct, unit: e.target.value})}
+                  >
+                    <option value="kg">kilogram (kg)</option>
+                    <option value="gm">gram (gm)</option>
+                    <option value="ltr">liter (ltr)</option>
+                    <option value="ml">milliliter (ml)</option>
+                    <option value="pcs">pieces (pcs)</option>
+                    <option value="pkt">packet (pkt)</option>
+                    <option value="dozen">dozen</option>
+                    <option value="bunch">bunch</option>
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Stock Quantity</label>
-                <input 
-                  type="number" 
-                  required
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.stock || ''}
-                  onChange={(e) => setNewProduct({...newProduct, stock: e.target.value})}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Reorder Point</label>
-                <input 
-                  type="number" 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.reorder_point || ''}
-                  onChange={(e) => setNewProduct({...newProduct, reorder_point: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Max Order Qty</label>
-                <input 
-                  type="number" 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.max_qty || ''}
-                  onChange={(e) => setNewProduct({...newProduct, max_qty: e.target.value})}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Batch Number</label>
-                <input 
-                  type="text" 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="e.g. B-0123"
-                  value={newProduct.batch_number || ''}
-                  onChange={(e) => setNewProduct({...newProduct, batch_number: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Expiry Date</label>
-                <input 
-                  type="date" 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.expiry_date || ''}
-                  onChange={(e) => setNewProduct({...newProduct, expiry_date: e.target.value})}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Category</label>
-                <select 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.category || ''}
-                  onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
-                >
-                  {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-stone-700 mb-2">Unit</label>
-                <select 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.unit || 'kg'}
-                  onChange={(e) => setNewProduct({...newProduct, unit: e.target.value})}
-                >
-                  <option value="kg">kilogram (kg)</option>
-                  <option value="gm">gram (gm)</option>
-                  <option value="ltr">liter (ltr)</option>
-                  <option value="ml">milliliter (ml)</option>
-                  <option value="pcs">pieces (pcs)</option>
-                  <option value="pkt">packet (pkt)</option>
-                  <option value="dozen">dozen</option>
-                  <option value="bunch">bunch</option>
-                </select>
-              </div>
-              <div className="col-span-2 flex items-center space-x-3 bg-stone-50 p-4 rounded-2xl border border-stone-100">
+
+              <div className="flex items-center space-x-3 bg-stone-50 p-6 rounded-3xl border border-stone-100 group cursor-pointer hover:bg-stone-100 transition-all">
                 <input 
                   type="checkbox"
-                  id="is_subscribable"
-                  className="w-5 h-5 rounded-lg border-stone-300 text-primary focus:ring-primary"
+                  id="is_subscribable_form"
+                  className="w-6 h-6 rounded-lg border-stone-300 text-primary focus:ring-primary transition-all cursor-pointer"
                   checked={newProduct.is_subscribable || false}
                   onChange={(e) => setNewProduct({...newProduct, is_subscribable: e.target.checked})}
                 />
-                <label htmlFor="is_subscribable" className="text-sm font-bold text-stone-700">Enable Subscription (Daily/Weekly delivery)</label>
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-bold text-stone-700 mb-2">Supplier</label>
-                <select 
-                  className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  value={newProduct.supplier_id || ''}
-                  onChange={(e) => setNewProduct({...newProduct, supplier_id: e.target.value})}
-                >
-                  <option value="">No Supplier Link</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-bold text-stone-700 mb-2">Product Images</label>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {(newProduct.images || []).map((img, i) => (
-                    <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-stone-200 group">
-                      <img src={img} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
-                      {newProduct.image === img && (
-                        <div className="absolute inset-0 ring-4 ring-primary ring-inset rounded-lg pointer-events-none" />
-                      )}
-                    </div>
-                  ))}
-                  <button 
-                    type="button"
-                    onClick={() => setImageModal({ open: true, productId: editingProduct?.id || null, images: newProduct.images })}
-                    className="w-16 h-16 rounded-lg border-2 border-dashed border-stone-200 flex items-center justify-center text-stone-400 hover:border-primary hover:text-primary transition-all"
-                  >
-                    <Plus size={20} />
-                  </button>
+                <div className="flex-1">
+                  <label htmlFor="is_subscribable_form" className="text-sm font-black text-stone-900 cursor-pointer select-none">Enable Intelligence Subscription</label>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">Allows customers to automate recurring deliveries (Daily/Weekly/Monthly)</p>
                 </div>
-                <button 
-                  type="button"
-                  onClick={() => setImageModal({ open: true, productId: editingProduct?.id || null, images: newProduct.images })}
-                  className="text-xs font-bold text-primary hover:underline"
-                >
-                  Manage & Upload Images
-                </button>
               </div>
-            </div>
-            <div className="p-6 bg-stone-50 rounded-2xl space-y-4">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-stone-900">Specifications</h4>
+            </section>
+
+            {/* Section 3: Metadata & Variants */}
+            <section className="space-y-6">
+              <div className="flex items-center gap-3 border-b border-stone-100 pb-4">
+                <div className="p-2 bg-stone-900 text-white rounded-xl">
+                  <Layers size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-stone-900 uppercase tracking-widest">Metadata & Variants</h3>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">Custom specifications and product variants</p>
+                </div>
               </div>
-              <div className="space-y-3">
-                {Object.entries(newProduct.specifications || {}).map(([key, value]) => (
-                  <div key={key} className="flex items-center space-x-2">
-                    <div className="w-1/3">
-                      <input 
-                        type="text"
-                        className="w-full bg-stone-100 border-none rounded-xl px-4 py-2 text-sm font-bold text-stone-800"
-                        value={key}
-                        readOnly
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <input 
-                        type="text"
-                        className="w-full bg-stone-50 rounded-xl px-4 py-2 text-sm font-bold text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        placeholder="Value"
-                        value={value}
-                        onChange={(e) => setNewProduct({
-                          ...newProduct,
-                          specifications: { ...newProduct.specifications, [key]: e.target.value }
-                        })}
-                      />
-                    </div>
+
+              <div className="p-6 bg-stone-50 rounded-[2rem] space-y-4">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Custom Specifications</label>
+                  <InfoButton content="Add custom key-value pairs like Material, Color, Weight, etc." />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <input 
+                    type="text" 
+                    placeholder="Key (e.g. Color)" 
+                    className="bg-white border-none rounded-xl px-4 py-2 text-xs font-bold"
+                    value={newSpec.key}
+                    onChange={(e) => setNewSpec({...newSpec, key: e.target.value})}
+                  />
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Value (e.g. Red)" 
+                      className="flex-1 bg-white border-none rounded-xl px-4 py-2 text-xs font-bold"
+                      value={newSpec.value}
+                      onChange={(e) => setNewSpec({...newSpec, value: e.target.value})}
+                    />
                     <button 
                       type="button"
                       onClick={() => {
-                        const newSpecs = { ...newProduct.specifications };
-                        delete newSpecs[key];
-                        setNewProduct({ ...newProduct, specifications: newSpecs });
+                        if (newSpec.key && newSpec.value) {
+                          setNewProduct({
+                            ...newProduct,
+                            specifications: { ...newProduct.specifications, [newSpec.key]: newSpec.value }
+                          });
+                          setNewSpec({ key: '', value: '' });
+                        }
                       }}
-                      className="p-2 text-stone-400 hover:text-red-500 transition-colors"
+                      className="p-2 bg-primary text-white rounded-xl hover:bg-primary/90"
                     >
-                      <Trash2 size={14} />
+                      <Plus size={16} />
                     </button>
                   </div>
-                ))}
-                
-                <div className="flex items-center space-x-2 pt-2 border-t border-stone-200">
-                  <input 
-                    type="text"
-                    className="w-1/3 bg-stone-50 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    placeholder="e.g., Weight"
-                    value={newSpec.key}
-                    onChange={(e) => setNewSpec({ ...newSpec, key: e.target.value })}
-                  />
-                  <input 
-                    type="text"
-                    className="flex-1 bg-stone-50 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    placeholder="e.g., 500g"
-                    value={newSpec.value}
-                    onChange={(e) => setNewSpec({ ...newSpec, value: e.target.value })}
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      if (newSpec.key && newSpec.value) {
-                        setNewProduct({
-                          ...newProduct,
-                          specifications: { ...newProduct.specifications, [newSpec.key]: newSpec.value }
-                        });
-                        setNewSpec({ key: '', value: '' });
-                      }
-                    }}
-                    className="p-2 bg-primary text-white rounded-lg hover:bg-primary/90"
-                  >
-                    <Plus size={16} />
-                  </button>
                 </div>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-3 p-4 bg-stone-50 rounded-2xl">
-              <input 
-                type="checkbox" 
-                id="is_listed"
-                className="w-5 h-5 rounded border-stone-300 text-primary focus:ring-primary"
-                checked={newProduct.is_listed}
-                onChange={(e) => setNewProduct({...newProduct, is_listed: e.target.checked})}
-              />
-              <label htmlFor="is_listed" className="text-sm font-bold text-stone-700">List this product on store</label>
-            </div>
-
-            {productModal.mode === 'edit' && editingProduct && (
-              <div className="p-6 bg-stone-50 rounded-2xl space-y-4">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h4 className="font-bold text-stone-900">Product Variants</h4>
-                    <p className="text-[10px] text-stone-400 font-medium">Configure options natively above or manage dynamically.</p>
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setVariantModal({ open: true, mode: 'edit', variant: null, productId: editingProduct.id });
-                    }}
-                    className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold transition-colors flex items-center space-x-2"
-                  >
-                    <Settings size={14} />
-                    <span>Manage Variants</span>
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {productVariants.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {productVariants.map((v) => (
-                        <div key={v.id || v.name} className="flex items-center space-x-2 bg-white border border-stone-200 px-3 py-2 rounded-xl text-xs shadow-sm">
-                           <span className="font-bold text-stone-700">{v.name}</span>
-                           <span className="text-stone-300">•</span>
-                           <span className="text-stone-500 font-medium">₹{v.price}</span>
-                           {(v.is_default === 1 || v.is_default === true) && (
-                             <span className="ml-1 w-2 h-2 rounded-full bg-emerald-500" title="Default Variant"></span>
-                           )}
-                        </div>
-                      ))}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {Object.entries(newProduct.specifications || {}).map(([key, value]) => (
+                    <div key={key} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-stone-100 shadow-sm text-[10px]">
+                      <span className="font-black text-stone-400 uppercase">{key}:</span>
+                      <span className="font-bold text-stone-900">{value as string}</span>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const next = { ...newProduct.specifications };
+                          delete next[key];
+                          setNewProduct({ ...newProduct, specifications: next });
+                        }}
+                        className="ml-1 text-stone-300 hover:text-red-500"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
-                  ) : (
-                    <p className="text-xs text-stone-400 italic text-center py-4 bg-stone-50 rounded-2xl border border-dashed border-stone-200">No variants defined. The standard product price will be used.</p>
-                  )}
+                  ))}
                 </div>
               </div>
-            )}
-            <div className="flex space-x-3 pt-4">
+
+              {productModal.mode === 'edit' && editingProduct && (
+                <div className="p-6 bg-stone-50 rounded-[2rem] space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Dynamic Variants</label>
+                      <p className="text-[10px] font-bold text-stone-400 mt-0.5 italic">Manage SKU variations and specific pricing.</p>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setVariantModal({ open: true, mode: 'edit', variant: null, productId: editingProduct.id })}
+                      className="px-4 py-2 bg-stone-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all"
+                    >
+                      Configure Variants
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {productVariants.length > 0 ? (
+                      productVariants.map((v) => (
+                        <div key={v.id || v.name} className="bg-white border border-stone-200 px-4 py-2 rounded-xl text-[10px] font-bold shadow-sm">
+                          {v.name} • ₹{v.price}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-stone-400 font-bold italic py-4 w-full text-center">No active variants detected.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Supply Chain */}
+            <section className="space-y-6">
+              <div className="flex items-center gap-3 border-b border-stone-100 pb-4">
+                <div className="p-2 bg-stone-900 text-white rounded-xl">
+                  <Truck size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-stone-900 uppercase tracking-widest">Supply Chain & Governance</h3>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-0.5">Origin details and batch identifiers</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Linked Trade Partner</label>
+                  <select 
+                    className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold"
+                    value={newProduct.supplier_id || ''}
+                    onChange={(e) => setNewProduct({...newProduct, supplier_id: e.target.value})}
+                  >
+                    <option value="">Independent Product</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Batch Identifier</label>
+                  <input type="text" className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold" placeholder="e.g. B-0123" value={newProduct.batch_number || ''} onChange={(e) => setNewProduct({...newProduct, batch_number: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-2">Governance Expiry</label>
+                  <input type="date" className="w-full bg-stone-50 border-none rounded-2xl px-6 py-4 text-sm font-bold" value={newProduct.expiry_date || ''} onChange={(e) => setNewProduct({...newProduct, expiry_date: e.target.value})} />
+                </div>
+              </div>
+            </section>
+
+            <div className="pt-10 flex gap-4">
               <button 
-                type="button"
-                onClick={() => setProductModal({ open: false, mode: 'add' })}
-                className="flex-1 py-3 border border-stone-200 rounded-xl font-bold hover:bg-stone-50"
+                type="button" 
+                onClick={() => setProductModal({ open: false, mode: 'add' })} 
+                className="flex-1 py-5 bg-stone-100 text-stone-600 rounded-[2rem] font-black uppercase tracking-widest hover:bg-stone-200 transition-all active:scale-95"
               >
-                Cancel
+                Discard
               </button>
               <button 
-                type="submit"
-                disabled={isSubmittingProduct}
-                className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                type="submit" 
+                disabled={isSubmittingProduct} 
+                className="flex-[2] py-5 bg-stone-900 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-2xl hover:bg-black transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
               >
-                {isSubmittingProduct && <Loader2 size={18} className="animate-spin" />}
-                <span>{productModal.mode === 'add' ? 'Add Product' : 'Update Product'}</span>
+                {isSubmittingProduct ? <Loader2 size={20} className="animate-spin" /> : <span>Commit Changes</span>}
               </button>
             </div>
           </form>

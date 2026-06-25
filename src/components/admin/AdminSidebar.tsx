@@ -4,9 +4,9 @@ import {
   LayoutDashboard, ShoppingBag, Package, Users, Settings, Truck, TrendingUp, LogOut, Menu, X, Megaphone, Bell,
   CreditCard, MessageSquare, Ticket, UserCog, LifeBuoy, Mail, DollarSign, Activity, AlertTriangle, 
   Percent, ToggleLeft, Briefcase, RotateCcw, ClipboardList, Bug, ShieldAlert, BookOpen, Shield, PackagePlus,
-  Terminal, ShieldCheck, Sparkles, Cpu
+  Terminal, ShieldCheck, Sparkles, Cpu, ChevronLeft, ChevronRight, FileDown
 } from 'lucide-react';
-import { cn } from '@/types';
+import { cn } from '@/lib/utils';
 
 const menuGroups = [
   {
@@ -54,13 +54,15 @@ const menuGroups = [
   {
     label: 'Developer',
     items: [
-      { name: 'Api Monitor', label: 'API Monitor', icon: Cpu },
+      { name: 'Performance Monitor', label: 'Performance Monitor', icon: Cpu },
+      { name: 'Diagnostics', label: 'Diagnostic Hub', icon: Bug },
       { name: 'System Status', label: 'System Health', icon: Activity },
       { name: 'System Logs', label: 'Dev Logs', icon: Terminal },
       { name: 'Audit Logs', label: 'Audit Trail', icon: ClipboardList },
       { name: 'Data Exports', label: 'Data Warehouse', icon: PackagePlus },
+      { name: 'Downloads', label: 'PDF & Exports', icon: FileDown },
       { name: 'Security Audit', label: 'Security Audit', icon: ShieldCheck },
-      { name: 'Automatic Reports', label: 'Anomalies', icon: Bug },
+      { name: 'Automatic Reports', label: 'Anomalies', icon: ShieldAlert },
     ]
   },
   {
@@ -85,6 +87,7 @@ interface AdminSidebarProps {
   lowStockCount?: number;
   newUserCount?: number;
   isMinimized: boolean;
+  setIsMinimized: (val: boolean) => void;
 }
 
 /**
@@ -101,7 +104,10 @@ interface AdminSidebarProps {
  * @param newUserCount - Numerical count of new user registrations.
  * @param isMinimized - Whether the sidebar is in a minimized collapsed state (desktop).
  */
-export default function AdminSidebar({ activeTab, setActiveTab, onPrefetchTab, user, logout, isOpen, setIsOpen, lowStockCount = 0, newUserCount = 0, isMinimized }: AdminSidebarProps) {
+export default function AdminSidebar({ 
+  activeTab, setActiveTab, onPrefetchTab, user, logout, isOpen, setIsOpen, 
+  lowStockCount = 0, newUserCount = 0, isMinimized, setIsMinimized 
+}: AdminSidebarProps) {
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -144,26 +150,46 @@ export default function AdminSidebar({ activeTab, setActiveTab, onPrefetchTab, u
         <div className={cn("p-6 pb-4 flex-1 flex flex-col min-h-0", isMinimized && "items-center")}>
           <div className={cn("flex items-center justify-between mb-6", isMinimized ? "flex-col gap-4" : "px-2")}>
             <div className={cn("flex items-center space-x-3", isMinimized && "justify-center")}>
-              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3 animate-pulse">
+              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-xl shadow-primary/20 transform rotate-3 animate-pulse cursor-pointer" onClick={() => !isOpen && setIsMinimized(!isMinimized)}>
                 <span className="font-black text-xl">H</span>
               </div>
               {!isMinimized && (
                 <div>
                   <h1 className="text-xl font-black text-stone-900 leading-none tracking-tight">Hind Admin</h1>
-                  <p className="text-xs font-bold text-stone-400 uppercase tracking-widest mt-1">Management Dashboard</p>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mt-1">Store Control Center</p>
                 </div>
               )}
             </div>
             
-            {!isMinimized && (
-              <button
-                onClick={() => setIsOpen(false)}
-                className="md:hidden p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all duration-200 active:scale-95"
-                aria-label="Close sidebar menu"
-              >
-                <X size={18} />
-              </button>
-            )}
+            <div className="flex items-center gap-1">
+              {!isMinimized && (
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="hidden md:flex p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all"
+                  title="Collapse Sidebar"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+              )}
+              {isMinimized && (
+                <button
+                  onClick={() => setIsMinimized(false)}
+                  className="hidden md:flex p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all"
+                  title="Expand Sidebar"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              )}
+              {!isMinimized && (
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="md:hidden p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all duration-200 active:scale-95"
+                  aria-label="Close sidebar menu"
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className={cn("space-y-8 overflow-y-auto no-scrollbar", isMinimized && "items-center")}>
@@ -181,11 +207,6 @@ export default function AdminSidebar({ activeTab, setActiveTab, onPrefetchTab, u
                         onMouseEnter={() => onPrefetchTab?.(item.name)}
                         onClick={(e) => { 
                           e.preventDefault();
-                          if (item.name === 'Diagnostic Console') {
-                            window.dispatchEvent(new Event('open-diagnostic-console'));
-                            if (window.innerWidth < 768) setIsOpen(false);
-                            return;
-                          }
                           setActiveTab(item.name); 
                           if (window.innerWidth < 768) setIsOpen(false); 
                         }}
