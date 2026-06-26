@@ -120,12 +120,10 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    console.log('[StoreProvider] Initialized (mounted)');
-  }, []);
   const { language, setLanguage, t } = useLanguage();
   const { mutate: swrMutate } = useSWRConfig();
   const { trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts } = useProductCache();
+
   // 1. State and Refs
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
@@ -259,6 +257,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log('[StoreProvider] Initialized (mounted)');
+  }, []);
+
+  useEffect(() => {
+    console.log('[StoreProvider] State Update - isAuthChecking:', isAuthChecking, 'isInitialAuthPerformed:', isInitialAuthPerformed);
+  }, [isAuthChecking, isInitialAuthPerformed]);
 
   useEffect(() => {
     try {
@@ -1104,37 +1110,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [user?.role]);
 
   useEffect(() => {
-    if (initialCheckDone.current) {
-        logger.debug('StoreProvider re-mounted, skipping initialization');
-        return;
-    }
-    initialCheckDone.current = true;
-    
     let unsubscribe: any;
     
     // Restore session immediately if local token exists
     const savedToken = localStorage.getItem('hgs_token');
-    if (savedToken) {
-      checkAuth(savedToken).catch(err => {
-        logger.warn('[BOOT] Initial checkAuth failed:', err);
-      });
-    }
     
     // Auth initialization is already handled in firebase.ts.
     // Just set up the listener.
     unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+        console.log('[BOOT] onIdTokenChanged triggered, user:', !!firebaseUser, 'Current User State:', !!user);
         if (firebaseUser) {
+          console.log('[BOOT] Firebase User exists, fetching token...');
           const token = await firebaseUser.getIdToken();
+          console.log('[BOOT] Token fetched');
           const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
           // If token changed OR we current have no user state, we must authorize
           if (hasExpiredTokenChange || !user) {
+            console.log('[BOOT] Token changed or no user, calling checkAuth...');
             localStorage.setItem('hgs_token', token);
             await checkAuth(token);
+            console.log('[BOOT] checkAuth completed');
           } else {
+            console.log('[BOOT] No token change or user present, setting auth complete');
             setIsInitialAuthPerformed(true);
             setIsAuthChecking(false);
           }
         } else {
+          console.log('[BOOT] No firebase user, clearing session');
           if (localStorage.getItem('hgs_token')) {
             localStorage.removeItem('hgs_token');
             localStorage.removeItem('hgs_user');

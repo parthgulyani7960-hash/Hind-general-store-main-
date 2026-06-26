@@ -24,10 +24,26 @@ try {
 try {
   if (!(window.fetch as any)._isWrapped) {
     const originalFetch = window.fetch.bind(window);
-    let refreshPromise: Promise<string | null> | null = null;
+    let sharedRefreshPromise: Promise<string | null> | null = null;
 
-    const performRefresh = async (): Promise<string | null> => {
-        return await getOrRefreshToken();
+    const getOrRefreshTokenDeduped = async (): Promise<string | null> => {
+      if (sharedRefreshPromise) {
+        console.log('[AUTH INTERCEPTOR] Reusing active token refresh promise');
+        return sharedRefreshPromise;
+      }
+
+      sharedRefreshPromise = (async () => {
+        try {
+          return await getOrRefreshToken();
+        } finally {
+          // Clear after a microtask so concurrent calls close together are safely grouped
+          setTimeout(() => {
+            sharedRefreshPromise = null;
+          }, 0);
+        }
+      })();
+
+      return sharedRefreshPromise;
     };
 
     const isTokenExpired = (token: string): boolean => {
@@ -124,15 +140,15 @@ try {
             const res = await originalFetch(finalInput, finalInit);
             const duration = Date.now() - startTime;
 
-            if (duration > 500) {
+            if (duration > 3000 && inputUrl.includes('/api/') && !inputUrl.includes('/favicon.ico')) {
               try {
                 errorService.report({
                   type: ErrorType.API_ERROR,
-                  message: `[Performance] Request to ${inputUrl} exceeded 500ms: ${duration}ms`,
+                  message: `[Performance] Request to ${inputUrl} exceeded 3000ms: ${duration}ms`,
                   metadata: {
                     url: inputUrl,
                     durationMs: duration,
-                    thresholdMs: 500
+                    thresholdMs: 3000
                   }
                 });
                 console.warn(`[PERFORMANCE WARNING] ${inputUrl} took ${duration}ms`);
@@ -147,20 +163,14 @@ try {
             if (res.status === 401 && !isAuthLogin && retryCount > 0) {
               console.warn(`[AUTH INTERCEPTOR] 401 for ${inputUrl}. Attempting refresh...`);
               
-              if (!refreshPromise) {
-                refreshPromise = performRefresh();
-              }
-
               try {
-                const newToken = await refreshPromise;
+                const newToken = await getOrRefreshTokenDeduped();
                 if (newToken) {
                   return await executeFetch(newToken, retryCount - 1);
                 }
               } catch (refreshErr) {
-                console.error('[AUTH INTERCEPTOR] Refresh failed definitely');
+                console.error('[AUTH INTERCEPTOR] Refresh failed definitely', refreshErr);
                 window.dispatchEvent(new CustomEvent('session_expired'));
-              } finally {
-                refreshPromise = null;
               }
             }
             return res;
@@ -180,7 +190,7 @@ try {
           if (currentToken && !isExternal && !isAuthAction) {
             if (isTokenExpired(currentToken)) {
               console.warn(`[AUTH INTERCEPTOR] Token detected as expired or close to expiry for ${inputUrl}. Eagerly refreshing prior to request.`);
-              currentToken = await getOrRefreshToken();
+              currentToken = await getOrRefreshTokenDeduped();
             }
           }
           return await executeFetch(currentToken);

@@ -38,33 +38,59 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  const url = new URL(request.url);
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch (err) {
+    return; // Bypass invalid URLs
+  }
+
+  // Strictly filter: only GET requests and http/https schemes can be intercepted and cached.
+  // This completely eliminates "Request method 'POST' is not supported" and chrome-extension scheme errors.
+  if (request.method !== 'GET' || !url.protocol.startsWith('http')) {
+    return;
+  }
 
   // Strategy: Network First, falling back to cache for API requests (GET only)
-  const isApiGet = request.method === 'GET' && (
-    url.pathname.startsWith('/api/products') || 
+  const isApiGet = url.pathname.startsWith('/api/products') || 
     url.pathname.startsWith('/api/categories') || 
     url.pathname.startsWith('/api/cart') || 
     url.pathname.startsWith('/api/settings') || 
     url.pathname.startsWith('/api/promotions-rules') || 
     url.pathname.startsWith('/api/bulk-discounts') || 
     url.pathname.startsWith('/api/announcements') || 
-    url.pathname.startsWith('/api/addresses')
-  );
+    url.pathname.startsWith('/api/addresses');
 
   if (isApiGet) {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.status === 200) {
+          if (response && response.status === 200) {
             const clonedResponse = response.clone();
-            caches.open(API_CACHE_NAME).then((cache) => {
-              cache.put(request, clonedResponse);
-            });
+            caches.open(API_CACHE_NAME)
+              .then((cache) => {
+                cache.put(request, clonedResponse).catch((err) => {
+                  console.warn('[SW] API cache put failed:', err);
+                });
+              })
+              .catch((err) => {
+                console.warn('[SW] API cache open failed:', err);
+              });
           }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() => {
+          return caches.match(request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            // Return a safe offline JSON response to prevent uncaught rejections or malformed JSON errors
+            return new Response(JSON.stringify({ error: "Offline mode active", data: [] }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          });
+        })
     );
     return;
   }
@@ -72,32 +98,91 @@ self.addEventListener('fetch', (event) => {
   // Strategy: Cache First, falling back to network for Images
   if (request.destination === 'image' || url.hostname.includes('firebasestorage.googleapis.com')) {
     event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) return cachedResponse;
+      caches.match(request)
+        .then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
 
-        return fetch(request).then((response) => {
-          const clonedResponse = response.clone();
-          caches.open(IMAGE_CACHE_NAME).then((cache) => {
-            cache.put(request, clonedResponse);
+          return fetch(request).then((response) => {
+            if (response && response.status === 200) {
+              const clonedResponse = response.clone();
+              caches.open(IMAGE_CACHE_NAME)
+                .then((cache) => {
+                  cache.put(request, clonedResponse).catch((err) => {
+                    console.warn('[SW] Image cache put failed:', err);
+                  });
+                })
+                .catch((err) => {
+                  console.warn('[SW] Image cache open failed:', err);
+                });
+            }
+            return response;
+          }).catch((err) => {
+            console.warn('[SW] Image fetch failed:', err);
+            // Return a minimal transparent 1x1 GIF as a safe fallback
+            return new Response(
+              new Uint8Array([71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255, 33, 249, 4, 1, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1, 0, 59]),
+              { headers: { 'Content-Type': 'image/gif' } }
+            );
           });
-          return response;
-        });
-      })
+        })
+        .catch(() => {
+          // Fail-safe transparent GIF
+          return new Response(
+            new Uint8Array([71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255, 33, 249, 4, 1, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1, 0, 59]),
+            { headers: { 'Content-Type': 'image/gif' } }
+          );
+        })
     );
     return;
   }
 
   // Default Strategy: Stale-While-Revalidate for static assets
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      const fetchPromise = fetch(request).then((networkResponse) => {
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, networkResponse.clone());
+    caches.match(request)
+      .then((cachedResponse) => {
+        const fetchPromise = fetch(request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const responseToCache = networkResponse.clone();
+              caches.open(CACHE_NAME)
+                .then((cache) => {
+                  cache.put(request, responseToCache).catch((err) => {
+                    console.warn('[SW] Asset cache put failed:', err);
+                  });
+                })
+                .catch((err) => {
+                  console.warn('[SW] Asset cache open failed:', err);
+                });
+            }
+            return networkResponse;
+          })
+          .catch((fetchErr) => {
+            console.warn('[SW] Asset stale-while-revalidate fetch failed:', fetchErr);
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            // Return standard index.html or simple text instead of throwing
+            return new Response("Offline: Resource not cached.", {
+              status: 503,
+              headers: { 'Content-Type': 'text/plain' }
+            });
+          });
+
+        if (cachedResponse) {
+          // Keep service worker active until background fetch and caching finishes.
+          // This prevents Response.clone() "body is already used" or stream consumption abort errors.
+          event.waitUntil(fetchPromise);
+          return cachedResponse;
+        }
+        return fetchPromise;
+      })
+      .catch((err) => {
+        console.warn('[SW] Error matching caches:', err);
+        return new Response("Offline: Service unavailable.", {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain' }
         });
-        return networkResponse;
-      });
-      return cachedResponse || fetchPromise;
-    })
+      })
   );
 });
 

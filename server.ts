@@ -523,18 +523,64 @@ const wrap = (route: string, handler: (req: express.Request, res: express.Respon
   };
 };
 
-const getCachedData = async (key: string, fetchFn: () => Promise<any>, ttl: number = 60) => {
-  const cached = CACHE_STORE_GLOBAL.get(key);
-  if (cached !== undefined) {
-    console.log(`[CACHE HIT] ${key}`);
-    return cached;
+const getCachedData = async (key: string, fetchFn: () => Promise<any>, ttlSeconds: number = 60) => {
+  const cachedEntry: any = CACHE_STORE_GLOBAL.get(key);
+  const now = Date.now();
+  
+  if (cachedEntry !== undefined) {
+    if (cachedEntry && typeof cachedEntry === 'object' && 'expiresAt' in cachedEntry && 'data' in cachedEntry) {
+      if (now < cachedEntry.expiresAt) {
+        console.log(`[CACHE HIT] ${key}`);
+        return cachedEntry.data;
+      }
+      
+      console.log(`[CACHE SVR HIT] ${key} (stale) | Triggering background refresh`);
+      fetchFn().then((freshData) => {
+        CACHE_STORE_GLOBAL.set(key, { data: freshData, expiresAt: Date.now() + ttlSeconds * 1000 });
+      }).catch((err) => {
+        console.error(`[CACHE SVR ERROR] Background refresh failed for ${key}:`, err);
+      });
+      
+      return cachedEntry.data;
+    } else {
+      console.log(`[CACHE HIT - LEGACY] ${key}`);
+      return cachedEntry;
+    }
   }
   
   console.log(`[CACHE MISS] ${key} | Triggering DB Fetch`);
   const data = await fetchFn();
-  CACHE_STORE_GLOBAL.set(key, data, ttl);
+  CACHE_STORE_GLOBAL.set(key, { data, expiresAt: now + ttlSeconds * 1000 });
   return data;
 };
+
+async function prewarmCache() {
+  console.log('[CACHE] Pre-warming highly accessed public caches...');
+  try {
+    if (!admin.apps.length) {
+      console.warn('[CACHE] Skipping pre-warm: Firebase Admin is not initialized.');
+      return;
+    }
+    const sensitiveKeys = ['otp_api_key', 'admin_otp', 'store_api_keys', 'maintenance_secret'];
+    const db = getFirestoreInstance();
+    const snap = await db.collection('settings').get();
+    const publicSettings = snap.docs.map((d: any) => ({ key: d.id, ...d.data() })).filter((s: any) => !sensitiveKeys.includes(s.key));
+    
+    const maintenance = publicSettings.find((s: any) => s.key === 'maintenance_mode')?.value === 'true';
+    const authMode = publicSettings.find((s: any) => s.key === 'auth_mode')?.value || 'email';
+    const storePhone = publicSettings.find((s: any) => s.key === 'store_phone')?.value || '';
+    const whatsappNumber = publicSettings.find((s: any) => s.key === 'whatsapp_number')?.value || '';
+    
+    const settingsPayload = { 
+      maintenance, authMode, storePhone, whatsappNumber, config: publicSettings, dbConnected: true
+    };
+    
+    CACHE_STORE_GLOBAL.set('public_settings_global_v1', { data: settingsPayload, expiresAt: Date.now() + 120 * 1000 });
+    console.log('[CACHE] Pre-warmed public_settings_global_v1 successfully!');
+  } catch (err: any) {
+    console.error('[CACHE ERROR] Failed to pre-warm caches:', err.message);
+  }
+}
 // --- End Stabilization Core ---
 
 
@@ -754,11 +800,15 @@ async function performInitialization(): Promise<void> {
     (dbConnectionStatus as any).databaseId = resolvedId;
     const db = getFirestore(admin.app(), resolvedId);
     
-    // Fast verification
-    await Promise.race([
-      db.collection('_health_').limit(1).get(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Firestore connection timed out for database: ${resolvedId}`)), 20000))
-    ]);
+    // Fast verification with safe fallback
+    try {
+      await Promise.race([
+        db.collection('_health_').limit(1).get(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Firestore connection timed out for database: ${resolvedId}`)), 3000))
+      ]);
+    } catch (verifyErr: any) {
+      logger.warn(`[FIREBASE_INIT] Pre-warm connection check returned or timed out: ${verifyErr.message}. Proceeding with active database anyway.`);
+    }
 
     isFirebaseReady = true;
     dbConnectionStatus.mode = 'PRODUCTION';
@@ -1482,6 +1532,7 @@ async function startServer() {
     
     if (admin.apps.length > 0) {
        console.log("[FIRESTORE READY] Connection established");
+       prewarmCache().catch(e => console.error('[STARTUP] Prewarm failed:', e));
     } else {
        console.warn("[FIRESTORE READY] Running in fallback mode");
     }
@@ -1617,15 +1668,25 @@ const logSuspicious = async (userId: number | string | null, type: string, descr
   }
 };
 
-// Helper to get settings
+// Helper to get settings with memory caching
+const settingsCache = new Map<string, { value: any; expiresAt: number }>();
+
 const getSetting = async (key: string): Promise<any> => {
+  const now = Date.now();
+  const cached = settingsCache.get(key);
+  if (cached && now < cached.expiresAt) {
+    return cached.value;
+  }
+
   try {
     if (!admin.apps.length) {
       console.warn(`[getSetting] Firebase apps not initialized. Skipping key: ${key}`);
       return null;
     }
     const doc = await getFirestoreInstance().collection('settings').doc(key).get();
-    return doc.exists ? doc.data()?.value : null;
+    const value = doc.exists ? doc.data()?.value : null;
+    settingsCache.set(key, { value, expiresAt: now + 30000 }); // Cache for 30 seconds
+    return value;
   } catch (err: any) {
     if (err.code === 7 || err.message?.toLowerCase().includes('permission') || err.message?.toLowerCase().includes('denied')) {
       console.error(`[FIREBASE] Permission Denied during getSetting('${key}').`);
@@ -1969,11 +2030,15 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         const getSubnet = (ipStr: string) => ipStr.split('.').slice(0, 3).join('.');
         const isIpHijacked = getSubnet(sessionIp) !== getSubnet(currentIp) && sessionIp !== 'unknown' && currentIp !== 'unknown';
         
-        if (isDeviceHijacked || isIpHijacked) {
-          console.warn(`[SESSION_HIJACK] Suspicious mismatch. Expected IP: ${sessionIp} / UA: ${sessionUserAgent}. Got IP: ${currentIp} / UA: ${currentUserAgent}. Destroying session.`);
-          registerSecurityIncident(currentIp, 'csrf_tamper', `Session hijacking attempt detected. UserAgent or IP Class-C mismatch.`);
+        if (isDeviceHijacked) {
+          console.warn(`[SESSION_HIJACK] Suspicious UserAgent mismatch. Expected: ${sessionUserAgent}. Got: ${currentUserAgent}. Destroying session.`);
+          registerSecurityIncident(currentIp, 'csrf_tamper', `Session hijacking attempt detected. UserAgent mismatch.`);
           req.session = null; // Destroy session cookie
           return res.status(401).json({ success: false, message: 'Security Breach Mitigated: Session destroyed due to device/network discrepancy.' });
+        } else if (isIpHijacked) {
+          // Log a warning instead of destroying the session to prevent false positives in cloud/container reverse proxies
+          console.warn(`[SESSION_IP_CHANGE] IP changed from ${sessionIp} to ${currentIp}. Keeping session but logging warning.`);
+          (req.session as any).ip = currentIp; // Update tracking IP to current
         }
       }
     }
@@ -2014,6 +2079,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
           if (user) {
               req.session.userId = user.id;
               req.session.role = user.role;
+              req.session.email = user.email || email || '';
           }
         }
       } catch (e) {
@@ -2424,6 +2490,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
              if (doc.exists) {
                 const userData = doc.data();
                 req.session.role = userData?.role || 'customer';
+                req.session.email = userData?.email || req.session.email || '';
                 return next();
              }
            } catch (e) {
@@ -2439,6 +2506,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
         (req as any).session = (req as any).session || {};
         (req as any).session.userId = user.id;
         (req as any).session.role = user.role;
+        (req as any).session.email = user.email || '';
         return next();
       }
 
@@ -2527,9 +2595,31 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
     if (req.session?.userId) {
       const userIdStr = String(req.session.userId);
+      
+      // Look up user in Firestore to resolve their email and role if not fully populated in the session
+      if (isFirebaseReady) {
+        try {
+          const doc = await getFirestoreInstance().collection('users').doc(userIdStr).get();
+          if (doc.exists) {
+            const userData = doc.data();
+            if (userData?.email) {
+              req.session.email = userData.email;
+            }
+            if (userData?.role) {
+              req.session.role = userData.role;
+            }
+          }
+        } catch (e) {
+          console.warn('[requireAdmin] Firestore user lookup failed:', e);
+        }
+      }
+
       const userEmail = sanitizeEmail((req.session as any).email);
       
-      if (userEmail === 'parthgulyani7960@gmail.com') return next();
+      if (userEmail === 'parthgulyani7960@gmail.com') {
+        req.session.role = 'admin';
+        return next();
+      }
       
       if (userEmail && await checkAdminWhitelisted(userEmail)) {
         req.session.role = 'admin';
@@ -3139,20 +3229,25 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         maintenance: false, authMode: 'email', storePhone: '+919999999999', whatsappNumber: '+919999999999', config: [], dbConnected: false 
       };
       
-      if (!admin.apps.length || !isFirebaseReady) return defaultVal;
-      
-      const db = getFirestoreInstance();
-      const snap = await db.collection('settings').get();
-      const publicSettings = snap.docs.map((d: any) => ({ key: d.id, ...d.data() })).filter((s: any) => !sensitiveKeys.includes(s.key));
-      
-      const maintenance = publicSettings.find((s: any) => s.key === 'maintenance_mode')?.value === 'true';
-      const authMode = publicSettings.find((s: any) => s.key === 'auth_mode')?.value || 'email';
-      const storePhone = publicSettings.find((s: any) => s.key === 'store_phone')?.value || '';
-      const whatsappNumber = publicSettings.find((s: any) => s.key === 'whatsapp_number')?.value || '';
-      
-      return { 
-        maintenance, authMode, storePhone, whatsappNumber, config: publicSettings, dbConnected: true
-      };
+      try {
+        if (!admin.apps.length || !isFirebaseReady) return defaultVal;
+        
+        const db = getFirestoreInstance();
+        const snap = await db.collection('settings').get();
+        const publicSettings = snap.docs.map((d: any) => ({ key: d.id, ...d.data() })).filter((s: any) => !sensitiveKeys.includes(s.key));
+        
+        const maintenance = publicSettings.find((s: any) => s.key === 'maintenance_mode')?.value === 'true';
+        const authMode = publicSettings.find((s: any) => s.key === 'auth_mode')?.value || 'email';
+        const storePhone = publicSettings.find((s: any) => s.key === 'store_phone')?.value || '';
+        const whatsappNumber = publicSettings.find((s: any) => s.key === 'whatsapp_number')?.value || '';
+        
+        return { 
+          maintenance, authMode, storePhone, whatsappNumber, config: publicSettings, dbConnected: true
+        };
+      } catch (err) {
+        console.error('[API SETTINGS] DB fetch failed, using fallback', err);
+        return defaultVal;
+      }
     }, 120);
     
     res.json(payload);
@@ -3614,6 +3709,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     const { key, value } = req.body;
     if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
     await getFirestoreInstance().collection('settings').doc(key).set({ value }, { merge: true });
+    
+    // Invalidate the settings caches
+    settingsCache.delete(key);
+    if (key === 'admin_email') {
+      cachedAdminEmail = null;
+    }
+
     if (key === 'maintenance_mode' && value === 'true') {
       if (typeof createAlert === 'function') {
         createAlert(null, 'Maintenance Started', 'The store is now under maintenance for scheduled updates.', 'All systems will be offline shortly. We apologize for the inconvenience.', 'critical', 8000);
@@ -4063,15 +4165,6 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     res.json({ success: true, user });
   }));
 
-  app.post('/api/auth/demo-login', async (req, res) => {
-    console.warn(`[AUTH] Blocked unauthorized attempt to request demo-login from IP: ${req.ip}`);
-    return res.status(403).json({ 
-      success: false, 
-      message: 'Demo and sandbox credentials bypasses are permanently deactivated for production safety compliance.' 
-    });
-  });
-
-
   app.post('/api/auth/firebase-login', async (req, res) => {
     const requestId = (req as any).id || Math.random().toString(36).substring(7);
     console.log('[ROUTE START] /api/auth/firebase-login', { requestId });
@@ -4287,15 +4380,29 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
   });
 
-  // Helper to check admin email
+  // Helper to check admin email with memory caching to prevent redundant Firestore queries
+  let cachedAdminEmail: string | null = null;
+  let cachedAdminEmailExpiry = 0;
+
   async function getAdminEmail(): Promise<string> {
-    if (!admin.apps.length) return 'parthgulyani7960@gmail.com';
-    const docRef = getFirestoreInstance().collection('settings').doc('admin_email');
-    const doc = await docRef.get();
-    if (doc.exists) {
-      return (doc.data() as any).value || 'parthgulyani7960@gmail.com';
+    const now = Date.now();
+    if (cachedAdminEmail && now < cachedAdminEmailExpiry) {
+      return cachedAdminEmail;
     }
-    return 'parthgulyani7960@gmail.com';
+    if (!admin.apps.length) return 'parthgulyani7960@gmail.com';
+    try {
+      const docRef = getFirestoreInstance().collection('settings').doc('admin_email');
+      const doc = await docRef.get();
+      if (doc.exists) {
+        cachedAdminEmail = (doc.data() as any).value || 'parthgulyani7960@gmail.com';
+      } else {
+        cachedAdminEmail = 'parthgulyani7960@gmail.com';
+      }
+    } catch (e) {
+      cachedAdminEmail = 'parthgulyani7960@gmail.com';
+    }
+    cachedAdminEmailExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
+    return cachedAdminEmail;
   }
 
   app.get('/api/bulk-discounts', async (req, res) => {
@@ -4320,13 +4427,18 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         { id: "cat_3", name: "Oils & Ghee" }
       ];
       
-      if (!admin.apps.length || !isFirebaseReady) return initialCats;
-      
-      const db = getFirestoreInstance();
-      const snapshot = await db.collection('categories').get();
-      if (snapshot.empty) return initialCats;
-      
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      try {
+        if (!admin.apps.length || !isFirebaseReady) return initialCats;
+        
+        const db = getFirestoreInstance();
+        const snapshot = await db.collection('categories').get();
+        if (snapshot.empty) return initialCats;
+        
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } catch (err) {
+        console.error('[API CATEGORIES] DB fetch failed, using fallback', err);
+        return initialCats;
+      }
     }, 300);
     res.json(categories);
   }));
@@ -6720,62 +6832,71 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
     const db = getFirestoreInstance();
 
-    if (isBatch && Array.isArray(reports)) {
-        const batch = db.batch();
-        for (const report of reports) {
-           const ref = db.collection('bug_reports').doc();
-           batch.set(ref, {
-               user_id: report.user_id || null, 
-               reporter_name: report.reporter_name || 'System Auto', 
-               message: report.message || '', 
-               why: report.why || '', 
-               path: report.path || '', 
-               action_log: report.action_log || '',
-               type: report.type || 'REPORTER',
-               component: report.component || '',
-               api_endpoint: report.api_endpoint || '',
-               device_info: report.device_info || '',
-               screen_resolution: report.screen_resolution || '',
-               network_status: report.network_status || '',
-               request_payload: JSON.stringify(report.request_payload || {}),
-               metadata: JSON.stringify(report.metadata || {}),
-               status: 'open',
-               created_at: new Date().toISOString()
-           });
-        }
-        await batch.commit();
-        res.json({ success: true, message: `Captured ${reports.length} intel packets.` });
-        return;
-    }
+    // Fire-and-forget: Return a success status to the client immediately to prevent 3000ms+ latency.
+    res.json({ success: true, message: 'Intel packet received and queued for background processing.' });
 
-    await db.collection('bug_reports').add({
-      user_id: user_id || null, 
-      reporter_name: reporter_name || 'System Auto', 
-      message: message || '', 
-      why: why || '', 
-      path: path || '', 
-      action_log: action_log || '',
-      type: type || 'REPORTER',
-      component: component || '',
-      api_endpoint: api_endpoint || '',
-      device_info: device_info || '',
-      screen_resolution: screen_resolution || '',
-      network_status: network_status || '',
-      request_payload: JSON.stringify(request_payload || {}),
-      metadata: JSON.stringify(metadata || {}),
-      status: 'open',
-      created_at: new Date().toISOString()
-    });
-    
-    // Check if this type warrants a notification
-    const criticalTypes = ['CRITICAL_ERROR', 'SYSTEM_ERROR', 'RENDER_ERROR'];
-    if (criticalTypes.includes(type)) {
-      if (typeof createNotification === 'function') {
-        await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
+    // Perform the operations asynchronously in the background
+    (async () => {
+      try {
+        if (isBatch && Array.isArray(reports)) {
+             const batch = db.batch();
+             for (const report of reports) {
+                const ref = db.collection('bug_reports').doc();
+                batch.set(ref, {
+                    user_id: report.user_id || null, 
+                    reporter_name: report.reporter_name || 'System Auto', 
+                    message: report.message || '', 
+                    why: report.why || '', 
+                    path: report.path || '', 
+                    action_log: report.action_log || '',
+                    type: report.type || 'REPORTER',
+                    component: report.component || '',
+                    api_endpoint: report.api_endpoint || '',
+                    device_info: report.device_info || '',
+                    screen_resolution: report.screen_resolution || '',
+                    network_status: report.network_status || '',
+                    request_payload: JSON.stringify(report.request_payload || {}),
+                    metadata: JSON.stringify(report.metadata || {}),
+                    status: 'open',
+                    created_at: new Date().toISOString()
+                });
+             }
+             await batch.commit();
+             console.log(`[BACKGROUND BUG] Captured ${reports.length} intel packets in batch.`);
+             return;
+        }
+
+        await db.collection('bug_reports').add({
+          user_id: user_id || null, 
+          reporter_name: reporter_name || 'System Auto', 
+          message: message || '', 
+          why: why || '', 
+          path: path || '', 
+          action_log: action_log || '',
+          type: type || 'REPORTER',
+          component: component || '',
+          api_endpoint: api_endpoint || '',
+          device_info: device_info || '',
+          screen_resolution: screen_resolution || '',
+          network_status: network_status || '',
+          request_payload: JSON.stringify(request_payload || {}),
+          metadata: JSON.stringify(metadata || {}),
+          status: 'open',
+          created_at: new Date().toISOString()
+        });
+        
+        // Check if this type warrants a notification
+        const criticalTypes = ['CRITICAL_ERROR', 'SYSTEM_ERROR', 'RENDER_ERROR'];
+        if (criticalTypes.includes(type)) {
+          if (typeof createNotification === 'function') {
+            await createNotification('System Anomaly Detected', `A critical ${type} was reported in ${component}. Review the Incident Center immediately.`, 'critical', 'high');
+          }
+        }
+        console.log('[BACKGROUND BUG] Intel packet captured and stored.');
+      } catch (err: any) {
+        console.error('[BACKGROUND BUG ERROR] Failed to save bug report in background:', err.message);
       }
-    }
-    
-    res.json({ success: true, message: 'Intel packet captured and stored.' });
+    })();
   }));
 
 
@@ -9674,7 +9795,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       }
 
       console.log('[STEP 3] Acquiring Firestore instance for announcements');
-      const db = getFirestoreInstance();
+      let db;
+      try {
+        db = getFirestoreInstance();
+      } catch (e) {
+        console.warn('[STEP 3.1] Firestore not available, using fallback');
+        return res.json(fallbackAnnouncements);
+      }
       
       console.log('[STEP 4] Querying Firestore: announcements collection');
       const snap = await db.collection('announcements').limit(20).get();

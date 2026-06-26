@@ -85,6 +85,11 @@ export default function AdminDashboardLayout({
   useEffect(() => {
     const handleSystemError = (event: any) => {
       const report = event.detail;
+      if (report && report.message && report.message.includes('[Performance]')) {
+        // Log to console warn instead of showing intrusive red error toasts for simple API latencies
+        console.warn(`[SYSTEM PERFORMANCE WARNING] ${report.message}`);
+        return;
+      }
       toast.error(`System Error: ${report.message || 'An unexpected error occurred'}`);
     };
     window.addEventListener('system_error', handleSystemError);

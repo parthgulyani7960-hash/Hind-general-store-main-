@@ -1871,7 +1871,12 @@ export default function AdminDashboard() {
   }, [promotionProductsModal.open, promotionProductsModal.promotionId]);
 
   useEffect(() => {
-    const socket = io();
+    const socket = io({
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+      timeout: 10000
+    });
     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
     socket.on('connect', () => {

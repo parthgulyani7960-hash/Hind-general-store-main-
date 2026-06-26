@@ -117,7 +117,12 @@ export default function TrackOrder() {
   useEffect(() => { orderRef.current = order; }, [order]);
 
   useEffect(() => {
-    const socket = io(); 
+    const socket = io({
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+      timeout: 10000
+    }); 
     socket.on('data', (data) => {
         try {
             const currentOrder = orderRef.current;
