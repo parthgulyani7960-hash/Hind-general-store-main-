@@ -332,7 +332,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const cacheKey = `${category}_${sortBy}_${search}_${page}_${limit}_${append}_${minPrice}_${maxPrice}_${rating}_${onSaleOnly}`;
     const cached = clientProductsCacheRef.current[cacheKey];
     const isCached = !!cached;
-    const isStale = cached ? (Date.now() - cached.timestamp > 30000) : true;
+    // Always consider it slightly stale to trigger background refresh, but prevent spamming within 5 seconds
+    const isStale = cached ? (Date.now() - cached.timestamp > 5000) : true;
 
     // Stale-While-Revalidate: instantly serve cached data so layout renders immediately
     if (isCached && cached) {
@@ -346,14 +347,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setProducts(cached.data);
       }
       
-      // If the cache is fresh (< 30s), skip unnecessary network requests completely!
+      // Only skip network if it was just fetched seconds ago
       if (!isStale) {
         return cached.data.length;
       }
     }
 
     // Only set loading overlays if we have absolutely nothing to show.
-    // This avoids flickering spinners on cached items!
     if (!isCached) {
       setIsLoadingProducts(true);
     }
@@ -378,12 +378,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       console.log('Fetched products data:', data);
 
       if (data) {
+        const isDifferent = isCached && JSON.stringify(cached.data) !== JSON.stringify(data);
+        
         // Save to cache
         clientProductsCacheRef.current[cacheKey] = {
           data,
           timestamp: Date.now()
         };
-
+        
         if (append) {
           setProducts(prev => {
             const existingIds = new Set(prev.map(p => p.id));
@@ -391,7 +393,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             return [...prev, ...newProducts];
           });
         } else {
-          setProducts(data);
+          // Only trigger a re-render if we had nothing cached or the data actually changed
+          if (!isCached || isDifferent) {
+            setProducts(data);
+          }
           localStorage.setItem('hgs_products', JSON.stringify(data));
         }
         return data.length;

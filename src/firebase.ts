@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged as fbOnAuthStateChanged, onIdTokenChanged as fbOnIdTokenChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, collection, getDocs, getDoc, setDoc, updateDoc, deleteDoc, query, where, addDoc, serverTimestamp, limit, doc, getDocFromServer, orderBy, onSnapshot, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { errorService, ErrorType } from './lib/incidentReporting';
@@ -310,15 +310,42 @@ export const handleAuthError = (error: any): string => {
   return getFirebaseErrorMessage(errorCode) || error?.message || 'Authentication failed.';
 };
 
+export const handleRedirectResult = async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result && result.user) {
+      const token = await result.user.getIdToken();
+      return { user: result.user, token };
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get redirect result:', error);
+    return null;
+  }
+};
+
 export const signInWithGoogle = async (emailInput?: string) => {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    const isIframe = window.self !== window.top;
+    let result;
+    if (isIframe) {
+      await signInWithRedirect(auth, googleProvider);
+      return; // Will redirect
+    } else {
+      result = await signInWithPopup(auth, googleProvider);
+    }
+    
     if (!result || !result.user) {
       throw new Error('Google Sign-In returned an empty result.');
     }
     const token = await result.user.getIdToken();
     return { user: result.user, token };
   } catch (error: any) {
+    if (error.code === 'auth/popup-closed-by-user' || error.message.includes('Cross-Origin-Opener-Policy')) {
+      console.warn('Popup blocked or closed, trying redirect...');
+      await signInWithRedirect(auth, googleProvider);
+      return;
+    }
     const errorCode = error?.code || '';
     const friendlyMessage = getFirebaseErrorMessage(errorCode);
     console.error('[Firebase] Standard Google Sign-In failed:', error);

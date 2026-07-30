@@ -28,6 +28,11 @@ const fetchWithHandlingInternal = async <T>(
   options: RequestInit = {},
   retries = 2
 ): Promise<T | null> => {
+  // Prevent browser from automatically following IAP redirects so we can handle session expiry
+  if (!options.redirect) {
+    options.redirect = 'manual';
+  }
+
   logger.debug(`fetchWithHandlingInternal call to: ${url}`);
   let cleanUrl = url;
   if (cleanUrl) {
@@ -72,7 +77,13 @@ const fetchWithHandlingInternal = async <T>(
     const res = await fetch(cleanUrl, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
     window.dispatchEvent(new CustomEvent('api_loading_stop'));
-    
+
+    if (res.type === 'opaqueredirect') {
+      logger.warn(`IAP Intercepted request to ${url}. Reloading to refresh session.`);
+      window.location.reload();
+      return null;
+    }
+
     // Diagnostic logging for all admin requests or errors
     if (url.includes('/api/admin') || !res.ok) {
       window.dispatchEvent(new CustomEvent('diagnostic_api_log', {

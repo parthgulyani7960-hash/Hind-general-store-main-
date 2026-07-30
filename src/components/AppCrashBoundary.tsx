@@ -105,6 +105,7 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
 
       await fetch('/api/bugs/report', {
         method: 'POST',
+        redirect: 'manual',
         headers: {
           'Content-Type': 'application/json',
           ...(authHeader ? { 'Authorization': authHeader } : {})

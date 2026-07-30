@@ -238,8 +238,9 @@ export class ErrorReportingService {
         'Unknown';
 
       // Send the batch as an array
-      await fetch('/api/bugs/report', {
+      const res = await fetch('/api/bugs/report', {
         method: 'POST',
+        redirect: 'manual',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders()

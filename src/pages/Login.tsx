@@ -7,7 +7,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
 import { fetchWithHandling } from '@/lib/api';
-import { signInWithGoogle, handleAuthError } from '@/firebase';
+import { signInWithGoogle, handleRedirectResult, handleAuthError } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { triggerFeedback } from '@/lib/feedback';
@@ -63,6 +63,41 @@ export default function Login() {
       sessionStorage.setItem('auth_redirect_url', fullPath);
     }
   }, [location]);
+
+  useEffect(() => {
+    const processRedirect = async () => {
+      setLoading(true);
+      const result = await handleRedirectResult();
+      if (result) {
+        toast.loading('Logging you in...', { id: 'auth-loader' });
+        try {
+          const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken: result.token })
+          });
+          if (data && data.success) {
+            localStorage.setItem('hgs_token', result.token);
+            localStorage.setItem('hgs_user', JSON.stringify(data.user));
+            setShowSuccessTick(true);
+            toast.dismiss('auth-loader');
+            toast.success(`Welcome back, ${data.user.name || 'User'}!`);
+            setUser(data.user);
+            const redirectUrl = getRedirectTarget(data.user);
+            navigate(redirectUrl, { replace: true });
+          } else {
+            setAuthError(data?.message || 'Access request was declined by server.');
+          }
+        } catch (err: any) {
+          setAuthError(err.message || 'Server connection failed.');
+        } finally {
+          toast.dismiss('auth-loader');
+        }
+      }
+      setLoading(false);
+    };
+    processRedirect();
+  }, [navigate, setUser, getRedirectTarget]);
 
   // Google Sign-In handler (Processes both registration and login automatically)
   const handleGoogleLogin = async () => {

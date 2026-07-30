@@ -3911,7 +3911,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         const pDoc = await getFirestoreInstance().collection('products').doc(productId).get();
         console.log(`[DB QUERY END] product ${productId}`);
         return pDoc.exists ? pDoc.data() : null;
-      }, 120); // Cache products for 2 mins
+      }, 10); // Cache products for 10s
 
       if (!pData) return { ...doc, name: 'Product Unavailable', price: 0 };
       
@@ -4184,6 +4184,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   app.post('/api/auth/firebase-login', async (req, res) => {
     const requestId = (req as any).id || Math.random().toString(36).substring(7);
     console.log('[ROUTE START] /api/auth/firebase-login', { requestId });
+    await waitForFirebase();
     const ip = req.ip || 'unknown';
     try {
       const { idToken } = req.body;
@@ -6151,6 +6152,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   app.get('/api/products/:id', async (req, res) => {
     const { id } = req.params;
     
+    await waitForFirebase();
     if (admin.apps.length > 0) {
       try {
         const productData = await getCachedData(`prod_detail_${id}`, async () => {
@@ -6182,6 +6184,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
   app.get('/api/products/:id/related', async (req, res) => {
     const { id } = req.params;
+    await waitForFirebase();
     if (!admin.apps.length) return res.status(404).json({ message: 'Product not found' });
     try {
       const relatedData = await getCachedData(`prod_related_${id}`, async () => {
@@ -6856,6 +6859,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       type, component, api_endpoint, device_info, screen_resolution,
       network_status, request_payload, metadata } = req.body;
 
+    await waitForFirebase();
     if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
     const db = getFirestoreInstance();
 
@@ -9864,7 +9868,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       });
 
       console.log('[ROUTE SUCCESS] /api/announcements');
-      responseCache.set(cacheKey, validAnnouncements, 120);
+      responseCache.set(cacheKey, validAnnouncements, 15);
       return res.json(validAnnouncements);
     } catch (err: any) {
       console.error('[ROUTE FAILURE] /api/announcements - Returning fallbacks to prevent 500', err.message);
@@ -10825,8 +10829,9 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     return res.status(404).end();
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  // Bypass Vite middleware completely and always serve static files
+  // This is required in AI Studio because IAP proxy intercepts Vite module scripts (like /@vite/client) due to lack of cookies
+  if (false) {
     try {
       console.log('[BOOT] Initializing Vite server in middleware mode...');
       const { createServer: createViteServer } = await import('vite');
@@ -10862,7 +10867,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   } else {
     app.use((req, res, next) => {
       if (req.path.startsWith('/api')) return next();
-      express.static(path.join(process.cwd(), 'dist'))(req, res, next);
+      express.static(path.join(process.cwd(), 'dist'), { index: false })(req, res, next);
     });
     app.get('*', (req, res, next) => {
       const reqPath = req.path || '';
@@ -10877,6 +10882,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         let template = fs.readFileSync(distIndexPath, 'utf-8');
         const fbConfig = getFirebaseWebConfig();
         const scriptInjection = `<script>window.FIREBASE_CONFIG = ${JSON.stringify(fbConfig)};</script>`;
+        
+        // Auto-fix Vite's default crossorigin to use-credentials for IAP compatibility
+        template = template.replace(/<script type="module" crossorigin src="/g, '<script type="module" crossorigin="use-credentials" src="');
+        template = template.replace(/<link rel="stylesheet" crossorigin href="/g, '<link rel="stylesheet" crossorigin="use-credentials" href="');
         
         // Ensure injection happens before head ends
         if (template.includes('</head>')) {

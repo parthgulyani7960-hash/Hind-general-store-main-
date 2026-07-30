@@ -6,7 +6,7 @@
   "scripts": {
     "find-db": "node find_dbprepare.cjs",
     "dev": "node ensure-config.js && tsx server.ts",
-    "build": "node ensure-config.js && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "node ensure-config.js && vite build && sed -i 's/crossorigin /crossorigin=\"use-credentials\" /g' dist/index.html && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "node ensure-config.js && tsc --noEmit"

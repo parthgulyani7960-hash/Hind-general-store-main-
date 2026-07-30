@@ -7,7 +7,16 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(), 
+      tailwindcss(),
+      {
+        name: 'force-crossorigin-credentials',
+        transformIndexHtml(html) {
+          return html.replace(/<script type="module" src="/g, '<script type="module" crossorigin="use-credentials" src="');
+        }
+      }
+    ],
     worker: {
       format: 'es',
     },
@@ -51,6 +60,7 @@ export default defineConfig(({mode}) => {
     build: {
       sourcemap: true,
       chunkSizeWarningLimit: 1200,
+      crossorigin: 'use-credentials'
     }
   };
 });
