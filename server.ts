@@ -1852,6 +1852,8 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
   }
 }
 
+const userLastLoginUpdateCache = new Map<string, number>();
+
 // Helper to verify Firebase token and get/create user
 const verifyFirebaseUser = async (req: express.Request) => {
   if (!isFirebaseReady) return null;
@@ -1886,12 +1888,20 @@ const verifyFirebaseUser = async (req: express.Request) => {
       }
       
       try {
-        await getFirestoreInstance().collection('users').doc(user.id).update({
-           last_login_at: new Date().toISOString(), ip_address: req.ip || null, device_info: req.headers['user-agent'] || null
-        });
+        const now = Date.now();
+        const lastUpdate = userLastLoginUpdateCache.get(user.id) || 0;
+        // Only write to Firestore if it's been more than 5 minutes since the last update
+        if (now - lastUpdate > 1000 * 60 * 5) {
+          userLastLoginUpdateCache.set(user.id, now);
+          getFirestoreInstance().collection('users').doc(user.id).update({
+             last_login_at: new Date().toISOString(), ip_address: req.ip || null, device_info: req.headers['user-agent'] || null
+          }).catch(updateErr => {
+            console.error('[AUTH] Background update of login details failed:', updateErr);
+          });
+        }
         user.last_login_at = new Date().toISOString();
       } catch (updateErr) {
-        console.error('[AUTH] Failed to update login details:', updateErr);
+        console.error('[AUTH] Failed to initiate login details update:', updateErr);
       }
 
       (req as any).session = (req as any).session || {};
@@ -2464,6 +2474,8 @@ const auditAdminAction = (req: any, res: any, next: any) => {
 
       // Strict Session Validation: Check if session has userId
       if (req.session?.userId) {
+         if (req.session.role) return next();
+
          const userIdStr = String(req.session.userId);
 
          if (isFirebaseReady) {
@@ -2479,8 +2491,6 @@ const auditAdminAction = (req: any, res: any, next: any) => {
              console.warn('[AUTH MIDDLEWARE] Firestore doc fetch failed, using session role');
            }
          }
-         
-         if (req.session.role) return next();
       }
       
       const user = await verifyFirebaseUser(req);
@@ -2576,6 +2586,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
 
     if (req.session?.userId) {
+      if (req.session.role === 'admin' && req.session.email) {
+        return next();
+      }
+
       const userIdStr = String(req.session.userId);
       
       // Look up user in Firestore to resolve their email and role if not fully populated in the session
@@ -4436,6 +4450,9 @@ const authLimiter = rateLimit({
         });
         
         responseCache.del('all_categories');
+        if (typeof CACHE_STORE_GLOBAL !== 'undefined' && CACHE_STORE_GLOBAL) {
+          CACHE_STORE_GLOBAL.del('all_categories_v2');
+        }
         
         return res.json({ success: true, id: newDocRef.id });
       }
@@ -4456,6 +4473,9 @@ const authLimiter = rateLimit({
         }, { merge: true });
         
         responseCache.del('all_categories');
+        if (typeof CACHE_STORE_GLOBAL !== 'undefined' && CACHE_STORE_GLOBAL) {
+          CACHE_STORE_GLOBAL.del('all_categories_v2');
+        }
         
         return res.json({ success: true });
       } catch(e) { console.error('Firebase category put failed', e); }
@@ -4472,6 +4492,9 @@ const authLimiter = rateLimit({
         await getFirestoreInstance().collection('categories').doc(String(id)).delete();
         
         responseCache.del('all_categories');
+        if (typeof CACHE_STORE_GLOBAL !== 'undefined' && CACHE_STORE_GLOBAL) {
+          CACHE_STORE_GLOBAL.del('all_categories_v2');
+        }
         
         return res.json({ success: true });
       } catch(e) { console.error('Firebase category delete failed', e); }

@@ -1,4 +1,3 @@
-import { safeStorage } from '@/lib/safeStorage';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, CartItem, Product, UserAddress, PromotionRule, Permission, Announcement } from './types';
 import toast from 'react-hot-toast';
@@ -130,7 +129,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
     try {
-      const hasToken = !!safeStorage.getItem('hgs_token');
+      const hasToken = !!localStorage.getItem('hgs_token');
       console.log('[StoreProvider] Initial Auth Checking:', hasToken);
       // If we have a token, we MUST verify it regardless of whether we have a local user cache
       if (hasToken) return true;
@@ -141,7 +140,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
   const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(() => {
     try {
-      const hasToken = !!safeStorage.getItem('hgs_token');
+      const hasToken = !!localStorage.getItem('hgs_token');
       // Verification hasn't happened yet if we have a token
       if (hasToken) return false;
       return true;
@@ -156,7 +155,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [runtimeErrors, setRuntimeErrors] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>(() => {
     try {
-      const saved = safeStorage.getItem('hgs_categories');
+      const saved = localStorage.getItem('hgs_categories');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -174,7 +173,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [showImages, setShowImages] = useState(true);
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const saved = safeStorage.getItem('hgs_user');
+      const saved = localStorage.getItem('hgs_user');
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       return null;
@@ -183,7 +182,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
-      const saved = safeStorage.getItem('hgs_products');
+      const saved = localStorage.getItem('hgs_products');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -194,7 +193,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
-      const saved = safeStorage.getItem('hgs_cart');
+      const saved = localStorage.getItem('hgs_cart');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -206,7 +205,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isSyncCartPending, setIsSyncCartPending] = useState(false);
   const [wishlist, setWishlist] = useState<number[]>(() => {
     try {
-      const saved = safeStorage.getItem('hgs_wishlist');
+      const saved = localStorage.getItem('hgs_wishlist');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -228,7 +227,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<any[]>([]);
   const [vibration, setVibration] = useState(() => {
     try {
-      const saved = safeStorage.getItem('hgs_vibration');
+      const saved = localStorage.getItem('hgs_vibration');
       return saved !== null ? saved === 'true' : true;
     } catch {
       return true;
@@ -236,7 +235,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
   const [notifications, setNotifications] = useState(() => {
     try {
-      const saved = safeStorage.getItem('hgs_notifications');
+      const saved = localStorage.getItem('hgs_notifications');
       return saved !== null ? saved === 'true' : true;
     } catch {
       return true;
@@ -245,7 +244,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
   const [readNotificationIds, setReadNotificationIds] = useState<number[]>(() => {
     try {
-      const saved = safeStorage.getItem('read_notifications');
+      const saved = localStorage.getItem('read_notifications');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -253,7 +252,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
   const [sound, setSound] = useState(() => {
     try {
-      const saved = safeStorage.getItem('hgs_sound');
+      const saved = localStorage.getItem('hgs_sound');
       return saved !== null ? saved === 'true' : true;
     } catch {
       return true;
@@ -277,33 +276,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       if (user) {
-        safeStorage.setItem('hgs_user', JSON.stringify(user));
+        localStorage.setItem('hgs_user', JSON.stringify(user));
         // If it's an impersonated user, we also need to set the token or handle it
         if ((user as any).isImpersonated) {
           // This is a bit of a hack for the demo
-          safeStorage.setItem('hgs_token', 'impersonated_token');
+          localStorage.setItem('hgs_token', 'impersonated_token');
         }
       } else {
-        safeStorage.removeItem('hgs_user');
+        localStorage.removeItem('hgs_user');
       }
     } catch {}
   }, [user]);
 
   useEffect(() => {
     try {
-      safeStorage.setItem('hgs_vibration', String(vibration));
+      localStorage.setItem('hgs_vibration', String(vibration));
     } catch {}
   }, [vibration]);
 
   useEffect(() => {
     try {
-      safeStorage.setItem('hgs_notifications', String(notifications));
+      localStorage.setItem('hgs_notifications', String(notifications));
     } catch {}
   }, [notifications]);
 
   useEffect(() => {
     try {
-      safeStorage.setItem('hgs_sound', String(sound));
+      localStorage.setItem('hgs_sound', String(sound));
     } catch {}
   }, [sound]);
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
@@ -398,7 +397,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (!isCached || isDifferent) {
             setProducts(data);
           }
-          safeStorage.setItem('hgs_products', JSON.stringify(data));
+          localStorage.setItem('hgs_products', JSON.stringify(data));
         }
         return data.length;
       } else {
@@ -530,13 +529,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (authRunningRef.current) return;
     authRunningRef.current = true;
     try {
-      const token = fbToken || safeStorage.getItem('hgs_token');
+      const token = fbToken || localStorage.getItem('hgs_token');
       const isValidToken = token && token !== 'null' && token !== 'undefined' && token.trim() !== '' && token.split('.').length === 3;
       
       if (!isValidToken) {
         setUser(null);
-        safeStorage.removeItem('hgs_user');
-        safeStorage.removeItem('hgs_token');
+        localStorage.removeItem('hgs_user');
+        localStorage.removeItem('hgs_token');
         authRunningRef.current = false;
         setIsAuthChecking(false);
         setIsInitialAuthPerformed(true);
@@ -552,7 +551,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
            if (prev && JSON.stringify(prev) === JSON.stringify(data.user)) return prev;
            return data.user;
         });
-        safeStorage.setItem('hgs_user', JSON.stringify(data.user));
+        localStorage.setItem('hgs_user', JSON.stringify(data.user));
         if (isNewLogin) {
           securityService.trackAuth('login', data.user);
         }
@@ -568,8 +567,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (err.status === 401) {
         logger.warn('[checkAuth] Unauthorized token (401). Clearing session.', err);
         setUser(null);
-        safeStorage.removeItem('hgs_user');
-        safeStorage.removeItem('hgs_token');
+        localStorage.removeItem('hgs_user');
+        localStorage.removeItem('hgs_token');
       } else {
         logger.warn('[checkAuth] Transient auth check error. Maintaining existing credentials to prevent loops:', err);
       }
@@ -586,7 +585,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const data = await fetchWithHandling<{user: User}>('/api/auth/me', { headers: getAuthHeaders() });
       if (data && data.user) {
         setUser(data.user);
-        safeStorage.setItem('hgs_user', JSON.stringify(data.user));
+        localStorage.setItem('hgs_user', JSON.stringify(data.user));
       }
     } catch (err) {
       // ignore
@@ -788,7 +787,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // 2. Clear all local storage values
     try {
-      safeStorage.clear();
+      localStorage.clear();
     } catch (lsErr) {}
 
     // 3. Reset all StoreContext state
@@ -840,7 +839,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const markNotificationAsRead = React.useCallback((id: number) => {
     setReadNotificationIds(prev => {
       const next = [...new Set([...prev, id])];
-      safeStorage.setItem('read_notifications', JSON.stringify(next));
+      localStorage.setItem('read_notifications', JSON.stringify(next));
       return next;
     });
   }, []);
@@ -859,7 +858,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       if (res && res.success && res.user) {
         setUser(res.user);
-        safeStorage.setItem('hgs_user', JSON.stringify(res.user));
+        localStorage.setItem('hgs_user', JSON.stringify(res.user));
         toast.success(translations[language]['profile_updated'] as string || 'Profile successfully updated!');
       } else {
         toast.error('Failed to update profile.');
@@ -953,7 +952,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const data = await fetchWithHandling<any[]>('/api/categories');
         if (data && Array.isArray(data)) {
           setCategories(data);
-          safeStorage.setItem('hgs_categories', JSON.stringify(data));
+          localStorage.setItem('hgs_categories', JSON.stringify(data));
         } else {
           setCategories([]);
         }
@@ -1001,7 +1000,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setReadNotificationIds(prev => {
       if (prev.includes(id)) return prev;
       const next = [...prev, id];
-      safeStorage.setItem('read_notifications', JSON.stringify(next));
+      localStorage.setItem('read_notifications', JSON.stringify(next));
       return next;
     });
   }, []);
@@ -1019,7 +1018,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setUser(prev => {
           const updated = { ...prev, ...data } as User;
           if (JSON.stringify(prev) !== JSON.stringify(updated)) {
-            safeStorage.setItem('hgs_user', JSON.stringify(updated));
+            localStorage.setItem('hgs_user', JSON.stringify(updated));
             return updated;
           }
           return prev;
@@ -1042,7 +1041,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onSnapshot(catRef, (snapshot) => {
       const cats = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setCategories(cats);
-      safeStorage.setItem('hgs_categories', JSON.stringify(cats));
+      localStorage.setItem('hgs_categories', JSON.stringify(cats));
     }, (error: any) => {
       console.error('[REALTIME] Categories listener error:', error);
       if (error.code !== 'permission-denied') {
@@ -1062,7 +1061,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ...d.data() 
       })) as Product[];
       setProducts(data);
-      safeStorage.setItem('hgs_products', JSON.stringify(data));
+      localStorage.setItem('hgs_products', JSON.stringify(data));
     }, (error: any) => {
       console.error('[REALTIME] Products listener error:', error);
       if (error.code !== 'permission-denied') {
@@ -1143,7 +1142,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [previousRole, setPreviousRole] = React.useState(user?.role || 'retailer');
   useEffect(() => {
     if (user && user.role === 'wholesaler' && previousRole !== 'wholesaler') {
-      const hasSeen = safeStorage.getItem(`has_seen_wholesale_alert_${user.id}`);
+      const hasSeen = localStorage.getItem(`has_seen_wholesale_alert_${user.id}`);
       if (!hasSeen) {
         setCurrentAlert({
           id: Date.now(),
@@ -1153,7 +1152,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           duration: 7000,
           is_unskippable: true
         });
-        safeStorage.setItem(`has_seen_wholesale_alert_${user.id}`, 'true');
+        localStorage.setItem(`has_seen_wholesale_alert_${user.id}`, 'true');
       }
     }
     setPreviousRole(user?.role || 'retailer');
@@ -1170,7 +1169,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 1500);
 
     // Restore session immediately if local token exists
-    const savedToken = safeStorage.getItem('hgs_token');
+    const savedToken = localStorage.getItem('hgs_token');
     
     // Auth initialization is already handled in firebase.ts.
     // Just set up the listener.
@@ -1182,11 +1181,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             console.log('[BOOT] Firebase User exists, fetching token...');
             const token = await firebaseUser.getIdToken();
             console.log('[BOOT] Token fetched');
-            const hasExpiredTokenChange = token !== safeStorage.getItem('hgs_token');
+            const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
             // If token changed OR we current have no user state, we must authorize
             if (hasExpiredTokenChange || !user) {
               console.log('[BOOT] Token changed or no user, calling checkAuth...');
-              safeStorage.setItem('hgs_token', token);
+              localStorage.setItem('hgs_token', token);
               await checkAuth(token);
               console.log('[BOOT] checkAuth completed');
             } else {
@@ -1194,9 +1193,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             }
           } else {
             console.log('[BOOT] No firebase user, clearing session');
-            if (safeStorage.getItem('hgs_token')) {
-              safeStorage.removeItem('hgs_token');
-              safeStorage.removeItem('hgs_user');
+            if (localStorage.getItem('hgs_token')) {
+              localStorage.removeItem('hgs_token');
+              localStorage.removeItem('hgs_user');
               setUser(null);
             }
           }
@@ -1248,10 +1247,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Phase 2 triggers
   useEffect(() => {
     if (startupPhase === 2) {
-      logger.info('[STARTUP_ORCHESTRATOR] Running Phase 2: Notifications & Settings');
+      logger.info('[STARTUP_ORCHESTRATOR] Running Phase 2: Notifications, Settings & Categories');
       Promise.all([
         fetchNotifications().catch(err => logger.debug('[STARTUP] Initial Notifications failed:', err)),
-        fetchConfig().catch(err => logger.debug('[STARTUP] Initial Config/Settings failed:', err))
+        fetchConfig().catch(err => logger.debug('[STARTUP] Initial Config/Settings failed:', err)),
+        fetchCategories().catch(err => logger.debug('[STARTUP] Initial Categories failed:', err))
       ]).then(() => {
         // Delay moving to Phase 3 slightly to let rendering complete and relieve API load
         setTimeout(() => {
@@ -1259,7 +1259,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }, 400);
       });
     }
-  }, [startupPhase, fetchNotifications, fetchConfig]);
+  }, [startupPhase, fetchNotifications, fetchConfig, fetchCategories]);
 
   // Phase 3 triggers (Promotions, bulk discounts, announcements, addresses)
   useEffect(() => {
@@ -1288,7 +1288,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchAddresses, startupPhase]);
 
   useEffect(() => {
-    safeStorage.setItem('hgs_cart', JSON.stringify(cart));
+    localStorage.setItem('hgs_cart', JSON.stringify(cart));
     const cartStr = JSON.stringify(cart);
     if (user && cartLoadedFromStorage && isOnline) {
       if (cartStr !== lastSyncCartStrRef.current) {
@@ -1326,7 +1326,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [isOnline, user, fetchCart]);
 
   useEffect(() => {
-    safeStorage.setItem('hgs_wishlist', JSON.stringify(wishlist));
+    localStorage.setItem('hgs_wishlist', JSON.stringify(wishlist));
   }, [wishlist]);
 
   // API Health Monitor Polling
