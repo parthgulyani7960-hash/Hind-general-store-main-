@@ -8,7 +8,7 @@ import {
   CheckCircle2, ThumbsUp, Filter, Heart, Tag, Navigation2, Loader2
 } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, limit, doc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '@/firebase';
+import { db, handleFirestoreError, OperationType, storage, ref, uploadBytesResumable, getDownloadURL } from '@/firebase';
 import { ImageGalleryModal } from '@/components/ImageGalleryModal';
 import { ReviewSection } from '@/components/ReviewSection';
 import { Product, Review, cn } from '@/types';
@@ -242,7 +242,7 @@ export default function ProductDetail() {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        const { storage, ref, uploadBytesResumable, getDownloadURL } = await import('../firebase');
+        // Using top-level imported storage helpers
         const storageRef = ref(storage, `products/${Date.now()}_${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
         

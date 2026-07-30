@@ -21,7 +21,7 @@ const performRefresh = async (): Promise<string | null> => {
             readinessTimeoutId = setTimeout(() => {
                 logger.warn('Firebase authReadyPromise timed out during refresh check');
                 resolve();
-            }, 5000);
+            }, 800);
         });
 
         await Promise.race([authReadyPromise, timeoutPromise]);
@@ -36,7 +36,7 @@ const performRefresh = async (): Promise<string | null> => {
                 tokenTimeoutId = setTimeout(() => {
                     logger.warn('getIdToken timed out in performRefresh');
                     resolve(null);
-                }, 5000);
+                }, 800);
             });
 
             const newToken = await Promise.race([tokenPromise, tPromise]);

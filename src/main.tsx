@@ -91,20 +91,24 @@ try {
               inputUrl = apiPart || parts[0];
             }
           }
+          if ((inputUrl.startsWith('http://') || inputUrl.startsWith('https://')) && inputUrl.includes('/api/')) {
+            if (typeof window !== 'undefined' && (inputUrl.includes(window.location.host) || inputUrl.includes('run.app') || inputUrl.includes('aistudio'))) {
+              const idx = inputUrl.indexOf('/api/');
+              inputUrl = inputUrl.substring(idx);
+            }
+          }
           if (inputUrl.startsWith('api/')) {
             inputUrl = '/' + inputUrl;
-          }
-          // Prepend absolute window location origin if it is a relative API route
-          if (inputUrl.startsWith('/api/') && typeof window !== 'undefined' && window.location) {
-            inputUrl = `${window.location.origin}${inputUrl}`;
           }
         }
         
         // 2. Identify request type
         const isExternal = inputUrl.startsWith('http') && !inputUrl.includes(window.location.host);
         
-        // 3. Skip interception for external APIs (like Firebase Auth) or if it's already an absolute URL to another domain
-        if (isExternal) {
+        // 3. Skip interception for external APIs, bug reports, or non-API asset requests
+        const isReportingEndpoint = inputUrl.includes('/bugs/report') || inputUrl.includes('/incidents/report');
+        const isApiRoute = inputUrl.includes('/api/');
+        if (isExternal || isReportingEndpoint || !isApiRoute) {
           return originalFetch(input, init);
         }
 
@@ -140,7 +144,7 @@ try {
             const res = await originalFetch(finalInput, finalInit);
             const duration = Date.now() - startTime;
 
-            if (duration > 3000 && inputUrl.includes('/api/') && !inputUrl.includes('/favicon.ico')) {
+            if (duration > 3000 && inputUrl.includes('/api/') && !inputUrl.includes('/favicon.ico') && !inputUrl.includes('/bugs/report') && !inputUrl.includes('/incidents/report')) {
               try {
                 errorService.report({
                   type: ErrorType.API_ERROR,
@@ -217,24 +221,40 @@ setTimeout(() => {
   }
 }, 2000);
 
-try {
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <AppCrashBoundary>
-        <App />
-      </AppCrashBoundary>
-    </StrictMode>,
-  );
-} catch (e) {
-  console.error('[CRITICAL] Root render failed:', e);
-  const root = document.getElementById('root');
-  if (root) {
-    root.innerHTML = '<div style="padding: 20px; text-align: center;"><h1>Initialization Failed</h1><p>The application could not be rendered.</p></div>';
+let hasMounted = false;
+const mountReactApp = () => {
+  if (hasMounted) return;
+  const rootElement = document.getElementById('root');
+  if (!rootElement) {
+    console.error('[CRITICAL] Root element #root not found during mount.');
+    return;
   }
-}
+  hasMounted = true;
+  try {
+    createRoot(rootElement).render(
+      <StrictMode>
+        <AppCrashBoundary>
+          <App />
+        </AppCrashBoundary>
+      </StrictMode>,
+    );
+    if (typeof window !== 'undefined' && (window as any).__markAppAsLoaded) {
+      (window as any).__markAppAsLoaded();
+    }
+  } catch (e) {
+    console.error('[CRITICAL] Root render failed:', e);
+    if (rootElement) {
+      rootElement.innerHTML = '<div style="padding: 20px; text-align: center;"><h1>Initialization Failed</h1><p>The application could not be rendered.</p></div>';
+    }
+  }
+};
 
-if (typeof window !== 'undefined' && (window as any).__markAppAsLoaded) {
-  (window as any).__markAppAsLoaded();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mountReactApp);
+  window.addEventListener('load', mountReactApp);
+  setTimeout(mountReactApp, 10);
+} else {
+  mountReactApp();
 }
 
 // Register the custom Workbox ServiceWorker to dramatically speed up static loads and repeat visits

@@ -40,11 +40,12 @@ const fetchWithHandlingInternal = async <T>(
         cleanUrl = apiPart || parts[0];
       }
     }
+    if ((cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) && cleanUrl.includes('/api/')) {
+      const idx = cleanUrl.indexOf('/api/');
+      cleanUrl = cleanUrl.substring(idx);
+    }
     if (cleanUrl.startsWith('api/')) {
       cleanUrl = '/' + cleanUrl;
-    }
-    if (cleanUrl.startsWith('/api/') && typeof window !== 'undefined' && window.location) {
-      cleanUrl = `${window.location.origin}${cleanUrl}`;
     }
   }
 

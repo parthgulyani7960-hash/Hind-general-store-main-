@@ -14,6 +14,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import { cn, Product } from '@/types';
 import { auth } from '@/firebase';
+import { updateProfile as firebaseUpdateProfile } from 'firebase/auth';
 import { useEffect } from 'react';
 import WholesaleInsights from '@/components/WholesaleInsights';
 import LocationPicker from '@/components/LocationPicker';
@@ -874,7 +875,6 @@ export default function Profile() {
     }
     setIsSubmitting(true);
     try {
-      const { fetchWithHandling } = await import('@/lib/api');
       const data = await fetchWithHandling<any>('/api/reviews', {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -3527,7 +3527,6 @@ export default function Profile() {
                 try {
                   // 1. Firebase Auth display name update
                   if (auth?.currentUser) {
-                    const { updateProfile: firebaseUpdateProfile } = await import('firebase/auth');
                     await firebaseUpdateProfile(auth.currentUser, {
                       displayName: accountName
                     });

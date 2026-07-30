@@ -73,4 +73,4 @@ try {
 // 4. API entry point compilation is skipped to prevent duplicate compiled file vs source file conflict on Vercel
 console.log('[BUILD] Skipping API entry point compilation (Vercel builds typescript entry point natively)...');
 
-console.log('[BUILD] Build process successfully completed with no resolution errors!');
+console.log('[BUILD] Build process successfully completed!');

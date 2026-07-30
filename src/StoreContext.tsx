@@ -120,6 +120,7 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  console.log('[StoreProvider] RENDER START');
   const { language, setLanguage, t } = useLanguage();
   const { mutate: swrMutate } = useSWRConfig();
   const { trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts } = useProductCache();
@@ -216,6 +217,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const isCartCacheDirtyRef = React.useRef<boolean>(true);
   const clientProductsCacheRef = React.useRef<Record<string, { data: Product[]; timestamp: number }>>({});
   const clientProductDetailCacheRef = React.useRef<Record<string, { data: any; timestamp: number }>>({});
+  const promotionsPromiseRef = React.useRef<Promise<any> | null>(null);
+  const bulkDiscountsPromiseRef = React.useRef<Promise<any> | null>(null);
+  const announcementsPromiseRef = React.useRef<Promise<any> | null>(null);
+  const notificationsPromiseRef = React.useRef<Promise<any> | null>(null);
+  const categoriesPromiseRef = React.useRef<Promise<any> | null>(null);
+  const configPromiseRef = React.useRef<Promise<any> | null>(null);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [config, setConfig] = useState<any[]>([]);
   const [vibration, setVibration] = useState(() => {
@@ -468,31 +475,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchPromotions = React.useCallback(async () => {
-    try {
-      const data = await fetchWithHandling<PromotionRule[]>('/api/promotions-rules');
-      if (data) {
-        const activePromotions = data.filter((p: PromotionRule) => p.active);
-        setPromotions(prev => JSON.stringify(prev) !== JSON.stringify(activePromotions) ? activePromotions : prev);
+    if (promotionsPromiseRef.current) return promotionsPromiseRef.current;
+    promotionsPromiseRef.current = (async () => {
+      try {
+        const data = await fetchWithHandling<PromotionRule[]>('/api/promotions-rules');
+        if (data) {
+          const activePromotions = data.filter((p: PromotionRule) => p.active);
+          setPromotions(prev => JSON.stringify(prev) !== JSON.stringify(activePromotions) ? activePromotions : prev);
+        }
+      } catch (err) {} finally {
+        promotionsPromiseRef.current = null;
       }
-    } catch (err) {}
+    })();
+    return promotionsPromiseRef.current;
   }, []);
 
   const fetchBulkDiscounts = React.useCallback(async () => {
-    try {
-      const data = await fetchWithHandling<any[]>('/api/bulk-discounts');
-      if (data) {
-        setBulkDiscounts(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+    if (bulkDiscountsPromiseRef.current) return bulkDiscountsPromiseRef.current;
+    bulkDiscountsPromiseRef.current = (async () => {
+      try {
+        const data = await fetchWithHandling<any[]>('/api/bulk-discounts');
+        if (data) {
+          setBulkDiscounts(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+        }
+      } catch (err) {} finally {
+        bulkDiscountsPromiseRef.current = null;
       }
-    } catch (err) {}
+    })();
+    return bulkDiscountsPromiseRef.current;
   }, []);
 
   const fetchAnnouncements = React.useCallback(async () => {
-    try {
-      const data = await fetchWithHandling<Announcement[]>('/api/announcements');
-      if (data) {
-        setAnnouncements(data);
+    if (announcementsPromiseRef.current) return announcementsPromiseRef.current;
+    announcementsPromiseRef.current = (async () => {
+      try {
+        const data = await fetchWithHandling<Announcement[]>('/api/announcements');
+        if (data) {
+          setAnnouncements(data);
+        }
+      } catch (err) {} finally {
+        announcementsPromiseRef.current = null;
       }
-    } catch (err) {}
+    })();
+    return announcementsPromiseRef.current;
   }, []);
 
   const checkAuth = React.useCallback(async (fbToken?: string) => {
@@ -507,6 +532,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('hgs_user');
         localStorage.removeItem('hgs_token');
         authRunningRef.current = false;
+        setIsAuthChecking(false);
+        setIsInitialAuthPerformed(true);
         return;
       }
 
@@ -783,19 +810,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = (permission: Permission) => user?.permissions?.includes(permission) ?? false;
   const fetchNotifications = React.useCallback(async () => {
     if (!user) return;
-    try {
-      const data = await fetchWithHandling<any[]>('/api/notifications');
-      if (data && Array.isArray(data)) {
-        const activeRole = simulatedRole || user?.role || 'user';
-        const visible = data.filter((n: any) => 
-          (n.user_id === user?.id || !n.user_id) && 
-          (!n.target_role || n.target_role === 'all' || n.target_role === activeRole)
-        );
-        setNotificationsList(visible);
+    if (notificationsPromiseRef.current) return notificationsPromiseRef.current;
+    notificationsPromiseRef.current = (async () => {
+      try {
+        const data = await fetchWithHandling<any[]>('/api/notifications');
+        if (data && Array.isArray(data)) {
+          const activeRole = simulatedRole || user?.role || 'user';
+          const visible = data.filter((n: any) => 
+            (n.user_id === user?.id || !n.user_id) && 
+            (!n.target_role || n.target_role === 'all' || n.target_role === activeRole)
+          );
+          setNotificationsList(visible);
+        }
+      } catch (err) {
+        logger.warn('Notifications fetch failed');
+      } finally {
+        notificationsPromiseRef.current = null;
       }
-    } catch (err) {
-      logger.warn('Notifications fetch failed');
-    }
+    })();
+    return notificationsPromiseRef.current;
   }, [user, simulatedRole]);
 
   const markNotificationAsRead = React.useCallback((id: number) => {
@@ -905,34 +938,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
   const fetchCategories = React.useCallback(async () => {
+    if (categoriesPromiseRef.current) return categoriesPromiseRef.current;
     if (isLoadingCategoriesRef.current) return;
     isLoadingCategoriesRef.current = true;
     setIsLoadingCategories(true);
-    try {
-      const data = await fetchWithHandling<any[]>('/api/categories');
-      if (data && Array.isArray(data)) {
-        setCategories(data);
-        localStorage.setItem('hgs_categories', JSON.stringify(data));
-      } else {
+    categoriesPromiseRef.current = (async () => {
+      try {
+        const data = await fetchWithHandling<any[]>('/api/categories');
+        if (data && Array.isArray(data)) {
+          setCategories(data);
+          localStorage.setItem('hgs_categories', JSON.stringify(data));
+        } else {
+          setCategories([]);
+        }
+      } catch (err) {
         setCategories([]);
+      } finally {
+        setIsLoadingCategories(false);
+        isLoadingCategoriesRef.current = false;
+        categoriesPromiseRef.current = null;
       }
-    } catch (err) {
-      setCategories([]);
-    } finally {
-      setIsLoadingCategories(false);
-      isLoadingCategoriesRef.current = false;
-    }
+    })();
+    return categoriesPromiseRef.current;
   }, []);
 
   const fetchConfig = React.useCallback(async () => {
-    try {
-      const data = await fetchWithHandling<any>('/api/settings');
-      if (data && data.config) {
-        setConfig(prev => JSON.stringify(prev) !== JSON.stringify(data.config) ? data.config : prev);
+    if (configPromiseRef.current) return configPromiseRef.current;
+    configPromiseRef.current = (async () => {
+      try {
+        const data = await fetchWithHandling<any>('/api/settings');
+        if (data && data.config) {
+          setConfig(prev => JSON.stringify(prev) !== JSON.stringify(data.config) ? data.config : prev);
+        }
+      } catch (err) {
+        // Config failure handled silently
+      } finally {
+        configPromiseRef.current = null;
       }
-    } catch (err) {
-      // Config failure handled silently
-    }
+    })();
+    return configPromiseRef.current;
   }, []);
   const logActivity = React.useCallback(async (type: string, description: string) => {
     if (!user) return;
@@ -1112,36 +1156,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let unsubscribe: any;
     
+    // Safety fallback timer: ensure auth checking resolves within 1500ms even if Firebase SDK hangs or network stalls
+    const authSafetyTimeout = setTimeout(() => {
+      console.warn('[BOOT] Auth safety timeout reached. Unblocking initial render.');
+      setIsInitialAuthPerformed(true);
+      setIsAuthChecking(false);
+    }, 1500);
+
     // Restore session immediately if local token exists
     const savedToken = localStorage.getItem('hgs_token');
     
     // Auth initialization is already handled in firebase.ts.
     // Just set up the listener.
     unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+        clearTimeout(authSafetyTimeout);
         console.log('[BOOT] onIdTokenChanged triggered, user:', !!firebaseUser, 'Current User State:', !!user);
-        if (firebaseUser) {
-          console.log('[BOOT] Firebase User exists, fetching token...');
-          const token = await firebaseUser.getIdToken();
-          console.log('[BOOT] Token fetched');
-          const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
-          // If token changed OR we current have no user state, we must authorize
-          if (hasExpiredTokenChange || !user) {
-            console.log('[BOOT] Token changed or no user, calling checkAuth...');
-            localStorage.setItem('hgs_token', token);
-            await checkAuth(token);
-            console.log('[BOOT] checkAuth completed');
+        try {
+          if (firebaseUser) {
+            console.log('[BOOT] Firebase User exists, fetching token...');
+            const token = await firebaseUser.getIdToken();
+            console.log('[BOOT] Token fetched');
+            const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
+            // If token changed OR we current have no user state, we must authorize
+            if (hasExpiredTokenChange || !user) {
+              console.log('[BOOT] Token changed or no user, calling checkAuth...');
+              localStorage.setItem('hgs_token', token);
+              await checkAuth(token);
+              console.log('[BOOT] checkAuth completed');
+            } else {
+              console.log('[BOOT] No token change or user present, setting auth complete');
+            }
           } else {
-            console.log('[BOOT] No token change or user present, setting auth complete');
-            setIsInitialAuthPerformed(true);
-            setIsAuthChecking(false);
+            console.log('[BOOT] No firebase user, clearing session');
+            if (localStorage.getItem('hgs_token')) {
+              localStorage.removeItem('hgs_token');
+              localStorage.removeItem('hgs_user');
+              setUser(null);
+            }
           }
-        } else {
-          console.log('[BOOT] No firebase user, clearing session');
-          if (localStorage.getItem('hgs_token')) {
-            localStorage.removeItem('hgs_token');
-            localStorage.removeItem('hgs_user');
-            setUser(null);
-          }
+        } catch (authErr) {
+          console.error('[BOOT] Exception during auth state sync:', authErr);
+        } finally {
           setIsInitialAuthPerformed(true);
           setIsAuthChecking(false);
         }
@@ -1154,6 +1209,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('database_error', dbErrListener);
     
     return () => {
+      clearTimeout(authSafetyTimeout);
       if (unsubscribe) unsubscribe();
       window.removeEventListener('auth_error', authErrListener);
       window.removeEventListener('database_error', dbErrListener);
@@ -1169,6 +1225,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isAuthChecking, startupPhase]);
+
+  // Global safety fallback timer: ensure startupPhase progresses to 3 within 1500ms
+  useEffect(() => {
+    const orchestratorSafetyTimeout = setTimeout(() => {
+      if (startupPhase < 3) {
+        console.warn('[STARTUP_ORCHESTRATOR] Safety timeout reached. Forcing startupPhase = 3.');
+        setIsAuthChecking(false);
+        setIsInitialAuthPerformed(true);
+        setStartupPhase(3);
+      }
+    }, 1500);
+    return () => clearTimeout(orchestratorSafetyTimeout);
+  }, [startupPhase]);
 
   // Phase 2 triggers
   useEffect(() => {
@@ -1355,6 +1424,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements, prefetchProducts, prefetchProduct, trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts, startupPhase]);
+
+  console.log('[StoreProvider] RENDER END - contextValue built:', { startupPhase, isAuthChecking, isInitialAuthPerformed });
 
   return (
     <StoreContext.Provider value={contextValue}>

@@ -1187,14 +1187,14 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    let unsubscribeOrders: () => void;
-    let unsubscribeProducts: () => void;
-    let unsubscribeUsers: () => void;
-    let unsubscribeTickets: () => void;
-    let unsubscribeReturns: () => void;
-    let unsubscribeWalletRequests: () => void;
-    let unsubscribeNotifications: () => void;
-    let unsubscribeCategories: () => void;
+    let unsubscribeOrders: any;
+    let unsubscribeProducts: any;
+    let unsubscribeUsers: any;
+    let unsubscribeTickets: any;
+    let unsubscribeReturns: any;
+    let unsubscribeWalletRequests: any;
+    let unsubscribeNotifications: any;
+    let unsubscribeCategories: any;
     
     if (user?.role === 'admin') {
       // Subscribe once on mount
@@ -1208,14 +1208,14 @@ export default function AdminDashboard() {
       unsubscribeCategories = fetchCategories();
     }
     return () => {
-      if (unsubscribeOrders) unsubscribeOrders();
-      if (unsubscribeProducts) unsubscribeProducts();
-      if (unsubscribeUsers) unsubscribeUsers();
-      if (unsubscribeTickets) unsubscribeTickets();
-      if (unsubscribeReturns) unsubscribeReturns();
-      if (unsubscribeWalletRequests) unsubscribeWalletRequests();
-      if (unsubscribeNotifications) unsubscribeNotifications();
-      if (unsubscribeCategories) unsubscribeCategories();
+      if (typeof unsubscribeOrders === 'function') unsubscribeOrders();
+      if (typeof unsubscribeProducts === 'function') unsubscribeProducts();
+      if (typeof unsubscribeUsers === 'function') unsubscribeUsers();
+      if (typeof unsubscribeTickets === 'function') unsubscribeTickets();
+      if (typeof unsubscribeReturns === 'function') unsubscribeReturns();
+      if (typeof unsubscribeWalletRequests === 'function') unsubscribeWalletRequests();
+      if (typeof unsubscribeNotifications === 'function') unsubscribeNotifications();
+      if (typeof unsubscribeCategories === 'function') unsubscribeCategories();
     };
   }, [user]);
 

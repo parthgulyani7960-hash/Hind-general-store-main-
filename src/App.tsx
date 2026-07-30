@@ -51,47 +51,35 @@ function ScrollToTopOnNavigate() {
   return null;
 }
 
-import { lazyWithRetry } from './lib/lazyLoader';
+import Home from './pages/Home';
+import Products from './pages/Products';
+import Login from './pages/Login';
+import ProductDetail from './pages/ProductDetail';
+import Cart from './pages/Cart';
+import Checkout from './pages/Checkout';
+import Invoice from './pages/Invoice';
+import Support from './pages/Support';
+import Wishlist from './pages/Wishlist';
+import Profile from './pages/Profile';
+import Promotions from './pages/Promotions';
+import AboutUs from './pages/AboutUs';
+import TermsAndConditions from './pages/TermsAndConditions';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import AddMoney from './pages/AddMoney';
+import ActivityLogs from './pages/ActivityLogs';
+import LegalPage from './pages/LegalPage';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminPayments from './pages/AdminPayments';
+import DeliveryDashboard from './pages/DeliveryDashboard';
+import MaintenancePage from './pages/MaintenancePage';
+import TrackOrder from './pages/TrackOrder';
+import UserActivity from './pages/UserActivityV2';
 
-// High-Priority Core Pages
-const Home = lazyWithRetry(() => import('./pages/Home'), 'Home');
-const Products = lazyWithRetry(() => import('./pages/Products'), 'Products');
-const Login = lazyWithRetry(() => import('./pages/Login'), 'Login');
-
-// Preload helper for admin dashboard
-const preloadAdmin = () => {
-  import('./pages/AdminDashboard').catch(() => {});
-  import('./pages/AdminPayments').catch(() => {});
-};
-
-// Aggressive Route-based Code Splitting to optimize 3.5MB bundle size
-const ProductDetail = lazyWithRetry(() => import('./pages/ProductDetail'), 'ProductDetail');
-const Cart = lazyWithRetry(() => import('./pages/Cart'), 'Cart');
-const Checkout = lazyWithRetry(() => import('./pages/Checkout'), 'Checkout');
-const Invoice = lazyWithRetry(() => import('./pages/Invoice'), 'Invoice');
-const Support = lazyWithRetry(() => import('./pages/Support'), 'Support');
-const Wishlist = lazyWithRetry(() => import('./pages/Wishlist'), 'Wishlist');
-const Profile = lazyWithRetry(() => import('./pages/Profile'), 'Profile');
-const Promotions = lazyWithRetry(() => import('./pages/Promotions'), 'Promotions');
-const AboutUs = lazyWithRetry(() => import('./pages/AboutUs'), 'AboutUs');
-const TermsAndConditions = lazyWithRetry(() => import('./pages/TermsAndConditions'), 'Terms');
-const PrivacyPolicy = lazyWithRetry(() => import('./pages/PrivacyPolicy'), 'Privacy');
-const AddMoney = lazyWithRetry(() => import('./pages/AddMoney'), 'Wallet');
-const ActivityLogs = lazyWithRetry(() => import('./pages/ActivityLogs'), 'ActivityLogs');
-const LegalPage = lazyWithRetry(() => import('./pages/LegalPage'), 'Legal');
-const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'), 'AdminDashboard');
-const AdminPayments = lazyWithRetry(() => import('./pages/AdminPayments'), 'AdminPayments');
-const DeliveryDashboard = lazyWithRetry(() => import('./pages/DeliveryDashboard'), 'Runner');
-const MaintenancePage = lazyWithRetry(() => import('./pages/MaintenancePage'), 'Maintenance');
-const TrackOrder = lazyWithRetry(() => import('./pages/TrackOrder'), 'Tracker');
-const UserActivity = lazyWithRetry(() => import('./pages/UserActivityV2'), 'Activity');
-
-// Lazy-loaded secondary overlay UI components for initial bundle size optimization
-const ConfirmLogoutDialog = lazyWithRetry(() => import('./components/ConfirmLogoutDialog'), 'ConfirmLogoutDialog');
-const ReviewPromptNotification = lazyWithRetry(() => import('./components/ReviewPromptNotification'), 'ReviewPromptNotification');
-const FullScreenAlert = lazyWithRetry(() => import('./components/FullScreenAlert'), 'FullScreenAlert');
-const FloatingCart = lazyWithRetry(() => import('./components/FloatingCart'), 'FloatingCart');
-const GlobalAnnouncements = lazyWithRetry(() => import('./components/GlobalAnnouncements'), 'GlobalAnnouncements');
+import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
+import ReviewPromptNotification from './components/ReviewPromptNotification';
+import FullScreenAlert from './components/FullScreenAlert';
+import FloatingCart from './components/FloatingCart';
+import GlobalAnnouncements from './components/GlobalAnnouncements';
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -110,13 +98,7 @@ function AnimatedRoutes() {
   
   const { showHelp, setShowHelp } = useKeyboardShortcuts();
 
-  // Preload admin pages if user is admin
-  useEffect(() => {
-    if (isInitialAuthPerformed && user?.role === 'admin') {
-      preloadAdmin();
-    }
-  }, [isInitialAuthPerformed, user?.role]);
-  
+  // Keyboard shortcuts event listener
   useEffect(() => {
     if (showHelp) {
       const handleCloseAll = () => {
@@ -150,17 +132,13 @@ function AnimatedRoutes() {
 
 
   if (isMaintenance && !isAdmin) {
-    return (
-      <Suspense fallback={<LoadingFallback message="System update in progress..." />}>
-        <MaintenancePage />
-      </Suspense>
-    );
+    return <MaintenancePage />;
   }
 
   const showFooter = ['/', '/profile'].includes(location.pathname);
 
   return (
-    <Suspense fallback={<LoadingFallback message="Loading..." />}>
+    <>
       <div id="application-content-root" className="min-h-full flex flex-col relative bg-white">
         <div className="flex-1 flex flex-col">
           <AppCrashBoundary fallback={<div className="p-20 text-center"><h1>Application Error</h1><p>We encountered a critical crash. Please reload.</p><button onClick={() => window.location.reload()} className="btn-primary mt-4">Reload App</button></div>}>
@@ -284,7 +262,7 @@ function AnimatedRoutes() {
           </div>
         )}
       </AnimatePresence>
-    </Suspense>
+    </>
   );
 }
 
@@ -298,9 +276,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="flex-1 flex flex-col relative"
     >
-      <Suspense fallback={<LoadingFallback message="Loading content..." fullScreen={false} />}>
-         {children}
-      </Suspense>
+      {children}
     </motion.div>
   );
 }
@@ -395,6 +371,12 @@ function AppContent() {
      return <DbConnectionIssue />;
    }
 
+   useEffect(() => {
+     if (typeof window !== 'undefined' && (window as any).__markAppAsLoaded) {
+       (window as any).__markAppAsLoaded();
+     }
+   }, []);
+
    const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
    
    useEffect(() => {
@@ -424,35 +406,25 @@ function AppContent() {
       )}>
         <HeadOptimizer />
         <ScrollToTopOnNavigate />
-        <Suspense fallback={<div className="p-4 text-center">Loading notifications...</div>}>
-          {!isAdmin && <ReviewPromptNotification />}
-        </Suspense>
-        <Suspense fallback={<div className="p-4 text-center">Loading alerts...</div>}>
-          {!isAdmin && <FullScreenAlert />}
-        </Suspense>
+        {!isAdmin && <ReviewPromptNotification />}
+        {!isAdmin && <FullScreenAlert />}
         <OfflineIndicator />
         {!hideFurniture && (config.find(c => c.key === 'feature_top_bar_enabled')?.value !== 'false') && <TopPromotionTicker />}
         {!hideFurniture && <GlobalProgressBar />}
-        <Suspense fallback={<div className="p-4 text-center">Loading announcements...</div>}>
-          {!hideFurniture && (config.find(c => c.key === 'feature_announcement_bar_enabled')?.value !== 'false') && <GlobalAnnouncements />}
-        </Suspense>
+        {!hideFurniture && (config.find(c => c.key === 'feature_announcement_bar_enabled')?.value !== 'false') && <GlobalAnnouncements />}
         <ToastManager />
         <Toaster position="top-center" />
         {!hideFurniture && <Navbar />}
-        <Suspense fallback={<div className="p-4 text-center">Loading logout dialog...</div>}>
-          <ConfirmLogoutDialog 
-            isOpen={showLogoutDialog} 
-            onClose={() => setShowLogoutDialog(false)} 
-            onConfirm={performLogout} 
-          />
-        </Suspense>
+        <ConfirmLogoutDialog 
+          isOpen={showLogoutDialog} 
+          onClose={() => setShowLogoutDialog(false)} 
+          onConfirm={performLogout} 
+        />
         <main className={cn("flex-1 relative", !hideFurniture && "pb-24 md:pb-0")}>
           <AnimatedRoutes />
         </main>
         {!hideFurniture && <MobileBottomNav />}
-        <Suspense fallback={<div className="p-4 text-center">Loading cart...</div>}>
-          {!hideFurniture && <FloatingCart />}
-        </Suspense>
+        {!hideFurniture && <FloatingCart />}
         {!hideFurniture && <BackToTop />}
       </div>
     );

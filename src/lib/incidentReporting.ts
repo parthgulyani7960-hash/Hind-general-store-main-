@@ -112,7 +112,7 @@ export class ErrorReportingService {
     window.addEventListener('error', (event) => {
       try {
         const msg = (event.message || '').toLowerCase();
-        if (msg.includes('resizeobserver') || msg.includes('extension') || msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
+        if (msg.includes('resizeobserver') || msg.includes('extension') || msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened') || msg.includes('429') || msg.includes('401') || msg.includes('404') || msg.includes('500') || msg.includes('bugs/report') || msg.includes('incidents/report') || msg.includes('failed to fetch') || msg.includes('net::err') || msg.includes('cors') || msg.includes('cookie_check') || msg.includes('applet-auth-bridge') || msg.includes('makersuite') || msg.includes('script load error')) {
           return;
         }
         
@@ -155,7 +155,7 @@ export class ErrorReportingService {
         const error: any = reason instanceof Error ? reason : {};
         const message = reason instanceof Error ? reason.message : String(reason);
         const msgLower = (message || '').toLowerCase();
-        if (msgLower.includes('websocket') || msgLower.includes('vite') || msgLower.includes('hmr') || msgLower.includes('closed without opened')) {
+        if (msgLower.includes('websocket') || msgLower.includes('vite') || msgLower.includes('hmr') || msgLower.includes('closed without opened') || msgLower.includes('429') || msgLower.includes('401') || msgLower.includes('404') || msgLower.includes('500') || msgLower.includes('bugs/report') || msgLower.includes('incidents/report') || msgLower.includes('failed to fetch') || msgLower.includes('net::err') || msgLower.includes('cors') || msgLower.includes('cookie_check') || msgLower.includes('applet-auth-bridge') || msgLower.includes('makersuite') || msgLower.includes('script load error')) {
           return;
         }
         const name = error.name || 'PromiseRejection';
@@ -264,9 +264,8 @@ export class ErrorReportingService {
         })
       });
     } catch (err) {
-      console.warn('[ErrorService] Failed to send report batch to server', err);
-      // Re-queue on failure? Maybe
-      this.queuedReports = [...reports, ...this.queuedReports];
+      console.warn('[ErrorService] Failed to send report batch to server:', err);
+      // Drop failed reports to prevent infinite retry loops that pollute network logs
     }
   }
 

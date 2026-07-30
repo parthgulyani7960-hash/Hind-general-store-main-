@@ -1236,11 +1236,19 @@ app.use((req, res, next) => {
   next();
 });
 
-// Enhanced Security Headers, CSP, IDS, CSRF & Maintenance Mode
+// Enhanced Security Headers, IDS, CSRF & Maintenance Mode
 app.use((req, res, next) => {
+  // Security checks (IP block, Maintenance mode, CSRF, Injection) apply ONLY to /api routes
+  if (!req.path.startsWith('/api')) {
+    return next();
+  }
+
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
   const ip = req.ip || 'unknown';
 
-  // 1. Intrusion Detection System: Block check
+  // Intrusion Detection System: Block check
   if (isIpBlocked(ip)) {
     return res.status(403).json({
       success: false,
@@ -1248,19 +1256,10 @@ app.use((req, res, next) => {
     });
   }
 
-  // 2. Global Content Security Policy & Security Headers
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-Frame-Options', 'ALLOW-FROM https://ai.studio');
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https: wss: ws:; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.googleusercontent.com;"
-  );
-
-  // 3. Automated Maintenance Mode Check
+  // Automated Maintenance Mode Check
   const status = getSystemSecurityStatus();
   const isAdminRequest = req.path.startsWith('/api/admin') || (req.session as any)?.role === 'admin';
-  const isExcludedRoute = req.path === '/api/health' || req.path === '/api/boot-status' || req.path.includes('/vite') || req.path.includes('/ws');
+  const isExcludedRoute = req.path === '/api/health' || req.path === '/api/boot-status' || req.path === '/api/bugs/report' || req.path === '/api/incidents/report';
 
   if (status.isMaintenanceMode && !isAdminRequest && !isExcludedRoute) {
     return res.status(503).json({
@@ -1271,7 +1270,7 @@ app.use((req, res, next) => {
     });
   }
 
-  // 4. CSRF Header / Origin Integrity Verification
+  // CSRF Header / Origin Integrity Verification
   const stateChangingMethods = ['POST', 'PUT', 'DELETE'];
   if (stateChangingMethods.includes(req.method)) {
     const origin = req.headers.origin || '';
@@ -1297,7 +1296,7 @@ app.use((req, res, next) => {
     }
   }
 
-  // 5. Query & Body SQL/NoSQL Injection Check
+  // Query & Body SQL/NoSQL Injection Check
   const requestPayloadString = JSON.stringify(req.body || {}) + JSON.stringify(req.query || {});
   const injectionSignatures = [
     '<script',
@@ -1318,7 +1317,7 @@ app.use((req, res, next) => {
     registerSecurityIncident(ip, 'injection_attempt', `SQL/NoSQL/XSS Script injection pattern detected on ${req.method} ${req.path}`);
   }
 
-  // 6. XSS Protection: Clean request body inputs
+  // XSS Protection: Clean request body inputs
   if (req.body && typeof req.body === 'object') {
     req.body = sanitizeInput(req.body);
   }
@@ -1332,18 +1331,23 @@ const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const MAX_REQUESTS = 300; // secure rate limiting bounds per minute per IP
 
 app.use((req, res, next) => {
+  // Rate limiting ONLY applies to /api endpoints
+  if (!req.path.startsWith('/api')) {
+    return next();
+  }
+
   const ip = req.ip || 'unknown';
   const now = Date.now();
   
-  // EXCLUSIONS: Skip rate limiting for essential platform/diagnostic/health routes
-  const isHealth = req.path === '/api/health' || 
-                   req.path === '/api/boot-status' || 
-                   req.path === '/api/health-debug' || 
-                   req.path === '/ping' ||
-                   req.path.includes('/vite') || 
-                   req.path.includes('/ws'); // websocket
+  // EXCLUSIONS: Skip rate limiting for essential platform/diagnostic/health/logging routes
+  const isHealthOrDiagnostics = req.path === '/api/health' || 
+                                req.path === '/api/boot-status' || 
+                                req.path === '/api/health-debug' || 
+                                req.path === '/api/bugs/report' ||
+                                req.path === '/api/incidents/report' ||
+                                req.path === '/ping';
 
-  if (isHealth) return next();
+  if (isHealthOrDiagnostics) return next();
 
   const limit = rateLimits.get(ip);
 
@@ -1980,9 +1984,9 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     next();
   });
   app.use(compression());
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-  app.use(cookieParser());
+  app.use('/api', express.json({ limit: '10mb' }));
+  app.use('/api', express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use('/api', cookieParser());
   
   console.log('[BOOT] Configuring Session middleware...');
   const sessionSecret = process.env.SESSION_SECRET;
@@ -2006,11 +2010,11 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     maxAge: cookieConfig.maxAge
   });
 
-  app.use(cookieSession(cookieConfig));
+  app.use('/api', cookieSession(cookieConfig));
   console.log('[BOOT] Session middleware initialized successfully');
 
   // Device-based Session Tracking & Hijack Prevention Middleware
-  app.use((req, res, next) => {
+  app.use('/api', (req, res, next) => {
     if (req.session && req.session.userId) {
       const currentIp = req.ip || 'unknown';
       const currentUserAgent = req.headers['user-agent'] || 'unknown';
@@ -2046,7 +2050,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Token-based fallback for iframe / cross-site environments
-  app.use(async (req, res, next) => {
+  app.use('/api', async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
@@ -2090,7 +2094,7 @@ const auditAdminAction = (req: any, res: any, next: any) => {
   });
 
   // Global Intelligence Trace Middleware
-  app.use((req, res, next) => {
+  app.use('/api', (req, res, next) => {
     const start = Date.now();
     const originalSend = res.send;
 
@@ -3419,9 +3423,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   app.get('/api/user/generate-export', requireAuth, async (req, res) => {
     try {
       if (!admin.apps.length) return res.status(500).json({});
-      const snap = await getFirestoreInstance().collection('data_exports').where('user_id', '==', String(req.session.userId)).where('status', '==', 'APPROVED').orderBy('approved_at', 'desc').limit(1).get();
+      const allExportsSnap = await getFirestoreInstance().collection('data_exports').where('user_id', '==', String(req.session.userId)).get();
+      const approvedExports = allExportsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter(d => d.status === 'APPROVED')
+        .sort((a, b) => new Date(b.approved_at || 0).getTime() - new Date(a.approved_at || 0).getTime());
       
-      if (snap.empty) {
+      if (approvedExports.length === 0) {
         return res.status(403).json({ message: 'Export not approved or not found' });
       }
       
@@ -3484,8 +3492,12 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       const batch = getFirestoreInstance().batch();
       
       if (is_default) {
-        const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).where('is_default', '==', 1).get();
-        snap.docs.forEach(d => batch.update(d.ref, { is_default: 0 }));
+        const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).get();
+        snap.docs.forEach(d => {
+          if (d.data().is_default === 1 || d.data().is_default === true) {
+            batch.update(d.ref, { is_default: 0 });
+          }
+        });
       }
 
       const addressData = { 
@@ -3524,8 +3536,12 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       const batch = getFirestoreInstance().batch();
       
       if (is_default) {
-        const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).where('is_default', '==', 1).get();
-        snap.docs.forEach(d => batch.update(d.ref, { is_default: 0 }));
+        const snap = await getFirestoreInstance().collection('user_addresses').where('user_id', '==', userId).get();
+        snap.docs.forEach(d => {
+          if (d.data().is_default === 1 || d.data().is_default === true) {
+            batch.update(d.ref, { is_default: 0 });
+          }
+        });
       }
 
       const addressData = { 
@@ -4675,8 +4691,12 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       const batch = getFirestoreInstance().batch();
       
       if (is_default) {
-        const snap = await getFirestoreInstance().collection('product_variants').where('product_id', '==', id).where('is_default', '==', 1).get();
-        snap.docs.forEach(d => batch.update(d.ref, {is_default: 0}));
+        const snap = await getFirestoreInstance().collection('product_variants').where('product_id', '==', id).get();
+        snap.docs.forEach(d => {
+          if (d.data().is_default === 1 || d.data().is_default === true) {
+            batch.update(d.ref, {is_default: 0});
+          }
+        });
       }
       
       const newRef = getFirestoreInstance().collection('product_variants').doc();
@@ -4700,8 +4720,12 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       
       const batch = getFirestoreInstance().batch();
       if (is_default) {
-        const snap = await getFirestoreInstance().collection('product_variants').where('product_id', '==', String(variant.product_id)).where('is_default', '==', 1).get();
-        snap.docs.forEach(d => batch.update(d.ref, {is_default: 0}));
+        const snap = await getFirestoreInstance().collection('product_variants').where('product_id', '==', String(variant.product_id)).get();
+        snap.docs.forEach(d => {
+          if (d.data().is_default === 1 || d.data().is_default === true) {
+            batch.update(d.ref, {is_default: 0});
+          }
+        });
       }
       
       batch.update(docRef, { name, price: Number(price), stock: Number(stock), unit_quantity, is_default: is_default ? 1 : 0 });
@@ -5757,9 +5781,11 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     try {
       // Find existing
       const pCol = getFirestoreInstance().collection('promotion_products');
-      const snap = await pCol.where('promotion_id', '==', String(id)).where('product_id', '==', String(product_id)).get();
-      if (!snap.empty) {
-         for (const doc of snap.docs) {
+      const snap = await pCol.where('promotion_id', '==', String(id)).get();
+      const matchedDocs = snap.docs.filter(d => String(d.data().product_id) === String(product_id));
+      
+      if (matchedDocs.length > 0) {
+         for (const doc of matchedDocs) {
             await doc.ref.update({ discount_override: discount_override || null });
          }
       } else {
@@ -5774,8 +5800,9 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
     try {
       const snap = await getFirestoreInstance().collection('promotion_products')
-         .where('promotion_id', '==', String(id)).where('product_id', '==', String(productId)).get();
-      for (const doc of snap.docs) { await doc.ref.delete(); }
+         .where('promotion_id', '==', String(id)).get();
+      const matchedDocs = snap.docs.filter(d => String(d.data().product_id) === String(productId));
+      for (const doc of matchedDocs) { await doc.ref.delete(); }
       res.json({ success: true });
     } catch(e) { res.status(500).json({ success: false, message: 'Internal server error' }); }
   });
@@ -7353,11 +7380,21 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   app.post('/api/admin/notifications/mark-read', requireAdmin, async (req, res) => {
     try {
       if (!admin.apps.length) return res.json({ success: true });
-      const snap1 = await getFirestoreInstance().collection('notifications').where('target_role', '==', 'admin').where('is_read', '==', 0).get();
-      const snap2 = await getFirestoreInstance().collection('notifications').where('target_role', '==', 'all').where('is_read', '==', 0).get();
+      const snap1 = await getFirestoreInstance().collection('notifications').where('target_role', '==', 'admin').get();
+      const snap2 = await getFirestoreInstance().collection('notifications').where('target_role', '==', 'all').get();
       const batch = getFirestoreInstance().batch();
-      snap1.docs.forEach(d => batch.update(d.ref, {is_read: 1}));
-      snap2.docs.forEach(d => batch.update(d.ref, {is_read: 1}));
+      
+      snap1.docs.forEach(d => {
+        if (d.data().is_read === 0 || d.data().is_read === false) {
+          batch.update(d.ref, {is_read: 1});
+        }
+      });
+      snap2.docs.forEach(d => {
+        if (d.data().is_read === 0 || d.data().is_read === false) {
+          batch.update(d.ref, {is_read: 1});
+        }
+      });
+      
       await batch.commit();
       res.json({ success: true });
     } catch (err: any) {
@@ -7740,8 +7777,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       res.json([]);
       return;
     }
-    const snap = await getFirestoreInstance().collection('wallet_transactions').where('type', '==', 'credit').where('status', '==', 'pending').get();
-    let requests = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+    const snap = await getFirestoreInstance().collection('wallet_transactions').where('status', '==', 'pending').get();
+    let requests = snap.docs
+      .map(d => ({id: d.id, ...d.data()}))
+      .filter((r: any) => r.type === 'credit') as any[];
     requests.sort((a,b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     
     const uIds = requests.map(r => String(r.user_id));
@@ -8324,9 +8363,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
       let calculatedCouponDiscount = 0;
       if (coupon_code) {
-         const cpSnap = await getFirestoreInstance().collection('coupons').where('code', '==', coupon_code).where('active', '==', 1).get();
-         if (!cpSnap.empty) {
-            const coupon = cpSnap.docs[0].data() as any;
+         const cpSnap = await getFirestoreInstance().collection('coupons').where('code', '==', coupon_code).get();
+         const activeCoupons = cpSnap.docs.filter(d => d.data().active === 1 || d.data().active === true);
+         if (activeCoupons.length > 0) {
+            const coupon = activeCoupons[0].data() as any;
             if ((calculatedSubtotal - totalBulkDiscount) >= Number(coupon.min_order || 0)) {
                if (coupon.type === 'flat') calculatedCouponDiscount = Number(coupon.value || 0);
                else calculatedCouponDiscount = ((calculatedSubtotal - totalBulkDiscount) * Number(coupon.value || 0)) / 100;
@@ -9085,9 +9125,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
         if (extractedAmount) {
           if (extractedOrderId) {
-            const oSnap = await getFirestoreInstance().collection('orders').where('order_id', '==', extractedOrderId).where('status', '==', 'pending').get();
-            if (!oSnap.empty) {
-                const orderDoc = oSnap.docs[0];
+            const oSnap = await getFirestoreInstance().collection('orders').where('order_id', '==', extractedOrderId).get();
+            const pendingOSnap = oSnap.docs.filter(d => d.data().status === 'pending');
+            if (pendingOSnap.length > 0) {
+                const orderDoc = pendingOSnap[0];
                 const order = orderDoc.data() as any;
                 const oDocId = orderDoc.id;
                 
@@ -9128,8 +9169,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
           } else {
             // Amount found but NO Order ID in note
             const limitTime = new Date(Date.now() - 1000 * 60 * 180).toISOString();
-            const pSnap = await getFirestoreInstance().collection('orders').where('status', '==', 'pending').where('created_at', '>', limitTime).get();
-            const potentialOrders = pSnap.docs.map(d => d.data()).filter((o: any) => Math.abs(Number(o.total) - extractedAmount) < 0.05);
+            const pSnap = await getFirestoreInstance().collection('orders').where('status', '==', 'pending').get();
+            const potentialOrders = pSnap.docs
+              .map(d => d.data())
+              .filter((o: any) => o.created_at > limitTime && Math.abs(Number(o.total) - extractedAmount) < 0.05);
 
             if (potentialOrders.length === 1) {
               matchStatus = 'REVIEW_REQUIRED';
@@ -9693,11 +9736,12 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
          // But let's be safe.
       }
 
-      const snap = await ordersColl.where('status', '==', 'pending').where('expires_at', '<', now).get();
-      if (!snap.empty) {
+      const snap = await ordersColl.where('status', '==', 'pending').get();
+      const expiredDocs = snap.docs.filter(d => d.data().expires_at && d.data().expires_at < now);
+      if (expiredDocs.length > 0) {
          const batch = getFirestoreInstance().batch();
          let count = 0;
-         snap.docs.forEach(doc => {
+         expiredDocs.forEach(doc => {
             if (!doc.exists) {
                console.warn(`[TASKS] Order ${doc.id} not found during expiry check.`);
                return;
@@ -10748,9 +10792,9 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       
       const db = getFirestoreInstance();
       const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-      const sysLogsSnap = await db.collection('system_logs').where('level', '==', 'error').where('created_at', '>', tenMinsAgo).get();
+      const sysLogsSnap = await db.collection('system_logs').where('created_at', '>', tenMinsAgo).get();
       
-      const errorCount = sysLogsSnap.size;
+      const errorCount = sysLogsSnap.docs.filter(d => d.data().level === 'error').length;
       let status = 'healthy';
       if (errorCount > 10) status = 'critical';
       else if (errorCount > 0) status = 'warning';
@@ -10795,42 +10839,23 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
           hmr: disableHmr ? false : { server: httpServer } 
         },
         appType: 'spa',
-      });
-      app.use(async (req: any, res: any, next: any) => {
-        if (req.path.startsWith('/api')) return next();
-        
-        // Handle HTML transformation for document requests
-        const reqPath = req.path || '';
-        const isDocRequest = req.method === 'GET' && 
-                             req.headers.accept?.includes('text/html') &&
-                             !reqPath.startsWith('/@') &&
-                             !reqPath.match(/\.(js|jsx|ts|tsx|css|png|jpg|jpeg|gif|svg|json|map|ico|webmanifest)$/i);
-
-        if (isDocRequest) {
-          try {
-            const reqUrl = req.originalUrl || req.url;
-            console.log(`[BOOT] Intercepting HTML request for injection: ${reqPath}`);
-            let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
-            template = await vite.transformIndexHtml(reqUrl, template);
-            
-            const fbConfig = getFirebaseWebConfig();
-            const scriptInjection = `<script>window.FIREBASE_CONFIG = ${JSON.stringify(fbConfig)};</script>`;
-            
-            if (template.includes('</head>')) {
-              template = template.replace('</head>', `${scriptInjection}\n</head>`);
-            } else {
-              template = scriptInjection + template;
+        plugins: [{
+          name: 'inject-firebase-config',
+          transformIndexHtml(html) {
+            try {
+              const fbConfig = getFirebaseWebConfig();
+              const scriptInjection = `<script>window.FIREBASE_CONFIG = ${JSON.stringify(fbConfig)};</script>`;
+              if (html.includes('</head>')) {
+                return html.replace('</head>', `${scriptInjection}\n</head>`);
+              }
+              return scriptInjection + html;
+            } catch (e) {
+              return html;
             }
-
-            return res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-          } catch (e: any) {
-            console.error('[VITE_INJECT_ERROR] Failed to transform index.html:', e.message);
-            return next(e);
           }
-        }
-        
-        vite.middlewares(req, res, next);
+        }]
       });
+      app.use(vite.middlewares);
     } catch (err) {
       console.error('Failed to initialize Vite server:', err);
     }
