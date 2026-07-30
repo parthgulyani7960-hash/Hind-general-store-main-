@@ -102,6 +102,8 @@ try {
 
 import { generateOrderId } from './src/lib/orderUtils';
 import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
 import compression from 'compression';
 import crypto from 'crypto';
 console.log('[BOOT] Express module loaded');
@@ -895,6 +897,11 @@ const handleAppError = (err: any, message: string, context: string) => {
 
 console.log('[BOOT] Creating Express instance');
 const app = express();
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+app.use(cors({ origin: true, credentials: true }));
 // Standardized Request Logger
 app.use((req, res, next) => {
   const start = Date.now();
@@ -1098,8 +1105,7 @@ app.get('/api/db-test', async (req, res) => {
 });
 
 app.get('/api/admin/diagnostic', async (req, res) => {
-  // Only admins should access this (support bypass parameter for automation diagnostics)
-  if ((req.session as any)?.role !== 'admin' && req.query.bypass !== 'true') {
+  if ((req.session as any)?.role !== 'admin') {
       return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -1181,49 +1187,6 @@ app.get('/ping', (req, res) => {
   res.send('pong');
 });
 
-app.get('/api/admin/check-my-role', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'No auth header' });
-  
-  try {
-    const token = authHeader.split('Bearer ')[1];
-    const decoded = await safeVerifyIdToken(token);
-    const userDoc = await getFirestoreInstance().collection('users').doc(decoded.uid).get();
-    res.json({ uid: decoded.uid, role: userDoc.data()?.role, exists: userDoc.exists });
-  } catch (e) {
-    res.status(500).json({ error: String(e) });
-  }
-});
-
-app.post('/api/admin/set-me-as-admin', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'No auth header' });
-  
-  try {
-    const token = authHeader.split('Bearer ')[1];
-    const decoded = await safeVerifyIdToken(token);
-    
-    // Find user by email
-    const usersSnapshot = await getFirestoreInstance().collection('users').where('email', '==', decoded.email?.toLowerCase()).get();
-    
-    if (usersSnapshot.empty) {
-      // Create user if not exists
-      await getFirestoreInstance().collection('users').doc(decoded.uid).set({
-        email: decoded.email?.toLowerCase(),
-        role: 'admin',
-        created_at: new Date().toISOString()
-      }, { merge: true });
-      return res.json({ message: 'User created and set as admin' });
-    } else {
-      const doc = usersSnapshot.docs[0];
-      await doc.ref.update({ role: 'admin' });
-      return res.json({ message: 'User updated to admin' });
-    }
-  } catch (e) {
-    res.status(500).json({ error: String(e) });
-  }
-});
-
 // Force HTTPS and avoid mixed content
 app.use((req, res, next) => {
   // Only redirect if we are sure we are not on HTTPS and not on localhost
@@ -1283,7 +1246,10 @@ app.use((req, res, next) => {
       '.google.com',
       '.googleusercontent.com',
       '.run.app',
-      '.aistudio.google'
+      '.aistudio.google',
+      '.vercel.app',
+      '.firebaseapp.com',
+      '.web.app'
     ];
     
     const hasValidOrigin = origin && allowedPatterns.some(pat => origin.includes(pat));
@@ -2138,8 +2104,16 @@ const auditAdminAction = (req: any, res: any, next: any) => {
     next();
   });
 
+  const adminLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 200, 
+    message: { success: false, message: 'Too many admin requests from this IP, please try again after 5 minutes' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
   // Apply global middlewares
-  app.use('/api/admin', requireAdmin, auditAdminAction);
+  app.use('/api/admin', adminLimiter, requireAdmin, auditAdminAction);
   app.use('/api/profile', requireAuth);
   app.use('/api/cart', requireAuth);
   app.use('/api/wishlist', requireAuth);
@@ -4181,7 +4155,15 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     res.json({ success: true, user });
   }));
 
-  app.post('/api/auth/firebase-login', async (req, res) => {
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 login requests per `window` (here, per 15 minutes)
+  message: { success: false, message: 'Too many login attempts from this IP, please try again after 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+  app.post('/api/auth/firebase-login', authLimiter, async (req, res) => {
     const requestId = (req as any).id || Math.random().toString(36).substring(7);
     console.log('[ROUTE START] /api/auth/firebase-login', { requestId });
     await waitForFirebase();
@@ -6585,9 +6567,10 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         return res.json({ success: true, coupon });
       } catch(e) {
         console.error('Coupon validation error', e);
+        return res.status(500).json({ success: false, message: 'Server error during validation' });
       }
     }
-    res.status(500).json({ success: false, message: 'Firebase not connected' });
+    return res.status(500).json({ success: false, message: 'Firebase not connected' });
   });
 
   app.get('/api/admin/expenses', requireAdmin, wrap('/api/admin/expenses', async (req, res) => {

@@ -131,7 +131,7 @@ function AnimatedRoutes() {
   }
 
 
-  if (isMaintenance && !isAdmin) {
+  if (isMaintenance && !isAdmin && !location.pathname.startsWith('/login') && !location.pathname.startsWith('/admin')) {
     return <MaintenancePage />;
   }
 

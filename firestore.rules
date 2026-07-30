@@ -37,10 +37,22 @@ service cloud.firestore {
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'runner')
       );
     }
+    
+    function incoming() {
+      return request.resource.data;
+    }
 
     // --- User Profiles ---
     match /users/{userId} {
-      allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      // Users can only create their document if they set their role to 'customer'
+      allow create: if isSignedIn() && request.auth.uid == userId && incoming().role != 'admin';
+      // Users can only update their document if they do not change their role to 'admin'
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid == userId && (!incoming().keys().hasAny(['role']) || incoming().role == resource.data.role))
+      );
+      allow delete: if isAdmin();
     }
 
     // --- Admin Whitelist ---
