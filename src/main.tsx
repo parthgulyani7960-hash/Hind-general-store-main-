@@ -48,10 +48,15 @@ try {
 
     const isTokenExpired = (token: string): boolean => {
       try {
+        if (!token) return true;
         const parts = token.split('.');
         if (parts.length !== 3) return true;
-        const base64Url = parts[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        let base64Url = parts[1];
+        let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        // Add padding if necessary for atob
+        while (base64.length % 4) {
+          base64 += '=';
+        }
         const jsonPayload = decodeURIComponent(
           window.atob(base64)
             .split('')
@@ -59,7 +64,8 @@ try {
             .join('')
         );
         const payload = JSON.parse(jsonPayload);
-        return payload.exp ? (payload.exp * 1000 - Date.now() < 30000) : true;
+        // Treat as expired if within 1 minute of expiration
+        return payload.exp ? (payload.exp * 1000 - Date.now() < 60000) : true;
       } catch (e) {
         return true;
       }
@@ -103,12 +109,12 @@ try {
         }
         
         // 2. Identify request type
-        const isExternal = inputUrl.startsWith('http') && !inputUrl.includes(window.location.host);
+        const isExternal = inputUrl.startsWith('http') && !inputUrl.includes(window.location.host) && !inputUrl.includes('run.app');
         
         // 3. Skip interception for external APIs, bug reports, or non-API asset requests
         const isReportingEndpoint = inputUrl.includes('/bugs/report') || inputUrl.includes('/incidents/report');
         const isApiRoute = inputUrl.includes('/api/');
-        if (isExternal || isReportingEndpoint || !isApiRoute) {
+        if ((isExternal && !isApiRoute) || isReportingEndpoint || !isApiRoute) {
           return originalFetch(input, init);
         }
 
@@ -189,7 +195,12 @@ try {
         };
 
         try {
-          let currentToken = localStorage.getItem('hgs_token');
+          let currentToken: string | null = null;
+          try {
+            currentToken = localStorage.getItem('hgs_token');
+          } catch (storageErr) {
+            console.warn('[AUTH INTERCEPTOR] Cannot access localStorage', storageErr);
+          }
           const isAuthAction = inputUrl.includes('/api/auth/firebase-login') || inputUrl.includes('/api/auth/register');
           if (currentToken && !isExternal && !isAuthAction) {
             if (isTokenExpired(currentToken)) {

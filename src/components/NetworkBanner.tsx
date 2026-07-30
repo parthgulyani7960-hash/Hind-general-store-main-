@@ -1,3 +1,4 @@
+import { safeStorage } from '@/lib/safeStorage';
 import React, { useState, useEffect } from 'react';
 import { useNetwork } from '@/hooks/useNetwork';
 import { WifiOff, AlertTriangle, RefreshCw, X } from 'lucide-react';
@@ -49,7 +50,7 @@ export const NetworkBanner = () => {
   };
 
   const handleClearData = () => {
-    localStorage.clear();
+    safeStorage.clear();
     sessionStorage.clear();
     window.location.href = '/';
   };

@@ -317,52 +317,13 @@ function AppContent() {
        (window as any).__markAppAsLoaded?.();
      }
 
-     // Global error handler
-     const handleGlobalError = (event: ErrorEvent) => {
-       const msg = (event.message || '').toLowerCase();
-       if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
-         return;
-       }
-       // Dispatch for DiagnosticsTab
-       window.dispatchEvent(new CustomEvent('system_error', {
-         detail: { type: 'Uncaught Exception', message: event.message, component: 'Window' }
-       }));
-       errorService.report({
-         type: ErrorType.SYSTEM_ERROR,
-         message: event.message || 'Global Runtime Error',
-         stack: event.error?.stack,
-         userId: String(store.user?.id || '')
-       });
-     };
-
-     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-       const msg = (event.reason?.message || String(event.reason || '')).toLowerCase();
-       if (msg.includes('websocket') || msg.includes('vite') || msg.includes('hmr') || msg.includes('closed without opened')) {
-         return;
-       }
-       // Dispatch for DiagnosticsTab
-       window.dispatchEvent(new CustomEvent('system_error', {
-         detail: { type: 'Unhandled Rejection', message: event.reason?.message || String(event.reason), component: 'Promise' }
-       }));
-       errorService.report({
-         type: ErrorType.SYSTEM_ERROR,
-         message: event.reason?.message || 'Unhandled Promise Rejection',
-         stack: event.reason?.stack || String(event.reason),
-         userId: String(store.user?.id || '')
-       });
-     };
-
      const handleSessionExpired = () => {
        toast.error('Session expired, please sign in again');
      };
 
-     window.addEventListener('error', handleGlobalError);
-     window.addEventListener('unhandledrejection', handleUnhandledRejection);
      window.addEventListener('session_expired', handleSessionExpired);
      
      return () => {
-       window.removeEventListener('error', handleGlobalError);
-       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
        window.removeEventListener('session_expired', handleSessionExpired);
      };
    }, [store.user?.id]);

@@ -1,3 +1,4 @@
+import { safeStorage } from '@/lib/safeStorage';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { translations, Language } from './translations';
 
@@ -12,7 +13,7 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
     try {
-      const saved = localStorage.getItem('hgs_lang');
+      const saved = safeStorage.getItem('hgs_lang');
       return (saved as Language) || 'en';
     } catch {
       return 'en';
@@ -21,7 +22,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem('hgs_lang', language);
+      safeStorage.setItem('hgs_lang', language);
     } catch (err) {
       console.warn('Failed to persist language preference', err);
     }

@@ -119,7 +119,14 @@ export class ErrorReportingService {
         // Extract diagnostic info from ErrorEvent
         const error = event.error || {};
         const name = error.name || 'Error';
-        const message = event.message || error.message || 'Unknown Global Runtime Error';
+        let message = event.message || error.message;
+        if (!message) {
+            try {
+                message = typeof event.error === 'object' ? JSON.stringify(event.error) : 'Unknown Global Runtime Error';
+            } catch (e) {
+                message = 'Unknown Global Runtime Error Object';
+            }
+        }
         const stack = error.stack || 'No stack trace available';
         const filename = event.filename || 'unknown_file';
         const lineno = event.lineno || 0;
@@ -153,7 +160,14 @@ export class ErrorReportingService {
       try {
         const reason = event.reason;
         const error: any = reason instanceof Error ? reason : {};
-        const message = reason instanceof Error ? reason.message : String(reason);
+        let message = reason instanceof Error ? reason.message : '';
+        if (!message) {
+            try {
+                message = typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+            } catch (e) {
+                message = 'Unknown Promise Rejection Object';
+            }
+        }
         const msgLower = (message || '').toLowerCase();
         if (msgLower.includes('websocket') || msgLower.includes('vite') || msgLower.includes('hmr') || msgLower.includes('closed without opened') || msgLower.includes('429') || msgLower.includes('401') || msgLower.includes('404') || msgLower.includes('500') || msgLower.includes('bugs/report') || msgLower.includes('incidents/report') || msgLower.includes('failed to fetch') || msgLower.includes('net::err') || msgLower.includes('cors') || msgLower.includes('cookie_check') || msgLower.includes('applet-auth-bridge') || msgLower.includes('makersuite') || msgLower.includes('script load error')) {
           return;

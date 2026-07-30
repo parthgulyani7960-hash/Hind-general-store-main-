@@ -1,3 +1,4 @@
+import { safeStorage } from '@/lib/safeStorage';
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, Info, Megaphone, X, ChevronRight, Zap } from 'lucide-react';
@@ -20,7 +21,7 @@ export default function GlobalAnnouncements() {
   const navigate = useNavigate();
   const [dismissedIds, setDismissedIds] = useState<number[]>(() => {
     try {
-      const saved = localStorage.getItem('hgs_dismissed_announcements');
+      const saved = safeStorage.getItem('hgs_dismissed_announcements');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -31,7 +32,7 @@ export default function GlobalAnnouncements() {
   const handleDismiss = (id: number) => {
     const newDismissed = [...dismissedIds, id];
     setDismissedIds(newDismissed);
-    localStorage.setItem('hgs_dismissed_announcements', JSON.stringify(newDismissed));
+    safeStorage.setItem('hgs_dismissed_announcements', JSON.stringify(newDismissed));
   };
 
   const processed = announcements

@@ -1,3 +1,4 @@
+import { safeStorage } from '@/lib/safeStorage';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
@@ -23,7 +24,7 @@ export default function ReviewPromptNotification() {
         if (!orders || !Array.isArray(orders)) return;
 
         // Get already prompted order IDs
-        const promptedString = localStorage.getItem('hgs_orders_prompted_reviews') || '[]';
+        const promptedString = safeStorage.getItem('hgs_orders_prompted_reviews') || '[]';
         let promptedList: string[] = [];
         try {
           promptedList = JSON.parse(promptedString);
@@ -34,7 +35,7 @@ export default function ReviewPromptNotification() {
         const markAsPrompted = (orderId: string) => {
           if (!promptedList.includes(orderId)) {
             promptedList.push(orderId);
-            localStorage.setItem('hgs_orders_prompted_reviews', JSON.stringify(promptedList));
+            safeStorage.setItem('hgs_orders_prompted_reviews', JSON.stringify(promptedList));
           }
         };
 

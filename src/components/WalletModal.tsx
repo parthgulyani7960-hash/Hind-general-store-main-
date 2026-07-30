@@ -1,3 +1,4 @@
+import { safeStorage } from '@/lib/safeStorage';
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -66,7 +67,7 @@ export default function WalletModal({ isOpen, onClose, user, refreshHistory, con
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${safeStorage.getItem('token')}`
         },
         body: JSON.stringify({
           userId: user.id,

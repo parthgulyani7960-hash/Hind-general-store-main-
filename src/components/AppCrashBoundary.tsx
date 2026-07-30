@@ -1,3 +1,4 @@
+import { safeStorage } from '@/lib/safeStorage';
 import * as React from 'react';
 import { errorService, ErrorType, Severity } from '../lib/incidentReporting';
 import { AlertTriangle, RefreshCw, Trash2, Copy, Check, Send, ChevronDown, ChevronUp, Terminal } from 'lucide-react';
@@ -64,17 +65,31 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
     console.error('[CRITICAL CRASH] Shell caught crash:', error, errorInfo);
     this.setState({ error, errorInfo, isReporting: true, reportMessage: 'Transmitting diagnostic data...' });
     
+    // Check if we are not already on the homepage.
+    const isHome = window.location.pathname === '/';
+
     // Notify general errorService background logger
     errorService.report({
       type: ErrorType.RENDER_ERROR,
       severity: Severity.CRITICAL,
       message: error?.message || 'Automatic Shell Crash Capture',
       stack: errorInfo?.componentStack || error?.stack || 'No stack information',
-      component: 'UniversalErrorBoundary'
+      component: 'UniversalErrorBoundary',
+      metadata: {
+        location: window.location.pathname,
+        isRecovering: !isHome
+      }
     });
 
     // Directly and atomically dispatch a comprehensive bug report to admin
     this.submitAutoReport(error, errorInfo);
+
+    // Auto-recovery to safe state
+    if (!isHome) {
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1500); // Give user a brief moment to see we caught it before redirecting
+    }
   }
 
   private async submitAutoReport(error: Error, errorInfo: React.ErrorInfo | null) {
@@ -84,7 +99,7 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
       let userEmail: string = 'anonymous';
       let userRole: string = 'customer';
       try {
-        const storedUser = localStorage.getItem('hgs_user');
+        const storedUser = safeStorage.getItem('hgs_user');
         if (storedUser) {
           const parsed = JSON.parse(storedUser);
           userId = parsed.id || null;
@@ -97,7 +112,7 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
       const deviceInfo = `${navigator.platform} | ${navigator.vendor} | ${navigator.userAgent}`;
       const screenRes = `${window.screen.width}x${window.screen.height} (${window.innerWidth}x${window.innerHeight})`;
       const networkStatus = navigator.onLine ? 'Online' : 'Offline';
-      const token = localStorage.getItem('hgs_token');
+      const token = safeStorage.getItem('hgs_token');
       const authHeader = token ? `Bearer ${token}` : '';
 
       const localTime = new Date().toLocaleString();
@@ -148,7 +163,7 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
 
   private handleClearState = () => {
     if (window.confirm('This will sign you out, empty your cart/wishlist, and purge saved local storage to resolve configuration corruption. Continue?')) {
-      localStorage.clear();
+      safeStorage.clear();
       // Clear cookies by setting them with immediate expiration
       document.cookie.split(";").forEach((c) => {
         document.cookie = c
@@ -166,7 +181,7 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
     let userEmail: string = 'anonymous';
     let userRole: string = 'customer';
     try {
-      const storedUser = localStorage.getItem('hgs_user');
+      const storedUser = safeStorage.getItem('hgs_user');
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
         userId = parsed.id || null;
@@ -195,16 +210,29 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
     } catch (err) {
       console.error('Failed to copy text:', err);
     }
-  };
-
-  public render() {
+  };  public render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback;
       }
+      
+      const errorMsg = (this.state.error?.message || '').toLowerCase();
+      const isNetworkError = errorMsg.includes('network') || errorMsg.includes('fetch') || errorMsg.includes('api') || errorMsg.includes('timeout');
+
+      const handleRetryConnection = async () => {
+        if ('caches' in window) {
+          try {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map(name => caches.delete(name)));
+          } catch (err) {}
+        }
+        try { sessionStorage.clear(); } catch(e) {}
+        this.resetError();
+      };
 
       // Instead of showing the full diagnostic page, just render a minimal
       // message or nothing at all, to avoid exposing diagnostic details.
+      const isHome = window.location.pathname === '/';
       return (
         <div className="fixed inset-0 flex flex-col items-center justify-center p-4 bg-stone-50 z-[9999]">
           <div className="mb-6 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-stone-500">
@@ -213,17 +241,40 @@ export class AppCrashBoundary extends React.Component<CrashBoundaryProps, CrashB
              {this.state.healthStatus === 'ok' && <span className="text-emerald-500">Online</span>}
              {this.state.healthStatus === 'down' && <span className="text-red-500">Maintenance</span>}
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="flex items-center gap-2 bg-white text-stone-900 text-sm font-bold uppercase tracking-widest border border-stone-200 px-8 py-4 rounded-full shadow-sm hover:border-stone-300 transition-all active:scale-95"
-          >
-            <RefreshCw size={16} />
-            Reload Application
-          </button>
+          
+          <div className="text-center mb-8">
+            <h2 className="text-lg font-bold text-stone-800 mb-2">
+              {isNetworkError ? 'Connection Interrupted' : 'Application Error Recovered'}
+            </h2>
+            {!isHome ? (
+              <p className="text-sm text-stone-500">Redirecting you to a safe state...</p>
+            ) : (
+              <p className="text-sm text-stone-500">
+                {isNetworkError ? 'Could not reach the server. Please check your connection.' : 'Please reload the application.'}
+              </p>
+            )}
+          </div>
+          
+          {isNetworkError ? (
+            <button
+              onClick={handleRetryConnection}
+              className="flex items-center gap-2 bg-white text-stone-900 text-sm font-bold uppercase tracking-widest border border-stone-200 px-8 py-4 rounded-full shadow-sm hover:border-stone-300 transition-all active:scale-95"
+            >
+              <RefreshCw size={16} />
+              Retry Connection
+            </button>
+          ) : (
+            <button
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-2 bg-white text-stone-900 text-sm font-bold uppercase tracking-widest border border-stone-200 px-8 py-4 rounded-full shadow-sm hover:border-stone-300 transition-all active:scale-95"
+            >
+              <RefreshCw size={16} />
+              Reload Application
+            </button>
+          )}
         </div>
       );
     }
-
     return this.props.children;
   }
 }

@@ -843,6 +843,10 @@ async function performInitializationWithRetry(maxRetries = 3, delay = 1000): Pro
             return;
         } catch (err: any) {
             lastError = err;
+            if (err.message && (err.message.includes('missing') || err.message.includes('invalid') || err.message.includes('parse'))) {
+                logger.error(`[FIREBASE_INIT] Fatal config error, not retrying: ${err.message}`);
+                throw err;
+            }
             logger.warn(`[FIREBASE_INIT] attempt ${i+1} failed, retrying in ${delay * Math.pow(2, i)}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
         }
@@ -1025,7 +1029,7 @@ app.get('/api/health', async (req, res) => {
         const db = getFirestoreInstance();
         await Promise.race([
           db.collection('_health_').limit(1).get(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore probe timeout')), 5000))
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Firestore probe timeout')), 2000))
         ]);
         response.firestoreStatus = 'CONNECTED';
       } catch (err: any) {
@@ -4184,25 +4188,6 @@ const authLimiter = rateLimit({
         envProjectId,
         ip
       });
-
-      // Rate limiting: Check failed attempts by IP (only if Firestore is ready)
-      if (isFirebaseReady) {
-        try {
-          const attemptsRef = getFirestoreInstance().collection('login_attempts').doc(ip);
-          const attemptsDoc = await attemptsRef.get();
-          if (attemptsDoc.exists) {
-            const data = attemptsDoc.data();
-            if (data && data.count >= 15 && Date.now() < data.lockedUntil) {
-               return res.status(429).json({ success: false, message: 'Too many attempts. Please try again later.' });
-            }
-            if (data && data.count >= 15 && Date.now() >= data.lockedUntil) {
-               await attemptsRef.update({ count: 0, lockedUntil: 0 });
-            }
-          }
-        } catch (dbErr) {
-          console.warn('[AUTH] Failed to check/update rate limit attempts during login', dbErr);
-        }
-      }
 
       console.log('[STEP 3] Verifying idToken...');
       if (!idToken) {
