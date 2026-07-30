@@ -118,9 +118,11 @@ const isBackend = typeof process !== 'undefined' && process.env != null;
 
 const validConfig = getResolvedFirebaseConfig();
 
+const isAiStudioProject = validConfig.projectId === "studio-8565200409-a3bd2";
+
 const activeDatabaseId = (validConfig.firestoreDatabaseId && validConfig.firestoreDatabaseId !== '(default)' && validConfig.firestoreDatabaseId !== 'null') 
   ? validConfig.firestoreDatabaseId 
-  : 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
+  : (isAiStudioProject ? 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe' : undefined);
 
 const isDevMode = typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env?.DEV;
 
@@ -184,7 +186,7 @@ if (auth && typeof auth.authStateReady !== 'function') {
 
 try {
   if (app) {
-    db = getFirestore(app, activeDatabaseId);
+    db = activeDatabaseId ? getFirestore(app, activeDatabaseId) : getFirestore(app);
   } else {
     throw new Error('App not initialized');
   }

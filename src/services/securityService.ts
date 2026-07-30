@@ -19,16 +19,24 @@ export const securityService = {
    */
   trackEvent: async (log: Omit<SecurityLog, 'timestamp' | 'userAgent'>) => {
     try {
-      const securityCollection = collection(db, 'security_logs');
-      await addDoc(securityCollection, {
-        ...log,
-        timestamp: serverTimestamp(),
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Server',
-        url: typeof window !== 'undefined' ? window.location.href : 'N/A'
+      const response = await fetch('/api/security/log', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...log,
+          url: typeof window !== 'undefined' ? window.location.href : 'N/A'
+        })
       });
+      
+      if (!response.ok) {
+        throw new Error(`Server returned status: ${response.status}`);
+      }
+      
       logger.info(`[SECURITY] Event: ${log.type} - ${log.details}`);
     } catch (err) {
-      console.error('[SECURITY] Failed to log security event:', err);
+      console.warn('[SECURITY] Failed to proxy security event, saving locally:', err);
       
       // Fallback to localStorage if offline
       const localLogs = JSON.parse(localStorage.getItem('pending_security_logs') || '[]');
