@@ -106,6 +106,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import crypto from 'crypto';
+import CryptoJS from 'crypto-js';
 console.log('[BOOT] Express module loaded');
 import 'dotenv/config';
 import { validateEnvironment as validateEnvCheck } from './src/lib/envCheck';
@@ -326,6 +327,84 @@ const getAuthInstance = () => {
     throw new Error('Firebase Admin is not initialized');
   }
   return admin.auth();
+};
+
+const getDbEncryptionKey = (): string => {
+  return process.env.SESSION_SECRET || 'fallback_db_secret_key_83901';
+};
+
+const DB_ENC_PREFIX = '__db_enc__::';
+
+const encryptDbValue = (val: any): any => {
+  if (typeof val !== 'string') return val;
+  if (!val) return val;
+  if (val.startsWith(DB_ENC_PREFIX)) return val;
+  try {
+    const key = getDbEncryptionKey();
+    const encrypted = CryptoJS.AES.encrypt(val, key).toString();
+    return `${DB_ENC_PREFIX}${encrypted}`;
+  } catch (e) {
+    return val;
+  }
+};
+
+const decryptDbValue = (val: any): any => {
+  if (typeof val !== 'string') return val;
+  if (!val || !val.startsWith(DB_ENC_PREFIX)) return val;
+  try {
+    const key = getDbEncryptionKey();
+    const cipherText = val.slice(DB_ENC_PREFIX.length);
+    const bytes = CryptoJS.AES.decrypt(cipherText, key);
+    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+    return decrypted || val;
+  } catch (e) {
+    return val;
+  }
+};
+
+const encryptUserObject = (user: any): any => {
+  if (!user) return user;
+  const clone = { ...user };
+  const sensitiveFields = ['phone', 'address', 'street_address', 'city', 'state', 'zip_code', 'pin_code', 'shop_name'];
+  sensitiveFields.forEach(field => {
+    if (clone[field] !== undefined && clone[field] !== null) {
+      clone[field] = encryptDbValue(String(clone[field]));
+    }
+  });
+  if (clone.phone) {
+    const plainPhone = decryptDbValue(clone.phone);
+    clone.phone_hash = CryptoJS.SHA256(plainPhone).toString();
+  }
+  return clone;
+};
+
+const decryptUserObject = (user: any): any => {
+  if (!user) return user;
+  const clone = { ...user };
+  const sensitiveFields = ['phone', 'address', 'street_address', 'city', 'state', 'zip_code', 'pin_code', 'shop_name'];
+  sensitiveFields.forEach(field => {
+    if (clone[field] !== undefined && clone[field] !== null) {
+      clone[field] = decryptDbValue(clone[field]);
+    }
+  });
+  return clone;
+};
+
+const getUserByPhoneQuery = async (usersColl: any, phone: string): Promise<any> => {
+  const phoneHash = CryptoJS.SHA256(phone).toString();
+  const encryptedPhone = encryptDbValue(phone);
+  
+  // Try querying by hash first
+  let snap = await usersColl.where('phone_hash', '==', phoneHash).get();
+  if (snap.empty) {
+    // Try querying by encrypted value
+    snap = await usersColl.where('phone', '==', encryptedPhone).get();
+  }
+  if (snap.empty) {
+    // Try querying by plain value (legacy)
+    snap = await usersColl.where('phone', '==', phone).get();
+  }
+  return snap;
 };
 
 // Simple in-memory cache to cache verified tokens and optimize startup
@@ -1878,7 +1957,7 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
 
       if (!snap.empty) {
         const doc = snap.docs[0];
-        let user = { id: doc.id, ...doc.data() } as any;
+        let user = decryptUserObject({ id: doc.id, ...doc.data() });
         const updates: any = {};
         
         if (user.role !== role) {
@@ -1919,7 +1998,7 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
             email_verified: decodedToken.email_verified || false
           }
         };
-        const docRef = await usersColl.add(newUser);
+        const docRef = await usersColl.add(encryptUserObject(newUser));
         return { id: docRef.id, ...newUser };
       }
     } catch (err: any) {
@@ -3359,9 +3438,9 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       res.status(404).json({ message: 'User not found' });
       return;
     }
-    const user = doc.data();
+    const user = decryptUserObject({ id: doc.id, ...doc.data() });
     if (user) delete user.password;
-    res.json({ id: doc.id, ...user });
+    res.json(user);
   }));
 
   app.post('/api/user/export-data', requireAuth, wrap('/api/user/export-data', async (req, res) => {
@@ -4169,7 +4248,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
           } else {
             const doc = await getFirestoreInstance().collection('users').doc(userIdStr).get();
             if (doc.exists) {
-              sessionUser = { id: doc.id, ...doc.data() } as any;
+              sessionUser = decryptUserObject({ id: doc.id, ...doc.data() });
               userDocCache.set(userIdStr, {
                 user: sessionUser,
                 expiresAt: Date.now() + 1000 * 60 * 5 // Cache for 5 minutes
@@ -8072,7 +8151,7 @@ const authLimiter = rateLimit({
     const processedUsers = await getCachedData('admin_users_processed_v2', async () => {
       console.log('[DB QUERY START] users (limit 200)');
       const snap = await getFirestoreInstance().collection('users').limit(200).get();
-      let users = snap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
+      let users = snap.docs.map(d => decryptUserObject({id: d.id, ...d.data()})) as any[];
       console.log('[DB QUERY END] users');
       
       console.log('[DB QUERY START] orders (limit 1000)');
@@ -8839,11 +8918,11 @@ const authLimiter = rateLimit({
       return;
     }
     
-    const currentUser = uDoc.data() as any;
+    const currentUser = decryptUserObject({ id: uDoc.id, ...uDoc.data() });
     const phone = body.phone !== undefined ? body.phone : currentUser.phone;
     
     if (phone && phone !== currentUser.phone) {
-       const existSnap = await getFirestoreInstance().collection('users').where('phone', '==', phone).get();
+       const existSnap = await getUserByPhoneQuery(getFirestoreInstance().collection('users'), phone);
        if (!existSnap.empty) {
           const others = existSnap.docs.filter(d => d.id !== String(id));
           if (others.length > 0) {
@@ -8877,7 +8956,7 @@ const authLimiter = rateLimit({
        admin_id: adminId || 'system', action: 'USER_UPDATE', target_type: 'USER', target_id: String(id), details: JSON.stringify({ message: `Updated profile for user ${final_name} (ID: ${id})`, oldState: currentUser, newState: body }), created_at: new Date().toISOString()
     });
 
-    await userRef.update({
+    await userRef.update(encryptUserObject({
        name: final_name, 
        email: final_email, 
        shop_name: shop_name !== undefined ? shop_name : currentUser.shop_name, 
@@ -8891,7 +8970,7 @@ const authLimiter = rateLimit({
        city: city !== undefined ? city : currentUser.city, 
        state: state !== undefined ? state : currentUser.state, 
        phone
-    });
+    }));
     
     res.json({ success: true });
   }));
@@ -8920,10 +8999,10 @@ const authLimiter = rateLimit({
       const userRef = getFirestoreInstance().collection('users').doc(String(id));
       const uDoc = await userRef.get();
       if (!uDoc.exists) return res.status(404).json({ message: 'User not found' });
-      const currentUser = uDoc.data() as any;
+      const currentUser = decryptUserObject({ id: uDoc.id, ...uDoc.data() });
 
       if (phone && phone !== currentUser.phone) {
-         const existPhoneSnap = await getFirestoreInstance().collection('users').where('phone', '==', phone).get();
+         const existPhoneSnap = await getUserByPhoneQuery(getFirestoreInstance().collection('users'), phone);
          if (!existPhoneSnap.empty) {
             const others = existPhoneSnap.docs.filter(d => d.id !== String(id));
             if (others.length > 0) return res.status(400).json({ success: false, message: 'This mobile number is already in use by another account.' });
@@ -8960,12 +9039,11 @@ const authLimiter = rateLimit({
 
       merged.name = merged.name ? capitalizeName(merged.name) : merged.name;
       
-      await userRef.update(merged);
+      await userRef.update(encryptUserObject(merged));
       invalidateUserCache(id);
       
       const newUDoc = await userRef.get();
-      const user = newUDoc.data() as any;
-      user.id = String(id);
+      const user = decryptUserObject({ id: String(id), ...newUDoc.data() });
       
       if (user) {
         user.notification_orders = user.notification_orders !== 0;

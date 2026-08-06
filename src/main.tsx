@@ -8,6 +8,29 @@ import AppCrashBoundary from './components/AppCrashBoundary';
 import { auth, signOutUser } from './firebase'; // Explicit static import to fix architecture warning
 import { getOrRefreshToken } from './lib/authInterceptor';
 import { errorService, ErrorType } from './lib/incidentReporting';
+import { safeStorage } from './lib/safeStorage';
+
+// Transparently encrypt all localStorage data to enhance frontend security
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
+    const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+
+    window.localStorage.getItem = (key: string): string | null => {
+      const raw = originalGetItem(key);
+      if (raw === null) return null;
+      return safeStorage.decrypt(raw);
+    };
+
+    window.localStorage.setItem = (key: string, value: string): void => {
+      const encrypted = safeStorage.encrypt(value);
+      originalSetItem(key, encrypted);
+    };
+  }
+  console.log('[SECURITY] Transparent client-side storage encryption is active.');
+} catch (e) {
+  console.warn('[SECURITY] Failed to initialize transparent storage encryption:', e);
+}
 
 // Privacy / Security Console Redaction disabled for debugging
 function redactConsole() {
