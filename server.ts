@@ -8806,6 +8806,75 @@ const authLimiter = rateLimit({
     res.json({ success: true, order: result });
   }));
 
+  app.post('/api/public/orders/:id/feedback', wrap('/api/public/orders/:id/feedback', async (req, res) => {
+    const { id } = req.params;
+    const { phone, rating, comment, aspects } = req.body;
+
+    if (!id || !phone) {
+      res.status(400).json({ success: false, message: 'Order ID and Phone Number are required' });
+      return;
+    }
+
+    if (!rating || rating < 1 || rating > 5) {
+      res.status(400).json({ success: false, message: 'A rating between 1 and 5 is required' });
+      return;
+    }
+
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const ordersCol = getFirestoreInstance().collection('orders');
+    let orderDoc = await ordersCol.doc(String(id).trim()).get();
+    
+    if (!orderDoc.exists) {
+      const snap = await ordersCol.where('order_id', '==', String(id).trim()).get();
+      if (!snap.empty) {
+        orderDoc = snap.docs[0] as any;
+      } else {
+        res.status(404).json({ success: false, message: 'Order not found' });
+        return;
+      }
+    }
+
+    const orderData = orderDoc.data() as any;
+    
+    let userDoc: any = null;
+    if (orderData.user_id) {
+       const uSnap = await getFirestoreInstance().collection('users').doc(String(orderData.user_id)).get();
+       if (uSnap.exists) userDoc = uSnap.data();
+    }
+
+    const userPhone = userDoc ? userDoc.phone : orderData.user_phone;
+    const p1 = userPhone ? String(userPhone).replace(/\D/g, '').slice(-10) : '';
+
+    if (p1 !== cleanPhone) {
+       res.status(403).json({ success: false, message: 'Unauthorized to rate this order' });
+       return;
+    }
+
+    // Update the order document with the feedback
+    const feedbackObj = {
+      rating: Number(rating),
+      comment: comment || '',
+      aspects: Array.isArray(aspects) ? aspects : [],
+      created_at: new Date().toISOString()
+    };
+
+    await ordersCol.doc(orderDoc.id).update({
+      feedback: feedbackObj
+    });
+
+    // Invalidate public caching for this order ID
+    if (typeof CACHE_STORE_GLOBAL !== 'undefined' && CACHE_STORE_GLOBAL) {
+      const keys = CACHE_STORE_GLOBAL.keys();
+      keys.forEach(key => {
+        if (key.includes(`pub_order_v2_${id}`)) {
+          CACHE_STORE_GLOBAL.del(key);
+        }
+      });
+    }
+
+    res.json({ success: true, message: 'Feedback submitted successfully', feedback: feedbackObj });
+  }));
+
   app.get('/api/public/orders/:id/history', async (req, res) => {
     try {
       if (!admin.apps.length) return res.json({ success: true, history: [] });

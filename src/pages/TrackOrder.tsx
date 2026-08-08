@@ -24,6 +24,7 @@ L.Icon.Default.mergeOptions({
 });
 
 import { OrderTrackingService } from '@/services/orderTrackingService';
+import { PostOrderFeedback } from '@/components/PostOrderFeedback';
 import { db } from '@/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
@@ -592,6 +593,17 @@ export default function TrackOrder() {
                 </div>
                 <OrderStatusTimeline key={timelineKey} orderId={order.id} />
               </div>
+
+            {order.status === 'delivered' && (
+              <PostOrderFeedback
+                orderId={order.order_id || order.id}
+                phone={phoneNumber || order.user_phone}
+                existingFeedback={order.feedback}
+                onFeedbackSubmitted={(feedback) => {
+                  setOrder((prev: any) => prev ? { ...prev, feedback } : null);
+                }}
+              />
+            )}
 
             {/* Order Items & Summary */}
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-stone-200/50 border border-stone-100">

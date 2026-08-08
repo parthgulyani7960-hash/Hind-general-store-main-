@@ -1,10 +1,7 @@
 import CryptoJS from 'crypto-js';
 
 const getEncryptionKey = (): string => {
-  const base = "hgs_secure_salt_928310!@#_prod";
-  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'node';
-  const screenInfo = typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : 'screen';
-  return `${base}_${userAgent}_${screenInfo}`;
+  return "hgs_secure_salt_928310!@#_prod_stable_v1";
 };
 
 const ENCRYPTION_PREFIX = '__enc__::';
@@ -21,8 +18,9 @@ export const safeStorage = {
     }
   },
 
-  decrypt: (value: string): string => {
-    if (!value || !value.startsWith(ENCRYPTION_PREFIX)) {
+  decrypt: (value: string): string | null => {
+    if (!value) return null;
+    if (!value.startsWith(ENCRYPTION_PREFIX)) {
       return value;
     }
     try {
@@ -33,19 +31,19 @@ export const safeStorage = {
       if (decrypted) {
         return decrypted;
       }
-      return value; // fallback to original if decrypted is empty
+      return null; // Don't return the raw ciphertext if decryption resulted in empty string
     } catch (e) {
-      console.warn('Decryption failed, returning raw value', e);
-      return value;
+      console.warn('Decryption failed, returning null', e);
+      return null; // Return null on decryption failure
     }
   },
 
   getItem: (key: string): string | null => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem(key);
-        if (raw === null) return null;
-        return safeStorage.decrypt(raw);
+        // Since window.localStorage is transparently overridden to decrypt, 
+        // calling it here is sufficient and avoids double-decryption.
+        return window.localStorage.getItem(key);
       }
     } catch (e) {
       console.warn('localStorage access denied', e);
@@ -56,8 +54,9 @@ export const safeStorage = {
   setItem: (key: string, value: string): void => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const encrypted = safeStorage.encrypt(value);
-        window.localStorage.setItem(key, encrypted);
+        // Since window.localStorage is transparently overridden to encrypt,
+        // calling it here is sufficient and avoids double-encryption.
+        window.localStorage.setItem(key, value);
       }
     } catch (e) {
       console.warn('localStorage access denied', e);
