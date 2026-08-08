@@ -32,20 +32,8 @@ export default function HeadOptimizer(): null {
     // Immediately load it
     createLink('stylesheet', 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap');
 
-    // 3. Preload Critical Hero and Banner images to boost Time To Visually Complete / Time-To-First-Paint
-    const criticalHeroImages = [
-      'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800'
-    ];
-
-    criticalHeroImages.forEach((imgUrl) => {
-      createLink('preload', imgUrl, {
-        as: 'image',
-        type: 'image/jpeg',
-        referrerpolicy: 'no-referrer'
-      });
-    });
-
-    console.log('[OPTIMIZER] Dynamic preconnect and preload tags injected successfully.');
+    // 3. Fonts and critical preconnects configured above
+    console.log('[OPTIMIZER] Dynamic preconnect and stylesheet links initialized.');
 
     return () => {
       // Cleanup dynamically injected elements if the optimizer unmounts

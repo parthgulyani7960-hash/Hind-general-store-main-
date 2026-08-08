@@ -10,6 +10,7 @@ export const useKeyboardShortcuts = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Get the key
       const key = e.key;
+      if (!key) return;
       const keyLower = key.toLowerCase();
       
       // Escape shortcut triggers a global custom event to close all dialogs/modals
@@ -21,7 +22,7 @@ export const useKeyboardShortcuts = () => {
       // If user is typing in an input field, textarea, select or contenteditable, ignore navigation shortcuts
       const activeElement = document.activeElement as HTMLElement | null;
       if (activeElement) {
-        const tagName = activeElement.tagName.toLowerCase();
+        const tagName = activeElement.tagName ? activeElement.tagName.toLowerCase() : '';
         const isContentEditable = activeElement.hasAttribute('contenteditable') && 
                                   activeElement.getAttribute('contenteditable') !== 'false';
         if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || isContentEditable) {

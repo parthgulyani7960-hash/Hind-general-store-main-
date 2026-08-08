@@ -846,6 +846,39 @@ let initPromise: Promise<void> | null = null;
 
 console.log('[BOOT STEP 2.4] performInitialization defined');
 
+function formatPrivateKey(key: string): string {
+  if (!key || typeof key !== 'string') return "";
+  let formatted = key.trim();
+  
+  // Strip surrounding quotes or escaped quotes if wrapped
+  while (
+    (formatted.startsWith('"') && formatted.endsWith('"')) ||
+    (formatted.startsWith("'") && formatted.endsWith("'")) ||
+    (formatted.startsWith('\\"') && formatted.endsWith('\\"'))
+  ) {
+    if (formatted.startsWith('\\"') && formatted.endsWith('\\"')) {
+      formatted = formatted.slice(2, -2).trim();
+    } else {
+      formatted = formatted.slice(1, -1).trim();
+    }
+  }
+
+  // Handle double backslashes, literal \n, and \r\n
+  formatted = formatted
+    .replace(/\\\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n');
+
+  // Ensure header and footer have newlines
+  if (!formatted.includes('\n') && formatted.includes('-----BEGIN PRIVATE KEY-----')) {
+    formatted = formatted
+      .replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----\n')
+      .replace('-----END PRIVATE KEY-----', '\n-----END PRIVATE KEY-----');
+  }
+
+  return formatted;
+}
+
 console.log('[BOOT STEP 2.4] performInitialization starting');
 async function performInitialization(): Promise<void> {
   logger.info('[FIREBASE_INIT] Starting initialization sequence...');
@@ -873,25 +906,71 @@ async function performInitialization(): Promise<void> {
       throw new Error(error);
     }
 
+    if (typeof serviceAccountKey === 'string' && serviceAccountKey.includes('VITE_FIREBASE_')) {
+      const error = 'FIREBASE_SERVICE_ACCOUNT_KEY environment variable contains VITE_FIREBASE_ keys instead of a Firebase Admin Service Account JSON. Please set VITE_FIREBASE_* as separate environment variables in Render, and set FIREBASE_SERVICE_ACCOUNT_KEY to the JSON content of your Service Account Key file.';
+      dbConnectionStatus.mode = 'ERROR';
+      dbConnectionStatus.details = error;
+      logger.error(`[FIREBASE_INIT] ${error}`);
+      throw new Error(error);
+    }
+
     // 2. Parse Credentials
     let certData: any;
     try {
-      certData = JSON.parse(serviceAccountKey);
-    } catch (parseErr: any) {
-      // Attempt recovery from escaped string if it's a JSON string
-      try {
-        let cleaned = serviceAccountKey.trim();
-        if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
-          cleaned = cleaned.substring(1, cleaned.length - 1);
-        }
-        certData = JSON.parse(cleaned);
-      } catch (e2) {
-        const error = `Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: ${parseErr.message}`;
-        dbConnectionStatus.mode = 'ERROR';
-        dbConnectionStatus.details = error;
-        logger.error(`[FIREBASE_INIT] ${error}`);
-        throw new Error(error);
+      let rawStr = typeof serviceAccountKey === 'object' ? JSON.stringify(serviceAccountKey) : String(serviceAccountKey).trim();
+      
+      // Strip wrapping quotes
+      while ((rawStr.startsWith('"') && rawStr.endsWith('"')) || (rawStr.startsWith("'") && rawStr.endsWith("'"))) {
+        rawStr = rawStr.substring(1, rawStr.length - 1).trim();
       }
+
+      const parseAttempts = [
+        () => JSON.parse(rawStr),
+        () => {
+          // Strip comments
+          const noComments = rawStr.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '').trim();
+          return JSON.parse(noComments);
+        },
+        () => {
+          // Extract JSON object boundary {...}
+          const s = rawStr.indexOf('{');
+          const e = rawStr.lastIndexOf('}');
+          if (s !== -1 && e > s) {
+            const block = rawStr.substring(s, e + 1).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
+            return JSON.parse(block);
+          }
+          throw new Error('No JSON object boundaries found');
+        },
+        () => {
+          // Unescape escaped quotes
+          const unescaped = rawStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          return JSON.parse(unescaped);
+        },
+        () => {
+          // Base64 decode
+          const decoded = Buffer.from(rawStr, 'base64').toString('utf8');
+          return JSON.parse(decoded);
+        }
+      ];
+
+      for (const attempt of parseAttempts) {
+        try {
+          certData = attempt();
+          if (certData && (certData.private_key || certData.privateKey || certData.project_id)) {
+            break;
+          }
+        } catch (_) {}
+      }
+
+      if (!certData) {
+        throw new Error('Failed all parsing strategies for FIREBASE_SERVICE_ACCOUNT_KEY');
+      }
+    } catch (parseErr: any) {
+      const error = `Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: ${parseErr.message}`;
+      dbConnectionStatus.mode = 'ERROR';
+      dbConnectionStatus.details = error;
+      logger.error(`[FIREBASE_INIT] ${error}`);
+      throw new Error(error);
     }
 
     const finalProjectId = certData.project_id || certData.projectId || projectId;
@@ -905,7 +984,8 @@ async function performInitialization(): Promise<void> {
 
     // 3. Initialize Admin SDK
     logger.info(`[FIREBASE_INIT] Initializing for project: ${finalProjectId}`);
-    const privateKey = (certData.private_key || certData.privateKey || "").replace(/\\n/g, '\n');
+    const rawPrivateKey = certData.private_key || certData.privateKey || "";
+    const privateKey = formatPrivateKey(rawPrivateKey);
     
     admin.initializeApp({
       credential: admin.credential.cert({
@@ -1026,9 +1106,11 @@ async function initializeFirebase() {
   return initPromise;
 }
 
-const appReady = initializeFirebase();
+const appReady = initializeFirebase().catch(err => {
+  console.warn('[SERVER] Async Firebase initialization caught error on startup:', err.message || err);
+});
 
-async function waitForFirebase(timeoutMs = 15000): Promise<boolean> {
+async function waitForFirebase(timeoutMs = 3000): Promise<boolean> {
   if (isFirebaseReady) return true;
   try {
     await Promise.race([
@@ -2844,16 +2926,21 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     if (user) {
       const cleanEmail = sanitizeEmail(user.email);
       const isDevelopmentAdmin = cleanEmail === 'parthgulyani7960@gmail.com';
-      const isWhitelisted = await checkAdminWhitelisted(cleanEmail);
+      const isWhitelisted = cleanEmail ? await checkAdminWhitelisted(cleanEmail) : false;
+      const isAdminRole = user.role === 'admin' || user.role === 'superadmin' || user.role === 'super_admin';
 
-      if (isDevelopmentAdmin || isWhitelisted) {
-        if (isDevelopmentAdmin) {
-           const db = getFirestoreInstance();
-           const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
-           if (!adminDoc.exists) {
-             await db.collection('admin_whitelist').doc(cleanEmail).set({
-               email: cleanEmail, addedBy: 'system', addedAt: new Date().toISOString(), status: 'active', lastLogin: new Date().toISOString()
-             });
+      if (isDevelopmentAdmin || isWhitelisted || isAdminRole) {
+        if (isDevelopmentAdmin && cleanEmail) {
+           try {
+             const db = getFirestoreInstance();
+             const adminDoc = await db.collection('admin_whitelist').doc(cleanEmail).get();
+             if (!adminDoc.exists) {
+               await db.collection('admin_whitelist').doc(cleanEmail).set({
+                 email: cleanEmail, addedBy: 'system', addedAt: new Date().toISOString(), status: 'active', lastLogin: new Date().toISOString()
+               });
+             }
+           } catch (dbErr) {
+             console.warn('[requireAdmin] Admin whitelist update warning:', dbErr);
            }
         }
         (req as any).session = (req as any).session || {};
@@ -3229,7 +3316,14 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     const { reason } = req.body;
     
     try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
+      if (!admin.apps.length) {
+        try {
+          await waitForFirebase(2000);
+        } catch (e) {}
+      }
+      if (!admin.apps.length) {
+        return res.status(503).json({ success: false, message: 'Database service is initializing, please retry in a moment.' });
+      }
       const orderRef = getFirestoreInstance().collection('orders').doc(String(id));
       const orderDoc = await orderRef.get();
       if (!orderDoc.exists) return res.status(404).json({ success: false, message: 'Order not found' });
@@ -4098,41 +4192,46 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     }
 
     if (!admin.apps.length) {
-      res.status(500).json([]);
+      res.json([]);
       return;
     }
 
-    console.log('[DB QUERY START] cart_items');
-    const snap = await getFirestoreInstance().collection('cart_items').where('user_id', '==', String(userId)).get();
-    console.log('[DB QUERY END] cart_items');
-    
-    const cartDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    
-    // Parallelize product lookups
-    const items = await Promise.all(cartDocs.map(async (doc: any) => {
-      const productId = String(doc.product_id);
+    try {
+      console.log('[DB QUERY START] cart_items');
+      const snap = await getFirestoreInstance().collection('cart_items').where('user_id', '==', String(userId)).get();
+      console.log('[DB QUERY END] cart_items');
       
-      // Use cache for product data to avoid repeat reads
-      const pData = await getCachedData(`prod_${productId}`, async () => {
-        console.log(`[DB QUERY START] product ${productId}`);
-        const pDoc = await getFirestoreInstance().collection('products').doc(productId).get();
-        console.log(`[DB QUERY END] product ${productId}`);
-        return pDoc.exists ? pDoc.data() : null;
-      }, 10); // Cache products for 10s
-
-      if (!pData) return { ...doc, name: 'Product Unavailable', price: 0 };
+      const cartDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      return { 
-        ...doc, 
-        name: pData.name, 
-        price: pData.price, 
-        image_url: pData.image_url, 
-        stock: pData.stock, 
-        category: pData.category 
-      };
-    }));
+      // Parallelize product lookups
+      const items = await Promise.all(cartDocs.map(async (doc: any) => {
+        const productId = String(doc.product_id);
+        
+        // Use cache for product data to avoid repeat reads
+        const pData = await getCachedData(`prod_${productId}`, async () => {
+          console.log(`[DB QUERY START] product ${productId}`);
+          const pDoc = await getFirestoreInstance().collection('products').doc(productId).get();
+          console.log(`[DB QUERY END] product ${productId}`);
+          return pDoc.exists ? pDoc.data() : null;
+        }, 10); // Cache products for 10s
 
-    res.json(items);
+        if (!pData) return { ...doc, name: 'Product Unavailable', price: 0 };
+        
+        return { 
+          ...doc, 
+          name: pData.name, 
+          price: pData.price, 
+          image_url: pData.image_url, 
+          stock: pData.stock, 
+          category: pData.category 
+        };
+      }));
+
+      res.json(items);
+    } catch (cartErr: any) {
+      console.error('[CART FETCH ERROR]:', cartErr.message);
+      res.json([]);
+    }
   }));
 
   app.post('/api/cart/sync', requireAuth, wrap('/api/cart/sync', async (req, res) => {
@@ -7107,16 +7206,23 @@ const authLimiter = rateLimit({
       type, component, api_endpoint, device_info, screen_resolution,
       network_status, request_payload, metadata } = req.body;
 
-    await waitForFirebase();
-    if (!admin.apps.length) throw new Error('Firebase Admin not initialized');
-    const db = getFirestoreInstance();
+    try {
+      await waitForFirebase(2000);
+    } catch (e) {
+      console.warn('[BUG REPORT] Firebase wait timed out, proceeding with fallback response');
+    }
 
-    // Fire-and-forget: Return a success status to the client immediately to prevent 3000ms+ latency.
-    res.json({ success: true, message: 'Intel packet received and queued for background processing.' });
+    // Always respond with success to client immediately to prevent blocking
+    res.json({ success: true, message: 'Intel packet received and queued for processing.' });
 
-    // Perform the operations asynchronously in the background
+    // Perform operations asynchronously in background if DB is ready
     (async () => {
       try {
+        if (!admin.apps.length) {
+          console.log('[BUG REPORT FALLBACK] Admin DB not ready, report payload logged:', { reporter_name, message, path });
+          return;
+        }
+        const db = getFirestoreInstance();
         if (isBatch && Array.isArray(reports)) {
              const batch = db.batch();
              for (const report of reports) {
@@ -8495,7 +8601,14 @@ const authLimiter = rateLimit({
     }
 
     try {
-      if (!admin.apps.length) return res.status(500).json({ success: false, message: 'Internal server error' });
+      if (!admin.apps.length) {
+        try {
+          await waitForFirebase(2000);
+        } catch (e) {}
+      }
+      if (!admin.apps.length) {
+        return res.status(503).json({ success: false, message: 'Database service is initializing, please retry in a moment.' });
+      }
 
       // Generate unique order ID using the utility
       const orderIdStr = generateOrderId(Date.now(), Math.floor(Math.random() * 10000));
@@ -11281,7 +11394,7 @@ const authLimiter = rateLimit({
 
   console.log('[ROUTES REGISTERED] All API endpoints attached');
   console.log('[BOOT] Finalizing middlewares and starting listen...');
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   const isServerless = process.env.VERCEL || process.env.NOW_REGION || process.env.FUNCTIONS_EMULATOR;
   if (!isServerless) {

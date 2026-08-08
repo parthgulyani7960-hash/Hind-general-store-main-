@@ -120,7 +120,6 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  console.log('[StoreProvider] RENDER START');
   const { language, setLanguage, t } = useLanguage();
   const { mutate: swrMutate } = useSWRConfig();
   const { trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts } = useProductCache();
@@ -130,7 +129,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isAuthChecking, setIsAuthChecking] = useState(() => {
     try {
       const hasToken = !!localStorage.getItem('hgs_token');
-      console.log('[StoreProvider] Initial Auth Checking:', hasToken);
       // If we have a token, we MUST verify it regardless of whether we have a local user cache
       if (hasToken) return true;
       return false;
@@ -179,6 +177,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
   });
+
+  const userRef = useRef<User | null>(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
@@ -279,13 +282,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [bulkDiscounts, setBulkDiscounts] = useState<any[]>([]);
   const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
 
-  useEffect(() => {
-    console.log('[StoreProvider] Initialized (mounted)');
-  }, []);
 
-  useEffect(() => {
-    console.log('[StoreProvider] State Update - isAuthChecking:', isAuthChecking, 'isInitialAuthPerformed:', isInitialAuthPerformed);
-  }, [isAuthChecking, isInitialAuthPerformed]);
 
   useEffect(() => {
     try {
@@ -1249,7 +1246,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Just set up the listener.
     unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         clearTimeout(authSafetyTimeout);
-        console.log('[BOOT] onIdTokenChanged triggered, user:', !!firebaseUser, 'Current User State:', !!user);
+        console.log('[BOOT] onIdTokenChanged triggered, user:', !!firebaseUser, 'Current User State:', !!userRef.current);
         try {
           if (firebaseUser) {
             console.log('[BOOT] Firebase User exists, fetching token...');
@@ -1257,7 +1254,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             console.log('[BOOT] Token fetched');
             const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
             // If token changed OR we current have no user state, we must authorize
-            if (hasExpiredTokenChange || !user) {
+            if (hasExpiredTokenChange || !userRef.current) {
               console.log('[BOOT] Token changed or no user, calling checkAuth...');
               localStorage.setItem('hgs_token', token);
               await checkAuth(token);
@@ -1504,8 +1501,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
     products, setProducts, fetchProducts, isLoadingProducts, fetchProductsError, isApiUp, isOnline, latency, categories, fetchCategories, isLoadingCategories,
     announcements, fetchAnnouncements, prefetchProducts, prefetchProduct, trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts, startupPhase]);
-
-  console.log('[StoreProvider] RENDER END - contextValue built:', { startupPhase, isAuthChecking, isInitialAuthPerformed });
 
   return (
     <StoreContext.Provider value={contextValue}>

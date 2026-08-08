@@ -60,7 +60,17 @@ export default defineConfig(({mode}) => {
     build: {
       sourcemap: true,
       chunkSizeWarningLimit: 1200,
-      crossorigin: 'use-credentials'
+      crossorigin: 'use-credentials',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-core': ['react', 'react-dom', 'react-router-dom'],
+            'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+            'icons-vendor': ['lucide-react'],
+            'motion-vendor': ['motion/react']
+          }
+        }
+      }
     }
   };
 });
