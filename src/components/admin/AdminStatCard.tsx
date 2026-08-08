@@ -77,7 +77,7 @@ const cardVariants = {
       whileHover={onClick ? { y: -5 } : {}}
       onClick={onClick}
       className={cn(
-        "bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100 group transition-all duration-500",
+        "bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-stone-100 group transition-all duration-500",
         onClick && "cursor-pointer hover:border-primary/20 hover:shadow-xl hover:shadow-stone-200/40",
         className
       )}

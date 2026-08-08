@@ -19,7 +19,15 @@ try {
     window.localStorage.getItem = (key: string): string | null => {
       const raw = originalGetItem(key);
       if (raw === null) return null;
-      return safeStorage.decrypt(raw);
+      const decrypted = safeStorage.decrypt(raw);
+      if (decrypted === null && raw.startsWith('__enc__::')) {
+        // If decryption fails on an encrypted value (e.g. because key changed or corrupted),
+        // delete the stale/corrupted item to prevent infinite log warnings and loops.
+        try {
+          window.localStorage.removeItem(key);
+        } catch (err) {}
+      }
+      return decrypted;
     };
 
     window.localStorage.setItem = (key: string, value: string): void => {
@@ -28,6 +36,21 @@ try {
     };
   }
   console.log('[SECURITY] Transparent client-side storage encryption is active.');
+
+  // Unregister legacy Service Workers to completely prevent dynamic chunk import 404s and asset conflicts
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const registration of registrations) {
+        registration.unregister().then((success) => {
+          if (success) {
+            console.log('[SW] Successfully unregistered legacy service worker to prevent chunk errors.');
+          }
+        });
+      }
+    }).catch((err) => {
+      console.warn('[SW] ServiceWorker unregistration error:', err);
+    });
+  }
 } catch (e) {
   console.warn('[SECURITY] Failed to initialize transparent storage encryption:', e);
 }

@@ -29,6 +29,7 @@ import { getAuthHeaders, formatPhoneNumber, isValidPhone } from '@/lib/utils';
 import { OrderSkeleton, ProductSkeleton, TableRowSkeleton } from '@/components/ui/Skeleton';
 import { autofillLocation } from '@/lib/geocoding';
 import { LocationStatus } from '@/components/LocationStatus';
+import OrderTrackingDashboard from '@/components/OrderTrackingDashboard';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -701,14 +702,14 @@ export default function Profile() {
     }
   }, [user, loadData]);
 
-  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'wishlist' | 'addresses' | 'insights' | 'wallet' | 'khata' | 'settings'>('settings');
+  const [activeProfileTab, setActiveProfileTab] = useState<'history' | 'tracking' | 'wishlist' | 'addresses' | 'insights' | 'wallet' | 'khata' | 'settings'>('settings');
   
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get('tab');
     const action = params.get('action');
     const reviewOrderId = params.get('reviewOrderId');
-    if (tab && ['history', 'wishlist', 'addresses', 'insights', 'wallet', 'khata', 'settings'].includes(tab)) {
+    if (tab && ['history', 'tracking', 'wishlist', 'addresses', 'insights', 'wallet', 'khata', 'settings'].includes(tab)) {
       setActiveProfileTab(tab as any);
     }
     if (action === 'add-money') {
@@ -1220,6 +1221,11 @@ export default function Profile() {
             <div className="flex-1 text-center md:text-left space-y-4">
               <div>
                 <h1 className="text-3xl md:text-4xl font-serif font-black text-white tracking-tight leading-none group-hover:text-amber-400 transition-colors">{displayUserName}</h1>
+                {user?.numeric_id && (
+                  <p className="text-xs text-amber-400 font-mono font-black tracking-widest uppercase mt-2">
+                    Customer ID: {String(user.numeric_id).replace(/(\d{5})(\d{5})/, '$1-$2')}
+                  </p>
+                )}
                 <p className="text-slate-400 font-bold mt-2.5 flex items-center justify-center md:justify-start gap-1 text-sm">
                   <Mail size={13} className="text-amber-500/70" /> {displayUserEmail}
                 </p>
@@ -1566,6 +1572,7 @@ export default function Profile() {
             <div className="flex p-1 bg-stone-100/80 rounded-2xl overflow-x-auto md:flex-wrap gap-1 sm:gap-2 no-scrollbar">
               {[
                 { id: 'history', label: 'Orders', icon: ShoppingBag },
+                { id: 'tracking', label: 'Track Orders', icon: Truck },
                 { id: 'wishlist', label: 'Wishlist', icon: Heart },
                 { id: 'addresses', label: 'Addresses', icon: Home },
                 ...(activeRole === 'wholesaler' || activeRole === 'retailer' ? [{ id: 'insights', label: 'Insights', icon: Activity }] : []),
@@ -1594,6 +1601,27 @@ export default function Profile() {
 
           {/* Tab Content */}
           <AnimatePresence mode="wait">
+            {activeProfileTab === 'tracking' && (
+                <motion.div
+                    key="tracking"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="bg-white rounded-3xl shadow-sm border border-stone-100 p-6 space-y-8"
+                >
+                    <OrderTrackingDashboard onViewOrderDetails={(orderId) => {
+                      setActiveProfileTab('history');
+                      // Wait a frame for tab switch, then try to find the element
+                      setTimeout(() => {
+                        const orderEl = document.getElementById(`order-card-${orderId}`);
+                        if (orderEl) {
+                          orderEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }, 150);
+                    }} />
+                </motion.div>
+            )}
+
             {activeProfileTab === 'settings' && (
                 <motion.div
                     key="settings"
@@ -2039,7 +2067,7 @@ export default function Profile() {
                       const computedGrandTotal = Number(order.total || 0);
                       
                       return (
-                        <div key={order.id} className="p-6 md:p-8 hover:bg-stone-50/80 transition-all border-b border-stone-100 last:border-0 rounded-3xl mb-6 bg-white/50 shadow-sm hover:shadow-md duration-300">
+                        <div id={`order-card-${order.id}`} key={order.id} className="p-6 md:p-8 hover:bg-stone-50/80 transition-all border-b border-stone-100 last:border-0 rounded-3xl mb-6 bg-white/50 shadow-sm hover:shadow-md duration-300">
                           {/* 1. Header with Badge & copy button */}
                           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                             <div>
@@ -2334,7 +2362,22 @@ export default function Profile() {
                               )}
 
                               {order.status === 'delivered' && (
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-4 flex-wrap">
+                                  {order.feedback?.rating ? (
+                                    <div className="text-[10px] font-black text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg">
+                                      <Star size={10} fill="currentColor" />
+                                      <span>Rated {order.feedback.rating}/5</span>
+                                    </div>
+                                  ) : (
+                                    <Link 
+                                      to={`/track-order?orderId=${order.order_id || order.id}&phone=${user?.phone || order.user_phone}#feedback`}
+                                      className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
+                                    >
+                                      <Star size={12} className="fill-emerald-50/50" />
+                                      <span>Rate Experience</span>
+                                    </Link>
+                                  )}
+
                                   {order.is_reviewed ? (
                                     <div className="text-[10px] font-black text-amber-500 flex items-center gap-0.5 cursor-default bg-amber-50 px-2.5 py-1 rounded-lg">
                                       <Star size={10} fill="currentColor" />

@@ -20,6 +20,7 @@ export interface RoleDefinition {
 
 export interface User {
   id: string | number;
+  numeric_id?: number;
   phone: string;
   username?: string;
   name: string;

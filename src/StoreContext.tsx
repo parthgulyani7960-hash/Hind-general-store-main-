@@ -224,7 +224,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const categoriesPromiseRef = React.useRef<Promise<any> | null>(null);
   const configPromiseRef = React.useRef<Promise<any> | null>(null);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const [config, setConfig] = useState<any[]>([]);
+  const [config, setConfig] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('hgs_config');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [vibration, setVibration] = useState(() => {
     try {
       const saved = localStorage.getItem('hgs_vibration');
@@ -258,7 +265,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return true;
     }
   });
-  const [adminTheme, setAdminTheme] = useState('theme-navy');
+  const [adminTheme, setAdminTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hgs_admin_theme');
+      return saved || 'theme-navy';
+    } catch {
+      return 'theme-navy';
+    }
+  });
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
@@ -305,6 +319,66 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('hgs_sound', String(sound));
     } catch {}
   }, [sound]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hgs_admin_theme', adminTheme);
+    } catch {}
+  }, [adminTheme]);
+
+  useEffect(() => {
+    try {
+      if (config && config.length > 0) {
+        localStorage.setItem('hgs_config', JSON.stringify(config));
+      }
+    } catch {}
+  }, [config]);
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (!e.key) return;
+      try {
+        if (e.key === 'hgs_admin_theme' && e.newValue) {
+          setAdminTheme(e.newValue);
+        } else if (e.key === 'hgs_config' && e.newValue) {
+          const parsed = JSON.parse(e.newValue);
+          setConfig(prev => JSON.stringify(prev) !== JSON.stringify(parsed) ? parsed : prev);
+          const themeSetting = parsed.find((s: any) => s.key === 'admin_theme');
+          if (themeSetting) {
+            setAdminTheme(prev => prev !== themeSetting.value ? themeSetting.value : prev);
+          }
+        } else if (e.key === 'hgs_sound' && e.newValue !== null) {
+          setSound(e.newValue === 'true');
+        } else if (e.key === 'hgs_vibration' && e.newValue !== null) {
+          setVibration(e.newValue === 'true');
+        } else if (e.key === 'hgs_notifications' && e.newValue !== null) {
+          setNotifications(e.newValue === 'true');
+        } else if (e.key === 'hgs_user') {
+          if (e.newValue) {
+            const parsedUser = JSON.parse(e.newValue);
+            setUser(prev => JSON.stringify(prev) !== JSON.stringify(parsedUser) ? parsedUser : prev);
+          } else {
+            setUser(null);
+          }
+        } else if (e.key === 'hgs_token' && !e.newValue) {
+          setUser(null);
+        } else if (e.key === 'hgs_cart' && e.newValue) {
+          const parsedCart = JSON.parse(e.newValue);
+          setCart(prev => JSON.stringify(prev) !== JSON.stringify(parsedCart) ? parsedCart : prev);
+        } else if (e.key === 'hgs_wishlist' && e.newValue) {
+          const parsedWishlist = JSON.parse(e.newValue);
+          setWishlist(prev => JSON.stringify(prev) !== JSON.stringify(parsedWishlist) ? parsedWishlist : prev);
+        }
+      } catch (err) {
+        console.error('[StoreContext] Failed to handle storage event:', err);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const { isOnline, latency } = useNetwork();
   const [isMobile, setIsMobile] = useState(false);
@@ -1161,12 +1235,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let unsubscribe: any;
     
-    // Safety fallback timer: ensure auth checking resolves within 1500ms even if Firebase SDK hangs or network stalls
+    // Safety fallback timer: ensure auth checking resolves within 8000ms even if Firebase SDK hangs or network stalls
     const authSafetyTimeout = setTimeout(() => {
       console.warn('[BOOT] Auth safety timeout reached. Unblocking initial render.');
       setIsInitialAuthPerformed(true);
       setIsAuthChecking(false);
-    }, 1500);
+    }, 8000);
 
     // Restore session immediately if local token exists
     const savedToken = localStorage.getItem('hgs_token');
@@ -1231,7 +1305,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthChecking, startupPhase]);
 
-  // Global safety fallback timer: ensure startupPhase progresses to 3 within 1500ms
+  // Global safety fallback timer: ensure startupPhase progresses to 3 within 8000ms
   useEffect(() => {
     const orchestratorSafetyTimeout = setTimeout(() => {
       if (startupPhase < 3) {
@@ -1240,7 +1314,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setIsInitialAuthPerformed(true);
         setStartupPhase(3);
       }
-    }, 1500);
+    }, 8000);
     return () => clearTimeout(orchestratorSafetyTimeout);
   }, [startupPhase]);
 

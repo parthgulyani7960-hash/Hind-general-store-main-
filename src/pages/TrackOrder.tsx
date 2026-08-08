@@ -203,6 +203,20 @@ export default function TrackOrder() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (order && order.status === 'delivered') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('feedback') === 'true' || window.location.hash === '#feedback') {
+        setTimeout(() => {
+          const el = document.getElementById('feedback-section');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 500);
+      }
+    }
+  }, [order]);
+
   const handleTrackAuto = async (id: string, phone: string) => {
     setLoading(true);
     try {
@@ -595,14 +609,16 @@ export default function TrackOrder() {
               </div>
 
             {order.status === 'delivered' && (
-              <PostOrderFeedback
-                orderId={order.order_id || order.id}
-                phone={phoneNumber || order.user_phone}
-                existingFeedback={order.feedback}
-                onFeedbackSubmitted={(feedback) => {
-                  setOrder((prev: any) => prev ? { ...prev, feedback } : null);
-                }}
-              />
+              <div id="feedback-section">
+                <PostOrderFeedback
+                  orderId={order.order_id || order.id}
+                  phone={phoneNumber || order.user_phone}
+                  existingFeedback={order.feedback}
+                  onFeedbackSubmitted={(feedback) => {
+                    setOrder((prev: any) => prev ? { ...prev, feedback } : null);
+                  }}
+                />
+              </div>
             )}
 
             {/* Order Items & Summary */}

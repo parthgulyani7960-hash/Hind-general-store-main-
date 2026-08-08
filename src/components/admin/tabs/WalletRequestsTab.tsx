@@ -39,7 +39,7 @@ export default function WalletRequestsTab({
         </motion.button>
       </header>
 
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+      <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
         <div className="overflow-x-auto no-scrollbar">
           <table className="w-full text-left">
             <thead className="bg-stone-50/50 text-stone-400 text-[9px] uppercase font-black tracking-[0.25em]">

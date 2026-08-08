@@ -119,7 +119,7 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
             </header>
 
             {/* Segment & Search Toolbar */}
-            <section className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
+            <section className="bg-white p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-wrap items-center gap-8">
               <div className="flex items-center space-x-3 pr-8 border-r border-stone-100 h-12">
                 <div className="p-3 bg-stone-900 rounded-2xl text-white">
                   <Users size={20} />
@@ -165,7 +165,7 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
               </div>
             </section>
 
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 overflow-hidden">
+            <div className="bg-white rounded-3xl shadow-sm border border-stone-100 overflow-hidden">
               <div className="overflow-x-auto no-scrollbar hidden md:block">
                 <table className="w-full text-left">
                   <thead className="bg-stone-50/50 text-stone-400 text-xs uppercase font-black tracking-[0.15em]">
@@ -200,6 +200,9 @@ const CustomersTab: React.FC<CustomersTabProps> = ({
                             </div>
                             <div>
                              <p className="text-sm font-black text-stone-900 group-hover:text-primary transition-colors tracking-tight select-text">{u.name || (u.email ? u.email.split('@')[0] : 'Unknown User')}</p>
+                              <p className="text-[10px] text-stone-500 font-mono font-bold select-text mt-0.5">
+                                ID: <span className="text-primary">{u.numeric_id ? String(u.numeric_id).replace(/(\d{5})(\d{5})/, '$1-$2') : 'N/A'}</span>
+                              </p>
                               <p className="text-xs text-stone-400 font-bold uppercase tracking-[0.15em] mt-0.5 select-text">{displayPhoneNumber(u.phone) || u.email}</p>
                             </div>
                           </div>

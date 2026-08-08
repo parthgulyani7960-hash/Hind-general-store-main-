@@ -4,6 +4,7 @@ import { Shield, ChevronLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { fetchWithHandling } from '@/lib/api';
 import { useStore } from '@/StoreContext';
+import { sanitizeHtml } from '@/lib/utils';
 
 export default function PrivacyPolicy() {
   const { config = [] } = useStore();
@@ -58,7 +59,7 @@ export default function PrivacyPolicy() {
               ) : (
                 <div 
                   className="prose prose-stone max-w-none prose-headings:font-black prose-p:text-stone-600 prose-p:leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: content || `
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(content || `
                     <div class="space-y-6">
                       <p>At ${(config || []).find(c => c.key === 'store_name')?.value || 'New Hind General Store'}, we value your privacy and are committed to protecting your personal information.</p>
                       <h3>Information We Collect</h3>
@@ -73,7 +74,7 @@ export default function PrivacyPolicy() {
                       <h3>Your Rights</h3>
                       <p>You have the right to access, update, or request deletion of your personal data. Please contact support for any such requests.</p>
                     </div>
-                  ` }}
+                  `) }}
                 />
               )}
             </div>

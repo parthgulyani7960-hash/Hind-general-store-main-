@@ -20,6 +20,30 @@ import { Button } from '@/components/ui/Button';
 import { ProductSkeleton } from '@/components/ui/Skeleton';
 import { ProductCrashBoundary } from '../components/AppCrashBoundary';
 import { io } from 'socket.io-client';
+import Fuse from 'fuse.js';
+
+const HighlightedText = ({ text, matches }: { text: string, matches?: readonly any[] }) => {
+  if (!matches || matches.length === 0) return <span>{text}</span>;
+  
+  let result = [];
+  let lastIndex = 0;
+  
+  const match = matches.find(m => m.key === 'name');
+  if (match && match.indices) {
+    match.indices.forEach(([start, end]: [number, number], index: number) => {
+      if (start > lastIndex) {
+        result.push(<span key={`text-${lastIndex}`}>{text.slice(lastIndex, start)}</span>);
+      }
+      result.push(<span key={`match-${start}`} className="bg-yellow-200 text-stone-900 rounded-sm">{text.slice(start, end + 1)}</span>);
+      lastIndex = end + 1;
+    });
+    if (lastIndex < text.length) {
+      result.push(<span key={`text-${lastIndex}`}>{text.slice(lastIndex)}</span>);
+    }
+    return <span>{result}</span>;
+  }
+  return <span>{text}</span>;
+};
 
 export default function Products() {
   const location = useLocation();
@@ -120,6 +144,24 @@ export default function Products() {
   const [hasMore, setHasMore] = useState(true);
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
+  // local state for search input to support debounce
+  const [localSearchInput, setLocalSearchInput] = useState('');
+
+  // Keep localSearchInput in sync with searchTerm if changed from elsewhere (e.g., clear buttons)
+  useEffect(() => {
+    setLocalSearchInput(searchTerm);
+  }, [searchTerm]);
+
+  // Debounce search input to avoid API hammer and rendering flicker
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (localSearchInput !== searchTerm) {
+        setSearchTerm(localSearchInput);
+      }
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [localSearchInput, searchTerm]);
+
   const handleRetry = React.useCallback(() => {
     setPage(1);
     setHasMore(true);
@@ -145,23 +187,65 @@ export default function Products() {
     handleRetry();
   }, [searchTerm, selectedCategory, sortBy, minPrice, maxPrice, selectedRating, onSaleOnly]);
 
-  // Infinite Scroll Observer
+  // Cache latest values for stable observer access
+  const observerStateRef = useRef({
+    page,
+    hasMore,
+    isLoadingProducts,
+    searchTerm,
+    selectedCategory,
+    sortBy,
+    minPrice,
+    maxPrice,
+    selectedRating,
+    onSaleOnly
+  });
+
+  useEffect(() => {
+    observerStateRef.current = {
+      page,
+      hasMore,
+      isLoadingProducts,
+      searchTerm,
+      selectedCategory,
+      sortBy,
+      minPrice,
+      maxPrice,
+      selectedRating,
+      onSaleOnly
+    };
+  }, [page, hasMore, isLoadingProducts, searchTerm, selectedCategory, sortBy, minPrice, maxPrice, selectedRating, onSaleOnly]);
+
+  // Infinite Scroll Observer using stable refs to prevent recreation loops and flickers
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore && !isLoadingProducts) {
-        const nextPage = page + 1;
+      const {
+        page: currPage,
+        hasMore: currHasMore,
+        isLoadingProducts: currIsLoading,
+        searchTerm: s,
+        selectedCategory: c,
+        sortBy: sb,
+        minPrice: minP,
+        maxPrice: maxP,
+        selectedRating: r,
+        onSaleOnly: os
+      } = observerStateRef.current;
+
+      if (entries[0].isIntersecting && currHasMore && !currIsLoading) {
+        const nextPage = currPage + 1;
         setPage(nextPage);
         fetchProducts({ 
           page: nextPage, 
           limit: 20, 
-          search: searchTerm, 
-          category: selectedCategory, 
-          sortBy: sortBy,
+          search: s, 
+          category: c, 
+          sortBy: sb,
           append: true,
-          minPrice: minPrice || '0',
-          maxPrice: maxPrice || undefined,
-          rating: selectedRating,
-          onSaleOnly
+          minPrice: minP || '0',
+          maxPrice: maxP || undefined,
+          rating: r,
+          onSaleOnly: os
         }).then((count) => {
           if (count < 20) {
             setHasMore(false);
@@ -170,12 +254,18 @@ export default function Products() {
       }
     }, { threshold: 0.1 });
 
-    if (scrollSentinelRef.current) {
-      observer.observe(scrollSentinelRef.current);
+    const currentSentinel = scrollSentinelRef.current;
+    if (currentSentinel) {
+      observer.observe(currentSentinel);
     }
 
-    return () => observer.disconnect();
-  }, [page, hasMore, isLoadingProducts, searchTerm, selectedCategory, sortBy]);
+    return () => {
+      if (currentSentinel) {
+        observer.unobserve(currentSentinel);
+      }
+      observer.disconnect();
+    };
+  }, []); // Empty dependencies mean observer is registered ONCE and never re-created!
 
   // Detection of end of list
   useEffect(() => {
@@ -185,14 +275,10 @@ export default function Products() {
   }, [products.length]);
 
   const filteredProducts = useMemo(() => {
-    const searchTerms = searchTerm.toLowerCase().trim().split(' ').filter(Boolean);
-    
     const base = ((loadFailed && (products || []).length === 0) ? [] : (products || [])).filter(p => {
       if (!p || typeof p !== 'object') return false;
       const activePrice = typeof getProductPrice === 'function' ? getProductPrice(p, user?.role) : (p.retail_price || p.price || 0);
       
-      const pName = p.name || '';
-      const pDesc = p.description || '';
       let pCat = p.category || '';
       if (!pCat && (p as any).categoryId && Array.isArray(globalCategories)) {
         const catObj = globalCategories.find((c: any) => c.id === (p as any).categoryId);
@@ -200,8 +286,6 @@ export default function Products() {
           pCat = catObj.name || '';
         }
       }
-      const searchableText = `${pName} ${pDesc} ${pCat}`.toLowerCase();
-      const matchesSearch = searchTerms.every(term => searchableText.includes(term));
 
       const matchesCategory = selectedCategory === 'All' || pCat === selectedCategory;
       const matchesRating = selectedRating === null || Math.floor(p.avg_rating || 0) >= selectedRating;
@@ -210,27 +294,27 @@ export default function Products() {
       const matchesSale = !onSaleOnly || (p.discount || 0) > 0;
       const isListedAndActive = p.is_listed && !p.is_deleted && (p as any).deleted !== true;
       
-      return matchesSearch && matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && isListedAndActive;
+      return matchesCategory && matchesMinPrice && matchesMaxPrice && matchesRating && matchesSale && isListedAndActive;
     });
 
-    return base.sort((a, b) => {
-      if (!a || !b) return 0;
-      // If there's a search term, rank by relevance score first
-      if (searchTerms.length > 0 && sortBy === 'relevance') {
-        const getScore = (product: Product) => {
-          if (!product) return 0;
-          let score = 0;
-          const name = (product.name || '').toLowerCase();
-          const fullSearch = searchTerm.toLowerCase().trim();
-          if (name === fullSearch) score += 200;
-          else if (name.startsWith(fullSearch)) score += 100;
-          else if (name.includes(fullSearch)) score += 50;
-          return score;
-        };
-        const scoreDiff = getScore(b) - getScore(a);
-        if (scoreDiff !== 0) return scoreDiff;
-      }
+    let searchResult = base as any[];
+    const searchTrimmed = searchTerm.trim();
+    if (searchTrimmed) {
+      const fuse = new Fuse(base, {
+        keys: ['name', 'description', 'category'],
+        threshold: 0.3,
+        includeMatches: true,
+        ignoreLocation: true,
+      });
+      searchResult = fuse.search(searchTrimmed).map(res => ({
+        ...res.item,
+        _matches: res.matches
+      }));
+    }
 
+    return searchResult.sort((a, b) => {
+      if (!a || !b) return 0;
+      
       const getFinalPrice = (productObj: Product) => {
         if (!productObj) return 0;
         const basePrice = typeof getProductPrice === 'function' ? getProductPrice(productObj, user?.role) : (productObj.retail_price || productObj.price || 0);
@@ -253,7 +337,7 @@ export default function Products() {
           return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
         case 'relevance': 
         default:
-          return 0; // Default
+          return 0; // Default, for relevance fuse.js already sorted them by score
       }
     });
   }, [products, searchTerm, selectedCategory, selectedRating, minPrice, maxPrice, sortBy, onSaleOnly, getProductPrice, user?.role, loadFailed]);
@@ -541,8 +625,8 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                 type="text" 
                 placeholder={t('find_something_special') || "Find something special..."}
                 className="w-full bg-white border-2 border-stone-100 rounded-2xl py-3.5 pl-12 pr-4 focus:border-primary/20 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-medium outline-none placeholder:text-stone-400 shadow-sm hover:shadow-md"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={localSearchInput}
+                onChange={(e) => setLocalSearchInput(e.target.value)}
               />
             </motion.div>
             
@@ -1060,7 +1144,7 @@ const handleEnlargeImage = (e: React.MouseEvent, url: string) => {
                     onMouseEnter={() => prefetchProduct(product.id)}
                     className="text-xs font-bold text-stone-900 line-clamp-1 hover:text-primary transition-colors"
                   >
-                    {product.name}
+                    <HighlightedText text={product.name} matches={(product as any)._matches} />
                   </Link>
                 </div>
 

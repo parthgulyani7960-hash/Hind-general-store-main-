@@ -691,6 +691,8 @@ export default function AdminDashboard() {
                   setExportModal={setExportModal}
                   setShowAddProduct={setShowAddProduct}
                   setNotificationModal={setNotificationModal}
+                  healthStatus={healthStatus}
+                  systemLogs={systemLogs}
                 />
               );
             case 'Orders':

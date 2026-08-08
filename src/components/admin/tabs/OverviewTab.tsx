@@ -21,6 +21,8 @@ interface OverviewTabProps {
     setExportModal: (modal: any) => void;
     setShowAddProduct: (show: boolean) => void;
     setNotificationModal: (modal: any) => void;
+    healthStatus?: 'healthy' | 'warning' | 'critical' | 'offline';
+    systemLogs?: any[];
 }
 
 export default function OverviewTab({ 
@@ -30,20 +32,22 @@ export default function OverviewTab({
   loading, 
   setExportModal,
   setShowAddProduct,
-  setNotificationModal
+  setNotificationModal,
+  healthStatus = 'offline',
+  systemLogs = []
 }: OverviewTabProps) {
 
   const revenueData = React.useMemo(() => {
     return stats?.revenueByDay || [];
   }, [stats]);
 
-  const ExportTriggerButton = ({ type }: { type: 'orders' | 'products' | 'users' | 'audit' | 'expenses' | 'analytics' }) => (
+  const ExportTriggerButton = ({ type, label }: { type: 'orders' | 'products' | 'users' | 'audit' | 'expenses' | 'analytics', label: string }) => (
     <button
       onClick={() => setExportModal({ open: true, type })}
-      className="flex items-center space-x-3 bg-white border border-stone-200 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-stone-500 hover:text-stone-950 hover:border-stone-950 transition-all active:scale-95 shadow-sm"
+      className="flex items-center space-x-2 bg-white border border-stone-200 px-4 py-2 rounded-xl text-xs font-bold text-stone-600 hover:text-stone-900 hover:border-stone-900 transition-all active:scale-95 shadow-sm"
     >
-      <Download size={14} strokeWidth={3} />
-      <span>Export Intel</span>
+      <Download size={14} />
+      <span>{label}</span>
     </button>
   );
 
@@ -61,31 +65,21 @@ export default function OverviewTab({
             }
           }
         }}
-        className="max-w-full overflow-x-hidden space-y-10 pb-10"
+        className="max-w-full overflow-x-hidden space-y-6 pb-10"
     >
         <OverviewTabHeader fetchStats={refreshStats} />
 
-        {/* Global Export Engine */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-           <div className="lg:col-span-1 bg-stone-900 rounded-[2.5rem] p-8 text-white flex flex-col justify-between">
-              <div>
-                <h3 className="text-2xl font-black tracking-tight">Intelligence Reporting</h3>
-                <p className="text-stone-400 text-sm mt-1">Enterprise-grade data extraction & audit protocols.</p>
-              </div>
-              <div className="mt-8 space-y-4">
-                <div className="flex items-center space-x-3 text-emerald-400 text-[10px] font-black uppercase tracking-widest bg-emerald-400/10 p-3 rounded-2xl">
-                  <Activity size={14} className="animate-pulse" />
-                  <span>Extraction Engine Online</span>
-                </div>
-              </div>
-           </div>
-           <div className="lg:col-span-2 bg-white rounded-[2.5rem] p-8 border border-stone-100 flex items-center justify-center">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-                <ExportTriggerButton type="users" />
-                <ExportTriggerButton type="orders" />
-                <ExportTriggerButton type="products" />
-              </div>
-           </div>
+        {/* Compact Export Toolbar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-stone-100 shadow-sm">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <p className="text-xs font-bold text-stone-700">Data Extraction Engine</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportTriggerButton type="users" label="Export Customers" />
+            <ExportTriggerButton type="orders" label="Export Orders" />
+            <ExportTriggerButton type="products" label="Export Products" />
+          </div>
         </div>
 
         {/* Core Operational metrics Grid */}
@@ -123,47 +117,40 @@ export default function OverviewTab({
           })}
         </motion.div>
 
-        <section className="bg-stone-50 p-10 rounded-[3rem] border border-dashed border-stone-200">
-           <div className="flex items-center space-x-4 mb-8">
-              <div className="p-3 bg-stone-900 text-white rounded-2xl shadow-xl shadow-stone-900/10">
-                <Zap size={24} />
-              </div>
-              <div>
-                 <h3 className="text-2xl font-black text-stone-900 tracking-tight">Rapid Directives</h3>
-                 <p className="text-stone-500 font-medium">Bypass menus and execute primary operational shortcuts.</p>
-              </div>
+        <section className="bg-white p-6 rounded-2xl border border-stone-100 shadow-sm">
+           <div className="flex items-center space-x-3 mb-4">
+              <Zap size={18} className="text-stone-900" />
+              <h3 className="text-base font-bold text-stone-900">Quick Actions</h3>
            </div>
 
-           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
-                { label: 'New Product', action: () => { setActiveTab('Product Catalog'); setShowAddProduct(true); }, icon: PackagePlus, color: 'text-stone-900' },
-                { label: 'New Broadcast', action: () => { setActiveTab('Announcements'); setNotificationModal({ open: true }); }, icon: Megaphone, color: 'text-emerald-500' },
-                { label: 'Security Audit', action: () => setActiveTab('Audit Logs'), icon: ShieldCheck, color: 'text-blue-500' },
-                { label: 'Admin Ops', action: () => setActiveTab('Admin Management'), icon: Shield, color: 'text-red-500' },
-                { label: 'Status Feed', action: () => setActiveTab('System Status'), icon: Activity, color: 'text-amber-500' },
-                { label: 'Wallet Flows', action: () => setActiveTab('Wallet Requests'), icon: Wallet, color: 'text-purple-500' }
+                { label: 'New Product', action: () => { setActiveTab('Product Catalog'); setShowAddProduct(true); }, icon: PackagePlus, color: 'bg-stone-100 text-stone-900' },
+                { label: 'New Broadcast', action: () => { setActiveTab('Announcements'); setNotificationModal({ open: true }); }, icon: Megaphone, color: 'bg-emerald-50 text-emerald-600' },
+                { label: 'Security Audit', action: () => setActiveTab('Audit Logs'), icon: ShieldCheck, color: 'bg-blue-50 text-blue-600' },
+                { label: 'Admin Ops', action: () => setActiveTab('Admin Management'), icon: Shield, color: 'bg-red-50 text-red-600' },
+                { label: 'Status Feed', action: () => setActiveTab('System Status'), icon: Activity, color: 'bg-amber-50 text-amber-600' },
+                { label: 'Wallet Flows', action: () => setActiveTab('Wallet Requests'), icon: Wallet, color: 'bg-purple-50 text-purple-600' }
               ].map((btn, i) => (
-                <motion.button 
+                <button 
                   key={i}
-                  whileHover={{ scale: 1.05, y: -4 }}
-                  whileTap={{ scale: 0.95 }}
                   onClick={btn.action}
-                  className="bg-white p-6 rounded-[2rem] border border-stone-100 shadow-sm flex flex-col items-center justify-center space-y-4 hover:shadow-xl hover:shadow-stone-200 transition-all group"
+                  className="bg-stone-50 hover:bg-stone-100/80 p-3.5 rounded-xl flex items-center space-x-3 transition-all text-left group border border-transparent hover:border-stone-200"
                 >
-                   <div className={cn("p-4 rounded-2xl bg-stone-50 group-hover:bg-stone-900 group-hover:text-white transition-all", btn.color)}>
-                     <btn.icon size={22} />
+                   <div className={cn("p-2 rounded-lg shrink-0 transition-colors", btn.color)}>
+                     <btn.icon size={16} />
                    </div>
-                   <span className="text-[10px] font-black uppercase text-stone-400 tracking-widest group-hover:text-stone-900 transition-colors">{btn.label}</span>
-                </motion.button>
+                   <span className="text-xs font-bold text-stone-700 group-hover:text-stone-900 transition-colors">{btn.label}</span>
+                </button>
               ))}
            </div>
         </section>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Performance Analytics */}
-          <motion.div
+           {/* Performance Analytics */}
+           <motion.div
             variants={{ hidden: { opacity: 0, x: -20 }, show: { opacity: 1, x: 0 } }}
-            className="lg:col-span-2 bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 space-y-8"
+            className="lg:col-span-2 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-stone-100 space-y-6"
           >
             <div className="flex items-center justify-between">
               <div>
@@ -209,29 +196,44 @@ export default function OverviewTab({
             </div>
           </motion.div>
 
-          {/* Maintenance & Health */}
+          {/* Real State-Driven System Status */}
           <motion.div
             variants={{ hidden: { opacity: 0, x: 20 }, show: { opacity: 1, x: 0 } }}
-            className="bg-stone-900 rounded-[3rem] p-10 text-white space-y-8 relative overflow-hidden"
+            className="bg-stone-900 rounded-3xl p-6 md:p-8 text-white space-y-6 relative overflow-hidden"
           >
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
             <div className="relative z-10 flex items-center justify-between">
               <h3 className="text-xl font-black tracking-tight">System Status</h3>
-              <Activity size={20} className="text-emerald-500 animate-pulse" />
+              <Activity size={20} className={cn("animate-pulse", healthStatus === 'healthy' ? "text-emerald-500" : healthStatus === 'warning' ? "text-amber-500" : "text-red-500")} />
             </div>
 
-            <div className="space-y-4 relative z-10">
+            <div className="space-y-3 relative z-10">
               {[
-                { label: 'Site Performance', status: 'Healthy', delay: 42 },
-                { label: 'Order Processing', status: 'Active', delay: 8 },
-                { label: 'Database Status', status: 'Stable', delay: 0 }
+                { 
+                  label: 'API Gateway', 
+                  status: healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'critical' ? 'Critical' : 'Offline', 
+                  value: healthStatus === 'healthy' ? 'Active' : 'Unavailable',
+                  color: healthStatus === 'healthy' ? 'text-emerald-400' : healthStatus === 'warning' ? 'text-amber-400' : 'text-red-500'
+                },
+                { 
+                  label: 'Active Sessions', 
+                  status: `${stats?.activeUsers || 1} live`, 
+                  value: 'Connected', 
+                  color: 'text-emerald-400' 
+                },
+                { 
+                  label: 'Firestore Database', 
+                  status: healthStatus !== 'offline' ? 'Connected' : 'Offline', 
+                  value: healthStatus !== 'offline' ? 'Stable' : 'Offline', 
+                  color: healthStatus !== 'offline' ? 'text-emerald-400' : 'text-red-500' 
+                }
               ].map((sys, i) => (
                 <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between backdrop-blur-sm">
                   <div className="flex flex-col">
-                    <span className="text-xs font-black text-white/40 uppercase tracking-widest">{sys.label}</span>
+                    <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{sys.label}</span>
                     <span className="text-xs font-bold text-white mt-0.5">{sys.status}</span>
                   </div>
-                  <span className="text-xs font-black font-mono text-emerald-500">{sys.delay}ms</span>
+                  <span className={cn("text-xs font-black uppercase tracking-wider", sys.color)}>{sys.value}</span>
                 </div>
               ))}
             </div>
@@ -242,20 +244,27 @@ export default function OverviewTab({
                 <button onClick={() => setActiveTab('System Status')} className="text-xs font-black text-emerald-500 hover:underline">Full Trace</button>
               </div>
               <div className="space-y-3">
-                {stats?.recentActivities?.slice(0, 2).map((log: any) => (
-                  <div key={log.id} className="flex items-start space-x-3">
-                    <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", log.level === 'error' ? "bg-red-500" : "bg-white/20")} />
-                    <p className="text-xs font-medium text-white/70 line-clamp-2 leading-relaxed">{log.message}</p>
+                {systemLogs && systemLogs.length > 0 ? (
+                  systemLogs.slice(0, 2).map((log: any, i: number) => (
+                    <div key={log.id || i} className="flex items-start space-x-3">
+                      <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", log.type === 'error' ? "bg-red-500" : "bg-white/20")} />
+                      <p className="text-xs font-medium text-white/70 line-clamp-2 leading-relaxed">{log.message}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-start space-x-3">
+                    <div className="w-1.5 h-1.5 rounded-full mt-1.5 bg-white/20 shrink-0" />
+                    <p className="text-xs font-medium text-white/40 leading-relaxed">No critical network alerts reported.</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
             <button 
-              onClick={() => setActiveTab('Audit Logs')}
+              onClick={() => setActiveTab('System Status')}
               className="w-full relative z-10 py-4 bg-emerald-500 text-stone-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-emerald-400 transition-all active:scale-95 shadow-xl shadow-emerald-500/20"
             >
-               Access Activity Stream
+               Access System Telemetry
             </button>
           </motion.div>
         </div>

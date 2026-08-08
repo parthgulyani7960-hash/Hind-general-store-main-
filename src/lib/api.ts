@@ -182,10 +182,10 @@ const fetchWithHandlingInternal = async <T>(
             const delay = res.status === 429 ? 3000 : (1000 * Math.pow(2, attemptNumber - 1));
             logger.info(`Retrying ${url} due to ${res.status} error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
             await new Promise(r => setTimeout(r, delay));
-            return fetchWithHandling(url, options, retries - 1);
+            return fetchWithHandlingInternal(url, options, retries - 1);
           }
  
-          errorMessage = res.status === 429 ? "Access required due to rate limiting. Please try again after 10 minutes." : "Server error. Please try again later.";
+          errorMessage = res.status === 429 ? "Access required due to rate limiting. Please try again after 10 minutes." : (errorMessage || "Server error. Please try again later.");
           
           // Centralized Error Boundary Categorization for Firebase backend unreachable
           const isFirebaseUnreachable = 
@@ -202,12 +202,6 @@ const fetchWithHandlingInternal = async <T>(
               detail: { url, status: res.status, message: errorMessage } 
             }));
           }
-        }
-
-        // Return null for read operations to prevent blank white page crashes under rate limits or server errors
-        if ((options.method === 'GET' || !options.method) && !url.includes('/api/auth/me')) {
-          logger.warn(`Returning null for failed GET ${url} on status ${res.status}`);
-          return null;
         }
 
         if (res.status === 429) {
@@ -242,7 +236,7 @@ const fetchWithHandlingInternal = async <T>(
       const delay = 1000 * Math.pow(2, attemptNumber - 1);
       logger.info(`Retrying ${url} due to network error. Delay: ${delay}ms, Retries left: ${retries - 1}`);
       await new Promise(r => setTimeout(r, delay));
-      return fetchWithHandling(url, options, retries - 1);
+      return fetchWithHandlingInternal(url, options, retries - 1);
     }
     logger.error(`API Error [${url}]`, err);
     
@@ -252,7 +246,7 @@ const fetchWithHandlingInternal = async <T>(
         url,
         method: options.method || 'GET',
         status: err.status || 0,
-        statusText: 'Network Error',
+        statusText: err.name || 'Network Error',
         ok: false,
         error: err.message,
         timestamp: new Date().toISOString()
@@ -267,46 +261,42 @@ const fetchWithHandlingInternal = async <T>(
                            err.message?.includes('Failed to fetch') || 
                            err.message?.includes('aborted');
 
-    if (isNetworkError) {
-      logger.warn(`Network offline or unreachable endpoint at ${url}`);
-      // Do not trigger global maintenance block for temporary fetch drops
-    }
-
-    // Silent for background/common checks
-    const isPassiveGet = options.method === 'GET' || !options.method;
-    const isBackground = isNetworkError || 
-                       url.includes('/api/auth/me') || 
-                       url.includes('/api/products') ||
-                       url.includes('/api/cart') ||
-                       url.includes('/api/alerts') || 
-                       url.includes('/api/notifications') ||
-                       url.includes('/runner-location') ||
-                       url.includes('/api/cart/sync') ||
-                       url.includes('/api/admin/stats') ||
-                       url.includes('/api/settings') ||
-                       url.includes('/api/categories') ||
-                       url.includes('/api/promotions') ||
-                       url.includes('/api/promotions-rules') ||
-                       url.includes('/api/bulk-discounts') ||
-                       url.includes('/api/user/export-status') ||
-                       url.includes('/api/user/deletion-request');
-
     const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
-    if ((!isBackground || !isPassiveGet) && err.status !== 401 && !isOffline) {
-        toast.error(err.message || 'Something went wrong');
-        errorService.report({
-          type: ErrorType.API_ERROR,
-          message: err.message || 'API Request Failed',
-          metadata: { url, status: err.status, details: err.details }
-        });
+    
+    // Toast error notifications for persistent failures (excluding expected 401s or offline states)
+    if (err.status !== 401 && !isOffline) {
+      const isPassiveGet = options.method === 'GET' || !options.method;
+      // Filter out passive minor endpoints from spamming toasts, but always toast for primary routes like products, newsletter status, etc.
+      const isSilentPassiveEndpoint = isPassiveGet && (
+        url.includes('/api/auth/me') ||
+        url.includes('/api/cart') ||
+        url.includes('/api/alerts') ||
+        url.includes('/api/notifications') ||
+        url.includes('/runner-location') ||
+        url.includes('/api/cart/sync') ||
+        url.includes('/api/admin/stats') ||
+        url.includes('/api/settings') ||
+        url.includes('/api/promotions') ||
+        url.includes('/api/promotions-rules') ||
+        url.includes('/api/bulk-discounts') ||
+        url.includes('/api/user/export-status') ||
+        url.includes('/api/user/deletion-request')
+      );
+
+      if (!isSilentPassiveEndpoint) {
+        const errorMsg = err.message || 'Something went wrong. Please try again.';
+        toast.error(errorMsg, { id: `err-${url}` });
+      }
+
+      errorService.report({
+        type: ErrorType.API_ERROR,
+        message: err.message || 'API Request Failed',
+        metadata: { url, status: err.status, details: err.details }
+      });
     }
     
-    // We throw to allow specific pages to handle errors if they want, 
-    // but we return null for most common use cases.
-    if (url.includes('/api/auth/me')) {
-      throw err;
-    }
-    return null;
+    // Propagate the error so calling components can handle the failure states gracefully
+    throw err;
   }
 };
 

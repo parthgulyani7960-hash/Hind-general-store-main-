@@ -30,6 +30,9 @@ export default function WholesaleInsights() {
         .then(data => {
           if (data) setData(data);
         })
+        .catch(err => {
+          console.error('Failed to fetch wholesale insights:', err);
+        })
         .finally(() => setLoading(false));
     }
   }, [user?.id]);

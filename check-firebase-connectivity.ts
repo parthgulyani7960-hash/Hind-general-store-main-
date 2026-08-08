@@ -27,7 +27,7 @@ async function checkConnectivity() {
     }
   }
 
-  if (!dbId) dbId = '(default)';
+  if (!dbId) dbId = 'ai-studio-c0cf4846-a706-4147-ab7d-33e609e4a7fe';
   const saKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
   console.log(`Resolved Project: ${projectId}`);

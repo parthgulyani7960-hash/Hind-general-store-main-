@@ -14,8 +14,6 @@ const menuGroups = [
     items: [
       { name: 'Overview', label: 'Dashboard', icon: LayoutDashboard },
       { name: 'Analytics', label: 'Sales Reports', icon: TrendingUp },
-      { name: 'Announcements', label: 'Announcements', icon: Megaphone },
-      { name: 'Promotions', label: 'Campaigns', icon: Sparkles },
     ]
   },
   {
@@ -25,53 +23,27 @@ const menuGroups = [
       { name: 'Product Catalog', label: 'Products', icon: Package },
       { name: 'Categories', label: 'Categories', icon: BookOpen },
       { name: 'Logistics', label: 'Delivery', icon: Truck },
-      { name: 'Order Batching', label: 'Order Batching', icon: ClipboardList },
-      { name: 'Suppliers', label: 'Suppliers', icon: Briefcase },
-      { name: 'Returns', label: 'Returns', icon: RotateCcw },
-      { name: 'Purchase Orders', label: 'Purchase Orders', icon: PackagePlus },
     ]
   },
   {
     label: 'Finance',
     items: [
       { name: 'Wallet Requests', label: 'Wallet Top-ups', icon: CreditCard },
-      { name: 'Payments', label: 'Payment Sync', icon: CreditCard },
-      { name: 'Coupons', label: 'Coupons', icon: Ticket },
-      { name: 'Bulk Discounts', label: 'Bulk Pricing', icon: Percent },
-      { name: 'Expenses', label: 'Expenses', icon: DollarSign },
-      { name: 'Payment Settings', label: 'Gateway Config', icon: Settings },
     ]
   },
   {
-    label: 'Support',
+    label: 'Customers & Support',
     items: [
       { name: 'Customers', label: 'Customers', icon: Users },
       { name: 'Reviews', label: 'Reviews', icon: MessageSquare },
       { name: 'Support Tickets', label: 'Support', icon: LifeBuoy },
-      { name: 'Newsletter', label: 'Newsletter', icon: Mail },
-    ]
-  },
-  {
-    label: 'Developer',
-    items: [
-      { name: 'Performance Monitor', label: 'Performance Monitor', icon: Cpu },
-      { name: 'Diagnostics', label: 'Diagnostic Hub', icon: Bug },
-      { name: 'System Status', label: 'System Health', icon: Activity },
-      { name: 'System Logs', label: 'Dev Logs', icon: Terminal },
-      { name: 'Audit Logs', label: 'Audit Trail', icon: ClipboardList },
-      { name: 'Data Exports', label: 'Data Warehouse', icon: PackagePlus },
-      { name: 'Downloads', label: 'PDF & Exports', icon: FileDown },
-      { name: 'Security Audit', label: 'Security Audit', icon: ShieldCheck },
-      { name: 'Automatic Reports', label: 'Anomalies', icon: ShieldAlert },
     ]
   },
   {
     label: 'System',
     items: [
       { name: 'Admin Management', label: 'Admin Ops', icon: Shield },
-      { name: 'Roles', label: 'Role Manager', icon: UserCog },
       { name: 'Store Settings', label: 'Settings', icon: Settings },
-      { name: 'Feature Toggles', label: 'Feature Toggles', icon: ToggleLeft },
     ]
   }
 ];

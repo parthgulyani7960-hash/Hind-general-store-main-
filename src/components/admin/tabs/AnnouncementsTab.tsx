@@ -4,7 +4,7 @@ import {
   Trash2, AlertCircle, ShieldAlert, Users, Calendar, Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '@/lib/utils';
+import { cn, sanitizeHtml } from '@/lib/utils';
 
 interface AnnouncementsTabProps {
     notifications: any[];
@@ -101,7 +101,7 @@ const AnnouncementsTab: React.FC<AnnouncementsTabProps> = ({
                         </div>
                         <div 
                           className="prose prose-stone prose-sm max-w-2xl text-stone-600 font-medium leading-relaxed"
-                          dangerouslySetInnerHTML={{ __html: n.message }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.message) }}
                         />
                         <div className="flex flex-wrap items-center gap-6 mt-6 pt-6 border-t border-stone-50">
                            <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-stone-400">

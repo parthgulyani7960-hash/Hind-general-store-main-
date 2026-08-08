@@ -4,6 +4,7 @@ import { FileText, ChevronLeft } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithHandling } from '@/lib/api';
 import { useStore } from '@/StoreContext';
+import { sanitizeHtml } from '@/lib/utils';
 
 export default function TermsAndConditions() {
   const { config = [] } = useStore();
@@ -67,7 +68,7 @@ export default function TermsAndConditions() {
               ) : (
                 <div 
                   className="prose prose-stone max-w-none prose-headings:font-black prose-p:text-stone-600 prose-p:leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: content || `
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(content || `
                     <div class="space-y-12">
                       <section class="border-l-4 border-stone-100 pl-8 transition-all hover:border-primary/40 group">
                         <h3 class="text-2xl font-black text-stone-900 mb-6 uppercase tracking-tight flex items-center">
@@ -189,7 +190,7 @@ export default function TermsAndConditions() {
                         </div>
                       </section>
                     </div>
-                  ` }}
+                  `) }}
                 />
               )}
             </div>

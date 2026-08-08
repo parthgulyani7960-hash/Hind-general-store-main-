@@ -131,7 +131,7 @@ export default function AdminDashboardLayout({
         />
 
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative">
-        <header className="h-24 bg-white border-b border-stone-100 flex items-center justify-between px-6 md:px-10 sticky top-0 z-40 w-full">
+        <header className="h-20 bg-white border-b border-stone-100 flex items-center justify-between px-6 md:px-10 sticky top-0 z-40 w-full">
           <div className="flex items-center space-x-4 md:space-x-6">
             <button
               onClick={() => {
@@ -141,29 +141,21 @@ export default function AdminDashboardLayout({
                    setSidebarOpen(!sidebarOpen);
                 }
               }}
-              className="p-3 hover:bg-stone-50 rounded-2xl text-stone-900 transition-all active:scale-95 border border-stone-200 hover:border-stone-400 shadow-sm relative z-[110]"
+              className="p-2.5 hover:bg-stone-50 rounded-xl text-stone-900 transition-all active:scale-95 border border-stone-200 hover:border-stone-400 shadow-sm relative z-[110]"
               id="admin-menu-toggle"
               aria-label="Toggle Dashboard Menu"
             >
-              <Menu size={24} strokeWidth={2.5} />
+              <Menu size={20} strokeWidth={2.5} />
             </button>
-            <h1 className="text-xl md:text-3xl font-black text-stone-950 tracking-tighter truncate max-w-[200px] md:max-w-none">
+            <h1 className="text-lg md:text-2xl font-black text-stone-950 tracking-tighter truncate max-w-[200px] md:max-w-none">
               {getDisplayLabel(activeTab)}
             </h1>
           </div>
           
-          <div className="flex items-center gap-6">
-            <div className="hidden lg:flex items-center gap-4 bg-stone-50 border border-stone-100 p-1.5 rounded-2xl">
-               <div className="flex items-center gap-3 px-3">
-                  <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest whitespace-nowrap">
-                    60s Sync Active
-                  </span>
-               </div>
-            </div>
-
+          <div className="flex items-center gap-4">
             <button 
                onClick={() => setActiveTab('System Status')}
-               className="flex items-center gap-3 bg-stone-50 border border-stone-100 px-5 py-2.5 rounded-full font-bold text-xs uppercase tracking-wider text-stone-600 hover:bg-stone-100 hover:border-stone-200 transition-all cursor-pointer"
+               className="flex items-center gap-2.5 bg-stone-50 border border-stone-100 px-4 py-2 rounded-full font-bold text-[11px] uppercase tracking-wider text-stone-600 hover:bg-stone-100 hover:border-stone-200 transition-all cursor-pointer"
                title="View System Health"
             >
                <div className={cn("w-2 h-2 rounded-full animate-pulse", 
@@ -174,7 +166,7 @@ export default function AdminDashboardLayout({
                <span className="font-black text-stone-700">{healthStatus}</span>
             </button>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-50 border border-stone-100">
-               <div className={cn("w-2 h-2 rounded-full",
+               <div className={cn("w-1.5 h-1.5 rounded-full",
                   syncStatus === 'synced' ? 'bg-emerald-500' :
                   syncStatus === 'syncing' ? 'bg-blue-500 animate-pulse' : 'bg-red-500'
                )} />
@@ -182,11 +174,11 @@ export default function AdminDashboardLayout({
                  {syncStatus}
                </span>
             </div>
-            <div className="h-10 w-px bg-stone-100" />
-            <button className="relative p-3 hover:bg-stone-50 rounded-2xl transition-all border border-stone-200">
-               <Bell size={20} className="text-stone-600" />
+            <div className="h-8 w-px bg-stone-100" />
+            <button className="relative p-2.5 hover:bg-stone-50 rounded-xl transition-all border border-stone-200">
+               <Bell size={18} className="text-stone-600" />
                {((stats?.lowStock || 0) + pendingOrdersCount > 0) && (
-                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold">
+                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold">
                    {(stats?.lowStock || 0) + pendingOrdersCount}
                  </span>
                )}
@@ -194,22 +186,12 @@ export default function AdminDashboardLayout({
             <button 
                onClick={toggleMaintenance}
                className={cn(
-                 "p-3 rounded-2xl transition-all border",
+                 "p-2.5 rounded-xl transition-all border",
                  isMaintenance ? "bg-red-100 border-red-200 text-red-600 hover:bg-red-200" : "bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100"
                )}
                title={isMaintenance ? "Disable Maintenance Mode" : "Enable Maintenance Mode"}
             >
-               <Server size={20} />
-            </button>
-            <button 
-               onClick={() => {
-                 setActiveTab('Product Catalog');
-                 toast.success('Switched to Products. Click "+ Add Product" to create new.');
-               }}
-               className="flex items-center gap-3 bg-stone-900 text-white px-6 py-3 rounded-2xl font-black text-sm hover:bg-stone-850 hover:shadow-lg transition-all active:scale-95"
-            >
-               <Sparkles size={18} className="text-amber-400" />
-               <span>New Action</span>
+               <Server size={18} />
             </button>
           </div>
         </header>
@@ -223,7 +205,7 @@ export default function AdminDashboardLayout({
               </div>
             ) : (
               <div id="admin-main-scroll-container" className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden p-4 md:p-8 scroll-smooth antialiased">
-                <div className="max-w-[1600px] mx-auto w-full min-h-0 pb-20">
+                <div className="max-w-6xl mx-auto w-full min-h-0 pb-20">
                   {children}
                 </div>
               </div>

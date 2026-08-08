@@ -379,7 +379,25 @@ export default function UserActivity() {
                             <span className="text-sm font-black text-stone-900 tracking-tight">₹{o.total?.toLocaleString('en-IN') || '0'}</span>
                           </div>
 
-                          <div className="flex gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {o.status === 'delivered' && (
+                              <>
+                                {o.feedback?.rating ? (
+                                  <div className="text-[9px] font-black text-emerald-600 flex items-center gap-0.5 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100">
+                                    <Star size={9} fill="currentColor" />
+                                    <span>Rated {o.feedback.rating}/5</span>
+                                  </div>
+                                ) : (
+                                  <Link 
+                                    to={`/track-order?id=${o.id}#feedback`}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-black text-[9px] uppercase tracking-wider transition-all shadow-sm flex items-center gap-1"
+                                  >
+                                    <Star size={10} fill="currentColor" className="text-emerald-100" />
+                                    <span>Rate Experience</span>
+                                  </Link>
+                                )}
+                              </>
+                            )}
                             <Link 
                               to={`/track-order?id=${o.id}`}
                               className="px-3 py-1.5 bg-stone-900 hover:bg-black text-white rounded-lg font-black text-[9px] uppercase tracking-wider transition-all shadow-sm"
