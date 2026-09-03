@@ -213,6 +213,9 @@ export function registerSecurityIncident(
  * Check if an IP address is currently blocked by the IDS
  */
 export function isIpBlocked(ip: string): boolean {
+  if (!ip || ip === '127.0.0.1' || ip === '::1' || ip === 'localhost' || ip === 'unknown') {
+    return false;
+  }
   const tracker = threatMap.get(ip);
   if (!tracker || !tracker.blockedUntil) return false;
   
@@ -223,6 +226,18 @@ export function isIpBlocked(ip: string): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Manually unblock an IP address
+ */
+export function unblockIp(ip: string): void {
+  const tracker = threatMap.get(ip);
+  if (tracker) {
+    tracker.blockedUntil = undefined;
+    tracker.score = 0;
+  }
+  recalculateSystemThreatLevel();
 }
 
 /**

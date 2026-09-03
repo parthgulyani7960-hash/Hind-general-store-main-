@@ -1482,10 +1482,12 @@ app.use((req, res, next) => {
   }
 
   // CSRF Header / Origin Integrity Verification
-  const stateChangingMethods = ['POST', 'PUT', 'DELETE'];
+  const stateChangingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
   if (stateChangingMethods.includes(req.method)) {
     const origin = req.headers.origin || '';
     const referer = req.headers.referer || '';
+    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+    const hasBearerAuth = Boolean(req.headers.authorization && req.headers.authorization.startsWith('Bearer '));
     
     // Validate Origin or Referer if present to block external CSRF scripts
     const allowedPatterns = [
@@ -1497,14 +1499,26 @@ app.use((req, res, next) => {
       '.aistudio.google',
       '.vercel.app',
       '.firebaseapp.com',
-      '.web.app'
+      '.web.app',
+      '.onrender.com',
+      'onrender.com',
+      'render.com',
+      'hindstore',
+      'hindgeneralstore'
     ];
-    
-    const hasValidOrigin = origin && allowedPatterns.some(pat => origin.includes(pat));
-    const hasValidReferer = referer && allowedPatterns.some(pat => referer.includes(pat));
 
-    if ((origin && !hasValidOrigin) || (referer && !hasValidReferer)) {
-      console.warn(`[CSRF_ATTEMPT] Blocked request to ${req.path} from origin: ${origin}, referer: ${referer}`);
+    const isSameHost = Boolean(
+      (host && origin && (origin.includes(host) || host.includes(origin.replace(/^https?:\/\//, '')))) ||
+      (host && referer && (referer.includes(host) || host.includes(referer.replace(/^https?:\/\//, '').split('/')[0]))) ||
+      (req.hostname && origin && origin.includes(req.hostname)) ||
+      (req.hostname && referer && referer.includes(req.hostname))
+    );
+
+    const hasValidOrigin = !origin || isSameHost || allowedPatterns.some(pat => origin.includes(pat));
+    const hasValidReferer = !referer || isSameHost || allowedPatterns.some(pat => referer.includes(pat));
+
+    if (!hasBearerAuth && (!hasValidOrigin || !hasValidReferer)) {
+      console.warn(`[CSRF_ATTEMPT] Blocked request to ${req.path} from origin: ${origin}, referer: ${referer}, host: ${host}`);
       registerSecurityIncident(ip, 'csrf_tamper', `CSRF attempt blocked on ${req.method} ${req.path} from origin: ${origin}`);
       return res.status(403).json({ success: false, message: 'Security Handshake Fail: CSRF Origin verification failure.' });
     }

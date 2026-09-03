@@ -9,7 +9,7 @@ export default function LoadingFallback({ message, fullScreen = true }: { messag
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsSlow(true);
-    }, 4000); // Trigger slow mode diagnostics slightly earlier for testing
+    }, 10000);
     return () => clearTimeout(timer);
   }, []);
 

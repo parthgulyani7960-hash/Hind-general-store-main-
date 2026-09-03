@@ -296,6 +296,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const isInitialized = useRef(false);
   const isLoadingCategoriesRef = useRef(false);
   const authRunningRef = useRef(false);
+  const hasCheckedRedirectRef = useRef(false);
+  const isRedirectExchangeInFlightRef = useRef(false);
+  const lastProcessedTokenRef = useRef<string | null>(null);
 
   const [currentAlert, setCurrentAlert] = useState<any>(null);
   const [pendingAlerts, setPendingAlerts] = useState<any[]>([]);
@@ -1045,11 +1048,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [login, logAuthDiagnostic]);
 
   const handleGoogleSignIn = React.useCallback(async (options?: { source?: 'popup' | 'redirect' | 'auto'; targetPath?: string }): Promise<{ user: User; token: string } | null> => {
-    const source = options?.source || 'popup';
     const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 
     logAuthDiagnostic('google_signin', 'initiate_request', {
-      source,
+      source: options?.source || 'auto',
       targetPath: options?.targetPath,
       online: isOnline,
       windowInIframe: isIframe,
@@ -1062,75 +1064,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setIsAuthChecking(true);
       setIsInitializingAuth(true);
 
-      let result: { user: any; token: string } | null = null;
-      try {
-        result = await firebaseSignInWithGoogle();
-      } catch (fbErr: any) {
-        logAuthDiagnostic('google_signin', 'firebase_oauth_error_analyzing_fallback', {
-          code: fbErr?.code,
-          message: fbErr?.message
-        });
-
-        // If popup was blocked or domain not whitelisted in preview environment:
-        // Automatically perform instant seamless verified authentication for the user account!
-        const shouldFallback = 
-          fbErr?.code === 'auth/unauthorized-domain' ||
-          fbErr?.code === 'auth/popup-blocked' ||
-          fbErr?.code === 'auth/operation-not-allowed' ||
-          fbErr?.code === 'auth/configuration-not-found' ||
-          fbErr?.code === 'auth/internal-error' ||
-          fbErr?.message?.includes('Popups are blocked') ||
-          fbErr?.message?.includes('Cross-Origin-Opener-Policy') ||
-          isIframe;
-
-        if (shouldFallback && fbErr?.code !== 'auth/popup-closed-by-user') {
-          console.log('[AUTH] Initiating seamless sign-in fallback for Google account...');
-          logAuthDiagnostic('google_signin', 'seamless_fallback_engaged', {
-            fallbackEmail: 'parthgulyani7960@gmail.com'
-          });
-
-          const fallbackData = await fetchWithHandling<{ success: boolean; user: User; token: string }>('/api/auth/email-login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: 'parthgulyani7960@gmail.com',
-              name: 'Parth Gulyani',
-              role: 'admin'
-            })
-          });
-
-          if (fallbackData && fallbackData.success && fallbackData.user) {
-            login(fallbackData.user, fallbackData.token);
-            logAuthDiagnostic('google_signin', 'session_established_success', {
-              user: { id: fallbackData.user.id, email: fallbackData.user.email, role: fallbackData.user.role },
-              isDevAdmin: true,
-              viaFallback: true
-            }, 'authenticating', `authenticated (${fallbackData.user.email})`);
-            return { user: fallbackData.user, token: fallbackData.token };
-          }
-        }
-        
-        throw fbErr;
-      }
-      
-      logAuthDiagnostic('google_signin', 'firebase_oauth_response', {
-        hasResult: !!result,
-        userUid: result?.user?.uid || null,
-        userEmail: result?.user?.email || null,
-        displayName: result?.user?.displayName || null,
-        emailVerified: result?.user?.emailVerified || false,
-        hasToken: !!result?.token,
-        tokenLength: result?.token?.length || 0,
-        tokenPreview: result?.token ? `${result.token.substring(0, 15)}...` : null
-      });
+      const result = await firebaseSignInWithGoogle({ forceRedirect: options?.source === 'redirect' });
 
       if (!result || !result.token) {
         // Redirect flow was triggered by signInWithRedirect fallback
-        logAuthDiagnostic('google_signin', 'redirect_fallback_active', {
-          notice: 'Browser redirect triggered by signInWithRedirect. Awaiting page reload & callback resolution.'
+        logAuthDiagnostic('google_signin', 'redirect_flow_initiated', {
+          notice: 'Browser redirect triggered by Firebase Auth. Awaiting page reload & callback resolution.'
         }, 'authenticating', 'redirect_in_progress');
         return null;
       }
+
+      logAuthDiagnostic('google_signin', 'firebase_oauth_credential_received', {
+        userUid: result.user?.uid || null,
+        userEmail: result.user?.email || null,
+        displayName: result.user?.displayName || null,
+        tokenLength: result.token ? result.token.length : 0,
+        tokenPreview: result.token ? `${result.token.substring(0, 15)}...` : null
+      });
 
       logAuthDiagnostic('google_signin', 'backend_token_exchange_request', {
         endpoint: '/api/auth/firebase-login',
@@ -1145,15 +1095,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       logAuthDiagnostic('google_signin', 'backend_token_exchange_response', {
         success: data?.success,
-        user: data?.user ? { id: data.user.id, email: data.user.email, role: data.user.role, numeric_id: (data.user as any).numeric_id } : null,
+        user: data?.user ? { id: data.user.id, email: data.user.email, role: data.user.role } : null,
         message: data?.message
       });
 
       if (data && data.success && data.user) {
+        lastProcessedTokenRef.current = result.token;
         login(data.user, result.token);
         logAuthDiagnostic('google_signin', 'session_established_success', {
-          user: { id: data.user.id, email: data.user.email, role: data.user.role },
-          isDevAdmin: data.user.email === 'parthgulyani7960@gmail.com' || data.user.role === 'admin'
+          user: { id: data.user.id, email: data.user.email, role: data.user.role }
         }, 'authenticating', `authenticated (${data.user.email})`);
         return { user: data.user, token: result.token };
       } else {
@@ -1166,10 +1116,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       logAuthDiagnostic('google_signin', 'exception_caught', {
         rawMessage: err?.message,
         friendlyMsg,
-        code: err?.code,
-        status: err?.status,
-        name: err?.name,
-        stack: err?.stack
+        code: err?.code
       }, 'authenticating', 'auth_error');
       throw err;
     } finally {
@@ -1575,101 +1522,108 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [user?.role]);
 
   useEffect(() => {
+    let isSubscribed = true;
     let unsubscribe: any;
     
-    // Safety fallback timer: ensure auth checking resolves within 8000ms even if Firebase SDK hangs or network stalls
+    // Safety fallback timer: ensure auth checking resolves promptly even under degraded networks
     const authSafetyTimeout = setTimeout(() => {
       const duration = Date.now() - mountTimeRef.current;
       setAuthInitDuration(duration);
-      console.warn(`[BOOT] Auth safety timeout reached after ${duration}ms. Unblocking initial render.`);
+      console.log(`[BOOT] Auth safety timer unblocked after ${duration}ms.`);
       logAuthDiagnostic('boot', 'safety_timeout_reached', { durationMs: duration }, 'authenticating', 'auth_timeout_unblocked');
-      setIsInitialAuthPerformed(true);
-      setIsAuthChecking(false);
-      setIsInitializingAuth(false);
-      setLoading(false);
-    }, 8000);
+      if (isSubscribed) {
+        setIsInitialAuthPerformed(true);
+        setIsAuthChecking(false);
+        setIsInitializingAuth(false);
+        setLoading(false);
+      }
+    }, 3500);
 
-    // 1. Diagnostic: Capture initial mount parameters & potential OAuth redirect query parameters
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const queryParamsMap: Record<string, string> = {};
-      urlParams.forEach((v, k) => { queryParamsMap[k] = v; });
-      const hasOAuthParams = urlParams.has('apiKey') || urlParams.has('mode') || urlParams.has('oobCode') || urlParams.has('state');
+    const initializeAuthLifecycle = async () => {
+      // 1. Diagnostic: Capture initial mount environment
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryParamsMap: Record<string, string> = {};
+        urlParams.forEach((v, k) => { queryParamsMap[k] = v; });
+        const hasOAuthParams = urlParams.has('apiKey') || urlParams.has('mode') || urlParams.has('oobCode') || urlParams.has('state');
 
-      logAuthDiagnostic('boot', 'mount_auth_environment_inspect', {
-        href: window.location.href,
-        pathname: window.location.pathname,
-        search: window.location.search,
-        hash: window.location.hash,
-        hasOAuthParams,
-        queryParams: queryParamsMap,
-        storedTokenPresent: !!localStorage.getItem('hgs_token'),
-        storedUserPresent: !!localStorage.getItem('hgs_user'),
-        inIframe: window.self !== window.top
-      });
+        logAuthDiagnostic('boot', 'mount_auth_environment_inspect', {
+          href: window.location.href,
+          pathname: window.location.pathname,
+          search: window.location.search,
+          hasOAuthParams,
+          queryParams: queryParamsMap,
+          storedTokenPresent: !!localStorage.getItem('hgs_token'),
+          storedUserPresent: !!localStorage.getItem('hgs_user'),
+          inIframe: window.self !== window.top
+        });
 
-      // 2. Check for Firebase Redirect Result (if redirected from Google OAuth flow)
-      firebaseHandleRedirectResult().then(async (redirectResult) => {
-        if (redirectResult && redirectResult.user) {
-          logAuthDiagnostic('redirect_callback', 'firebase_redirect_payload_received', {
-            uid: redirectResult.user.uid,
-            email: redirectResult.user.email,
-            displayName: redirectResult.user.displayName,
-            tokenLength: redirectResult.token?.length || 0,
-            tokenPreview: redirectResult.token ? `${redirectResult.token.substring(0, 15)}...` : null
-          }, 'redirect_in_progress', 'authenticating');
+        // 2. Asynchronously check for Firebase Redirect Result in parallel without blocking initial render
+        if (!hasCheckedRedirectRef.current) {
+          hasCheckedRedirectRef.current = true;
+          (async () => {
+            try {
+              isRedirectExchangeInFlightRef.current = true;
+              logAuthDiagnostic('redirect_callback', 'checking_getRedirectResult');
+              const redirectResult = await firebaseHandleRedirectResult();
 
-          try {
-            const data = await fetchWithHandling<{ success: boolean; user: User; token?: string; message?: string }>('/api/auth/firebase-login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ idToken: redirectResult.token })
-            });
+              if (redirectResult && redirectResult.user && isSubscribed) {
+                logAuthDiagnostic('redirect_callback', 'firebase_redirect_payload_received', {
+                  uid: redirectResult.user.uid,
+                  email: redirectResult.user.email,
+                  displayName: redirectResult.user.displayName,
+                  tokenLength: redirectResult.token?.length || 0,
+                  tokenPreview: redirectResult.token ? `${redirectResult.token.substring(0, 15)}...` : null
+                }, 'redirect_in_progress', 'authenticating');
 
-            logAuthDiagnostic('redirect_callback', 'backend_redirect_exchange_response', {
-              success: data?.success,
-              user: data?.user ? { id: data.user.id, email: data.user.email, role: data.user.role } : null,
-              message: data?.message
-            });
+                const data = await fetchWithHandling<{ success: boolean; user: User; token?: string; message?: string }>('/api/auth/firebase-login', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ idToken: redirectResult.token })
+                });
 
-            if (data && data.success && data.user) {
-              login(data.user, redirectResult.token);
-              logAuthDiagnostic('redirect_callback', 'session_initialized_via_redirect', {
-                user: { id: data.user.id, email: data.user.email, role: data.user.role }
-              }, 'authenticating', `authenticated (${data.user.email})`);
+                if (data && data.success && data.user && isSubscribed) {
+                  lastProcessedTokenRef.current = redirectResult.token;
+                  login(data.user, redirectResult.token);
+                  logAuthDiagnostic('redirect_callback', 'session_initialized_via_redirect', {
+                    user: { id: data.user.id, email: data.user.email, role: data.user.role }
+                  }, 'authenticating', `authenticated (${data.user.email})`);
+                }
+              }
+            } catch (redirectErr: any) {
+              logAuthDiagnostic('redirect_callback', 'redirect_result_exception', {
+                error: redirectErr?.message,
+                code: redirectErr?.code
+              }, 'redirect_in_progress', 'auth_error');
+            } finally {
+              isRedirectExchangeInFlightRef.current = false;
             }
-          } catch (exchangeErr: any) {
-            logAuthDiagnostic('redirect_callback', 'backend_redirect_exchange_error', {
-              error: exchangeErr.message,
-              stack: exchangeErr.stack
-            }, 'authenticating', 'auth_error');
-          }
-        } else {
-          logAuthDiagnostic('boot', 'redirect_result_checked', {
-            result: null,
-            notice: 'No pending redirect credentials found'
-          });
+          })();
         }
-      }).catch((redirectErr: any) => {
-        logAuthDiagnostic('redirect_callback', 'redirect_result_exception', {
-          error: redirectErr?.message,
-          code: redirectErr?.code
-        }, 'redirect_in_progress', 'auth_error');
-      });
-    }
+      }
 
-    // Restore session immediately if local token exists
-    const savedToken = localStorage.getItem('hgs_token');
-    if (savedToken && !userRef.current) {
-      logAuthDiagnostic('boot', 'saved_token_found_checking', {
-        tokenLength: savedToken.length,
-        tokenPreview: `${savedToken.substring(0, 15)}...`
-      }, 'unauthenticated', 'authenticating');
-      checkAuth(savedToken);
-    }
-    
-    // Auth initialization listener using Firebase onAuthStateChanged
-    unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // 3. Fast-path: Check stored token if available
+      const savedToken = localStorage.getItem('hgs_token');
+      if (savedToken && !userRef.current) {
+        logAuthDiagnostic('boot', 'saved_token_found_checking', {
+          tokenLength: savedToken.length,
+          tokenPreview: `${savedToken.substring(0, 15)}...`
+        }, 'unauthenticated', 'authenticating');
+        checkAuth(savedToken);
+      }
+
+      // 4. Attach onAuthStateChanged immediately for instant local persistence detection
+      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (!isSubscribed) return;
+
+        // If redirect exchange is currently in flight, defer to let redirect exchange finish cleanly
+        if (isRedirectExchangeInFlightRef.current) {
+          logAuthDiagnostic('firebase_auth_state_changed', 'state_change_deferred_for_redirect', {
+            notice: 'Redirect token exchange in progress, skipping duplicate sync'
+          });
+          return;
+        }
+
         clearTimeout(authSafetyTimeout);
         const duration = Date.now() - mountTimeRef.current;
         setAuthInitDuration(duration);
@@ -1680,7 +1634,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           email: firebaseUser?.email || null,
           displayName: firebaseUser?.displayName || null,
           emailVerified: firebaseUser?.emailVerified || false,
-          providerData: firebaseUser?.providerData?.map(p => ({ providerId: p.providerId, email: p.email, uid: p.uid })),
           currentUserInContext: userRef.current ? { id: userRef.current.id, email: userRef.current.email, role: userRef.current.role } : null,
           storedTokenPresent: !!localStorage.getItem('hgs_token'),
           durationSinceMountMs: duration
@@ -1688,37 +1641,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
         try {
           if (firebaseUser) {
-            console.log('[BOOT] Firebase User present, requesting ID token...');
             const token = await firebaseUser.getIdToken();
-            const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
-            
-            logAuthDiagnostic('firebase_auth_state_changed', 'id_token_retrieved', {
-              tokenLength: token ? token.length : 0,
-              tokenPreview: token ? `${token.substring(0, 15)}...` : 'NULL',
-              hasTokenChanged: hasExpiredTokenChange,
-              hasExistingUser: !!userRef.current
-            });
+            const storedToken = localStorage.getItem('hgs_token');
+            const currentUser = userRef.current;
 
-            // If token changed OR we currently have no user state, authorize
-            if (hasExpiredTokenChange || !userRef.current) {
-              console.log('[BOOT] Token changed or no user in state, invoking checkAuth...');
+            // Check if user is already authenticated with matching email and unchanged token
+            if (currentUser && currentUser.email?.toLowerCase() === firebaseUser.email?.toLowerCase() && storedToken === token && lastProcessedTokenRef.current === token) {
+              logAuthDiagnostic('firebase_auth_state_changed', 'duplicate_auth_event_suppressed', {
+                email: firebaseUser.email,
+                reason: 'Session already synchronized'
+              });
+            } else {
+              logAuthDiagnostic('firebase_auth_state_changed', 'verifying_firebase_token_with_backend', {
+                email: firebaseUser.email,
+                uid: firebaseUser.uid
+              });
+              lastProcessedTokenRef.current = token;
               localStorage.setItem('hgs_token', token);
               await checkAuth(token);
               logAuthDiagnostic('firebase_auth_state_changed', 'checkAuth_complete', {
                 resolvedUser: userRef.current ? { id: userRef.current.id, email: userRef.current.email, role: userRef.current.role } : null
               }, 'authenticating', userRef.current ? `authenticated (${userRef.current.email})` : 'session_checked');
-            } else {
-              console.log('[BOOT] No token change detected and user state present, auth ready');
             }
           } else {
-            console.log('[BOOT] No active Firebase user (firebaseUser: null)');
             const storedToken = localStorage.getItem('hgs_token');
-            if (storedToken) {
+            if (storedToken && !userRef.current) {
               logAuthDiagnostic('firebase_auth_state_changed', 'fallback_stored_token_check', {
                 storedTokenPreview: `${storedToken.substring(0, 15)}...`
               });
               await checkAuth(storedToken);
-            } else {
+            } else if (!storedToken) {
               logAuthDiagnostic('firebase_auth_state_changed', 'unauthenticated_state_confirmed', {
                 reason: 'No firebaseUser and no stored token'
               }, 'authenticating', 'unauthenticated');
@@ -1732,16 +1684,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }, 'authenticating', 'auth_error');
           console.error('[BOOT] Exception during auth state sync:', authErr);
         } finally {
-          setIsInitialAuthPerformed(true);
-          setIsAuthChecking(false);
-          setIsInitializingAuth(false);
-          setLoading(false);
+          if (isSubscribed) {
+            setIsInitialAuthPerformed(true);
+            setIsAuthChecking(false);
+            setIsInitializingAuth(false);
+            setLoading(false);
+          }
         }
       });
-    
+    };
+
+    initializeAuthLifecycle();
+
     // Page unload tracer: capture if and why page is being unloaded/refreshed during auth
     const beforeUnloadTracer = (e: BeforeUnloadEvent) => {
-      const inFlightAuth = authRunningRef.current || isAuthChecking || isInitializingAuth;
+      const inFlightAuth = authRunningRef.current || isAuthChecking || isInitializingAuth || isRedirectExchangeInFlightRef.current;
       logAuthDiagnostic('lifecycle', 'beforeunload_triggered', {
         inFlightAuth,
         currentUser: userRef.current ? { id: userRef.current.id, email: userRef.current.email } : null,
@@ -1753,7 +1710,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const pageHideTracer = (e: PageTransitionEvent) => {
       logAuthDiagnostic('lifecycle', 'pagehide_triggered', {
         persisted: e.persisted,
-        inFlightAuth: authRunningRef.current || isAuthChecking || isInitializingAuth
+        inFlightAuth: authRunningRef.current || isAuthChecking || isInitializingAuth || isRedirectExchangeInFlightRef.current
       });
     };
 
@@ -1767,6 +1724,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('database_error', dbErrListener);
     
     return () => {
+      isSubscribed = false;
       clearTimeout(authSafetyTimeout);
       if (unsubscribe) unsubscribe();
       window.removeEventListener('beforeunload', beforeUnloadTracer);

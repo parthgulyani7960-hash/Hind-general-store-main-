@@ -296,15 +296,15 @@ export {
 const getFirebaseErrorMessage = (errorCode: string): string => {
   switch (errorCode) {
     case 'auth/popup-closed-by-user':
-      return 'Sign-in was cancelled. Please click Continue with Google when you are ready.';
+      return 'Google sign-in popup was closed before completing. Please click Continue with Google when ready.';
     case 'auth/cancelled-popup-request':
-      return 'Another sign-in attempt was already in progress. Please try again.';
+      return 'Another sign-in attempt was in progress. Please try again.';
     case 'auth/popup-blocked':
-      return 'Popups were blocked by your browser. Please allow popups or click Continue with Google to proceed.';
+      return 'Popups were blocked by your browser. Please allow popups or use redirect.';
     case 'auth/user-disabled':
       return 'This user account has been disabled. Please contact customer support.';
     case 'auth/user-not-found':
-      return 'No account found with this email. Please verify your email or register.';
+      return 'No account found with this email. Please register or check your email.';
     case 'auth/wrong-password':
       return 'Incorrect password. Please check your password and try again.';
     case 'auth/invalid-email':
@@ -312,17 +312,17 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
     case 'auth/invalid-credential':
       return 'Invalid authentication credentials provided. Please try again.';
     case 'auth/account-exists-with-different-credential':
-      return 'An account already exists with the same email address but different sign-in credentials.';
+      return 'An account already exists with this email address under a different sign-in method.';
     case 'auth/credential-already-in-use':
       return 'These credentials are already associated with a different user account.';
     case 'auth/operation-not-allowed':
-      return 'Google sign-in is initializing. Please try again in a moment.';
+      return 'Google sign-in is not enabled. Please check Firebase console configuration.';
     case 'auth/too-many-requests':
-      return 'Too many failed attempts. Please wait a moment before trying again.';
+      return 'Too many sign-in attempts. Please wait a moment before trying again.';
     case 'auth/network-request-failed':
       return 'Network connection issue detected. Please check your internet connection and try again.';
     case 'auth/unauthorized-domain':
-      return 'This app preview domain is not whitelisted in Firebase Auth. Initiating secure fallback sign-in...';
+      return 'This app preview domain is not whitelisted in Firebase Auth Authorized Domains.';
     case 'auth/internal-error':
       return 'An internal authentication service notice occurred. Please retry sign-in.';
     default:
@@ -353,52 +353,54 @@ export const handleRedirectResult = async () => {
       return { user: result.user, token };
     }
     return null;
-  } catch (error) {
-    console.error('Failed to get redirect result:', error);
-    return null;
+  } catch (error: any) {
+    console.error('[Firebase] Error resolving redirect result:', error);
+    throw error;
   }
 };
 
-export const signInWithGoogle = async (emailInput?: string) => {
+export const signInWithGoogle = async (options?: { forceRedirect?: boolean }) => {
   try {
-    let result;
+    if (options?.forceRedirect) {
+      console.log('[Firebase] Initiating Google Sign-In via redirect...');
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+
     try {
-      result = await signInWithPopup(auth, googleProvider);
+      console.log('[Firebase] Initiating Google Sign-In via popup...');
+      const result = await signInWithPopup(auth, googleProvider);
+      if (!result || !result.user) {
+        throw new Error('Google Sign-In returned an empty credential response.');
+      }
+      const token = await result.user.getIdToken(true);
+      return { user: result.user, token };
     } catch (popupErr: any) {
-      const isIframe = typeof window !== 'undefined' && window.self !== window.top;
-      console.warn('[Firebase] signInWithPopup encountered:', popupErr.code, popupErr.message);
+      console.warn('[Firebase] signInWithPopup encountered:', popupErr?.code, popupErr?.message);
       
-      if (popupErr.code === 'auth/popup-closed-by-user') {
-        const err = new Error('Sign-in was cancelled because the Google popup was closed. Please try again.');
+      if (popupErr?.code === 'auth/popup-closed-by-user') {
+        const err = new Error('Sign-in cancelled: Google popup window was closed.');
         (err as any).code = 'auth/popup-closed-by-user';
         throw err;
       }
-      if (popupErr.code === 'auth/popup-blocked') {
-        const err = new Error('Popups are blocked by your browser settings. Please allow popups or use instant sign-in.');
-        (err as any).code = 'auth/popup-blocked';
-        throw err;
+
+      // If popup was blocked by browser or cross-origin restrictions, fallback to redirect flow
+      if (
+        popupErr?.code === 'auth/popup-blocked' ||
+        popupErr?.code === 'auth/cancelled-popup-request' ||
+        popupErr?.message?.includes('Cross-Origin-Opener-Policy')
+      ) {
+        console.log('[Firebase] Popup restricted. Falling back to signInWithRedirect...');
+        await signInWithRedirect(auth, googleProvider);
+        return null;
       }
-      if (popupErr.code === 'auth/unauthorized-domain' || popupErr.code === 'auth/operation-not-allowed' || popupErr.code === 'auth/configuration-not-found') {
-        console.warn('[Firebase] Domain or configuration restriction in preview environment:', popupErr.code);
-        throw popupErr;
-      }
-      if (popupErr?.message?.includes('Cross-Origin-Opener-Policy') || popupErr.code === 'auth/cancelled-popup-request') {
-        const err = new Error('Popup communication was blocked by browser security settings. Please try again.');
-        (err as any).code = popupErr.code || 'auth/cancelled-popup-request';
-        throw err;
-      }
+
       throw popupErr;
     }
-
-    if (!result || !result.user) {
-      throw new Error('Google Sign-In returned an empty result.');
-    }
-    const token = await result.user.getIdToken(true);
-    return { user: result.user, token };
   } catch (error: any) {
     const errorCode = error?.code || '';
     const friendlyMessage = getFirebaseErrorMessage(errorCode) || error.message || 'Google Sign-In failed.';
-    console.error('[Firebase] Google Sign-In notice:', error);
+    console.error('[Firebase] Google Sign-In error:', error);
     
     const robustError = new Error(friendlyMessage);
     (robustError as any).code = errorCode;
