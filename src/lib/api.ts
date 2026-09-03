@@ -28,11 +28,6 @@ const fetchWithHandlingInternal = async <T>(
   options: RequestInit = {},
   retries = 2
 ): Promise<T | null> => {
-  // Prevent browser from automatically following IAP redirects so we can handle session expiry
-  if (!options.redirect) {
-    options.redirect = 'manual';
-  }
-
   logger.debug(`fetchWithHandlingInternal call to: ${url}`);
   let cleanUrl = url;
   if (cleanUrl) {

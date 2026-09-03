@@ -355,14 +355,24 @@ export const signInWithGoogle = async (emailInput?: string) => {
       result = await signInWithPopup(auth, googleProvider);
     } catch (popupErr: any) {
       const isIframe = typeof window !== 'undefined' && window.self !== window.top;
-      if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user' || popupErr?.message?.includes('Cross-Origin-Opener-Policy')) {
+      console.warn('[Firebase] signInWithPopup encountered:', popupErr.code, popupErr.message);
+      
+      if (popupErr.code === 'auth/popup-closed-by-user') {
+        throw new Error('Sign-in was cancelled because the Google popup was closed. Please try again.');
+      }
+      if (popupErr.code === 'auth/popup-blocked') {
         if (isIframe) {
-          throw new Error('Popups are blocked inside the preview iframe. Please click the "Open in New Tab" icon (↗) at top right or sign in using Email below.');
+          throw new Error('Popups are blocked inside the preview iframe. Please click the "Open in New Tab" icon (↗) at the top right to complete sign-in.');
         } else {
-          console.warn('[Firebase] Popup blocked or closed, attempting redirect fallback...');
+          console.warn('[Firebase] Popup blocked, attempting redirect fallback...');
           await signInWithRedirect(auth, googleProvider);
-          return;
+          return null;
         }
+      }
+      if (popupErr?.message?.includes('Cross-Origin-Opener-Policy') || popupErr.code === 'auth/cancelled-popup-request') {
+        console.warn('[Firebase] COOP/Cancelled error, trying redirect fallback...');
+        await signInWithRedirect(auth, googleProvider);
+        return null;
       }
       throw popupErr;
     }
@@ -370,7 +380,7 @@ export const signInWithGoogle = async (emailInput?: string) => {
     if (!result || !result.user) {
       throw new Error('Google Sign-In returned an empty result.');
     }
-    const token = await result.user.getIdToken();
+    const token = await result.user.getIdToken(true);
     return { user: result.user, token };
   } catch (error: any) {
     const errorCode = error?.code || '';

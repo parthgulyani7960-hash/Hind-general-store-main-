@@ -21,15 +21,15 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   const [isVerifyingWhitelist, setIsVerifyingWhitelist] = useState(false);
 
   const userRole = user?.role as string | undefined;
-  const userEmail = user?.email;
+  const userEmail = user?.email?.toLowerCase().trim();
+  const isDeveloperAdmin = userEmail === 'parthgulyani7960@gmail.com' || userEmail === 'admin@hindstore.com';
   const isCheckingWhitelistNeeded = !!allowedRoles && allowedRoles.includes('admin') && !!user;
 
   useEffect(() => {
     let active = true;
     
-    // If the user already has the 'admin' role in their profile, skip the whitelist check
-    // as the source of truth for the session already confirmed their identity.
-    if (userRole === 'admin') {
+    // If the user already has the 'admin' role in their profile or is the developer admin, skip whitelist check
+    if (userRole === 'admin' || isDeveloperAdmin) {
       setIsAdminWhitelisted(true);
       return;
     }
@@ -68,10 +68,11 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
     return () => {
       active = false;
     };
-  }, [isCheckingWhitelistNeeded, userEmail, isAdminWhitelisted, isVerifyingWhitelist]);
+  }, [isCheckingWhitelistNeeded, userEmail, isAdminWhitelisted, isVerifyingWhitelist, userRole, isDeveloperAdmin]);
 
   // Determine if user has the required role
-  const isAuthorized = !!user && (!allowedRoles || allowedRoles.includes(userRole || ''));
+  const effectiveRole = isDeveloperAdmin ? 'admin' : (userRole || '');
+  const isAuthorized = !!user && (!allowedRoles || allowedRoles.includes(effectiveRole));
 
   useEffect(() => {
     // Add a grace period to prevent false auth-wall triggers on slow mobile networks

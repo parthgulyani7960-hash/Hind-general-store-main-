@@ -4370,14 +4370,14 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
         return res.status(200).json({ success: false, message: 'Wait for database...', dbOffline: true });
       }
       
-      let sessionUser;
+      let sessionUser = authUserFromToken || null;
       if (isFirebaseReady) {
         try {
           const userIdStr = String(req.session.userId);
           const cachedEntry = userDocCache.get(userIdStr);
           if (cachedEntry && Date.now() < cachedEntry.expiresAt) {
             sessionUser = cachedEntry.user;
-          } else {
+          } else if (!sessionUser) {
             const doc = await getFirestoreInstance().collection('users').doc(userIdStr).get();
             if (doc.exists) {
               sessionUser = decryptUserObject({ id: doc.id, ...doc.data() });
@@ -4742,7 +4742,7 @@ const authLimiter = rateLimit({
 
       const isNewUser = !user.phone || !user.name || user.name === 'User' || !user.profile_photo;
       
-      res.json({ success: true, user, isNewUser });
+      res.json({ success: true, user, isNewUser, token: idToken });
     } catch (e: any) {
       console.error('[ROUTE FAILURE] /api/auth/firebase-login', {
         message: e.message,
