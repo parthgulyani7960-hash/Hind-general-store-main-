@@ -63,6 +63,7 @@ export default function Profile() {
     fetchConfig,
     isMaintenance,
     isAuthChecking,
+    isInitializingAuth,
     isRevalidating
   } = useStore();
   
@@ -1107,7 +1108,7 @@ export default function Profile() {
       );
   }
 
-  if (isAuthChecking) {
+  if (isAuthChecking || isInitializingAuth) {
     return (
       <div className="flex h-screen flex-col items-center justify-center p-4 bg-stone-50/50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>

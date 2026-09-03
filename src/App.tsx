@@ -75,6 +75,7 @@ import MaintenancePage from './pages/MaintenancePage';
 import TrackOrder from './pages/TrackOrder';
 import UserActivity from './pages/UserActivityV2';
 
+import AuthDiagnosticOverlay from './components/AuthDiagnosticOverlay';
 import ConfirmLogoutDialog from './components/ConfirmLogoutDialog';
 import ReviewPromptNotification from './components/ReviewPromptNotification';
 import FullScreenAlert from './components/FullScreenAlert';
@@ -87,6 +88,7 @@ function AnimatedRoutes() {
     isMaintenance, 
     user, 
     isAuthChecking, 
+    isInitializingAuth,
     subscribeNewsletter, 
     config = [], 
     t, 
@@ -126,7 +128,7 @@ function AnimatedRoutes() {
     }
   };
 
-  if (isAuthChecking && !isInitialAuthPerformed) {
+  if (!isInitialAuthPerformed || isAuthChecking || isInitializingAuth) {
     return <LoadingFallback message="Initializing store..." />;
   }
 
@@ -139,6 +141,7 @@ function AnimatedRoutes() {
 
   return (
     <>
+      <AuthDiagnosticOverlay />
       <div id="application-content-root" className="min-h-full flex flex-col relative bg-white">
         <div className="flex-1 flex flex-col">
           <AppCrashBoundary fallback={<div className="p-20 text-center"><h1>Application Error</h1><p>We encountered a critical crash. Please reload.</p><button onClick={() => window.location.reload()} className="btn-primary mt-4">Reload App</button></div>}>

@@ -13,7 +13,7 @@ interface AuthGuardProps {
 }
 
 export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
-  const { user, isAuthChecking, isRevalidating, isInitialAuthPerformed } = useStore();
+  const { user, isAuthChecking, isInitializingAuth, isRevalidating, isInitialAuthPerformed } = useStore();
   const location = useLocation();
   const hasShownToast = useRef(false);
 
@@ -106,7 +106,7 @@ export default function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
     return () => clearTimeout(gracePeriodTimer);
   }, [user, allowedRoles, isAuthorized, isInitialAuthPerformed, location.pathname, userRole, isAuthChecking, isRevalidating]);
 
-  if (!isInitialAuthPerformed || isAuthChecking) {
+  if (!isInitialAuthPerformed || isAuthChecking || isInitializingAuth) {
     return <LoadingFallback message="Verifying credentials..." />;
   }
 

@@ -294,12 +294,34 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
   switch (errorCode) {
     case 'auth/popup-closed-by-user':
       return 'Sign-in was cancelled. Please try again when you are ready.';
+    case 'auth/cancelled-popup-request':
+      return 'Another sign-in attempt was already in progress.';
     case 'auth/popup-blocked':
       return 'Your browser blocked the sign-in window. Please allow popups for this site and try again, or click the Open in New Tab icon (↗) at the top right.';
+    case 'auth/user-disabled':
+      return 'This user account has been disabled. Please contact customer support.';
+    case 'auth/user-not-found':
+      return 'No account found with this email. Please verify your email or register.';
+    case 'auth/wrong-password':
+      return 'Incorrect password. Please check your password and try again.';
+    case 'auth/invalid-email':
+      return 'The email address provided is formatted incorrectly.';
+    case 'auth/invalid-credential':
+      return 'Invalid authentication credentials provided. Please try again.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with the same email address but different sign-in credentials.';
+    case 'auth/credential-already-in-use':
+      return 'These credentials are already associated with a different user account.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is currently not enabled. Please contact support.';
+    case 'auth/too-many-requests':
+      return 'Too many failed sign-in attempts. Please wait a few minutes before trying again.';
     case 'auth/network-request-failed':
       return 'Network connection issues detected. Please check your internet connection and try again.';
     case 'auth/unauthorized-domain':
       return 'This app is not yet authorized to use Google Sign-In. The developer needs to update the Firebase configuration.';
+    case 'auth/internal-error':
+      return 'An internal authentication error occurred. Please try again.';
     default:
       return 'We could not securely sign you in at this time. Please try again later.';
   }
@@ -328,31 +350,33 @@ export const handleRedirectResult = async () => {
 
 export const signInWithGoogle = async (emailInput?: string) => {
   try {
-    const isIframe = window.self !== window.top;
     let result;
-    if (isIframe) {
-      await signInWithRedirect(auth, googleProvider);
-      return; // Will redirect
-    } else {
+    try {
       result = await signInWithPopup(auth, googleProvider);
+    } catch (popupErr: any) {
+      const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+      if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user' || popupErr?.message?.includes('Cross-Origin-Opener-Policy')) {
+        if (isIframe) {
+          throw new Error('Popups are blocked inside the preview iframe. Please click the "Open in New Tab" icon (↗) at top right or sign in using Email below.');
+        } else {
+          console.warn('[Firebase] Popup blocked or closed, attempting redirect fallback...');
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        }
+      }
+      throw popupErr;
     }
-    
+
     if (!result || !result.user) {
       throw new Error('Google Sign-In returned an empty result.');
     }
     const token = await result.user.getIdToken();
     return { user: result.user, token };
   } catch (error: any) {
-    if (error.code === 'auth/popup-closed-by-user' || error.message.includes('Cross-Origin-Opener-Policy')) {
-      console.warn('Popup blocked or closed, trying redirect...');
-      await signInWithRedirect(auth, googleProvider);
-      return;
-    }
     const errorCode = error?.code || '';
-    const friendlyMessage = getFirebaseErrorMessage(errorCode);
+    const friendlyMessage = getFirebaseErrorMessage(errorCode) || error.message;
     console.error('[Firebase] Standard Google Sign-In failed:', error);
     
-    // Create an enriched robust error object with complete details
     const robustError = new Error(friendlyMessage);
     (robustError as any).code = errorCode;
     (robustError as any).originalError = error;

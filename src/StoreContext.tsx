@@ -16,6 +16,7 @@ import { triggerFeedback } from './lib/feedback';
 interface StoreContextType {
   user: User | null;
   setUser: (user: User | null) => void;
+  login: (userData: User, token?: string) => void;
   cart: CartItem[];
   addToCart: (product: Product, variant?: any, quantity?: number) => void;
   removeFromCart: (productId: any, variantId?: any) => void;
@@ -72,7 +73,11 @@ interface StoreContextType {
   isSyncingCart: boolean;
   syncCartToBackend: (cartItems: CartItem[]) => Promise<void>;
   isAuthChecking: boolean;
+  isInitializingAuth: boolean;
   isInitialAuthPerformed: boolean;
+  authInitDuration: number | null;
+  loading: boolean;
+  authLoading: boolean;
   currentAlert: any;
   setCurrentAlert: (alert: any) => void;
   markAlertAsRead: (id: any) => Promise<void>;
@@ -125,27 +130,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts } = useProductCache();
 
   // 1. State and Refs
+  const mountTimeRef = useRef(Date.now());
+  const [authInitDuration, setAuthInitDuration] = useState<number | null>(null);
   const [isMaintenance, setIsMaintenance] = useState(false);
-  const [isAuthChecking, setIsAuthChecking] = useState(() => {
+  const [loading, setLoading] = useState(true);
+
+  // Check persistent storage immediately on initial evaluation
+  const hasPersistentSession = (() => {
     try {
-      const hasToken = !!localStorage.getItem('hgs_token');
-      // If we have a token, we MUST verify it regardless of whether we have a local user cache
-      if (hasToken) return true;
-      return false;
-    } catch {
-      return false;
+      const savedToken = localStorage.getItem('hgs_token');
+      const savedUserStr = localStorage.getItem('hgs_user');
+      if (savedToken && savedToken !== 'null' && savedToken !== 'undefined' && savedToken.trim() !== '' && savedUserStr) {
+        const parsed = JSON.parse(savedUserStr);
+        if (parsed && (parsed.id || parsed.email)) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // ignore
     }
-  });
-  const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(() => {
-    try {
-      const hasToken = !!localStorage.getItem('hgs_token');
-      // Verification hasn't happened yet if we have a token
-      if (hasToken) return false;
-      return true;
-    } catch {
-      return true;
-    }
-  });
+    return false;
+  })();
+
+  const [isAuthChecking, setIsAuthChecking] = useState(!hasPersistentSession);
+  const [isInitializingAuth, setIsInitializingAuth] = useState(!hasPersistentSession);
+  const [isInitialAuthPerformed, setIsInitialAuthPerformed] = useState(hasPersistentSession);
   const [dbError, setDbError] = useState(false);
   const [isApiUp, setIsApiUp] = useState(true);
   const [startupPhase, setStartupPhase] = useState(1);
@@ -293,6 +302,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           // This is a bit of a hack for the demo
           localStorage.setItem('hgs_token', 'impersonated_token');
         }
+        setIsAuthChecking(false);
+        setIsInitializingAuth(false);
+        setIsInitialAuthPerformed(true);
+        setLoading(false);
       } else {
         localStorage.removeItem('hgs_user');
       }
@@ -601,7 +614,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     authRunningRef.current = true;
     try {
       const token = fbToken || localStorage.getItem('hgs_token');
-      const isValidToken = token && token !== 'null' && token !== 'undefined' && token.trim() !== '' && token.split('.').length === 3;
+      const isValidToken = Boolean(token && token !== 'null' && token !== 'undefined' && token.trim() !== '');
       
       if (!isValidToken) {
         setUser(null);
@@ -610,6 +623,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         authRunningRef.current = false;
         setIsAuthChecking(false);
         setIsInitialAuthPerformed(true);
+        setIsInitializingAuth(false);
+        setLoading(false);
         return;
       }
 
@@ -647,6 +662,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       authRunningRef.current = false;
       setIsAuthChecking(false);
       setIsInitialAuthPerformed(true);
+      setIsInitializingAuth(false);
+      setLoading(false);
     }
   }, []);
 
@@ -833,6 +850,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     triggerFeedback('medium');
     toast.success(wishlist.includes(productId) ? 'Removed from wishlist' : 'Added to wishlist');
   };
+
+  const login = React.useCallback((userData: User, token?: string) => {
+    if (token) {
+      localStorage.setItem('hgs_token', token);
+    }
+    localStorage.setItem('hgs_user', JSON.stringify(userData));
+    setUser(userData);
+    setIsAuthChecking(false);
+    setIsInitializingAuth(false);
+    setIsInitialAuthPerformed(true);
+    setLoading(false);
+    authRunningRef.current = false;
+    securityService.trackAuth('login', userData);
+    if (userData?.id) {
+      fetchCart(userData.id, true).catch(() => {});
+      fetchAddresses().catch(() => {});
+    }
+  }, [fetchCart, fetchAddresses]);
 
   const logout = () => setShowLogoutDialog(true);
   const performLogout = async () => {
@@ -1234,39 +1269,62 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     
     // Safety fallback timer: ensure auth checking resolves within 8000ms even if Firebase SDK hangs or network stalls
     const authSafetyTimeout = setTimeout(() => {
-      console.warn('[BOOT] Auth safety timeout reached. Unblocking initial render.');
+      const duration = Date.now() - mountTimeRef.current;
+      setAuthInitDuration(duration);
+      console.warn(`[BOOT] Auth safety timeout reached after ${duration}ms. Unblocking initial render.`);
       setIsInitialAuthPerformed(true);
       setIsAuthChecking(false);
+      setIsInitializingAuth(false);
+      setLoading(false);
     }, 8000);
 
     // Restore session immediately if local token exists
     const savedToken = localStorage.getItem('hgs_token');
+    if (savedToken && !userRef.current) {
+      console.log('[BOOT] Saved token found on mount, running checkAuth immediately...');
+      checkAuth(savedToken);
+    }
     
-    // Auth initialization is already handled in firebase.ts.
-    // Just set up the listener.
-    unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+    // Auth initialization listener using Firebase onAuthStateChanged
+    unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         clearTimeout(authSafetyTimeout);
-        console.log('[BOOT] onIdTokenChanged triggered, user:', !!firebaseUser, 'Current User State:', !!userRef.current);
+        const duration = Date.now() - mountTimeRef.current;
+        setAuthInitDuration(duration);
+        console.log(`[BOOT] onAuthStateChanged triggered after ${duration}ms`, {
+          hasFirebaseUser: !!firebaseUser,
+          uid: firebaseUser?.uid || null,
+          email: firebaseUser?.email || null,
+          displayName: firebaseUser?.displayName || null,
+          emailVerified: firebaseUser?.emailVerified || false,
+          currentUserState: !!userRef.current,
+          storedTokenPresent: !!localStorage.getItem('hgs_token')
+        });
         try {
           if (firebaseUser) {
-            console.log('[BOOT] Firebase User exists, fetching token...');
+            console.log('[BOOT] Firebase User present, requesting ID token...');
             const token = await firebaseUser.getIdToken();
-            console.log('[BOOT] Token fetched');
+            console.log('[BOOT] ID Token retrieved:', {
+              tokenLength: token ? token.length : 0,
+              tokenPreview: token ? `${token.substring(0, 15)}...` : 'NULL'
+            });
             const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
-            // If token changed OR we current have no user state, we must authorize
+            // If token changed OR we currently have no user state, authorize
             if (hasExpiredTokenChange || !userRef.current) {
-              console.log('[BOOT] Token changed or no user, calling checkAuth...');
+              console.log('[BOOT] Token changed or no user in state, invoking checkAuth...');
               localStorage.setItem('hgs_token', token);
               await checkAuth(token);
-              console.log('[BOOT] checkAuth completed');
+              console.log('[BOOT] checkAuth completed successfully');
             } else {
-              console.log('[BOOT] No token change or user present, setting auth complete');
+              console.log('[BOOT] No token change detected and user state present, auth ready');
             }
           } else {
-            console.log('[BOOT] No firebase user, clearing session');
-            if (localStorage.getItem('hgs_token')) {
-              localStorage.removeItem('hgs_token');
-              localStorage.removeItem('hgs_user');
+            console.log('[BOOT] No active Firebase user (firebaseUser: null)');
+            const storedToken = localStorage.getItem('hgs_token');
+            if (storedToken) {
+              console.log('[BOOT] Stored token present without active Firebase user, verifying via checkAuth...');
+              await checkAuth(storedToken);
+            } else {
+              console.log('[BOOT] No stored token found, user is unauthenticated');
               setUser(null);
             }
           }
@@ -1275,6 +1333,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         } finally {
           setIsInitialAuthPerformed(true);
           setIsAuthChecking(false);
+          setIsInitializingAuth(false);
+          setLoading(false);
         }
       });
     
@@ -1470,7 +1530,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // 4. Context Provider
   const contextValue = React.useMemo(() => ({
-    user, setUser, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout, performLogout, showLogoutDialog, setShowLogoutDialog,
+    user, setUser, login, cart, addToCart, removeFromCart, updateQuantity, clearCart, logout, performLogout, showLogoutDialog, setShowLogoutDialog,
     isMaintenance, setMaintenance: setIsMaintenance, checkMaintenance, fetchCart,
     authMode, updateProfile, refreshUser, fetchUser, wishlist, toggleWishlist, config, fetchConfig,
     subscribeNewsletter, unsubscribeNewsletter, checkNewsletterStatus, vibration, setVibration, notifications, setNotifications,
@@ -1480,7 +1540,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     language, setLanguage, t, 
     addresses, fetchAddresses, saveAddress, deleteAddress, setDefaultAddress,
     isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
-    isAuthChecking, isRevalidating, setIsRevalidating, isInitialAuthPerformed, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
+    isAuthChecking, isInitializingAuth, loading, authLoading: loading || isAuthChecking || isInitializingAuth, isRevalidating, setIsRevalidating, isInitialAuthPerformed, authInitDuration, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError,
     diagnosticLogs, runtimeErrors,
     clearDiagnostics: () => {
@@ -1495,7 +1555,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     prefetchProducts, prefetchProduct,
     trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts,
     startupPhase
-  }), [user, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
+  }), [user, login, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitializingAuth, loading, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notifications, vibration, sound,
     diagnosticLogs, runtimeErrors,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
