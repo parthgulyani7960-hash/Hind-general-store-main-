@@ -164,7 +164,7 @@ export default function Login() {
 
   // 4. Safely capture session from onAuthStateChanged or active store state
   useEffect(() => {
-    if (user && !hasRedirectedRef.current && redirectState.status !== 'authenticating' && redirectState.status !== 'redirecting' && redirectState.status !== 'authenticated') {
+    if (user && !hasRedirectedRef.current && redirectState.status !== 'redirecting') {
       const targetUrl = getRedirectTarget(user);
       hasRedirectedRef.current = true;
       setRedirectState({

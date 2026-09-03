@@ -2017,80 +2017,120 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
   }
   
   const creationPromise = (async () => {
+    const shouldBeAdmin = (lowercaseEmail === 'parthgulyani7960@gmail.com' || lowercaseEmail === 'admin@hindstore.com') ? true : await checkAdminWhitelisted(lowercaseEmail);
+    const role = shouldBeAdmin ? 'admin' : (decodedToken.role || 'customer');
+
     let db;
     try {
       db = getFirestoreInstance();
     } catch (e) {
       return {
         id: decodedToken.uid || 'shadow_user',
-        email: emailInput,
-        role: (lowercaseEmail === 'parthgulyani7960@gmail.com') ? 'admin' : 'customer',
-        name: decodedToken.name || emailInput.split('@')[0],
+        uid: decodedToken.uid,
+        email: lowercaseEmail,
+        role: role,
+        name: decodedToken.name || decodedToken.displayName || emailInput.split('@')[0],
+        profile_photo: decodedToken.picture || decodedToken.photoURL || null,
         is_shadow: true
       };
     }
 
     try {
       const usersColl = db.collection('users');
-      let snap = await usersColl.where('email', '==', lowercaseEmail).limit(1).get();
-      
-      const shouldBeAdmin = await checkAdminWhitelisted(lowercaseEmail);
-      const role = shouldBeAdmin ? 'admin' : (decodedToken.role || 'customer');
+      let docRef: any = null;
+      let userData: any = null;
+      let isExistingDoc = false;
 
-      if (!snap.empty) {
-        const doc = snap.docs[0];
-        let user = decryptUserObject({ id: doc.id, ...doc.data() });
-        const updates: any = {};
-        
-        if (!user.numeric_id) {
-          const numId = Math.floor(1000000000 + Math.random() * 9000000000);
-          updates.numeric_id = numId;
-          user.numeric_id = numId;
+      // 1. Try finding by decodedToken.uid first if available
+      if (decodedToken.uid) {
+        const directSnap = await usersColl.doc(decodedToken.uid).get();
+        if (directSnap.exists) {
+          docRef = directSnap.ref;
+          userData = decryptUserObject({ id: directSnap.id, ...directSnap.data() });
+          isExistingDoc = true;
         }
+      }
 
-        if (user.role !== role) {
-          updates.role = role;
-          user.role = role;
-        }
+      // 2. If not found by direct UID, query by email
+      if (!isExistingDoc && lowercaseEmail) {
+        const emailSnap = await usersColl.where('email', '==', lowercaseEmail).limit(1).get();
+        if (!emailSnap.empty) {
+          const foundDoc = emailSnap.docs[0];
+          userData = decryptUserObject({ id: foundDoc.id, ...foundDoc.data() });
+          docRef = foundDoc.ref;
+          isExistingDoc = true;
 
-        if (!user.uid && decodedToken.uid) {
-          updates.uid = decodedToken.uid;
-          user.uid = decodedToken.uid;
-        }
-
-        // Self-healing migration: if doc.id is not equal to the Firebase UID, migrate it!
-        if (decodedToken.uid && doc.id !== decodedToken.uid) {
-          console.log(`[MIGRATION] Migrating user ${lowercaseEmail} from old auto-id ${doc.id} to firebase uid ${decodedToken.uid}`);
-          try {
-            const dataToMigrate = { ...doc.data(), ...updates, uid: decodedToken.uid };
-            // Write to the new document keying by firebase uid
-            await usersColl.doc(decodedToken.uid).set(encryptUserObject(dataToMigrate));
-            // Delete the old auto-id document
-            await doc.ref.delete();
-            user.id = decodedToken.uid;
-          } catch (migrateErr: any) {
-            console.error('[MIGRATION] Failed to migrate user document:', migrateErr.message);
-            // Fallback: update old document if migration fails
-            if (Object.keys(updates).length > 0) {
-              await doc.ref.update(encryptUserObject(updates));
+          // Self-heal: If doc ID is an old auto-id and we now have a Firebase UID, migrate safely
+          if (decodedToken.uid && foundDoc.id !== decodedToken.uid) {
+            console.log(`[MIGRATION] Migrating user ${lowercaseEmail} from ${foundDoc.id} to ${decodedToken.uid}`);
+            try {
+              const migratedData = { ...foundDoc.data(), uid: decodedToken.uid, email: lowercaseEmail };
+              await usersColl.doc(decodedToken.uid).set(migratedData);
+              await foundDoc.ref.delete().catch(() => {});
+              userData.id = decodedToken.uid;
+              userData.uid = decodedToken.uid;
+              docRef = usersColl.doc(decodedToken.uid);
+            } catch (migErr: any) {
+              console.warn('[MIGRATION] Non-critical migration fallback:', migErr.message);
             }
           }
-        } else {
-          if (Object.keys(updates).length > 0) {
-            await doc.ref.update(encryptUserObject(updates));
-          }
         }
-        return user;
+      }
+
+      if (isExistingDoc && userData) {
+        const updates: any = {};
+        if (!userData.numeric_id) {
+          const numId = Math.floor(1000000000 + Math.random() * 9000000000);
+          updates.numeric_id = numId;
+          userData.numeric_id = numId;
+        }
+        if (role === 'admin' && userData.role !== 'admin') {
+          updates.role = 'admin';
+          userData.role = 'admin';
+        }
+        if (!userData.uid && decodedToken.uid) {
+          updates.uid = decodedToken.uid;
+          userData.uid = decodedToken.uid;
+        }
+        if (decodedToken.picture && !userData.profile_photo) {
+          updates.profile_photo = decodedToken.picture;
+          userData.profile_photo = decodedToken.picture;
+        }
+        if (decodedToken.name && (!userData.name || userData.name === 'User')) {
+          updates.name = decodedToken.name;
+          userData.name = decodedToken.name;
+        }
+        updates.last_login = new Date().toISOString();
+
+        if (Object.keys(updates).length > 0 && docRef) {
+          await docRef.update(encryptUserObject(updates)).catch((upErr: any) => {
+            console.warn('[AUTH] Background user doc update notice:', upErr.message);
+          });
+        }
+
+        // Ensure admin whitelist doc exists for admin users
+        if (shouldBeAdmin) {
+          db.collection('admin_whitelist').doc(lowercaseEmail).set({
+            email: lowercaseEmail,
+            role: 'admin',
+            status: 'active',
+            lastLogin: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+        }
+
+        return userData;
       } else {
+        // Create brand new user
         const numId = Math.floor(1000000000 + Math.random() * 9000000000);
-        const newUser = {
+        const newUser: any = {
           email: lowercaseEmail,
-          uid: decodedToken.uid,
-          name: decodedToken.name || emailInput.split('@')[0],
+          uid: decodedToken.uid || null,
+          name: decodedToken.name || decodedToken.displayName || emailInput.split('@')[0],
           numeric_id: numId,
           role: role,
           auth_provider: decodedToken.firebase?.sign_in_provider || 'google',
-          profile_photo: decodedToken.picture || null,
+          profile_photo: decodedToken.picture || decodedToken.photoURL || null,
           created_at: new Date().toISOString(),
           last_login: new Date().toISOString(),
           status: 'active',
@@ -2101,20 +2141,27 @@ async function getOrCreateUser(emailInput: string, decodedToken: any): Promise<a
           phone: '',
           address: '',
           is_active: true,
-          segment: 'retail',
+          segment: shouldBeAdmin ? 'admin' : 'retail',
           is_new: true,
           metadata: {
             email_verified: decodedToken.email_verified || false
           }
         };
-        
-        if (decodedToken.uid) {
-          await usersColl.doc(decodedToken.uid).set(encryptUserObject(newUser));
-          return { id: decodedToken.uid, ...newUser };
-        } else {
-          const docRef = await usersColl.add(encryptUserObject(newUser));
-          return { id: docRef.id, ...newUser };
+
+        const targetDocId = decodedToken.uid || String(numId);
+        await usersColl.doc(targetDocId).set(encryptUserObject(newUser));
+
+        if (shouldBeAdmin) {
+          db.collection('admin_whitelist').doc(lowercaseEmail).set({
+            email: lowercaseEmail,
+            role: 'admin',
+            status: 'active',
+            lastLogin: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
         }
+
+        return { id: targetDocId, ...newUser };
       }
     } catch (err: any) {
       console.error('[AUTH] getOrCreateUser error:', err.message);
@@ -4313,28 +4360,31 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.split(' ')[1];
         try {
-          if (admin.apps.length) {
+          if (token) {
             const decodedToken = await safeVerifyIdToken(token);
             console.log('AUTH VERIFY SUCCESS: Firebase Token');
             const email = sanitizeEmail(decodedToken.email);
             
             if (email) {
+              const isDevAdmin = email === 'parthgulyani7960@gmail.com' || email === 'admin@hindstore.com';
               // We try to get or create the user, but if DB is down, we fallback to shadow user
               try {
                 if (isFirebaseReady) {
                   authUserFromToken = await getOrCreateUser(email, decodedToken);
                 }
-              } catch (dbErr) {
+              } catch (dbErr: any) {
                 console.warn('[AUTH/ME] getOrCreateUser failed due to DB state:', dbErr.message);
               }
               
               if (!authUserFromToken) {
                 // Fallback to shadow user if DB is down or initializing
                 authUserFromToken = {
-                  id: `shadow_${decodedToken.uid}`,
+                  id: decodedToken.uid || `shadow_${decodedToken.uid}`,
+                  uid: decodedToken.uid,
                   email: email,
-                  role: 'customer',
-                  name: decodedToken.name || 'User',
+                  role: isDevAdmin ? 'admin' : (decodedToken.role || 'customer'),
+                  name: decodedToken.name || decodedToken.displayName || email.split('@')[0],
+                  profile_photo: decodedToken.picture || decodedToken.photoURL || null,
                   is_shadow: true,
                   loading: !isFirebaseReady
                 };
