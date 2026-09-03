@@ -338,7 +338,7 @@ export const handleRedirectResult = async () => {
   try {
     const result = await getRedirectResult(auth);
     if (result && result.user) {
-      const token = await result.user.getIdToken();
+      const token = await result.user.getIdToken(true);
       return { user: result.user, token };
     }
     return null;

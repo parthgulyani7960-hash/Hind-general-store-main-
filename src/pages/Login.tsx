@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Store, Lock, ShieldCheck, AlertCircle, ArrowLeft, Loader2
+  Store, Lock, ShieldCheck, AlertCircle, ArrowLeft, Loader2, CheckCircle2
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
@@ -11,90 +11,173 @@ import { signInWithGoogle, handleRedirectResult, handleAuthError } from '@/fireb
 import { triggerFeedback } from '@/lib/feedback';
 import { securityService } from '@/services/securityService';
 
+export type RedirectStatus = 
+  | 'idle' 
+  | 'checking_redirect' 
+  | 'authenticating' 
+  | 'authenticated' 
+  | 'redirecting' 
+  | 'error';
+
+export interface RedirectState {
+  status: RedirectStatus;
+  targetUrl: string;
+  user: any | null;
+  errorMessage: string | null;
+}
+
 /**
  * Clean, High-Fidelity Google Authentication View for Hind Store
- * Streamlined purely for secure "Continue with Google" sign-in.
+ * Integrated with dedicated redirectState to prevent race conditions during OAuth callbacks.
  */
 export default function Login() {
   const { user, isOnline, login } = useStore();
-  const [loading, setLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [showSuccessTick, setShowSuccessTick] = useState(false);
-
   const navigate = useNavigate();
   const location = useLocation();
+
+  const [redirectState, setRedirectState] = useState<RedirectState>({
+    status: 'idle',
+    targetUrl: '/profile',
+    user: null,
+    errorMessage: null,
+  });
+
+  const hasRedirectedRef = useRef(false);
+  const isExchangingTokenRef = useRef(false);
 
   const fromProfile = location.state?.from?.pathname === '/profile' || 
                       sessionStorage.getItem('auth_redirect_url')?.includes('/profile');
 
-  const getRedirectTarget = (userObj?: any) => {
-    if (userObj?.role === 'admin' || userObj?.email === 'parthgulyani7960@gmail.com' || userObj?.email === 'admin@hindstore.com') {
+  // Calculates the appropriate post-login route
+  const getRedirectTarget = (userObj?: any): string => {
+    const role = userObj?.role;
+    const email = userObj?.email?.toLowerCase().trim();
+    if (role === 'admin' || email === 'parthgulyani7960@gmail.com' || email === 'admin@hindstore.com') {
       return "/admin";
     }
     const savedRedirect = sessionStorage.getItem('auth_redirect_url');
-    if (savedRedirect) {
+    if (savedRedirect && savedRedirect !== '/login') {
       sessionStorage.removeItem('auth_redirect_url');
       return savedRedirect;
     }
     const fromState = (location.state as any)?.from;
-    if (fromState) {
+    if (fromState && fromState.pathname && fromState.pathname !== '/login') {
       return fromState.pathname + (fromState.search || '') + (fromState.hash || '');
     }
-    return "/";
+    return "/profile";
   };
 
-  // Redirect users who are already logged in
-  useEffect(() => {
-    if (user) {
-      const redirectUrl = getRedirectTarget(user);
-      navigate(redirectUrl, { replace: true });
-    }
-  }, [user, navigate]);
-
-  // Save redirection target in session state to handle page reloads
+  // 1. Save intended navigation target on mount
   useEffect(() => {
     if ((location.state as any)?.from) {
       const fromState = (location.state as any).from;
-      const fullPath = fromState.pathname + (fromState.search || '') + (fromState.hash || '');
-      sessionStorage.setItem('auth_redirect_url', fullPath);
+      if (fromState.pathname && fromState.pathname !== '/login') {
+        const fullPath = fromState.pathname + (fromState.search || '') + (fromState.hash || '');
+        sessionStorage.setItem('auth_redirect_url', fullPath);
+      }
     }
   }, [location]);
 
-  // Process redirect results from mobile / fallback authentication flows
-  useEffect(() => {
-    const processRedirect = async () => {
-      setLoading(true);
-      const result = await handleRedirectResult();
-      if (result) {
-        toast.loading('Logging you in...', { id: 'auth-loader' });
-        try {
-          const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idToken: result.token })
-          });
-          if (data && data.success && data.user) {
-            login(data.user, result.token);
-            setShowSuccessTick(true);
-            toast.dismiss('auth-loader');
-            toast.success(`Welcome back, ${data.user.name || 'User'}!`);
-            const redirectUrl = getRedirectTarget(data.user);
-            navigate(redirectUrl, { replace: true });
-          } else {
-            setAuthError(data?.message || 'Access request was declined by server.');
+  // 2. Token Exchange & Session Establishment
+  const completeAuth = async (token: string, source: 'popup' | 'redirect') => {
+    if (isExchangingTokenRef.current || hasRedirectedRef.current) return;
+    isExchangingTokenRef.current = true;
+    
+    setRedirectState(prev => ({
+      ...prev,
+      status: 'authenticating',
+      errorMessage: null
+    }));
+
+    try {
+      const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token })
+      });
+
+      if (data && data.success && data.user) {
+        const targetUrl = getRedirectTarget(data.user);
+        login(data.user, token);
+        
+        setRedirectState({
+          status: 'authenticated',
+          targetUrl,
+          user: data.user,
+          errorMessage: null,
+        });
+
+        toast.success(`Welcome, ${data.user.name || 'User'}!`);
+
+        // Smooth transition to target route
+        setTimeout(() => {
+          if (!hasRedirectedRef.current) {
+            hasRedirectedRef.current = true;
+            setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
+            navigate(targetUrl, { replace: true });
           }
-        } catch (err: any) {
-          setAuthError(err.message || 'Server connection failed.');
-        } finally {
-          toast.dismiss('auth-loader');
-        }
+        }, 400);
+      } else {
+        const msg = data?.message || 'Access request was declined by server.';
+        setRedirectState({
+          status: 'error',
+          targetUrl: '/profile',
+          user: null,
+          errorMessage: msg,
+        });
+        toast.error(msg);
+        securityService.trackAuth('failed_login', { email: 'Server rejection', source });
       }
-      setLoading(false);
+    } catch (err: any) {
+      const errorMsg = handleAuthError(err);
+      setRedirectState({
+        status: 'error',
+        targetUrl: '/profile',
+        user: null,
+        errorMessage: errorMsg,
+      });
+      toast.error(errorMsg);
+      securityService.trackAuth('failed_login', { email: 'Exception', error: errorMsg, source });
+    } finally {
+      isExchangingTokenRef.current = false;
+    }
+  };
+
+  // 3. Process redirect callbacks on mount (e.g. mobile OAuth or redirect fallbacks)
+  useEffect(() => {
+    let isMounted = true;
+    const processRedirect = async () => {
+      try {
+        const result = await handleRedirectResult();
+        if (result && result.token && isMounted && !hasRedirectedRef.current) {
+          await completeAuth(result.token, 'redirect');
+        }
+      } catch (err) {
+        console.warn('[Login] Redirect result resolution notice:', err);
+      }
     };
     processRedirect();
-  }, [navigate, login]);
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  // Primary Google Sign-In Handler
+  // 4. Safely capture session from onAuthStateChanged or active store state
+  useEffect(() => {
+    if (user && !hasRedirectedRef.current && redirectState.status !== 'authenticating' && redirectState.status !== 'redirecting' && redirectState.status !== 'authenticated') {
+      const targetUrl = getRedirectTarget(user);
+      hasRedirectedRef.current = true;
+      setRedirectState({
+        status: 'redirecting',
+        targetUrl,
+        user,
+        errorMessage: null,
+      });
+      navigate(targetUrl, { replace: true });
+    }
+  }, [user, navigate, redirectState.status]);
+
+  // 5. Primary Google Sign-In Trigger
   const handleGoogleLogin = async () => {
     triggerFeedback('medium');
     if (!isOnline) {
@@ -103,51 +186,32 @@ export default function Login() {
     }
 
     try {
-      setLoading(true);
-      setAuthError(null);
-      toast.loading('Connecting with Google...', { id: 'auth-loader' });
-
+      setRedirectState(prev => ({ ...prev, status: 'authenticating', errorMessage: null }));
       const result = await signInWithGoogle();
-      if (!result) {
-        setLoading(false);
-        toast.dismiss('auth-loader');
+      
+      if (!result || !result.token) {
+        // Redirect fallback triggered by signInWithGoogle
+        setRedirectState(prev => ({ ...prev, status: 'idle' }));
         return;
       }
       
-      const { token } = result;
-      toast.loading('Signing in...', { id: 'auth-loader' });
-      
-      const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: token })
-      });
-
-      if (data && data.success && data.user) {
-        login(data.user, token);
-        
-        setShowSuccessTick(true);
-        toast.dismiss('auth-loader');
-        toast.success(`Welcome back, ${data.user.name || 'User'}!`);
-        
-        const redirectUrl = getRedirectTarget(data.user);
-        navigate(redirectUrl, { replace: true });
-      } else {
-        const msg = data?.message || 'Access request was declined by server.';
-        setAuthError(msg);
-        toast.error(msg, { id: 'auth-loader' });
-        securityService.trackAuth('failed_login', { email: 'Unknown (Declined)' });
-      }
+      await completeAuth(result.token, 'popup');
     } catch (err: any) {
-      toast.dismiss('auth-loader');
-      console.error('Google Access Failure:', err);
+      console.error('Google Sign-In Error:', err);
       const errorMessage = handleAuthError(err);
-      setAuthError(errorMessage);
-      securityService.trackAuth('failed_login', { email: 'Unknown (Google Exception)' });
-    } finally {
-      setLoading(false);
+      setRedirectState({
+        status: 'error',
+        targetUrl: '/profile',
+        user: null,
+        errorMessage,
+      });
+      toast.error(errorMessage);
     }
   };
+
+  const isWorking = redirectState.status === 'authenticating' || 
+                    redirectState.status === 'authenticated' || 
+                    redirectState.status === 'redirecting';
 
   return (
     <div id="login_page_container" className="min-h-screen w-full bg-stone-50 flex flex-col justify-center items-center relative overflow-x-hidden p-4 sm:p-6 lg:p-8">
@@ -200,35 +264,31 @@ export default function Login() {
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
             
             <AnimatePresence mode="wait">
-              {showSuccessTick ? (
-                /* Successful redirect tick */
+              {redirectState.status === 'authenticated' || redirectState.status === 'redirecting' ? (
+                /* Dedicated Success & Transition Screen */
                 <motion.div
                   key="success-indicator"
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={{ opacity: 0, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
+                  exit={{ opacity: 0, scale: 0.96 }}
                   className="flex flex-col items-center justify-center py-8 text-center"
                 >
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 220, damping: 16 }}
+                    transition={{ type: "spring", stiffness: 240, damping: 18 }}
                     className="w-16 h-16 bg-emerald-500 text-white rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/25"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={3}
-                      stroke="currentColor"
-                      className="w-8 h-8"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
+                    <CheckCircle2 size={36} strokeWidth={2.5} />
                   </motion.div>
                   
                   <h3 className="text-xl font-bold text-stone-900 mb-1">Authenticated</h3>
-                  <p className="text-stone-500 text-sm">Redirecting to your account...</p>
+                  <p className="text-stone-500 text-sm mb-4">Redirecting to your account...</p>
+                  
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 py-1.5 px-3 rounded-full border border-emerald-200/60">
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Loading dashboard</span>
+                  </div>
                 </motion.div>
               ) : (
                 /* Main Login View */
@@ -262,10 +322,10 @@ export default function Login() {
                   )}
 
                   {/* Errors & Offline Warnings */}
-                  {authError && (
+                  {redirectState.errorMessage && (
                     <div id="login_error_alert" className="bg-red-50 border border-red-200 p-3.5 rounded-2xl flex items-start gap-2.5 text-left">
                       <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
-                      <p className="text-xs font-medium text-red-800 leading-tight">{authError}</p>
+                      <p className="text-xs font-medium text-red-800 leading-tight">{redirectState.errorMessage}</p>
                     </div>
                   )}
 
@@ -284,10 +344,10 @@ export default function Login() {
                       type="button"
                       id="google_signin_button"
                       onClick={handleGoogleLogin}
-                      disabled={loading || !isOnline}
+                      disabled={isWorking || !isOnline}
                       className="w-full flex items-center justify-center gap-3 py-3.5 px-5 bg-white hover:bg-stone-50 text-stone-800 font-semibold text-sm rounded-2xl border border-stone-300/90 shadow-sm hover:shadow-md hover:border-stone-400 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
                     >
-                      {loading ? (
+                      {redirectState.status === 'authenticating' ? (
                         <Loader2 size={18} className="animate-spin text-emerald-600" />
                       ) : (
                         <div className="w-5 h-5 flex items-center justify-center shrink-0">
@@ -300,7 +360,7 @@ export default function Login() {
                         </div>
                       )}
                       <span className="text-stone-800 font-medium">
-                        {loading ? 'Connecting with Google...' : 'Continue with Google'}
+                        {redirectState.status === 'authenticating' ? 'Signing in with Google...' : 'Continue with Google'}
                       </span>
                     </button>
                   </div>
