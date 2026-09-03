@@ -1129,10 +1129,11 @@ export default function Profile() {
             <p className="text-stone-500 mb-6 text-xs">Account login is required to view your profile settings.</p>
             <p className="text-xs text-stone-400 mb-6 italic">{details}</p>
             <button 
+              id="profile_login_redirect_btn"
               onClick={() => navigate('/login')}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-semibold shadow-md shadow-emerald-600/10 hover:shadow-lg transition-all"
             >
-              Sign In with Google
+              Sign In to Account
             </button>
         </div>
       </div>
