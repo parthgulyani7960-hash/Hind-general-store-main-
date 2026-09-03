@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Store, Lock, ShieldCheck, AlertCircle, ArrowLeft, Loader2, CheckCircle2
+  Store, Lock, ShieldCheck, AlertCircle, ArrowLeft, Loader2, CheckCircle2, ExternalLink
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
@@ -256,9 +256,24 @@ export default function Login() {
 
                   {/* Errors & Offline Warnings */}
                   {redirectState.errorMessage && (
-                    <div id="login_error_alert" className="bg-red-50 border border-red-200 p-4 rounded-2xl flex items-start gap-2.5 text-left">
-                      <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
-                      <p className="text-xs font-medium text-red-800 leading-tight">{redirectState.errorMessage}</p>
+                    <div id="login_error_alert" className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-col gap-2 text-left">
+                      <div className="flex items-start gap-2.5">
+                        <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
+                        <p className="text-xs font-medium text-red-800 leading-relaxed">{redirectState.errorMessage}</p>
+                      </div>
+                      {(redirectState.errorMessage.includes('blocked') || redirectState.errorMessage.includes('popup') || redirectState.errorMessage.includes('whitelist') || redirectState.errorMessage.includes('tab')) && (
+                        <div className="pl-6 pt-1">
+                          <a
+                            href={window.location.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950 underline bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg"
+                          >
+                            <span>Open app in new window</span>
+                            <ExternalLink size={12} />
+                          </a>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -296,6 +311,20 @@ export default function Login() {
                         {redirectState.status === 'authenticating' ? 'Signing in with Google...' : 'Continue with Google'}
                       </span>
                     </button>
+
+                    {typeof window !== 'undefined' && window.self !== window.top && (
+                      <p className="text-[11px] text-stone-400 text-center flex items-center justify-center gap-1">
+                        <span>Previewing inside frame?</span>
+                        <a
+                          href={window.location.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-emerald-700 hover:text-emerald-900 underline font-medium inline-flex items-center gap-0.5"
+                        >
+                          Open in full tab <ExternalLink size={10} />
+                        </a>
+                      </p>
+                    )}
                   </div>
 
                   {/* Trust and security badges */}

@@ -360,8 +360,10 @@ export const handleRedirectResult = async () => {
 };
 
 export const signInWithGoogle = async (options?: { forceRedirect?: boolean }) => {
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+
   try {
-    if (options?.forceRedirect) {
+    if (options?.forceRedirect && !isInIframe) {
       console.log('[Firebase] Initiating Google Sign-In via redirect...');
       await signInWithRedirect(auth, googleProvider);
       return null;
@@ -379,20 +381,32 @@ export const signInWithGoogle = async (options?: { forceRedirect?: boolean }) =>
       console.warn('[Firebase] signInWithPopup encountered:', popupErr?.code, popupErr?.message);
       
       if (popupErr?.code === 'auth/popup-closed-by-user') {
-        const err = new Error('Sign-in cancelled: Google popup window was closed.');
+        const err = new Error('Sign-in cancelled: Google popup window was closed before completing.');
         (err as any).code = 'auth/popup-closed-by-user';
         throw err;
       }
 
-      // If popup was blocked by browser or cross-origin restrictions, fallback to redirect flow
+      if (popupErr?.code === 'auth/cancelled-popup-request') {
+        const err = new Error('A sign-in request is already in progress. Please wait a moment and try again.');
+        (err as any).code = 'auth/cancelled-popup-request';
+        throw err;
+      }
+
+      // If popup was blocked by browser and NOT in an iframe, fallback to redirect flow
       if (
-        popupErr?.code === 'auth/popup-blocked' ||
-        popupErr?.code === 'auth/cancelled-popup-request' ||
-        popupErr?.message?.includes('Cross-Origin-Opener-Policy')
+        !isInIframe &&
+        (popupErr?.code === 'auth/popup-blocked' ||
+         popupErr?.message?.includes('Cross-Origin-Opener-Policy'))
       ) {
-        console.log('[Firebase] Popup restricted. Falling back to signInWithRedirect...');
+        console.log('[Firebase] Popup restricted in top-level window. Falling back to signInWithRedirect...');
         await signInWithRedirect(auth, googleProvider);
         return null;
+      }
+
+      if (isInIframe && popupErr?.code === 'auth/popup-blocked') {
+        const err = new Error('Popups were blocked by your browser. Please allow popups for this site or open the app in a new tab.');
+        (err as any).code = 'auth/popup-blocked';
+        throw err;
       }
 
       throw popupErr;
