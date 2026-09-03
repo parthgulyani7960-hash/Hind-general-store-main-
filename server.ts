@@ -4589,14 +4589,21 @@ const authLimiter = rateLimit({
           const snap = await getFirestoreInstance().collection('users').where('email', '==', cleanEmail).limit(1).get();
           if (!snap.empty) {
             const data = snap.docs[0].data();
-            const assignedRole = (cleanEmail === 'parthgulyani7960@gmail.com' || cleanEmail === 'admin@hindstore.com' || role === 'admin') ? 'admin' : (data.role || 'customer');
+            const isTargetAdmin = cleanEmail === 'parthgulyani7960@gmail.com' || cleanEmail === 'admin@hindstore.com' || role === 'admin';
+            const assignedRole = isTargetAdmin 
+              ? 'admin' 
+              : (role === 'delivery' || role === 'runner' ? 'delivery' : (data.role || role || 'customer'));
             user = { id: snap.docs[0].id, ...data, role: assignedRole };
           } else {
-            const assignedRole = (cleanEmail === 'parthgulyani7960@gmail.com' || cleanEmail === 'admin@hindstore.com' || role === 'admin') ? 'admin' : (role || 'customer');
+            const isTargetAdmin = cleanEmail === 'parthgulyani7960@gmail.com' || cleanEmail === 'admin@hindstore.com' || role === 'admin';
+            const assignedRole = isTargetAdmin 
+              ? 'admin' 
+              : (role === 'delivery' || role === 'runner' ? 'delivery' : (role || 'customer'));
             const newUserDoc = {
               email: cleanEmail,
               name: name || cleanEmail.split('@')[0],
               role: assignedRole,
+              numeric_id: Math.floor(1000000000 + Math.random() * 9000000000),
               created_at: new Date().toISOString(),
               status: 'active',
               phone: '',
@@ -4611,12 +4618,16 @@ const authLimiter = rateLimit({
       }
 
       if (!user) {
-        const assignedRole = (cleanEmail === 'parthgulyani7960@gmail.com' || cleanEmail === 'admin@hindstore.com' || role === 'admin') ? 'admin' : (role || 'customer');
+        const isTargetAdmin = cleanEmail === 'parthgulyani7960@gmail.com' || cleanEmail === 'admin@hindstore.com' || role === 'admin';
+        const assignedRole = isTargetAdmin 
+          ? 'admin' 
+          : (role === 'delivery' || role === 'runner' ? 'delivery' : (role || 'customer'));
         user = {
           id: `usr_${Math.random().toString(36).substring(2, 9)}`,
           email: cleanEmail,
           name: name || cleanEmail.split('@')[0],
           role: assignedRole,
+          numeric_id: Math.floor(1000000000 + Math.random() * 9000000000),
           is_shadow: !isFirebaseReady
         };
       }

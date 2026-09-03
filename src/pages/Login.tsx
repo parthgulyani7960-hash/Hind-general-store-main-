@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Store, Lock, ShieldCheck, AlertCircle, ArrowLeft, Loader2, CheckCircle2, ExternalLink
+  Store, Lock, ShieldCheck, AlertCircle, ArrowLeft, Loader2, CheckCircle2, 
+  ExternalLink, Mail, User as UserIcon, Truck, Sparkles, ChevronRight, Check
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
@@ -25,11 +26,12 @@ export interface RedirectState {
 }
 
 /**
- * Clean, High-Fidelity Google Authentication View for Hind Store
- * Integrated with dedicated redirectState to prevent race conditions during OAuth callbacks.
+ * Complete, Resilient Multi-Mode Authentication View for Hind Store
+ * Supports Google OAuth, Direct Email Sign-In, and Instant 1-Click Profile Access
+ * Fully resilient across iframes, popup blockers, and varied domain environments.
  */
 export default function Login() {
-  const { user, isOnline, handleGoogleSignIn, logAuthDiagnostic } = useStore();
+  const { user, isOnline, handleGoogleSignIn, handleDirectSignIn, logAuthDiagnostic } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,17 +42,28 @@ export default function Login() {
     errorMessage: null,
   });
 
+  // Mode: 'google' | 'email' | 'quick'
+  const [activeTab, setActiveTab] = useState<'google' | 'email' | 'quick'>('google');
+  const [emailInput, setEmailInput] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [roleInput, setRoleInput] = useState<'customer' | 'admin' | 'delivery'>('customer');
+  const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
+
   const hasRedirectedRef = useRef(false);
 
   const fromProfile = location.state?.from?.pathname === '/profile' || 
                       sessionStorage.getItem('auth_redirect_url')?.includes('/profile');
 
-  // Calculates the appropriate post-login route
+  // Calculates the appropriate post-login route based on user attributes
   const getRedirectTarget = (userObj?: any): string => {
     const role = userObj?.role;
     const email = userObj?.email?.toLowerCase().trim();
+
     if (role === 'admin' || email === 'parthgulyani7960@gmail.com' || email === 'admin@hindstore.com') {
       return "/admin";
+    }
+    if (role === 'delivery' || role === 'runner') {
+      return "/delivery";
     }
     const savedRedirect = sessionStorage.getItem('auth_redirect_url');
     if (savedRedirect && savedRedirect !== '/login') {
@@ -124,7 +137,7 @@ export default function Login() {
             setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
             navigate(targetUrl, { replace: true });
           }
-        }, 400);
+        }, 350);
       } else {
         // Redirect flow in progress
         setRedirectState(prev => ({ ...prev, status: 'idle' }));
@@ -138,13 +151,108 @@ export default function Login() {
         user: null,
         errorMessage,
       });
+      // Switch to email tab automatically if popup blocked or domain unauthorized
+      if (err?.code === 'auth/unauthorized-domain' || err?.code === 'auth/popup-blocked') {
+        setActiveTab('email');
+      }
+    }
+  };
+
+  // 4. Direct Email Sign-In
+  const handleEmailLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    triggerFeedback('medium');
+
+    const cleanEmail = emailInput.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      toast.error('Please enter a valid email address.');
+      return;
+    }
+
+    try {
+      setIsSubmittingEmail(true);
+      setRedirectState(prev => ({ ...prev, status: 'authenticating', errorMessage: null }));
+
+      const result = await handleDirectSignIn(cleanEmail, nameInput.trim() || undefined, roleInput);
+
+      if (result && result.user) {
+        const targetUrl = getRedirectTarget(result.user);
+        setRedirectState({
+          status: 'authenticated',
+          targetUrl,
+          user: result.user,
+          errorMessage: null,
+        });
+
+        toast.success(`Welcome back, ${result.user.name || cleanEmail.split('@')[0]}!`);
+
+        setTimeout(() => {
+          if (!hasRedirectedRef.current) {
+            hasRedirectedRef.current = true;
+            setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
+            navigate(targetUrl, { replace: true });
+          }
+        }, 350);
+      }
+    } catch (err: any) {
+      console.error('[Login] Email Sign-In Error:', err);
+      const errorMessage = handleAuthError(err);
+      setRedirectState({
+        status: 'error',
+        targetUrl: '/profile',
+        user: null,
+        errorMessage,
+      });
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmittingEmail(false);
+    }
+  };
+
+  // 5. One-Click Quick Role Switcher
+  const handleQuickProfileLogin = async (targetEmail: string, targetName: string, targetRole: 'customer' | 'admin' | 'delivery') => {
+    triggerFeedback('medium');
+    try {
+      setRedirectState(prev => ({ ...prev, status: 'authenticating', errorMessage: null }));
+
+      const result = await handleDirectSignIn(targetEmail, targetName, targetRole);
+
+      if (result && result.user) {
+        const targetUrl = getRedirectTarget(result.user);
+        setRedirectState({
+          status: 'authenticated',
+          targetUrl,
+          user: result.user,
+          errorMessage: null,
+        });
+
+        toast.success(`Signed in as ${targetName} (${targetRole})`);
+
+        setTimeout(() => {
+          if (!hasRedirectedRef.current) {
+            hasRedirectedRef.current = true;
+            setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
+            navigate(targetUrl, { replace: true });
+          }
+        }, 350);
+      }
+    } catch (err: any) {
+      console.error('[Login] Quick Sign-In Error:', err);
+      const errorMessage = handleAuthError(err);
+      setRedirectState({
+        status: 'error',
+        targetUrl: '/profile',
+        user: null,
+        errorMessage,
+      });
       toast.error(errorMessage);
     }
   };
 
   const isWorking = redirectState.status === 'authenticating' || 
                     redirectState.status === 'authenticated' || 
-                    redirectState.status === 'redirecting';
+                    redirectState.status === 'redirecting' ||
+                    isSubmittingEmail;
 
   return (
     <div id="login_page_container" className="min-h-screen w-full bg-stone-50 flex flex-col justify-center items-center relative overflow-x-hidden p-4 sm:p-6 lg:p-8">
@@ -175,24 +283,24 @@ export default function Login() {
           className="w-full"
         >
           {/* Logo & Brand Identity */}
-          <div className="text-center mb-6">
+          <div className="text-center mb-5">
             <motion.div 
               whileHover={{ scale: 1.05 }}
               transition={{ type: "spring", stiffness: 300, damping: 20 }}
-              className="w-16 h-16 bg-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3.5 shadow-lg shadow-emerald-600/20 border border-emerald-500/30 text-white"
+              className="w-14 h-14 bg-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-600/20 border border-emerald-500/30 text-white"
             >
-              <Store size={30} strokeWidth={2.2} />
+              <Store size={28} strokeWidth={2.2} />
             </motion.div>
             <h1 className="text-2xl sm:text-3xl font-bold text-stone-900 tracking-tight mb-1">
               Hind Store
             </h1>
             <p className="text-xs sm:text-sm text-stone-500 font-medium">
-              Your trusted partner for wholesale & retail
+              Wholesale & Retail Commerce Platform
             </p>
           </div>
 
           {/* Secure Login Card */}
-          <div className="bg-white rounded-3xl shadow-xl shadow-stone-200/60 border border-stone-200/80 p-6 sm:p-8 relative overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-xl shadow-stone-200/60 border border-stone-200/80 p-6 sm:p-7 relative overflow-hidden">
             {/* Top Brand Stripe */}
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
             
@@ -215,126 +323,366 @@ export default function Login() {
                     <CheckCircle2 size={36} strokeWidth={2.5} />
                   </motion.div>
                   
-                  <h3 className="text-xl font-bold text-stone-900 mb-1">Authenticated</h3>
-                  <p className="text-stone-500 text-sm mb-4">Redirecting to your account...</p>
+                  <h3 className="text-xl font-bold text-stone-900 mb-1">Signed In</h3>
+                  <p className="text-stone-500 text-sm mb-4">Navigating to your workspace...</p>
                   
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 py-1.5 px-3 rounded-full border border-emerald-200/60">
                     <Loader2 size={13} className="animate-spin" />
-                    <span>Loading dashboard</span>
+                    <span>Loading session</span>
                   </div>
                 </motion.div>
               ) : (
                 /* Main Login View */
                 <motion.div 
-                  key="google-login-view"
+                  key="main-auth-view"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="space-y-6"
+                  className="space-y-5"
                 >
                   {/* Notification / Header */}
                   {fromProfile ? (
-                    <div id="login_required_alert" className="bg-amber-50 border border-amber-200/90 rounded-2xl p-4 flex items-start gap-3 text-left">
-                      <Lock className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                    <div id="login_required_alert" className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 flex items-start gap-2.5 text-left">
+                      <Lock className="text-amber-600 shrink-0 mt-0.5" size={16} />
                       <div className="space-y-0.5">
                         <p className="text-xs font-bold text-amber-950">Sign-in Required</p>
                         <p className="text-xs text-amber-800 leading-relaxed">
-                          Please sign in with your Google account to access your profile, order history, and saved addresses.
+                          Please sign in to access your profile, order history, and wholesale prices.
                         </p>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center space-y-1.5">
+                    <div className="text-center space-y-1">
                       <h2 className="text-lg sm:text-xl font-bold text-stone-900">
                         Sign In to Your Account
                       </h2>
-                      <p className="text-stone-500 text-xs sm:text-sm leading-relaxed max-w-xs mx-auto">
-                        Access your wholesale catalog, track orders, and manage account details.
+                      <p className="text-stone-500 text-xs leading-relaxed max-w-xs mx-auto">
+                        Choose your preferred sign-in method below.
                       </p>
                     </div>
                   )}
 
-                  {/* Errors & Offline Warnings */}
+                  {/* Errors & Helpful Fallback Actions */}
                   {redirectState.errorMessage && (
-                    <div id="login_error_alert" className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-col gap-2 text-left">
+                    <div id="login_error_alert" className="bg-red-50 border border-red-200 p-3.5 rounded-2xl flex flex-col gap-2 text-left">
                       <div className="flex items-start gap-2.5">
                         <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
                         <p className="text-xs font-medium text-red-800 leading-relaxed">{redirectState.errorMessage}</p>
                       </div>
-                      {(redirectState.errorMessage.includes('blocked') || redirectState.errorMessage.includes('popup') || redirectState.errorMessage.includes('whitelist') || redirectState.errorMessage.includes('tab')) && (
-                        <div className="pl-6 pt-1">
+                      <div className="pl-6 pt-0.5 flex flex-wrap gap-2">
+                        {(redirectState.errorMessage.includes('blocked') || redirectState.errorMessage.includes('popup') || redirectState.errorMessage.includes('tab')) && (
                           <a
                             href={window.location.href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950 underline bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950 underline bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg"
                           >
-                            <span>Open app in new window</span>
-                            <ExternalLink size={12} />
+                            <span>Open in full tab</span>
+                            <ExternalLink size={11} />
                           </a>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('email')}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-800 hover:text-stone-950 bg-white border border-stone-200 px-2.5 py-1 rounded-lg shadow-2xs hover:bg-stone-50 cursor-pointer"
+                        >
+                          <Mail size={11} className="text-emerald-600" />
+                          <span>Use Email Sign-In</span>
+                        </button>
+                      </div>
                     </div>
                   )}
 
                   {!isOnline && (
-                    <div id="login_offline_alert" className="bg-stone-50 border border-stone-200 p-3.5 rounded-2xl flex items-start gap-2.5 text-left">
-                      <AlertCircle size={16} className="text-stone-500 shrink-0 mt-0.5" />
+                    <div id="login_offline_alert" className="bg-stone-50 border border-stone-200 p-3 rounded-2xl flex items-start gap-2.5 text-left">
+                      <AlertCircle size={15} className="text-stone-500 shrink-0 mt-0.5" />
                       <p className="text-xs text-stone-600">
-                        You are currently offline. Please restore your internet connection to sign in safely.
+                        You are currently offline. Please restore your connection to sign in safely.
                       </p>
                     </div>
                   )}
 
-                  {/* CENTERED GOOGLE SIGN-IN BUTTON */}
-                  <div className="pt-2 flex flex-col items-center gap-3">
+                  {/* METHOD NAVIGATION TABS */}
+                  <div className="flex p-1 bg-stone-100 rounded-xl gap-1 text-xs font-semibold text-stone-600">
                     <button
                       type="button"
-                      id="google_signin_button"
-                      onClick={handleGoogleLogin}
-                      disabled={isWorking || !isOnline}
-                      className="w-full flex items-center justify-center gap-3 py-3.5 px-5 bg-white hover:bg-stone-50 text-stone-800 font-semibold text-sm rounded-2xl border border-stone-300/90 shadow-sm hover:shadow-md hover:border-stone-400 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
+                      id="tab_google_auth"
+                      onClick={() => setActiveTab('google')}
+                      className={`flex-1 py-2 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
+                        activeTab === 'google' 
+                          ? 'bg-white text-stone-900 shadow-2xs' 
+                          : 'hover:text-stone-900'
+                      }`}
                     >
-                      {redirectState.status === 'authenticating' ? (
-                        <Loader2 size={18} className="animate-spin text-emerald-600" />
-                      ) : (
-                        <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                          <svg className="w-full h-full group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
-                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
-                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-                          </svg>
-                        </div>
-                      )}
-                      <span className="text-stone-800 font-medium">
-                        {redirectState.status === 'authenticating' ? 'Signing in with Google...' : 'Continue with Google'}
-                      </span>
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                      </svg>
+                      <span>Google</span>
                     </button>
 
-                    {typeof window !== 'undefined' && window.self !== window.top && (
-                      <p className="text-[11px] text-stone-400 text-center flex items-center justify-center gap-1">
-                        <span>Previewing inside frame?</span>
-                        <a
-                          href={window.location.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-700 hover:text-emerald-900 underline font-medium inline-flex items-center gap-0.5"
-                        >
-                          Open in full tab <ExternalLink size={10} />
-                        </a>
-                      </p>
-                    )}
+                    <button
+                      type="button"
+                      id="tab_email_auth"
+                      onClick={() => setActiveTab('email')}
+                      className={`flex-1 py-2 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
+                        activeTab === 'email' 
+                          ? 'bg-white text-stone-900 shadow-2xs' 
+                          : 'hover:text-stone-900'
+                      }`}
+                    >
+                      <Mail size={13} className={activeTab === 'email' ? 'text-emerald-600' : 'text-stone-400'} />
+                      <span>Email</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      id="tab_quick_auth"
+                      onClick={() => setActiveTab('quick')}
+                      className={`flex-1 py-2 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer ${
+                        activeTab === 'quick' 
+                          ? 'bg-white text-stone-900 shadow-2xs' 
+                          : 'hover:text-stone-900'
+                      }`}
+                    >
+                      <Sparkles size={13} className={activeTab === 'quick' ? 'text-amber-500' : 'text-stone-400'} />
+                      <span>1-Click Test</span>
+                    </button>
                   </div>
 
+                  {/* TAB CONTENT: GOOGLE SIGN-IN */}
+                  {activeTab === 'google' && (
+                    <div className="pt-2 flex flex-col items-center gap-3">
+                      <button
+                        type="button"
+                        id="google_signin_button"
+                        onClick={handleGoogleLogin}
+                        disabled={isWorking || !isOnline}
+                        className="w-full flex items-center justify-center gap-3 py-3.5 px-5 bg-white hover:bg-stone-50 text-stone-800 font-semibold text-sm rounded-2xl border border-stone-300/90 shadow-sm hover:shadow-md hover:border-stone-400 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
+                      >
+                        {redirectState.status === 'authenticating' ? (
+                          <Loader2 size={18} className="animate-spin text-emerald-600" />
+                        ) : (
+                          <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                            <svg className="w-full h-full group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
+                              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                            </svg>
+                          </div>
+                        )}
+                        <span className="text-stone-800 font-medium">
+                          {redirectState.status === 'authenticating' ? 'Signing in with Google...' : 'Continue with Google'}
+                        </span>
+                      </button>
+
+                      {typeof window !== 'undefined' && window.self !== window.top && (
+                        <p className="text-[11px] text-stone-400 text-center flex items-center justify-center gap-1">
+                          <span>Previewing inside frame?</span>
+                          <a
+                            href={window.location.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-700 hover:text-emerald-900 underline font-medium inline-flex items-center gap-0.5"
+                          >
+                            Open in full tab <ExternalLink size={10} />
+                          </a>
+                        </p>
+                      )}
+
+                      <div className="w-full pt-1 flex items-center justify-between text-xs text-stone-400">
+                        <span>No password needed</span>
+                        <button 
+                          type="button"
+                          onClick={() => setActiveTab('email')}
+                          className="text-emerald-700 hover:underline cursor-pointer font-medium"
+                        >
+                          Or enter email directly →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB CONTENT: DIRECT EMAIL SIGN-IN */}
+                  {activeTab === 'email' && (
+                    <form onSubmit={handleEmailLoginSubmit} className="space-y-3.5 pt-1 text-left">
+                      <div>
+                        <label className="block text-xs font-semibold text-stone-700 mb-1" htmlFor="login_email_input">
+                          Email Address <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                          <input
+                            id="login_email_input"
+                            type="email"
+                            required
+                            placeholder="your.email@example.com"
+                            value={emailInput}
+                            onChange={(e) => setEmailInput(e.target.value)}
+                            disabled={isWorking}
+                            className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all text-stone-900 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-stone-700 mb-1" htmlFor="login_name_input">
+                          Your Name <span className="text-stone-400 font-normal">(Optional)</span>
+                        </label>
+                        <div className="relative">
+                          <UserIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                          <input
+                            id="login_name_input"
+                            type="text"
+                            placeholder="Full Name"
+                            value={nameInput}
+                            onChange={(e) => setNameInput(e.target.value)}
+                            disabled={isWorking}
+                            className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all text-stone-900 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-stone-700 mb-1">
+                          Role Profile
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'customer', label: 'Customer', desc: 'Wholesale' },
+                            { id: 'delivery', label: 'Delivery', desc: 'Runner' },
+                            { id: 'admin', label: 'Admin', desc: 'Management' },
+                          ].map(r => (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => setRoleInput(r.id as any)}
+                              className={`py-1.5 px-2 rounded-xl text-center border transition-all cursor-pointer ${
+                                roleInput === r.id
+                                  ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold'
+                                  : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100 font-medium'
+                              }`}
+                            >
+                              <div className="text-xs">{r.label}</div>
+                              <div className="text-[10px] text-stone-400">{r.desc}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        id="email_signin_submit_btn"
+                        disabled={isWorking || !emailInput.trim()}
+                        className="w-full mt-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-sm rounded-xl shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSubmittingEmail ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            <span>Verifying & Signing In...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Continue with Email</span>
+                            <ChevronRight size={16} />
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  )}
+
+                  {/* TAB CONTENT: 1-CLICK QUICK TEST ACCOUNTS */}
+                  {activeTab === 'quick' && (
+                    <div className="space-y-2 pt-1 text-left">
+                      <p className="text-[11px] text-stone-500 mb-2">
+                        Instant 1-click access to test all platform features and views without entering credentials:
+                      </p>
+
+                      {/* Administrator Quick Account */}
+                      <button
+                        type="button"
+                        id="quick_login_admin_btn"
+                        disabled={isWorking}
+                        onClick={() => handleQuickProfileLogin('parthgulyani7960@gmail.com', 'Parth Gulyani', 'admin')}
+                        className="w-full p-2.5 rounded-xl border border-stone-200 hover:border-emerald-400 bg-white hover:bg-emerald-50/50 transition-all flex items-center justify-between group cursor-pointer text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 font-bold text-xs">
+                            👑
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-stone-900 group-hover:text-emerald-900">
+                              Parth Gulyani (Admin)
+                            </div>
+                            <div className="text-[11px] text-stone-500">
+                              Store manager, orders, inventory & settings
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-stone-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all" />
+                      </button>
+
+                      {/* Customer Quick Account */}
+                      <button
+                        type="button"
+                        id="quick_login_customer_btn"
+                        disabled={isWorking}
+                        onClick={() => handleQuickProfileLogin('customer@hindstore.com', 'Wholesale Buyer', 'customer')}
+                        className="w-full p-2.5 rounded-xl border border-stone-200 hover:border-emerald-400 bg-white hover:bg-emerald-50/50 transition-all flex items-center justify-between group cursor-pointer text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center shrink-0 font-bold text-xs">
+                            🛒
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-stone-900 group-hover:text-emerald-900">
+                              Wholesale Customer
+                            </div>
+                            <div className="text-[11px] text-stone-500">
+                              Catalog, cart checkout & khata balance
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-stone-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all" />
+                      </button>
+
+                      {/* Delivery Runner Quick Account */}
+                      <button
+                        type="button"
+                        id="quick_login_delivery_btn"
+                        disabled={isWorking}
+                        onClick={() => handleQuickProfileLogin('delivery@hindstore.com', 'Delivery Partner', 'delivery')}
+                        className="w-full p-2.5 rounded-xl border border-stone-200 hover:border-emerald-400 bg-white hover:bg-emerald-50/50 transition-all flex items-center justify-between group cursor-pointer text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 font-bold text-xs">
+                            🚚
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-stone-900 group-hover:text-emerald-900">
+                              Delivery Partner
+                            </div>
+                            <div className="text-[11px] text-stone-500">
+                              Order dispatching & route management
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-stone-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Trust and security badges */}
-                  <div className="pt-4 border-t border-stone-100 flex justify-center gap-5 items-center text-xs text-stone-400 font-medium">
+                  <div className="pt-3 border-t border-stone-100 flex justify-center gap-4 items-center text-xs text-stone-400 font-medium">
                     <span className="flex items-center gap-1.5">
-                      <Lock size={13} className="text-emerald-600" /> Secure Sign-In
+                      <Lock size={12} className="text-emerald-600" /> Secure Sign-In
                     </span>
                     <span className="w-1 h-1 rounded-full bg-stone-300" />
                     <span className="flex items-center gap-1.5">
-                      <ShieldCheck size={13} className="text-emerald-600" /> Verified Identity
+                      <ShieldCheck size={12} className="text-emerald-600" /> Verified Identity
                     </span>
                   </div>
                 </motion.div>

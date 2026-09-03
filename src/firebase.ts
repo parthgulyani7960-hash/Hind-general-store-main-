@@ -296,11 +296,11 @@ export {
 const getFirebaseErrorMessage = (errorCode: string): string => {
   switch (errorCode) {
     case 'auth/popup-closed-by-user':
-      return 'Google sign-in popup was closed before completing. Please click Continue with Google when ready.';
+      return 'Sign-in was cancelled because the Google popup was closed. You can retry or use email sign-in below.';
     case 'auth/cancelled-popup-request':
       return 'Another sign-in attempt was in progress. Please try again.';
     case 'auth/popup-blocked':
-      return 'Popups were blocked by your browser. Please allow popups or use redirect.';
+      return 'Popups were blocked by your browser. Please allow popups, open in a new tab, or use email sign-in below.';
     case 'auth/user-disabled':
       return 'This user account has been disabled. Please contact customer support.';
     case 'auth/user-not-found':
@@ -322,7 +322,7 @@ const getFirebaseErrorMessage = (errorCode: string): string => {
     case 'auth/network-request-failed':
       return 'Network connection issue detected. Please check your internet connection and try again.';
     case 'auth/unauthorized-domain':
-      return 'This app preview domain is not whitelisted in Firebase Auth Authorized Domains.';
+      return 'This preview domain is not whitelisted in Google OAuth yet. You can sign in immediately using Email Sign-In below.';
     case 'auth/internal-error':
       return 'An internal authentication service notice occurred. Please retry sign-in.';
     default:
