@@ -6,10 +6,8 @@ import {
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useStore } from '@/StoreContext';
 import toast from 'react-hot-toast';
-import { fetchWithHandling } from '@/lib/api';
-import { signInWithGoogle, handleRedirectResult, handleAuthError } from '@/firebase';
+import { handleAuthError } from '@/firebase';
 import { triggerFeedback } from '@/lib/feedback';
-import { securityService } from '@/services/securityService';
 
 export type RedirectStatus = 
   | 'idle' 
@@ -31,7 +29,7 @@ export interface RedirectState {
  * Integrated with dedicated redirectState to prevent race conditions during OAuth callbacks.
  */
 export default function Login() {
-  const { user, isOnline, login } = useStore();
+  const { user, isOnline, handleGoogleSignIn, logAuthDiagnostic, authDiagnosticLogs } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -42,8 +40,8 @@ export default function Login() {
     errorMessage: null,
   });
 
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const hasRedirectedRef = useRef(false);
-  const isExchangingTokenRef = useRef(false);
 
   const fromProfile = location.state?.from?.pathname === '/profile' || 
                       sessionStorage.getItem('auth_redirect_url')?.includes('/profile');
@@ -78,95 +76,16 @@ export default function Login() {
     }
   }, [location]);
 
-  // 2. Token Exchange & Session Establishment
-  const completeAuth = async (token: string, source: 'popup' | 'redirect') => {
-    if (isExchangingTokenRef.current || hasRedirectedRef.current) return;
-    isExchangingTokenRef.current = true;
-    
-    setRedirectState(prev => ({
-      ...prev,
-      status: 'authenticating',
-      errorMessage: null
-    }));
-
-    try {
-      const data = await fetchWithHandling<any>('/api/auth/firebase-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: token })
-      });
-
-      if (data && data.success && data.user) {
-        const targetUrl = getRedirectTarget(data.user);
-        login(data.user, token);
-        
-        setRedirectState({
-          status: 'authenticated',
-          targetUrl,
-          user: data.user,
-          errorMessage: null,
-        });
-
-        toast.success(`Welcome, ${data.user.name || 'User'}!`);
-
-        // Smooth transition to target route
-        setTimeout(() => {
-          if (!hasRedirectedRef.current) {
-            hasRedirectedRef.current = true;
-            setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
-            navigate(targetUrl, { replace: true });
-          }
-        }, 400);
-      } else {
-        const msg = data?.message || 'Access request was declined by server.';
-        setRedirectState({
-          status: 'error',
-          targetUrl: '/profile',
-          user: null,
-          errorMessage: msg,
-        });
-        toast.error(msg);
-        securityService.trackAuth('failed_login', { email: 'Server rejection', source });
-      }
-    } catch (err: any) {
-      const errorMsg = handleAuthError(err);
-      setRedirectState({
-        status: 'error',
-        targetUrl: '/profile',
-        user: null,
-        errorMessage: errorMsg,
-      });
-      toast.error(errorMsg);
-      securityService.trackAuth('failed_login', { email: 'Exception', error: errorMsg, source });
-    } finally {
-      isExchangingTokenRef.current = false;
-    }
-  };
-
-  // 3. Process redirect callbacks on mount (e.g. mobile OAuth or redirect fallbacks)
-  useEffect(() => {
-    let isMounted = true;
-    const processRedirect = async () => {
-      try {
-        const result = await handleRedirectResult();
-        if (result && result.token && isMounted && !hasRedirectedRef.current) {
-          await completeAuth(result.token, 'redirect');
-        }
-      } catch (err) {
-        console.warn('[Login] Redirect result resolution notice:', err);
-      }
-    };
-    processRedirect();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // 4. Safely capture session from onAuthStateChanged or active store state
+  // 2. Safely capture session from onAuthStateChanged or active store state
   useEffect(() => {
     if (user && !hasRedirectedRef.current && redirectState.status !== 'redirecting') {
       const targetUrl = getRedirectTarget(user);
       hasRedirectedRef.current = true;
+      logAuthDiagnostic('login_view', 'trigger_router_navigation', {
+        targetUrl,
+        user: { id: user.id, email: user.email, role: user.role }
+      }, redirectState.status, 'redirecting');
+      
       setRedirectState({
         status: 'redirecting',
         targetUrl,
@@ -175,9 +94,9 @@ export default function Login() {
       });
       navigate(targetUrl, { replace: true });
     }
-  }, [user, navigate, redirectState.status]);
+  }, [user, navigate, redirectState.status, logAuthDiagnostic]);
 
-  // 5. Primary Google Sign-In Trigger
+  // 3. Primary Google Sign-In Trigger
   const handleGoogleLogin = async () => {
     triggerFeedback('medium');
     if (!isOnline) {
@@ -187,17 +106,32 @@ export default function Login() {
 
     try {
       setRedirectState(prev => ({ ...prev, status: 'authenticating', errorMessage: null }));
-      const result = await signInWithGoogle();
+      const result = await handleGoogleSignIn({ source: 'auto', targetPath: location.pathname });
       
-      if (!result || !result.token) {
-        // Redirect fallback triggered by signInWithGoogle
+      if (result && result.user) {
+        const targetUrl = getRedirectTarget(result.user);
+        setRedirectState({
+          status: 'authenticated',
+          targetUrl,
+          user: result.user,
+          errorMessage: null,
+        });
+
+        toast.success(`Welcome, ${result.user.name || 'User'}!`);
+
+        setTimeout(() => {
+          if (!hasRedirectedRef.current) {
+            hasRedirectedRef.current = true;
+            setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
+            navigate(targetUrl, { replace: true });
+          }
+        }, 400);
+      } else {
+        // Redirect flow in progress
         setRedirectState(prev => ({ ...prev, status: 'idle' }));
-        return;
       }
-      
-      await completeAuth(result.token, 'popup');
     } catch (err: any) {
-      console.error('Google Sign-In Error:', err);
+      console.error('[Login] Google Sign-In Error:', err);
       const errorMessage = handleAuthError(err);
       setRedirectState({
         status: 'error',

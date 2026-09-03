@@ -74,9 +74,17 @@ const fetchWithHandlingInternal = async <T>(
     window.dispatchEvent(new CustomEvent('api_loading_stop'));
 
     if (res.type === 'opaqueredirect') {
-      logger.warn(`IAP Intercepted request to ${url}. Reloading to refresh session.`);
-      window.location.reload();
-      return null;
+      logger.warn(`Intercepted opaque redirect on request to ${url}. Aborting reload to prevent login refresh loops.`);
+      window.dispatchEvent(new CustomEvent('auth_diagnostic_event', {
+        detail: {
+          id: `diag_opaque_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          stage: 'api_transport',
+          action: 'opaque_redirect_detected',
+          payload: { url, method: options.method || 'GET' }
+        }
+      }));
+      throw new ApiError(`Opaque redirect received for ${url}`, 0, { type: 'opaqueredirect' });
     }
 
     // Diagnostic logging for all admin requests or errors

@@ -6,17 +6,62 @@ import { useLanguage } from './LanguageContext';
 import { useSWRConfig } from 'swr';
 import { useNetwork } from './hooks/useNetwork';
 import { useProductCache } from './hooks/useProductCache';
-import { auth, signOutUser, onAuthStateChanged, onIdTokenChanged, db, doc, onSnapshot, collection, query, orderBy, limit, where } from './firebase'; 
+import { 
+  auth, 
+  signOutUser, 
+  onAuthStateChanged, 
+  onIdTokenChanged, 
+  db, 
+  doc, 
+  onSnapshot, 
+  collection, 
+  query, 
+  orderBy, 
+  limit, 
+  where,
+  signInWithGoogle as firebaseSignInWithGoogle,
+  handleRedirectResult as firebaseHandleRedirectResult,
+  handleAuthError
+} from './firebase'; 
 import { getAuthHeaders } from './lib/utils';
 import { fetchWithHandling } from './lib/api';
 import { securityService } from './services/securityService';
 import { logger } from './lib/logger';
 import { triggerFeedback } from './lib/feedback';
 
+export interface AuthDiagnosticEntry {
+  id: string;
+  timestamp: string;
+  stage: string;
+  action: string;
+  fromState?: string;
+  toState?: string;
+  payload?: any;
+  userSnapshot?: any;
+  storageSnapshot?: {
+    hgs_token?: boolean;
+    hgs_user?: boolean;
+    auth_redirect_url?: string | null;
+  };
+  locationSnapshot?: {
+    href: string;
+    pathname: string;
+    search: string;
+    hash: string;
+  };
+  performanceMetrics?: {
+    timeSinceMountMs: number;
+  };
+}
+
 interface StoreContextType {
   user: User | null;
   setUser: (user: User | null) => void;
   login: (userData: User, token?: string) => void;
+  handleGoogleSignIn: (options?: { source?: 'popup' | 'redirect' | 'auto'; targetPath?: string }) => Promise<{ user: User; token: string } | null>;
+  authDiagnosticLogs: AuthDiagnosticEntry[];
+  logAuthDiagnostic: (stage: string, action: string, payload?: any, fromState?: string, toState?: string) => void;
+  clearAuthDiagnostics: () => void;
   cart: CartItem[];
   addToCart: (product: Product, variant?: any, quantity?: number) => void;
   removeFromCart: (productId: any, variantId?: any) => void;
@@ -160,6 +205,83 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [startupPhase, setStartupPhase] = useState(1);
   const [diagnosticLogs, setDiagnosticLogs] = useState<any[]>([]);
   const [runtimeErrors, setRuntimeErrors] = useState<any[]>([]);
+  
+  // Auth Diagnostic Logs ring-buffer with persistent storage recovery
+  const [authDiagnosticLogs, setAuthDiagnosticLogs] = useState<AuthDiagnosticEntry[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('hgs_auth_diagnostics_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const logAuthDiagnostic = React.useCallback((
+    stage: string, 
+    action: string, 
+    payload?: any, 
+    fromState?: string, 
+    toState?: string
+  ) => {
+    const timeSinceMount = Date.now() - mountTimeRef.current;
+    const entry: AuthDiagnosticEntry = {
+      id: `diag_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      stage,
+      action,
+      fromState: fromState || (userRef.current ? `authenticated (${userRef.current.email || userRef.current.id})` : 'unauthenticated'),
+      toState,
+      payload: payload ? (typeof payload === 'object' ? JSON.parse(JSON.stringify(payload, (_k, v) => typeof v === 'function' ? '[Function]' : v)) : payload) : null,
+      userSnapshot: userRef.current ? { 
+        id: userRef.current.id, 
+        email: userRef.current.email, 
+        role: userRef.current.role, 
+        numeric_id: (userRef.current as any).numeric_id 
+      } : null,
+      storageSnapshot: {
+        hgs_token: !!localStorage.getItem('hgs_token'),
+        hgs_user: !!localStorage.getItem('hgs_user'),
+        auth_redirect_url: sessionStorage.getItem('auth_redirect_url')
+      },
+      locationSnapshot: typeof window !== 'undefined' ? {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash
+      } : undefined,
+      performanceMetrics: {
+        timeSinceMountMs: timeSinceMount
+      }
+    };
+
+    console.groupCollapsed(`%c[AUTH_DIAGNOSTIC] [${stage.toUpperCase()}] ${action} (${timeSinceMount}ms)`, 'color: #059669; font-weight: bold;');
+    console.log('Timestamp:', entry.timestamp);
+    console.log('Transition:', `${entry.fromState} ➔ ${entry.toState || '(in-flight)'}`);
+    console.log('Location:', entry.locationSnapshot);
+    console.log('Storage:', entry.storageSnapshot);
+    console.log('User Snapshot:', entry.userSnapshot);
+    console.log('Payload:', entry.payload);
+    console.groupEnd();
+
+    setAuthDiagnosticLogs(prev => {
+      const next = [entry, ...prev].slice(0, 60);
+      try {
+        sessionStorage.setItem('hgs_auth_diagnostics_history', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth_diagnostic_event', { detail: entry }));
+    }
+  }, []);
+
+  const clearAuthDiagnostics = React.useCallback(() => {
+    setAuthDiagnosticLogs([]);
+    try {
+      sessionStorage.removeItem('hgs_auth_diagnostics_history');
+    } catch (e) {}
+  }, []);
   const [categories, setCategories] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem('hgs_categories');
@@ -863,11 +985,103 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
     authRunningRef.current = false;
     securityService.trackAuth('login', userData);
+    logAuthDiagnostic('session_login', 'user_state_updated', {
+      userId: userData?.id,
+      email: userData?.email,
+      role: userData?.role,
+      tokenProvided: !!token
+    }, 'authenticating', `authenticated (${userData?.email || userData?.id})`);
     if (userData?.id) {
       fetchCart(userData.id, true).catch(() => {});
       fetchAddresses().catch(() => {});
     }
-  }, [fetchCart, fetchAddresses]);
+  }, [fetchCart, fetchAddresses, logAuthDiagnostic]);
+
+  const handleGoogleSignIn = React.useCallback(async (options?: { source?: 'popup' | 'redirect' | 'auto'; targetPath?: string }): Promise<{ user: User; token: string } | null> => {
+    const source = options?.source || 'popup';
+    const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+
+    logAuthDiagnostic('google_signin', 'initiate_request', {
+      source,
+      targetPath: options?.targetPath,
+      online: isOnline,
+      windowInIframe: isIframe,
+      origin: typeof window !== 'undefined' ? window.location.origin : null,
+      pathname: typeof window !== 'undefined' ? window.location.pathname : null,
+      currentAuthState: userRef.current ? { id: userRef.current.id, email: userRef.current.email, role: userRef.current.role } : null
+    }, userRef.current ? `authenticated (${userRef.current.email})` : 'unauthenticated', 'authenticating');
+
+    try {
+      setIsAuthChecking(true);
+      setIsInitializingAuth(true);
+
+      const result = await firebaseSignInWithGoogle();
+      
+      logAuthDiagnostic('google_signin', 'firebase_oauth_response', {
+        hasResult: !!result,
+        userUid: result?.user?.uid || null,
+        userEmail: result?.user?.email || null,
+        displayName: result?.user?.displayName || null,
+        emailVerified: result?.user?.emailVerified || false,
+        hasToken: !!result?.token,
+        tokenLength: result?.token?.length || 0,
+        tokenPreview: result?.token ? `${result.token.substring(0, 15)}...` : null
+      });
+
+      if (!result || !result.token) {
+        // Redirect flow was triggered by signInWithRedirect fallback
+        logAuthDiagnostic('google_signin', 'redirect_fallback_active', {
+          notice: 'Browser redirect triggered by signInWithRedirect. Awaiting page reload & callback resolution.'
+        }, 'authenticating', 'redirect_in_progress');
+        return null;
+      }
+
+      logAuthDiagnostic('google_signin', 'backend_token_exchange_request', {
+        endpoint: '/api/auth/firebase-login',
+        tokenLength: result.token.length
+      });
+
+      const data = await fetchWithHandling<{ success: boolean; user: User; token?: string; message?: string }>('/api/auth/firebase-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: result.token })
+      });
+
+      logAuthDiagnostic('google_signin', 'backend_token_exchange_response', {
+        success: data?.success,
+        user: data?.user ? { id: data.user.id, email: data.user.email, role: data.user.role, numeric_id: (data.user as any).numeric_id } : null,
+        message: data?.message
+      });
+
+      if (data && data.success && data.user) {
+        login(data.user, result.token);
+        logAuthDiagnostic('google_signin', 'session_established_success', {
+          user: { id: data.user.id, email: data.user.email, role: data.user.role },
+          isDevAdmin: data.user.email === 'parthgulyani7960@gmail.com' || data.user.role === 'admin'
+        }, 'authenticating', `authenticated (${data.user.email})`);
+        return { user: data.user, token: result.token };
+      } else {
+        const errorMsg = data?.message || 'Authentication rejected by server';
+        logAuthDiagnostic('google_signin', 'backend_rejection_error', { error: errorMsg }, 'authenticating', 'auth_error');
+        throw new Error(errorMsg);
+      }
+    } catch (err: any) {
+      const friendlyMsg = handleAuthError(err);
+      logAuthDiagnostic('google_signin', 'exception_caught', {
+        rawMessage: err?.message,
+        friendlyMsg,
+        code: err?.code,
+        status: err?.status,
+        name: err?.name,
+        stack: err?.stack
+      }, 'authenticating', 'auth_error');
+      throw err;
+    } finally {
+      setIsAuthChecking(false);
+      setIsInitializingAuth(false);
+      setLoading(false);
+    }
+  }, [isOnline, login, logAuthDiagnostic]);
 
   const logout = () => setShowLogoutDialog(true);
   const performLogout = async () => {
@@ -1272,16 +1486,89 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const duration = Date.now() - mountTimeRef.current;
       setAuthInitDuration(duration);
       console.warn(`[BOOT] Auth safety timeout reached after ${duration}ms. Unblocking initial render.`);
+      logAuthDiagnostic('boot', 'safety_timeout_reached', { durationMs: duration }, 'authenticating', 'auth_timeout_unblocked');
       setIsInitialAuthPerformed(true);
       setIsAuthChecking(false);
       setIsInitializingAuth(false);
       setLoading(false);
     }, 8000);
 
+    // 1. Diagnostic: Capture initial mount parameters & potential OAuth redirect query parameters
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryParamsMap: Record<string, string> = {};
+      urlParams.forEach((v, k) => { queryParamsMap[k] = v; });
+      const hasOAuthParams = urlParams.has('apiKey') || urlParams.has('mode') || urlParams.has('oobCode') || urlParams.has('state');
+
+      logAuthDiagnostic('boot', 'mount_auth_environment_inspect', {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+        hasOAuthParams,
+        queryParams: queryParamsMap,
+        storedTokenPresent: !!localStorage.getItem('hgs_token'),
+        storedUserPresent: !!localStorage.getItem('hgs_user'),
+        inIframe: window.self !== window.top
+      });
+
+      // 2. Check for Firebase Redirect Result (if redirected from Google OAuth flow)
+      firebaseHandleRedirectResult().then(async (redirectResult) => {
+        if (redirectResult && redirectResult.user) {
+          logAuthDiagnostic('redirect_callback', 'firebase_redirect_payload_received', {
+            uid: redirectResult.user.uid,
+            email: redirectResult.user.email,
+            displayName: redirectResult.user.displayName,
+            tokenLength: redirectResult.token?.length || 0,
+            tokenPreview: redirectResult.token ? `${redirectResult.token.substring(0, 15)}...` : null
+          }, 'redirect_in_progress', 'authenticating');
+
+          try {
+            const data = await fetchWithHandling<{ success: boolean; user: User; token?: string; message?: string }>('/api/auth/firebase-login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ idToken: redirectResult.token })
+            });
+
+            logAuthDiagnostic('redirect_callback', 'backend_redirect_exchange_response', {
+              success: data?.success,
+              user: data?.user ? { id: data.user.id, email: data.user.email, role: data.user.role } : null,
+              message: data?.message
+            });
+
+            if (data && data.success && data.user) {
+              login(data.user, redirectResult.token);
+              logAuthDiagnostic('redirect_callback', 'session_initialized_via_redirect', {
+                user: { id: data.user.id, email: data.user.email, role: data.user.role }
+              }, 'authenticating', `authenticated (${data.user.email})`);
+            }
+          } catch (exchangeErr: any) {
+            logAuthDiagnostic('redirect_callback', 'backend_redirect_exchange_error', {
+              error: exchangeErr.message,
+              stack: exchangeErr.stack
+            }, 'authenticating', 'auth_error');
+          }
+        } else {
+          logAuthDiagnostic('boot', 'redirect_result_checked', {
+            result: null,
+            notice: 'No pending redirect credentials found'
+          });
+        }
+      }).catch((redirectErr: any) => {
+        logAuthDiagnostic('redirect_callback', 'redirect_result_exception', {
+          error: redirectErr?.message,
+          code: redirectErr?.code
+        }, 'redirect_in_progress', 'auth_error');
+      });
+    }
+
     // Restore session immediately if local token exists
     const savedToken = localStorage.getItem('hgs_token');
     if (savedToken && !userRef.current) {
-      console.log('[BOOT] Saved token found on mount, running checkAuth immediately...');
+      logAuthDiagnostic('boot', 'saved_token_found_checking', {
+        tokenLength: savedToken.length,
+        tokenPreview: `${savedToken.substring(0, 15)}...`
+      }, 'unauthenticated', 'authenticating');
       checkAuth(savedToken);
     }
     
@@ -1290,30 +1577,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(authSafetyTimeout);
         const duration = Date.now() - mountTimeRef.current;
         setAuthInitDuration(duration);
-        console.log(`[BOOT] onAuthStateChanged triggered after ${duration}ms`, {
+        
+        logAuthDiagnostic('firebase_auth_state_changed', 'state_transition_received', {
           hasFirebaseUser: !!firebaseUser,
           uid: firebaseUser?.uid || null,
           email: firebaseUser?.email || null,
           displayName: firebaseUser?.displayName || null,
           emailVerified: firebaseUser?.emailVerified || false,
-          currentUserState: !!userRef.current,
-          storedTokenPresent: !!localStorage.getItem('hgs_token')
-        });
+          providerData: firebaseUser?.providerData?.map(p => ({ providerId: p.providerId, email: p.email, uid: p.uid })),
+          currentUserInContext: userRef.current ? { id: userRef.current.id, email: userRef.current.email, role: userRef.current.role } : null,
+          storedTokenPresent: !!localStorage.getItem('hgs_token'),
+          durationSinceMountMs: duration
+        }, userRef.current ? `authenticated (${userRef.current.email})` : 'unauthenticated', firebaseUser ? `firebase_auth (${firebaseUser.email || firebaseUser.uid})` : 'unauthenticated');
+
         try {
           if (firebaseUser) {
             console.log('[BOOT] Firebase User present, requesting ID token...');
             const token = await firebaseUser.getIdToken();
-            console.log('[BOOT] ID Token retrieved:', {
-              tokenLength: token ? token.length : 0,
-              tokenPreview: token ? `${token.substring(0, 15)}...` : 'NULL'
-            });
             const hasExpiredTokenChange = token !== localStorage.getItem('hgs_token');
+            
+            logAuthDiagnostic('firebase_auth_state_changed', 'id_token_retrieved', {
+              tokenLength: token ? token.length : 0,
+              tokenPreview: token ? `${token.substring(0, 15)}...` : 'NULL',
+              hasTokenChanged: hasExpiredTokenChange,
+              hasExistingUser: !!userRef.current
+            });
+
             // If token changed OR we currently have no user state, authorize
             if (hasExpiredTokenChange || !userRef.current) {
               console.log('[BOOT] Token changed or no user in state, invoking checkAuth...');
               localStorage.setItem('hgs_token', token);
               await checkAuth(token);
-              console.log('[BOOT] checkAuth completed successfully');
+              logAuthDiagnostic('firebase_auth_state_changed', 'checkAuth_complete', {
+                resolvedUser: userRef.current ? { id: userRef.current.id, email: userRef.current.email, role: userRef.current.role } : null
+              }, 'authenticating', userRef.current ? `authenticated (${userRef.current.email})` : 'session_checked');
             } else {
               console.log('[BOOT] No token change detected and user state present, auth ready');
             }
@@ -1321,14 +1618,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             console.log('[BOOT] No active Firebase user (firebaseUser: null)');
             const storedToken = localStorage.getItem('hgs_token');
             if (storedToken) {
-              console.log('[BOOT] Stored token present without active Firebase user, verifying via checkAuth...');
+              logAuthDiagnostic('firebase_auth_state_changed', 'fallback_stored_token_check', {
+                storedTokenPreview: `${storedToken.substring(0, 15)}...`
+              });
               await checkAuth(storedToken);
             } else {
-              console.log('[BOOT] No stored token found, user is unauthenticated');
+              logAuthDiagnostic('firebase_auth_state_changed', 'unauthenticated_state_confirmed', {
+                reason: 'No firebaseUser and no stored token'
+              }, 'authenticating', 'unauthenticated');
               setUser(null);
             }
           }
-        } catch (authErr) {
+        } catch (authErr: any) {
+          logAuthDiagnostic('firebase_auth_state_changed', 'auth_sync_exception', {
+            error: authErr?.message,
+            stack: authErr?.stack
+          }, 'authenticating', 'auth_error');
           console.error('[BOOT] Exception during auth state sync:', authErr);
         } finally {
           setIsInitialAuthPerformed(true);
@@ -1338,6 +1643,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       });
     
+    // Page unload tracer: capture if and why page is being unloaded/refreshed during auth
+    const beforeUnloadTracer = (e: BeforeUnloadEvent) => {
+      const inFlightAuth = authRunningRef.current || isAuthChecking || isInitializingAuth;
+      logAuthDiagnostic('lifecycle', 'beforeunload_triggered', {
+        inFlightAuth,
+        currentUser: userRef.current ? { id: userRef.current.id, email: userRef.current.email } : null,
+        url: typeof window !== 'undefined' ? window.location.href : null,
+        timeSinceMountMs: Date.now() - mountTimeRef.current
+      });
+    };
+
+    const pageHideTracer = (e: PageTransitionEvent) => {
+      logAuthDiagnostic('lifecycle', 'pagehide_triggered', {
+        persisted: e.persisted,
+        inFlightAuth: authRunningRef.current || isAuthChecking || isInitializingAuth
+      });
+    };
+
+    window.addEventListener('beforeunload', beforeUnloadTracer);
+    window.addEventListener('pagehide', pageHideTracer);
+
     // Auth error listeners
     const authErrListener = () => { setUser(null); };
     const dbErrListener = () => { setDbError(true); };
@@ -1347,10 +1673,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => {
       clearTimeout(authSafetyTimeout);
       if (unsubscribe) unsubscribe();
+      window.removeEventListener('beforeunload', beforeUnloadTracer);
+      window.removeEventListener('pagehide', pageHideTracer);
       window.removeEventListener('auth_error', authErrListener);
       window.removeEventListener('database_error', dbErrListener);
     };
-  }, []);
+  }, [logAuthDiagnostic, login, checkAuth, isAuthChecking, isInitializingAuth]);
 
   // Startup Orchestrator Effect
   // Phase 1 to Phase 2 transition when auth verification finishes
@@ -1542,6 +1870,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     isOnline, latency, isProfileComplete: () => true, isMobile, isTablet, isSyncingCart, syncCartToBackend,
     isAuthChecking, isInitializingAuth, loading, authLoading: loading || isAuthChecking || isInitializingAuth, isRevalidating, setIsRevalidating, isInitialAuthPerformed, authInitDuration, currentAlert, setCurrentAlert, markAlertAsRead, hasPermission, calculateDiscount,
     isSyncCartPending, logActivity, lastAddedId, fetchWithHandling, showImages, dbError, setDbError,
+    handleGoogleSignIn,
+    authDiagnosticLogs,
+    logAuthDiagnostic,
+    clearAuthDiagnostics,
     diagnosticLogs, runtimeErrors,
     clearDiagnostics: () => {
       setDiagnosticLogs([]);
@@ -1555,7 +1887,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     prefetchProducts, prefetchProduct,
     trackProductAccess, getCachedProduct, getFrequentlyAccessedProducts,
     startupPhase
-  }), [user, login, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitializingAuth, loading, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
+  }), [user, login, handleGoogleSignIn, authDiagnosticLogs, logAuthDiagnostic, clearAuthDiagnostics, cart, isMaintenance, checkMaintenance, config, wishlist, promotions, bulkDiscounts, language, addresses, isMobile, isTablet, isSyncingCart, isAuthChecking, isInitializingAuth, loading, isInitialAuthPerformed, currentAlert, isSyncCartPending, lastAddedId, showImages, dbError, fetchAddresses, refreshUser, syncCartToBackend, simulatedRole, 
     notifications, vibration, sound,
     diagnosticLogs, runtimeErrors,
     notificationsList, unreadNotificationsCount, readNotificationIds, fetchNotifications, markNotificationAsRead,
