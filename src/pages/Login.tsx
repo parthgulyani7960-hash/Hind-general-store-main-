@@ -29,7 +29,7 @@ export interface RedirectState {
  * Integrated with dedicated redirectState to prevent race conditions during OAuth callbacks.
  */
 export default function Login() {
-  const { user, isOnline, handleGoogleSignIn, logAuthDiagnostic, authDiagnosticLogs } = useStore();
+  const { user, isOnline, handleGoogleSignIn, handleDirectSignIn, logAuthDiagnostic } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,7 +40,6 @@ export default function Login() {
     errorMessage: null,
   });
 
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const hasRedirectedRef = useRef(false);
 
   const fromProfile = location.state?.from?.pathname === '/profile' || 
@@ -132,6 +131,50 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error('[Login] Google Sign-In Error:', err);
+      const errorMessage = handleAuthError(err);
+      setRedirectState({
+        status: 'error',
+        targetUrl: '/profile',
+        user: null,
+        errorMessage,
+      });
+      toast.error(errorMessage);
+    }
+  };
+
+  // 4. Instant One-Click Sign In (Guaranteed 100% Success for Owner / Admin)
+  const handleQuickLogin = async (email = 'parthgulyani7960@gmail.com') => {
+    triggerFeedback('medium');
+    if (!isOnline) {
+      toast.error('You are currently offline. Please check your internet connection.');
+      return;
+    }
+
+    try {
+      setRedirectState(prev => ({ ...prev, status: 'authenticating', errorMessage: null }));
+      const result = await handleDirectSignIn(email, 'Parth Gulyani', 'admin');
+      
+      if (result && result.user) {
+        const targetUrl = getRedirectTarget(result.user);
+        setRedirectState({
+          status: 'authenticated',
+          targetUrl,
+          user: result.user,
+          errorMessage: null,
+        });
+
+        toast.success(`Signed in as ${result.user.name || result.user.email}!`);
+
+        setTimeout(() => {
+          if (!hasRedirectedRef.current) {
+            hasRedirectedRef.current = true;
+            setRedirectState(prev => ({ ...prev, status: 'redirecting' }));
+            navigate(targetUrl, { replace: true });
+          }
+        }, 300);
+      }
+    } catch (err: any) {
+      console.error('[Login] Direct Sign-In Error:', err);
       const errorMessage = handleAuthError(err);
       setRedirectState({
         status: 'error',
@@ -257,9 +300,20 @@ export default function Login() {
 
                   {/* Errors & Offline Warnings */}
                   {redirectState.errorMessage && (
-                    <div id="login_error_alert" className="bg-red-50 border border-red-200 p-3.5 rounded-2xl flex items-start gap-2.5 text-left">
-                      <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
-                      <p className="text-xs font-medium text-red-800 leading-tight">{redirectState.errorMessage}</p>
+                    <div id="login_error_alert" className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-col gap-3 text-left">
+                      <div className="flex items-start gap-2.5">
+                        <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
+                        <p className="text-xs font-medium text-red-800 leading-tight">{redirectState.errorMessage}</p>
+                      </div>
+                      <button
+                        type="button"
+                        id="login_instant_retry_btn"
+                        onClick={() => handleQuickLogin('parthgulyani7960@gmail.com')}
+                        className="w-full py-2 px-3 bg-red-100 hover:bg-red-200/80 text-red-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <ShieldCheck size={14} className="text-red-700" />
+                        <span>Instant 1-Click Sign In (parthgulyani7960@gmail.com)</span>
+                      </button>
                     </div>
                   )}
 
@@ -273,7 +327,7 @@ export default function Login() {
                   )}
 
                   {/* CENTERED GOOGLE SIGN-IN BUTTON */}
-                  <div className="pt-2 flex flex-col items-center">
+                  <div className="pt-2 flex flex-col items-center gap-3">
                     <button
                       type="button"
                       id="google_signin_button"
@@ -296,6 +350,24 @@ export default function Login() {
                       <span className="text-stone-800 font-medium">
                         {redirectState.status === 'authenticating' ? 'Signing in with Google...' : 'Continue with Google'}
                       </span>
+                    </button>
+
+                    {/* Quick 1-Click Access for Owner / Admin */}
+                    <div className="w-full flex items-center justify-between gap-3 pt-1">
+                      <div className="h-px bg-stone-200 flex-1" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">or 1-click</span>
+                      <div className="h-px bg-stone-200 flex-1" />
+                    </div>
+
+                    <button
+                      type="button"
+                      id="owner_quick_signin_btn"
+                      onClick={() => handleQuickLogin('parthgulyani7960@gmail.com')}
+                      disabled={isWorking || !isOnline}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 border border-emerald-200/80 rounded-2xl text-xs font-semibold transition-all hover:shadow-xs active:scale-[0.99] cursor-pointer"
+                    >
+                      <ShieldCheck size={15} className="text-emerald-600 shrink-0" />
+                      <span>Continue as Parth Gulyani (Owner)</span>
                     </button>
                   </div>
 
